@@ -51,6 +51,7 @@ ge/INCLUDES = \
 	-I$(ge)/vendor/github.com/chriskohlhoff/asio/include \
 	-I$(ge)/vendor/github.com/sqliteai/liteparser/src \
 	-I$(ge)/vendor/github.com/sammycage/lunasvg/include \
+	-I/opt/homebrew/opt/freetype/include/freetype2 \
 	-DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
 	-DLUNASVG_BUILD_STATIC
 
@@ -118,6 +119,7 @@ ge/SRC_DIRECT = \
 	$(ge)/src/Attitude_apple.mm \
 	$(ge)/src/SvgRasterizer.cpp \
 	$(ge)/src/SvgSprite.cpp \
+	$(ge)/src/RasterizeText.cpp \
 	$(ge)/src/render/DirectRenderHost.mm \
 	$(ge)/tools/player_orientation_stub.cpp
 
@@ -254,7 +256,8 @@ ge/TEST_SRC = \
 	$(ge)/src/main_test.cpp \
 	$(ge)/src/DampedRotation_test.cpp \
 	$(ge)/src/Rect_test.cpp \
-	$(ge)/src/SvgRasterizer_test.cpp
+	$(ge)/src/SvgRasterizer_test.cpp \
+	$(ge)/src/RasterizeText_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
