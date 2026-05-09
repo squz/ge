@@ -118,6 +118,7 @@ ge/SRC_DIRECT = \
 	$(ge)/src/Attitude_apple.mm \
 	$(ge)/src/SvgRasterizer.cpp \
 	$(ge)/src/SvgSprite.cpp \
+	$(ge)/src/SpriteBatch.cpp \
 	$(ge)/src/render/DirectRenderHost.mm \
 	$(ge)/tools/player_orientation_stub.cpp
 
@@ -168,7 +169,9 @@ ge/SHADERC_VARYINGDEF ?= $(ge/SHADER_DIR)/varying.def.sc
 ge/RENDER_SHADER_DIR = $(ge)/src/render/shaders
 ge/RENDER_SHADERS = \
 	$(BUILD_DIR)/ge/shaders/ge_compose_vs.bin \
-	$(BUILD_DIR)/ge/shaders/ge_compose_fs.bin
+	$(BUILD_DIR)/ge/shaders/ge_compose_fs.bin \
+	$(BUILD_DIR)/ge/shaders/ge_sprite_vs.bin \
+	$(BUILD_DIR)/ge/shaders/ge_sprite_fs.bin
 
 # Android shader variants. The APK ships BOTH so the runtime can pick
 # based on the bgfx backend BgfxContext.mm chose for this device:
@@ -254,7 +257,8 @@ ge/TEST_SRC = \
 	$(ge)/src/main_test.cpp \
 	$(ge)/src/DampedRotation_test.cpp \
 	$(ge)/src/Rect_test.cpp \
-	$(ge)/src/SvgRasterizer_test.cpp
+	$(ge)/src/SvgRasterizer_test.cpp \
+	$(ge)/src/SpriteBatch_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
