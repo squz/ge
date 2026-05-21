@@ -2182,7 +2182,7 @@ targets:
     achieved: 2026-05-19
   T67:
     name: ge::iap supports explicit per-product SKU mappings so legacy / non-conformant SKUs can be registered without forcing them to fit the bundle-id-prefix convention
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2219,6 +2219,7 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-05-21
+    achieved: 2026-05-21
   T7:
     name: Audio pauses when the app is backgrounded
     status: identified
