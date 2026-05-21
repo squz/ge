@@ -2180,6 +2180,46 @@ targets:
     origin: manual
     discovered: 2026-05-19
     achieved: 2026-05-19
+  T67:
+    name: ge::iap supports explicit per-product SKU mappings so legacy / non-conformant SKUs can be registered without forcing them to fit the bundle-id-prefix convention
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`ge::iap::Product` (or its companion type in `<ge/iap.h>`) accepts an *optional* per-platform SKU mapping. When set, it overrides the auto-prefix path; when unset, current bundle-id-prefix behaviour is preserved unchanged. Shape sketch: `Product { id; type; std::optional<SkuMapping> sku; }` where `SkuMapping` carries `apple` and `android` strings (and is free to grow if a third platform lands).'
+    - Both the StoreKit (Apple) and Play Billing (Android) backends honour the override. When `sku` is set, the platform-side identifier sent to StoreKit / Play Billing is the explicit string verbatim; when unset, the platforms continue to compute `bundle_id + "." + local_id` as today.
+    - 'Consumer-facing surface remains source-compatible: existing call sites that use `setCatalogue({{.id="pro", .type=NonConsumable}})` keep working without change. Adding `sku = SkuMapping{.apple = "com.legacy.app.pro", .android = "legacy_pro"}` is purely additive.'
+    - '`testing::setOwned(local_id, bool)` still operates against the local id, not the platform SKU — the testing API doesn''t leak the mapping mechanic.'
+    - '`StubStore` ignores the mapping entirely (entitlements indexed by local id), since the stub doesn''t talk to any platform store.'
+    - 'Documentation in `ge/CLAUDE.md` under the IAP section explains the two cases: greenfield apps (no `sku` field, auto-prefix is right) and legacy / migration apps (explicit `sku` per platform). Includes the multimaze2 worked example: legacy v2.0.2 SKUs `com.squz.multimaze.{grandmaster,kids,master,multiball}.001` and `com.squz.multimaze.allpacks` registered from a `com.squz.multimaze2` bundle without bundle-id rewriting.'
+    - 'Unit test asserts both code paths: a `Product` without `sku` resolves through the auto-prefix on AppleStore / AndroidStore, and a `Product` with `sku` resolves through the explicit string. Verified against StubStore for the local-id path and against a mock platform store (or `iap_test.cpp`''s equivalent harness) for the explicit-SKU path.'
+    - Cross-platform consumers can leave `sku.apple` or `sku.android` empty (default-constructed string) to indicate "use the auto-prefix on that platform only" — useful for apps where one platform inherits legacy SKUs and the other is greenfield. Documented in the example.
+    context: |-
+      **Surfaced by:** multimaze2 🎯T13 (iOS in-app purchase flow restored, anchored to legacy v2.0.2's product structure). multimaze2 wants to register `com.squz.multimaze.allpacks` and the four per-pack SKUs (`com.squz.multimaze.{grandmaster,kids,master,multiball}.001`) — but multimaze2's bundle id is `com.squz.multimaze2`, so ge's current auto-prefix mechanism would produce `com.squz.multimaze2.allpacks` (the wrong namespace). Either ge gains an explicit-SKU escape hatch, or multimaze2 abandons legacy SKU parity (which has near-zero value since the v2.0.2 app was pulled from sale years ago, but the *generality* of "ge consumers might rebrand or migrate bundles" is what motivates fixing this in the engine).
+
+      **Why mapping, not a single `explicit_sku` field:**
+      - iOS and Android have different valid-character rules. Apple allows dots in product IDs; Google Play forbids them in places (`-` and `.` get rejected in some test SKU formats). A single string can't represent both correctly when the rules diverge.
+      - Apps can rebrand on one platform without the other (iOS bundle changes, Android keeps its old package name, or vice versa). A mapping struct expresses this directly.
+      - Treats both auto-prefixed and explicit-SKU products as first-class catalogue entries rather than "normal product" + "weird-case escape hatch".
+
+      **Design intent of the current `bundle_id + \".\" + local_id` auto-prefix** (worth preserving as the default):
+      1. Cross-platform parity for free — same local id maps to a consistent SKU on both stores.
+      2. Codifies Apple's informal `<bundle-id>.<product>` convention (avoids collisions across a developer team's apps, since App Store Connect product IDs are team-scoped, not app-scoped).
+      3. Sandbox / TestFlight builds with different bundle ids automatically point at matching sandbox SKUs without `#ifdef`s.
+
+      All three benefits are preserved when `sku` is unset — only consumers that explicitly need the override pay the cost of providing it.
+
+      **Out of scope:** runtime-overridable SKU mapping (the mapping is fixed at catalogue-registration time, not mutable later). Per-locale SKUs (Apple supports this via App Store Connect's metadata; ge already exposes it via `LocalisedProduct.price`). Subscription-product SKU variants per renewal tier (subscriptions are a wider design conversation; consume the single `Product` row for now).
+
+      **Companion target in multimaze2:** 🎯T13 depends on a working ge::iap surface; once this target lands, T13 can register its five products with explicit Apple SKUs and unblock the iOS v1 launch. T13 has been written to assume ge::iap will gain this capability; if for any reason it doesn't, T13 has a documented fallback (register fresh SKUs under `com.squz.multimaze2.*` and accept loss of legacy-customer entitlement continuity — moot since v2.0.2 was pulled from sale).
+    tags:
+    - iap
+    - engine
+    - api
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-05-21
+    achieved: 2026-05-21
   T7:
     name: Audio pauses when the app is backgrounded
     status: identified

@@ -646,11 +646,41 @@ ge::iap::restore([](auto){ });  // Apple App Review requires a "Restore Purchase
 
 **Product IDs are local.** Game registers `"pro"`, ge prepends the bundle ID to form the platform SKU `com.squz.tiltbuggy.pro`. The same string is what gets registered in App Store Connect and Play Console — no separate mapping table.
 
+**Explicit per-platform SKU override (🎯T67).** Legacy / migration apps that can't fit the auto-prefix convention pass an optional `sku` field on `Product`:
+
+```cpp
+ge::iap::setCatalogue({
+    // Greenfield product — auto-prefix:
+    //   iOS     → com.squz.tiltbuggy.pro
+    //   Android → com.squz.tiltbuggy.pro
+    {.id = "pro", .type = ge::iap::Type::NonConsumable},
+
+    // Legacy product — explicit verbatim SKUs on each platform:
+    {
+        .id   = "allpacks",
+        .type = ge::iap::Type::NonConsumable,
+        .sku  = ge::iap::SkuMapping{
+            .apple   = "com.squz.multimaze.allpacks",
+            .android = "com_squz_multimaze_allpacks",
+        },
+    },
+
+    // Mixed mode — iOS inherits legacy, Android is greenfield (auto-prefix):
+    {
+        .id   = "grandmaster_pack",
+        .type = ge::iap::Type::NonConsumable,
+        .sku  = ge::iap::SkuMapping{.apple = "com.squz.multimaze.grandmaster.001"},
+    },
+});
+```
+
+Game-side code keeps using the local id everywhere — `owned("allpacks")`, `buy("grandmaster_pack", ...)`, `testing::setOwned("allpacks", true)`. The mapping mechanic is hidden from the testing API and from `StubStore`'s entitlement index; only `AppleStore` and `AndroidStore` consult it when forming the platform SKU sent to the store and when reversing a transaction-update back into a local id.
+
 **Testing surface** (`ge::iap::testing::setOwned`, `clearAll`) is authoritative on StubStore, no-op on platform stores. Used by unit tests and the in-engine debug menu (T65.6) for inner-loop iteration without touching a real store.
 
 **Server-side receipt validation is intentionally not provided.** Modern frameworks return signature-verified transactions (StoreKit 2 JWS, Play Billing signed receipts); ge writes only verified entitlements to the cache. The JWS floor covers replay, bundle-ID-binding, and account-binding for the threat model that paid non-consumable unlocks against casual game audiences actually face. Add server-side validation when shipping subscriptions or high-value-currency consumables.
 
-- **`<ge/iap.h>`** — Public surface. `Type`, `Product`, `LocalisedProduct`, `Result`, `setCatalogue`, `owned`, `products`, `buy`, `restore`, `testing::setOwned`, `testing::clearAll`.
+- **`<ge/iap.h>`** — Public surface. `Type`, `Product`, `SkuMapping`, `LocalisedProduct`, `Result`, `setCatalogue`, `owned`, `products`, `buy`, `restore`, `testing::setOwned`, `testing::clearAll`.
 
 ### Testing
 

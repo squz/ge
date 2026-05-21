@@ -121,6 +121,64 @@ TEST_CASE("iap: testing::clearAll wipes entitlement state") {
     CHECK_FALSE(iap::owned("premium"));
 }
 
+TEST_CASE("iap: SkuMapping registers without breaking local-id flow (🎯T67)") {
+    Reset r;
+    iap::setCatalogue({
+        {
+            .id   = "legacy_pro",
+            .type = iap::Type::NonConsumable,
+            .sku  = iap::SkuMapping{
+                .apple   = "com.legacy.app.pro",
+                .android = "legacy_pro_v1",
+            },
+        },
+    });
+
+    // Local-id continuity: testing::setOwned still operates on the
+    // local id, the mapping mechanic doesn't leak into the testing API.
+    CHECK_FALSE(iap::owned("legacy_pro"));
+    iap::testing::setOwned("legacy_pro", true);
+    CHECK(iap::owned("legacy_pro"));
+
+    // The platform SKU is *not* a local id — owned() against it
+    // returns false (StubStore indexes by local id only).
+    CHECK_FALSE(iap::owned("com.legacy.app.pro"));
+    CHECK_FALSE(iap::owned("legacy_pro_v1"));
+}
+
+TEST_CASE("iap: mixed-mode SkuMapping (one platform overridden, one auto)") {
+    Reset r;
+    iap::setCatalogue({
+        {
+            .id   = "ios_legacy",
+            .type = iap::Type::NonConsumable,
+            // android field empty => auto-prefix on Android, override on iOS
+            .sku  = iap::SkuMapping{.apple = "com.old.bundle.gold"},
+        },
+    });
+
+    iap::testing::setOwned("ios_legacy", true);
+    CHECK(iap::owned("ios_legacy"));
+}
+
+TEST_CASE("iap: buy() against StubStore is unaffected by SkuMapping presence") {
+    Reset r;
+    iap::setCatalogue({
+        {
+            .id   = "stub_legacy",
+            .type = iap::Type::NonConsumable,
+            .sku  = iap::SkuMapping{.apple = "com.x.y.z", .android = "stub_legacy_v2"},
+        },
+    });
+
+    iap::Result res;
+    iap::buy("stub_legacy", [&](iap::Result r2) { res = std::move(r2); });
+
+    CHECK(res.ok);
+    CHECK(res.id == "stub_legacy");
+    CHECK(iap::owned("stub_legacy"));
+}
+
 TEST_CASE("iap::DebugPanel: rows() reflects live entitlement state") {
     Reset r;
     iap::setCatalogue({

@@ -79,6 +79,11 @@ struct AndroidStore : Store {
     std::unordered_set<std::string>                     entitled;
     std::unordered_map<std::string, LocalisedProduct>   localised;
     std::unordered_map<std::string, BuyCallback>        pendingBuys;
+    // 🎯T67 SKU-mapping support — same shape as AppleStore. Populated
+    // by setCatalogue, consulted on buy() (forward) and on
+    // nativeOnProductFetched / nativeOnPurchaseUpdate (reverse).
+    std::unordered_map<std::string, std::string>        platformSkuByLocal; // local -> platform
+    std::unordered_map<std::string, std::string>        localBySkuPlatform; // platform -> local
     RestoreCallback                                     pendingRestore;
     jobject                                             bridge = nullptr;   // global ref
 
@@ -205,7 +210,14 @@ void AndroidStore::setCatalogue(std::vector<Product> next) {
         std::lock_guard lock(mu);
         for (const auto& p : next) {
             catalogue.try_emplace(p.id, p);
-            skus.push_back(platformSku(env.env, p.id));
+            // 🎯T67: explicit override on Android takes precedence;
+            // otherwise auto-prefix via Activity.getPackageName().
+            std::string platformId = (p.sku && !p.sku->android.empty())
+                ? p.sku->android
+                : platformSku(env.env, p.id);
+            platformSkuByLocal[p.id]       = platformId;
+            localBySkuPlatform[platformId] = p.id;
+            skus.push_back(platformId);
             subs.push_back(p.type == Type::AutoRenewingSubscription ? JNI_TRUE : JNI_FALSE);
         }
     }
@@ -250,17 +262,20 @@ void AndroidStore::buy(const std::string& id, BuyCallback cb) {
         return;
     }
 
+    std::string platformId;
     {
         std::lock_guard lock(mu);
-        if (catalogue.find(id) == catalogue.end()) {
+        auto it = platformSkuByLocal.find(id);
+        if (it == platformSkuByLocal.end()) {
             Result r{.ok = false, .id = id, .error = "unknown product"};
             if (cb) cb(std::move(r));
             return;
         }
+        platformId = it->second;
         pendingBuys[id] = std::move(cb);
     }
 
-    jstring sku = env.env->NewStringUTF(platformSku(env.env, id).c_str());
+    jstring sku = env.env->NewStringUTF(platformId.c_str());
     jclass bridgeCls = env.env->GetObjectClass(bridge);
     jmethodID m = env.env->GetMethodID(bridgeCls, "launchPurchase", "(Ljava/lang/String;)Z");
     env.env->CallBooleanMethod(bridge, m, sku);
@@ -355,7 +370,18 @@ JNIEXPORT void JNICALL Java_ge_IapBridge_nativeOnProductFetched(
         return out;
     };
     std::string skuStr = j2s(sku);
-    std::string localId = localIdFromSku(env, skuStr);
+    std::string localId;
+    {
+        std::lock_guard lock(g_instance->mu);
+        auto it = g_instance->localBySkuPlatform.find(skuStr);
+        if (it != g_instance->localBySkuPlatform.end()) {
+            localId = it->second;
+        }
+    }
+    if (localId.empty()) {
+        SPDLOG_WARN("Play Billing responded with unmapped product identifier: {}", skuStr);
+        return;
+    }
     LocalisedProduct lp{
         .id          = localId,
         .title       = j2s(title),
@@ -373,7 +399,18 @@ JNIEXPORT void JNICALL Java_ge_IapBridge_nativeOnPurchaseUpdate(
     const char* skuC = env->GetStringUTFChars(sku, nullptr);
     std::string skuStr = skuC ? skuC : "";
     env->ReleaseStringUTFChars(sku, skuC);
-    std::string localId = localIdFromSku(env, skuStr);
+    std::string localId;
+    {
+        std::lock_guard lock(g_instance->mu);
+        auto it = g_instance->localBySkuPlatform.find(skuStr);
+        if (it != g_instance->localBySkuPlatform.end()) {
+            localId = it->second;
+        }
+    }
+    if (localId.empty()) {
+        SPDLOG_WARN("Play Billing purchase update for unmapped product identifier: {}", skuStr);
+        return;
+    }
     std::string errStr;
     if (error) {
         const char* c = env->GetStringUTFChars(error, nullptr);

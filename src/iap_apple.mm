@@ -56,20 +56,21 @@ namespace ge::iap::detail {
 
 namespace {
 
-std::string platformSku(const std::string& localId) {
+// Default auto-prefix: `<bundle-id>.<local-id>` (the convention codified
+// by Apple's docs). Used when Product::sku is unset or its `apple`
+// field is empty (mixed-mode override on Android only).
+std::string autoPrefixSku(const std::string& localId) {
     NSString* bundleId = [[NSBundle mainBundle] bundleIdentifier];
     if (!bundleId) return localId;
     return std::string([bundleId UTF8String]) + "." + localId;
 }
 
-std::string localIdFromSku(const std::string& sku) {
-    NSString* bundleId = [[NSBundle mainBundle] bundleIdentifier];
-    if (!bundleId) return sku;
-    const std::string prefix = std::string([bundleId UTF8String]) + ".";
-    if (sku.size() > prefix.size() && sku.compare(0, prefix.size(), prefix) == 0) {
-        return sku.substr(prefix.size());
-    }
-    return sku;
+// Resolve the App Store Connect product ID for a single Product entry.
+// Respects the explicit override at `Product::sku->apple` when set,
+// otherwise falls back to the auto-prefix.
+std::string platformSkuFor(const Product& p) {
+    if (p.sku && !p.sku->apple.empty()) return p.sku->apple;
+    return autoPrefixSku(p.id);
 }
 
 } // namespace
@@ -80,6 +81,12 @@ struct AppleStore : Store {
     std::unordered_set<std::string>                     entitled;    // local ids
     std::unordered_map<std::string, LocalisedProduct>   localised;   // local id -> price/title
     std::unordered_map<std::string, BuyCallback>        pendingBuys; // local id -> cb
+    // 🎯T67 SKU-mapping support — populated by setCatalogue, keyed by
+    // local id and (reverse) by platform SKU so transaction callbacks
+    // from StoreKit can recover the local id when an explicit SKU was
+    // used. Updated under `mu`.
+    std::unordered_map<std::string, std::string>        platformSkuByLocal; // local -> platform
+    std::unordered_map<std::string, std::string>        localBySkuPlatform; // platform -> local
     RestoreCallback                                     pendingRestore;
     GEStoreKitBroker* __strong                          broker = nil;
 
@@ -187,7 +194,10 @@ void AppleStore::setCatalogue(std::vector<Product> next) {
         std::lock_guard lock(mu);
         for (const auto& p : next) {
             catalogue.try_emplace(p.id, p);
-            NSString* sku = [NSString stringWithUTF8String:platformSku(p.id).c_str()];
+            std::string platformId = platformSkuFor(p);
+            platformSkuByLocal[p.id]     = platformId;
+            localBySkuPlatform[platformId] = p.id;
+            NSString* sku = [NSString stringWithUTF8String:platformId.c_str()];
             [skus addObject:sku];
         }
     }
@@ -208,15 +218,21 @@ std::vector<LocalisedProduct> AppleStore::products() const {
 }
 
 void AppleStore::buy(const std::string& id, BuyCallback cb) {
-    NSString* sku = [NSString stringWithUTF8String:platformSku(id).c_str()];
-    SKProduct* product = [broker productForSku:sku];
+    std::string platformId;
     {
         std::lock_guard lock(mu);
-        if (catalogue.find(id) == catalogue.end()) {
+        auto it = platformSkuByLocal.find(id);
+        if (it == platformSkuByLocal.end()) {
             Result r{.ok = false, .id = id, .error = "unknown product"};
             if (cb) cb(std::move(r));
             return;
         }
+        platformId = it->second;
+    }
+    NSString* sku = [NSString stringWithUTF8String:platformId.c_str()];
+    SKProduct* product = [broker productForSku:sku];
+    {
+        std::lock_guard lock(mu);
         if (!product) {
             Result r{.ok = false, .id = id, .error = "product not yet fetched from store"};
             if (cb) cb(std::move(r));
@@ -240,7 +256,12 @@ void AppleStore::onProductsResponse(SKProductsResponse* response) {
     std::lock_guard lock(mu);
     for (SKProduct* p in response.products) {
         std::string sku    = [p.productIdentifier UTF8String];
-        std::string localId = localIdFromSku(sku);
+        auto it = localBySkuPlatform.find(sku);
+        if (it == localBySkuPlatform.end()) {
+            SPDLOG_WARN("StoreKit responded with unmapped product identifier: {}", sku);
+            continue;
+        }
+        std::string localId = it->second;
 
         NSNumberFormatter* fmt = [[NSNumberFormatter alloc] init];
         fmt.numberStyle = NSNumberFormatterCurrencyStyle;
@@ -264,11 +285,21 @@ void AppleStore::onProductsResponse(SKProductsResponse* response) {
 
 void AppleStore::onTransactionUpdate(SKPaymentTransaction* tx) {
     std::string sku    = [tx.payment.productIdentifier UTF8String];
-    std::string localId = localIdFromSku(sku);
-
+    std::string localId;
     bool isConsumable = false;
     {
         std::lock_guard lock(mu);
+        auto skuIt = localBySkuPlatform.find(sku);
+        if (skuIt == localBySkuPlatform.end()) {
+            // Unmapped transaction — possible if Apple delivers a
+            // leftover transaction from an earlier session whose
+            // catalogue we no longer have. Finish it so StoreKit
+            // doesn't keep redelivering, but skip our callback path.
+            SPDLOG_WARN("Transaction for unmapped product identifier: {}", sku);
+            [[SKPaymentQueue defaultQueue] finishTransaction:tx];
+            return;
+        }
+        localId = skuIt->second;
         auto pIt = catalogue.find(localId);
         if (pIt != catalogue.end()) isConsumable = pIt->second.type == Type::Consumable;
     }

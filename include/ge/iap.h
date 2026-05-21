@@ -31,6 +31,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,9 +43,20 @@ enum class Type {
     AutoRenewingSubscription, // Monthly/yearly. Server validation recommended.
 };
 
+// Optional per-platform SKU override for legacy / migration cases.
+// When a field is non-empty, that string is sent to the platform store
+// verbatim instead of the auto-prefixed `<bundle-id>.<local-id>`. Leave
+// either field empty to keep auto-prefix behaviour on that platform
+// (mixed mode — e.g. legacy SKUs on iOS, greenfield on Android).
+struct SkuMapping {
+    std::string apple;       // App Store Connect product ID; e.g. "com.legacy.app.pro"
+    std::string android;     // Play Console product ID; e.g. "legacy_pro"
+};
+
 struct Product {
-    std::string id;                          // Local ID, e.g. "pro"
-    Type        type = Type::NonConsumable;
+    std::string                 id;                          // Local ID, e.g. "pro"
+    Type                        type = Type::NonConsumable;
+    std::optional<SkuMapping>   sku;                         // Optional override (🎯T67)
 };
 
 struct LocalisedProduct {
