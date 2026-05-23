@@ -2222,7 +2222,7 @@ targets:
     achieved: 2026-05-21
   T68:
     name: ge::iap Apple backend migrates to StoreKit 2 for silent auto-restore + on-device JWS verification
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2256,6 +2256,7 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-05-23
+    achieved: 2026-05-24
   T7:
     name: Audio pauses when the app is backgrounded
     status: identified
