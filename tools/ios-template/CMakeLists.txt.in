@@ -3,8 +3,9 @@
 # Builds the app as a self-contained iOS binary that renders directly via
 # bgfx/Metal. Uses the ge engine at ${GE_ROOT}.
 cmake_minimum_required(VERSION 3.28)
-project(__CMAKE_PROJECT__ LANGUAGES C CXX OBJC OBJCXX)
+project(__CMAKE_PROJECT__ LANGUAGES C CXX OBJC OBJCXX Swift)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_Swift_LANGUAGE_VERSION 5.0)
 set(CMAKE_XCODE_LINK_BUILD_PHASE_MODE KNOWN_LOCATION)
 
 get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/.. REALPATH)
@@ -96,6 +97,7 @@ set(GE_SOURCES
     ${GE_ROOT}/src/sdl_input.cpp
     ${GE_ROOT}/src/iap.cpp
     ${GE_ROOT}/src/iap_apple.mm
+    ${GE_ROOT}/src/iap_apple.swift
     ${GE_ROOT}/src/log.cpp
     ${GE_ROOT}/src/log_apple.mm
     ${GE_ROOT}/src/Immersive_stub.cpp
@@ -236,4 +238,9 @@ set_target_properties(__CMAKE_PROJECT__ PROPERTIES
     XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 16.3
     "XCODE_ATTRIBUTE_LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" "${SDL_DEVICE_DIR}"
     "XCODE_ATTRIBUTE_LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" "${SDL_SIM_DIR}"
+    # Swift + Obj-C bridge for ge::iap (🎯T68).
+    XCODE_ATTRIBUTE_SWIFT_VERSION "5.0"
+    XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${GE_ROOT}/src/iap_apple_bridge.h"
+    XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "YES"
+    XCODE_ATTRIBUTE_SWIFT_OPTIMIZATION_LEVEL "-Onone"
 )
