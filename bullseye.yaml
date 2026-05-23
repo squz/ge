@@ -2220,6 +2220,42 @@ targets:
     origin: manual
     discovered: 2026-05-21
     achieved: 2026-05-21
+  T68:
+    name: ge::iap Apple backend migrates to StoreKit 2 for silent auto-restore + on-device JWS verification
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`ge::iap`''s Apple backend (currently `iap_apple.mm` using StoreKit 1''s `SKPaymentQueue` / `SKProductsRequest`) is replaced or supplemented by a StoreKit 2 implementation. Switch is transparent to consumers — same `setCatalogue` / `owned` / `buy` / `restore` surface, same `Product` / `SkuMapping` / `Result` types.'
+    - On consumer-app launch, ge::iap silently picks up any unfinished or restored transactions via StoreKit 2's `Transaction.updates` async stream without requiring a user gesture. `iap::owned()` returns the correct entitlement state within a frame or two of process start — no need for the user to tap Restore Purchases unless they actually want to.
+    - ge::iap exposes (or internally uses) StoreKit 2's `Transaction.currentEntitlements` to populate the entitlement cache on startup. New consumer-facing query equivalent to 'what does this account own right now' returns immediately from cache after the first `currentEntitlements` walk.
+    - On-device JWS signature verification via `VerificationResult.verified` replaces SK1's framework-implicit verification. Only `verified` entitlements are written to the cache; `unverified` results log a warning and are ignored.
+    - Swift bridge is documented in `ge/CLAUDE.md` — how the `.swift` file integrates into the Obj-C++ build, what `@objc` bridging looks like, and how to add new SK2 surface without touching every consumer. Ideally the bridge is a single `iap_apple.swift` (or similar) compiled alongside `iap_apple.mm`, with C++ exposed via `extern "C"` shims.
+    - Existing Restore Purchases path continues to work (Apple App Review §3.1.1 still requires the visible affordance regardless of silent-restore capability). `ge::iap::restore()` keeps its current semantics; consumers don't need to change.
+    - Unit tests in `iap_test.cpp` continue to pass against StubStore (which doesn't change). New tests cover the SK2-specific paths against a `MockAppleStore` or similar that simulates Apple-side transactions.
+    - Documentation in `ge/CLAUDE.md` IAP section updated to explain the SK1 → SK2 migration, what consumers gain (silent restore + JWS verification), and how to opt out for apps still on iOS 14 (unlikely to matter for new ge games).
+    context: |-
+      **Surfaced by:** multimaze2's 🎯T13 work uncovered a UX wart — the Restore Purchases button is the only place where users can pull entitlements they previously purchased but the device doesn't know about. With StoreKit 1 there's no API to query 'what do I own?' without invoking restore, so the button has to be both prominently visible AND manually tapped on every new device install. StoreKit 2 (iOS 15+) ships `Transaction.updates` + `Transaction.currentEntitlements` which let an app silently auto-restore at launch and know its entitlement state without any user gesture.
+
+      **Why this is a ge target, not a per-app one:** every ge consumer that ships paid content (multimaze2, future games) faces the same StoreKit 1 limitations. Adding a one-time Swift bridge to ge::iap pays off across the whole game portfolio.
+
+      **Why the current ge::iap is on StoreKit 1:** the iap_apple.mm file explicitly notes the choice: *"Uses StoreKit 1 (the Obj-C-compatible API) so this compiles in the existing Obj-C++ codebase without introducing a Swift toolchain dependency."* The future-work paragraph also acknowledges JWS verification as a 'future migration when subscriptions ship'. This target is the migration.
+
+      **Apple App Review §3.1.1** still requires a visible Restore Purchases affordance regardless of backend capability, so SK2 doesn't let us remove the button. The win is purely silent-auto-restore-on-launch (better UX) and on-device JWS verification (no server-side validation needed for paid non-consumables).
+
+      **Out of scope:** subscription products, refund handling, family-sharing entitlements — file separate targets when those are needed. The SK1 → SK2 migration is purely about non-consumable IAP lifecycle.
+
+      **Build-system impact:** ge's iOS build path needs Swift toolchain enabled. Existing consumers shouldn't see any change in their CMake/Module.mk if ge handles the Swift integration internally.
+
+      **Implementation sketch:** new `iap_apple.swift` file with `@objc public class StoreKit2Bridge` exposing async-to-callback C-compatible methods. `iap_apple.mm` keeps the C++ `AppleStore : Store` adapter but routes the underlying calls through `StoreKit2Bridge` instead of SKPaymentQueue. Existing `Product::sku` SkuMapping mechanic carries over unchanged — SK2 takes the same string IDs.
+    tags:
+    - iap
+    - engine
+    - apple
+    - storekit2
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-05-23
   T7:
     name: Audio pauses when the app is backgrounded
     status: identified
