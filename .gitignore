@@ -25,3 +25,7 @@ vendor/bundle/
 /fastlane/Preview.html
 /fastlane/screenshots/
 /fastlane/test_output/
+
+# Playwright MCP browser session artefacts
+.playwright-mcp/
+asc-keys-page.png

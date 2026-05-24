@@ -5,6 +5,14 @@ running any of the `make ship-*` lanes (🎯T64.2). After this, day-to-day
 shipping is `bundle exec fastlane match appstore --readonly` (resolved
 automatically by the ship lanes), no prompts, no per-game cert dance.
 
+> **Studio scope.** ge is studio-agnostic. This document uses the **squz**
+> studio as the worked example (cert repo `squz/certs`, Apple Team
+> `SWA3H3N7TW`); any studio consuming ge substitutes its own values. The
+> `fastlane/Matchfile` with the studio's actual repo URL + team ID lives in
+> the **consuming game's repo** (e.g. `multimaze2/fastlane/Matchfile`), not
+> in ge. ge ships only `fastlane/Matchfile.example` as a template, plus the
+> generic `fastlane/Fastfile` lane definitions.
+
 ## Prerequisites you can't avoid
 
 1. **Apple Developer Program membership** on the squz team (`SWA3H3N7TW`).
