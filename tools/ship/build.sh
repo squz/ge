@@ -22,7 +22,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+# REPO_ROOT = consuming project root when ge is a submodule, else ge's own root.
+# See preflight.sh for the rationale.
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ]; then
+    REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+fi
 
 # Source helpers (idempotent — functions defined, no side effects).
 # shellcheck source=tools/ship/worktree.sh

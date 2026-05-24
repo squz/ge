@@ -21,7 +21,12 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+# REPO_ROOT = consuming project root when ge is a submodule, else ge's own root.
+# See preflight.sh for the rationale.
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ]; then
+    REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+fi
 SHIP_BUILD_DIR="${REPO_ROOT}/build/ship"
 
 # ---------------------------------------------------------------------------
@@ -148,23 +153,25 @@ ship_worktree_clean() {
 # ---------------------------------------------------------------------------
 # Standalone mode
 # ---------------------------------------------------------------------------
-case "${1:-}" in
-    --create)
-        ship_worktree_create "${2:?Usage: worktree.sh --create TAG}"
-        echo "SHIP_WORKTREE_DIR=${SHIP_WORKTREE_DIR}"
-        ;;
-    --remove)
-        ship_worktree_remove "${2:-}"
-        ;;
-    --clean)
-        shift
-        ship_worktree_clean "$@"
-        ;;
-    "")
-        # Sourced — do nothing.
-        ;;
-    *)
-        echo "Usage: worktree.sh --create TAG | --remove [TAG] | --clean [--max-age-days N]" >&2
-        exit 1
-        ;;
-esac
+# Guard so this only runs when EXECUTED directly, not when SOURCED from
+# release.sh. Without the guard, `$1` here inherits the parent script's
+# argv (e.g. "--lane") and trips the unknown-arg path.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    case "${1:-}" in
+        --create)
+            ship_worktree_create "${2:?Usage: worktree.sh --create TAG}"
+            echo "SHIP_WORKTREE_DIR=${SHIP_WORKTREE_DIR}"
+            ;;
+        --remove)
+            ship_worktree_remove "${2:-}"
+            ;;
+        --clean)
+            shift
+            ship_worktree_clean "$@"
+            ;;
+        *)
+            echo "Usage: worktree.sh --create TAG | --remove [TAG] | --clean [--max-age-days N]" >&2
+            exit 1
+            ;;
+    esac
+fi
