@@ -125,6 +125,7 @@ ge/SRC_DIRECT = \
 	$(ge)/src/iap_apple.mm \
 	$(ge)/src/log.cpp \
 	$(ge)/src/button.cpp \
+	$(ge)/src/long_press.cpp \
 	$(ge)/src/sdl_input.cpp \
 	$(ge)/src/render/DirectRenderHost.mm \
 	$(ge)/tools/player_orientation_stub.cpp
@@ -274,6 +275,7 @@ ge/TEST_SRC = \
 	$(ge)/src/gesture_test.cpp \
 	$(ge)/src/layout_test.cpp \
 	$(ge)/src/button_test.cpp \
+	$(ge)/src/long_press_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
 	$(ge)/src/iap_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
