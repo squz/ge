@@ -75,8 +75,12 @@ fi
 echo "preflight: checking ge submodule..."
 ge_submodule_path="${REPO_ROOT}/ge"
 if [ -d "${ge_submodule_path}" ]; then
+    # `--untracked-files=no` so generated artefacts inside ge (e.g.
+    # web/dist/* from the ged dashboard build, build/* from local engine
+    # tests) don't trip the gate — they're not part of ge's source tree
+    # and never committed. Real tracked-file modifications still count.
     if ! git -C "${ge_submodule_path}" diff --quiet HEAD -- 2>/dev/null || \
-       [ -n "$(git -C "${ge_submodule_path}" status --porcelain 2>/dev/null)" ]; then
+       [ -n "$(git -C "${ge_submodule_path}" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
         fail "ge submodule has uncommitted changes"
     else
         echo "  [PASS] ge submodule clean"
