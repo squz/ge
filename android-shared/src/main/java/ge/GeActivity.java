@@ -33,6 +33,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowInsets;
@@ -63,6 +66,12 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     private SensorManager sensorManager;
     private Sensor gameRotationVector;
 
+    // 🎯T43: Android audio focus. Requested in onResume, abandoned in onPause.
+    // Changes are forwarded to native via nativeOnAudioFocusChange.
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private AudioManager.OnAudioFocusChangeListener audioFocusListener;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -74,6 +83,22 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         gameRotationVector = sensorManager == null ? null
             : sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+
+        // 🎯T43: set up the audio focus listener once. The actual
+        // requestAudioFocus / abandonAudioFocus cycle happens in
+        // onResume / onPause so we don't hold focus while backgrounded.
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        audioFocusListener = focusChange -> nativeOnAudioFocusChange(focusChange);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = new AudioFocusRequest.Builder(
+                    AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .build();
+        }
 
         // 🎯T44: predictive-back gesture (API 33+). The callback only
         // fires when nativeOnBackPressed returns true — i.e. when the
@@ -93,12 +118,37 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
             sensorManager.registerListener(this, gameRotationVector,
                 SensorManager.SENSOR_DELAY_GAME);
         }
+        // 🎯T43: request audio focus when coming to the foreground.
+        // On success (or if focus is already ours) the listener fires
+        // AUDIOFOCUS_GAIN which pumpEvents drains on the game thread.
+        if (audioManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest != null) {
+                    audioManager.requestAudioFocus(audioFocusRequest);
+                }
+            } else {
+                //noinspection deprecation
+                audioManager.requestAudioFocus(audioFocusListener,
+                    AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+            }
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         if (sensorManager != null) sensorManager.unregisterListener(this);
+        // 🎯T43: release audio focus while backgrounded.
+        if (audioManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest != null) {
+                    audioManager.abandonAudioFocusRequest(audioFocusRequest);
+                }
+            } else {
+                //noinspection deprecation
+                audioManager.abandonAudioFocus(audioFocusListener);
+            }
+        }
     }
 
     @Override
@@ -147,11 +197,13 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     }
 
     // JNI exports live in src/render/DirectRenderHost.mm.
-    // Both are async-safe — they only touch atomics; the engine
-    // dispatches the actual game callback on the game thread next
-    // pump.
+    // All are async-safe — they only touch atomics; the engine
+    // dispatches the actual game callback on the game thread next pump.
     private static native boolean nativeOnBackPressed();
     private static native void nativeOnTrimMemory(int level);
+    // 🎯T43: audio focus change forwarded from OnAudioFocusChangeListener.
+    // focusChange mirrors AudioManager.AUDIOFOCUS_* constants.
+    private static native void nativeOnAudioFocusChange(int focusChange);
 
     // Called from native (Immersive_android.cpp) when the app's
     // SessionHostConfig.immersive flag changes. Hides or restores
