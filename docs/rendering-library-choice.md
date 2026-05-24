@@ -177,13 +177,35 @@ Affected repos: `ge`, `yourworld2`, `multimaze2`, `esfera2`, `ge-t30.1`, plus an
 3. **Compute is on the table now.**
    sokol's compute support has matured (dispatch, storage buffers, storage images, available across all shipping backends). Earlier framing of "compute is bgfx-only" no longer holds. ge doesn't lean on compute today, so this isn't a migration cost — but it's worth recording that the option exists post-migration for things like GPU-driven particles or culling.
 4. **Debugging tooling parity.**
-   bgfx ships RenderDoc-aware annotations (named views, stat counters). sokol has a basic validation layer and resource labels, no first-class RenderDoc integration. RenderDoc captures Metal/Vulkan/D3D directly regardless of which library sits on top, so this is mostly a loss of named-view annotations in capture views — a minor inconvenience, not a blocker. Add string labels to sokol resources (`sg_*_desc.label`) liberally during the migration to compensate.
+   bgfx and sokol both emit the same underlying debug-marker calls (`vkCmdBeginDebugUtilsLabelEXT` / `MTLCommandEncoder.pushDebugGroup` / `glPushDebugGroup`), so RenderDoc captures look comparable on either. The real difference is *what gets labelled by default*: bgfx auto-names views (a coarse render-concept grouping), while sokol labels resources (pipelines, buffers, images, passes) and requires explicit `sg_push_debug_group` / `sg_pop_debug_group` calls for coarser groupings. **Mitigation, done once at migration time:** make ge's wrapper layer enforce both — every "begin scene/view" call internally pushes a debug group with the concept name; every resource creation in ge passes a label. Consumers can't forget, and we get bgfx-equivalent annotation without ongoing discipline cost. This is a design decision, not a recurring tax.
 
 #### Open questions to resolve during scoping
 
 - Does ge currently rely on bgfx's multithreaded renderer, or is it effectively single-threaded already? (If the latter, the multi-threading concern above is theoretical.)
 - What is the peak transient-buffer footprint in a single frame across all titles? (Drives the staging buffer sizing.)
 - Are there any bgfx features in active use that I haven't inventoried — occlusion queries, indirect draws, MRT configurations, MSAA settings — that need explicit mapping?
+
+#### Pre-migration case-study check
+
+A few hours of research before committing: hunt for documented bgfx↔sokol_gfx migrations (in either direction). Grok's framing included the unverified claim that "many projects start with sokol and later evaluate bgfx if they hit feature walls." That's a load-bearing signal if true; cheap to falsify if not. Reasons people gave for going either direction are useful intel for what to watch for during ge's migration. Specifically look for:
+
+- Migrations *away from* sokol (what feature wall did they hit? does ge's workload approach it?)
+- Migrations *to* sokol from a similar starting point (what surprises did they hit? what took longer than expected?)
+- Honest postmortems, not marketing.
+
+If two or more credible reports point at the same sokol limitation, fold it into the scope items above before starting work.
+
+#### Early-bailout checkpoint
+
+After **week 1** of migration work (defined as: ge's wrapper layer ported to sokol + a single representative scene from one consumer running on it — pick the simplest title's simplest scene), pause and reassess. Decision gate:
+
+- **Continue** if the per-scene cost is tracking toward the 2–4 week estimate and no new structural surprises have emerged.
+- **Stop and reconsider** if either:
+  - The actual cost is on track to exceed ~6 weeks (1.5× the upper bound), or
+  - A structural mismatch has emerged that ge's wrapper layer can't paper over cleanly (e.g., a sokol limitation forces architectural changes in consumers, not just in ge).
+- If we stop, options are: stay on bgfx and invest in stricter view-state discipline at ge's abstraction layer (cheaper, addresses the original pain point at the source); or re-evaluate Diligent (the bgfx-friction case for moving still applies; just not via sokol).
+
+This checkpoint exists because we've already done one renderer migration (🎯T53) and we know what sunk-cost feels like mid-migration. Naming the bailout up front makes it easier to take.
 
 ## Sources
 

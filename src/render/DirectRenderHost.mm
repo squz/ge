@@ -7,8 +7,10 @@
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
 
+#include <ge/audio.h>
 #include <ge/FileIO.h>
 #include <ge/Protocol.h>
+#include <ge/RefreshRateBoost.h>
 #include <ge/Resource.h>
 #include <ge/Signal.h>
 
@@ -31,6 +33,15 @@
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
 #endif
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+namespace ge::audio {
+// Defined in audio_apple.mm — install/remove AVAudioSession notification
+// observers for interruption (call, alarm) and route-change (headphone unplug).
+void installAppleAudioObservers();
+void removeAppleAudioObservers();
+} // namespace ge::audio
 #endif
 
 #if defined(__ANDROID__)
@@ -74,7 +85,7 @@ float computeDeviceUiScale(DeviceClass dc, int surfaceW, int surfaceH, float pix
     return std::sqrt(shortSideMm / kReferenceShortSideMm);
 }
 
-// 🎯T44 / 🎯T45 OS-event plumbing.
+// 🎯T44 / 🎯T45 / 🎯T43 OS-event plumbing.
 // The platform fires these on the wrong thread (Android UI thread for
 // JNI; iOS notification queue for memory warnings). We can't safely
 // touch the game's state from there, so each event sets an atomic
@@ -88,6 +99,15 @@ std::atomic<bool> g_backHandlerActive{false};
 std::atomic<bool> g_pendingBackPressed{false};
 // -1 = no event; 0/1/2 = MemoryPressureLevel::{Low, Moderate, Critical}.
 std::atomic<int>  g_pendingMemoryWarning{-1};
+
+#if defined(__ANDROID__)
+// 🎯T43 Android audio focus. Java's OnAudioFocusChangeListener fires on
+// the UI thread and stores a signed delta here:
+//   +1 = focus gained (resume)
+//   -1 = focus lost (pause: LOSS, LOSS_TRANSIENT, LOSS_TRANSIENT_CAN_DUCK)
+// pumpEvents drains this on the game thread.
+std::atomic<int> g_pendingAudioFocusChange{0};
+#endif
 
 #if defined(__ANDROID__)
 // Android's TRIM_MEMORY_* constants. Mirror SDK values rather than
@@ -216,6 +236,18 @@ Java_ge_GeActivity_nativeOnTrimMemory(JNIEnv*, jclass, jint level) {
     if (mapped >= 0) g_pendingMemoryWarning.store(mapped);
 }
 
+// 🎯T43: audio focus change from Java's OnAudioFocusChangeListener.
+// focusChange mirrors AudioManager constants:
+//   AUDIOFOCUS_GAIN                  =  1 → resume
+//   AUDIOFOCUS_LOSS                  = -1 → pause
+//   AUDIOFOCUS_LOSS_TRANSIENT        = -2 → pause
+//   AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK= -3 → pause (we don't duck, just pause)
+JNIEXPORT void JNICALL
+Java_ge_GeActivity_nativeOnAudioFocusChange(JNIEnv*, jclass, jint focusChange) {
+    // Positive → gained, negative → lost.
+    g_pendingAudioFocusChange.store(focusChange > 0 ? 1 : -1);
+}
+
 } // extern "C"
 #endif
 
@@ -246,6 +278,12 @@ struct DirectRenderHost::Impl {
     // 🎯T44 / 🎯T45 callbacks — set by runDirect after factory.
     std::function<void()> onBackPressed;
     std::function<void(MemoryPressureLevel)> onMemoryWarning;
+
+    // 🎯T63 High-refresh-rate during press.
+    // Incremented on every pointer Down, decremented on every Up/Cancel.
+    // When non-zero the platform is asked to maintain max display refresh.
+    RefreshRateBoost refreshRateBoost;
+
 #if defined(__APPLE__) && TARGET_OS_IOS
     id memoryWarningObserver = nil;
 #endif
@@ -356,6 +394,15 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
 
     SPDLOG_INFO("DirectRenderHost: {}x{}", i_->width, i_->height);
 
+    // 🎯T43: install platform audio-focus observers.
+#if defined(__APPLE__) && TARGET_OS_IOS
+    ge::audio::installAppleAudioObservers();
+#endif
+    // Android audio focus is requested from GeActivity.java (onResume) via
+    // AudioManager.requestAudioFocus; the JNI bridge
+    // nativeOnAudioFocusChange() feeds g_pendingAudioFocusChange which
+    // pumpEvents() drains on the game thread below.
+
     // Parallax pipeline — opt-in via SessionHostConfig.parallaxFactor.
     // The same float controls opt-in and sensitivity (decided 2026-04-13):
     // > 0 starts the platform sensor, scales the screen-XY delta the
@@ -382,8 +429,8 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     }
     i_->ctx.emplace(i_->width, i_->height, deviceClass(),
                     dbPath, config.schemaDdl);
-    i_->ctx->setDrawSafeInsets(drawSafeInsets());
-    i_->ctx->setUiSafeInsets(uiSafeInsets());
+    i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+    i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
     {
         SDL_Window* win = i_->bgfxCtx->window();
         // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
@@ -409,6 +456,7 @@ DirectRenderHost::~DirectRenderHost() {
         [[NSNotificationCenter defaultCenter] removeObserver:i_->memoryWarningObserver];
         i_->memoryWarningObserver = nil;
     }
+    ge::audio::removeAppleAudioObservers();
 #endif
     i_->destroyOffscreen();
 }
@@ -427,12 +475,16 @@ DeviceClass DirectRenderHost::deviceClass() const {
 bool DirectRenderHost::paused() const { return i_->bgfxCtx && i_->bgfxCtx->paused(); }
 const Context& DirectRenderHost::context() const { return *i_->ctx; }
 
-SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
+SafeAreaInsets DirectRenderHost::uiSafeInsetsInPts() const {
     // SDL3's safe area on Android unions systemBars + systemGestures
     // + mandatorySystemGestures + tappableElement + displayCutout —
     // the full input-safe rectangle. iOS reports its own safeAreaInsets
     // (cutouts + home indicator). Either way, this is what we want
-    // for uiSafeRect: the strictest "place interactive UI here" zone.
+    // for uiSafeRectInPts: the strictest "place interactive UI here" zone.
+    //
+    // SDL_GetWindowSafeArea and SDL_GetWindowSize both return point-space
+    // values (OS-logical coords), so the insets this function computes are
+    // already in pt — no pixel-density multiplication needed. (🎯T60)
     SafeAreaInsets out{};
     if (!i_->bgfxCtx) return out;
     SDL_Window* win = i_->bgfxCtx->window();
@@ -442,20 +494,17 @@ SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
     int winW = 0, winH = 0;
     SDL_GetWindowSize(win, &winW, &winH);
     if (winW <= 0 || winH <= 0) return out;
-    // Convert window-coord (point) insets → pixel insets via the
-    // surface's pixel-density ratio so they match the pixel-coord
-    // surface dims the engine reports. Screen is y-down (SDL/bgfx),
+    // SDL window coords are in points. Insets = the distance from each
+    // edge to the safe rect edge, in pt. Screen is y-down (SDL/bgfx),
     // so the OS-supplied "top" inset goes into the smaller-y edge
     // field (y0), and "bottom" into the larger-y edge field (y1).
-    const float xScale = float(i_->width)  / float(winW);
-    const float yScale = float(i_->height) / float(winH);
-    auto scale = [](int v, float s) {
-        return v <= 0 ? 0.0f : std::ceil(float(v) * s);
+    auto ptInset = [](int v) {
+        return v <= 0 ? 0.0f : std::ceil(float(v));
     };
-    out.x0 = scale(safe.x,                   xScale);  // left in y-down
-    out.x1 = scale(winW - safe.x - safe.w,   xScale);  // right
-    out.y0 = scale(safe.y,                   yScale);  // top in y-down
-    out.y1 = scale(winH - safe.y - safe.h,   yScale);  // bottom
+    out.x0 = ptInset(safe.x);               // left in y-down, pt
+    out.x1 = ptInset(winW - safe.x - safe.w); // right, pt
+    out.y0 = ptInset(safe.y);               // top in y-down, pt
+    out.y1 = ptInset(winH - safe.y - safe.h); // bottom, pt
 
 #if defined(__APPLE__) && TARGET_OS_IOS
     // iOS's SDL_GetWindowSafeArea reports only the static-chrome insets
@@ -476,23 +525,29 @@ SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
     // iOS version.
     constexpr float kIosTopGesturePt    = 20.0f;
     constexpr float kIosBottomGesturePt = 34.0f;
-    out.y0 = std::max(out.y0, kIosTopGesturePt    * yScale);
-    out.y1 = std::max(out.y1, kIosBottomGesturePt * yScale);
+    out.y0 = std::max(out.y0, kIosTopGesturePt);
+    out.y1 = std::max(out.y1, kIosBottomGesturePt);
 #endif
 
     return out;
 }
 
-SafeAreaInsets DirectRenderHost::drawSafeInsets() const {
-    // Display-cutout-only insets — what physically obscures pixels.
+SafeAreaInsets DirectRenderHost::drawSafeInsetsInPts() const {
+    // Display-cutout-only insets in pt — what physically obscures pixels.
     // On Android we query WindowInsets.Type.displayCutout() via JNI
     // (gesture / tappable zones excluded). On iOS / desktop we fall
     // back to the full SDL safe area — iOS doesn't decompose its
-    // safeAreaInsets cleanly so drawSafeRect == uiSafeRect there.
+    // safeAreaInsets cleanly so drawSafeRectInPts == uiSafeRectInPts there.
 #if defined(__ANDROID__)
-    return queryDisplayCutoutInsets();
+    // queryDisplayCutoutInsets returns pixel units (Android's WindowInsets
+    // uses px). Divide by pixelsPerPt to convert to pt. (🎯T60)
+    const SafeAreaInsets px = queryDisplayCutoutInsets();
+    SDL_Window* win = i_->bgfxCtx ? i_->bgfxCtx->window() : nullptr;
+    const float ppt = (win && SDL_GetWindowDisplayScale(win) > 0.0f)
+                      ? SDL_GetWindowDisplayScale(win) : 1.0f;
+    return {px.y0 / ppt, px.y1 / ppt, px.x0 / ppt, px.x1 / ppt};
 #else
-    return uiSafeInsets();
+    return uiSafeInsetsInPts();
 #endif
 }
 
@@ -548,11 +603,33 @@ void DirectRenderHost::pumpEvents() {
     if (mem >= 0 && i_->onMemoryWarning) {
         i_->onMemoryWarning(static_cast<MemoryPressureLevel>(mem));
     }
+#if defined(__ANDROID__)
+    // 🎯T43: drain Android audio focus change (set from Java's
+    // OnAudioFocusChangeListener via nativeOnAudioFocusChange).
+    int focusDelta = g_pendingAudioFocusChange.exchange(0);
+    if (focusDelta < 0) {
+        ge::audio::onAudioFocusLost();
+    } else if (focusDelta > 0) {
+        ge::audio::onAudioFocusGained();
+    }
+#endif
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_EVENT_QUIT) {
             i_->quit = true;
+            continue;
+        }
+        // 🎯T7: iOS background/foreground audio lifecycle.
+        // SDL fires these events on iOS (not Android) when the app moves
+        // to the background / returns to foreground. Route to ge::audio
+        // before continuing so audio silencing is immediate.
+        if (e.type == SDL_EVENT_DID_ENTER_BACKGROUND) {
+            ge::audio::onBackground();
+            continue;
+        }
+        if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+            ge::audio::onForeground();
             continue;
         }
         // Activity lifecycle on Android. SDL3 doesn't deliver the
@@ -568,12 +645,17 @@ void DirectRenderHost::pumpEvents() {
         if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
             e.type == SDL_EVENT_WINDOW_HIDDEN     ||
             e.type == SDL_EVENT_WINDOW_MINIMIZED) {
+            ge::audio::onBackground();  // 🎯T7: silence audio on Android background
+            // 🎯T63 Drain presses so we don't leave the display pinned
+            // at max refresh after a background transition.
+            i_->refreshRateBoost.drainPresses();
             i_->bgfxCtx->onBackground();
             continue;
         }
         if (e.type == SDL_EVENT_WINDOW_RESTORED   ||
             e.type == SDL_EVENT_WINDOW_FOCUS_GAINED ||
             e.type == SDL_EVENT_WINDOW_SHOWN) {
+            ge::audio::onForeground();  // 🎯T7: resume audio on Android foreground
             i_->bgfxCtx->onForeground();
             // bgfxCtx may have picked up a resized backbuffer; sync our
             // view of it so the next frame's viewports match.
@@ -612,6 +694,28 @@ void DirectRenderHost::pumpEvents() {
                 o = SDL_GetCurrentDisplayOrientation(disp);
             }
             rotateAccelToScreen(o, e.sensor.data);
+        }
+        // 🎯T63 High-refresh-rate during press.
+        // Track all pointer down/up events to maintain an accurate press
+        // counter. SDL_TOUCH_MOUSEID synthetic mouse events from touch are
+        // filtered: on platforms that generate both finger and synthetic
+        // mouse events for a touch (iOS/Android), only the finger events
+        // arrive here (the player filters SDL_TOUCH_MOUSEID in sdl_input).
+        // DirectRenderHost runs on real hardware so SDL finger events are
+        // the authoritative source; mouse button events cover desktop too.
+        if (e.type == SDL_EVENT_FINGER_DOWN) {
+            i_->refreshRateBoost.engagePress();
+        } else if (e.type == SDL_EVENT_FINGER_UP ||
+                   e.type == SDL_EVENT_FINGER_CANCELED) {
+            i_->refreshRateBoost.releasePress();
+        } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (e.button.which != SDL_TOUCH_MOUSEID) {
+                i_->refreshRateBoost.engagePress();
+            }
+        } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            if (e.button.which != SDL_TOUCH_MOUSEID) {
+                i_->refreshRateBoost.releasePress();
+            }
         }
         if (i_->eventHandler) i_->eventHandler(e);
     }
@@ -671,9 +775,9 @@ void DirectRenderHost::beginFrame() {
     // Refresh per-frame Context state (post-resize + current insets)
     // so onUpdate / onRender accessors observe live values.
     if (i_->ctx) {
-        i_->ctx->setDimensions(i_->width, i_->height);
-        i_->ctx->setDrawSafeInsets(drawSafeInsets());
-        i_->ctx->setUiSafeInsets(uiSafeInsets());
+        i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+        i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+        i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
         SDL_Window* win = i_->bgfxCtx->window();
         // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
         // On iOS the second factor is always 1.0, so this matches

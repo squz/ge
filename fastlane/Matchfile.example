@@ -1,0 +1,22 @@
+# fastlane/Matchfile.example — template for studio-specific signing config.
+#
+# ge is studio-agnostic. The actual Matchfile (with your studio's cert
+# repo URL and Apple Team ID) lives in your consuming game's repo, NOT in
+# ge proper. Copy this file to YOUR_GAME/fastlane/Matchfile and edit:
+#   - git_url: the private repo where your encrypted certs live
+#   - team_id: your Apple Developer Program team ID
+#
+# See ge/docs/release-setup.md for the full workflow.
+#
+# Example (the squz studio's actual values):
+#   git_url("git@github.com:squz/certs.git")
+#   storage_mode("git")
+#   type("appstore")
+#   team_id("SWA3H3N7TW")
+#
+# Template:
+
+git_url("git@github.com:YOUR_ORG/YOUR_CERTS_REPO.git")
+storage_mode("git")
+type("appstore")  # default; lanes pass `type:` to override for adhoc/development
+team_id("YOUR_TEAM_ID")

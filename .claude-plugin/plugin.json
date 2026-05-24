@@ -1,0 +1,6 @@
+{
+  "name": "ge",
+  "version": "0.30.0",
+  "description": "ge engine shipping toolkit — /ge:ship, /ge:release-notes, /ge:ship-status, /ge:onboard",
+  "skills": ["skills"]
+}

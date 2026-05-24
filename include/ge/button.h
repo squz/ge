@@ -6,8 +6,11 @@
 // `ge::Button` implements iOS-style press semantics: tap down inside
 // the hit region highlights, drag outside un-highlights, drag back in
 // re-highlights, release inside fires, release outside or external
-// cancel doesn't. Rendering-agnostic — the consumer supplies a
-// hit-test predicate (rect, SVG element, polygon, anything) and
+// cancel doesn't. A Move that lands inside while the button is idle
+// captures the touch too (drift-in capture, 🎯T62) — same effect a
+// Down inside would have had, so the user can roll a finger onto a
+// tight button from outside. Rendering-agnostic — the consumer supplies
+// a hit-test predicate (rect, SVG element, polygon, anything) and
 // queries `highlighted()` from the render loop, or wires an
 // `onHighlightChange` callback for one-shot side effects.
 //

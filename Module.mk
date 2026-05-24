@@ -110,6 +110,7 @@ ge/SRC_DIRECT = \
 	$(ge)/src/Context.cpp \
 	$(ge)/src/Resource.cpp \
 	$(ge)/src/FileIO.cpp \
+	$(ge)/src/manifest.cpp \
 	$(ge)/src/FontLoader_apple.mm \
 	$(ge)/src/BgfxContext.mm \
 	$(ge)/src/Signal.cpp \
@@ -124,9 +125,13 @@ ge/SRC_DIRECT = \
 	$(ge)/src/iap.cpp \
 	$(ge)/src/iap_apple.mm \
 	$(ge)/src/log.cpp \
+	$(ge)/src/audio.cpp \
+	$(ge)/src/audio_apple.mm \
 	$(ge)/src/button.cpp \
+	$(ge)/src/long_press.cpp \
 	$(ge)/src/sdl_input.cpp \
 	$(ge)/src/render/DirectRenderHost.mm \
+	$(ge)/src/render/RefreshRateBoost_apple.mm \
 	$(ge)/tools/player_orientation_stub.cpp
 
 ge/SRC_BROKERED = \
@@ -262,6 +267,7 @@ ge/VENDOR_CPP_OBJ = $(patsubst $(ge)/vendor/src/%.cpp,$(BUILD_DIR)/ge/vendor/%.o
 # Test sources
 ge/TEST_SRC = \
 	$(ge)/src/main_test.cpp \
+	$(ge)/src/manifest_test.cpp \
 	$(ge)/src/DampedRotation_test.cpp \
 	$(ge)/src/Rect_test.cpp \
 	$(ge)/src/Rect_constexpr_test.cpp \
@@ -274,8 +280,12 @@ ge/TEST_SRC = \
 	$(ge)/src/gesture_test.cpp \
 	$(ge)/src/layout_test.cpp \
 	$(ge)/src/button_test.cpp \
+	$(ge)/src/long_press_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
-	$(ge)/src/iap_test.cpp
+	$(ge)/src/iap_test.cpp \
+	$(ge)/src/iap_local_test.cpp \
+	$(ge)/src/audio_test.cpp \
+	$(ge)/src/render/RefreshRateBoost_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
@@ -734,6 +744,30 @@ ge/ios-init:
 		echo "Error: set APP_ID and APP_NAME"; exit 1; fi
 	$(ge)/tools/init-ios.sh "$(APP_ID)" "$(APP_DISPLAY_NAME)" "$(IOS_DEVELOPMENT_TEAM)"
 
+# storekit-init — copy the engine's StoreKit.storekit template into the
+# consuming app's ios/ directory for use with GE_IAP_MODE=local (🎯T65.4).
+#
+# Run once after `make ge/ios-init`, then customise the product IDs to match
+# your ge::iap::setCatalogue() registration. The file must be added to the
+# Xcode target's Build Phases → Copy Bundle Resources so it lands in the app
+# bundle where GEStoreKit2LocalBridgeImpl can find it at runtime.
+#
+# Safe to re-run — will not overwrite an existing ios/StoreKit.storekit.
+.PHONY: ge/storekit-init
+ge/storekit-init:
+	@if [ -f ios/StoreKit.storekit ]; then \
+		echo "ios/StoreKit.storekit already exists — not overwriting."; \
+	else \
+		mkdir -p ios; \
+		cp "$(ge)/ios/StoreKit.storekit" ios/StoreKit.storekit; \
+		echo "Created ios/StoreKit.storekit from engine template."; \
+		echo "Next steps:"; \
+		echo "  1. Edit ios/StoreKit.storekit: set product IDs to match your setCatalogue() registration."; \
+		echo "  2. In Xcode: add StoreKit.storekit to Build Phases → Copy Bundle Resources."; \
+		echo "  3. In Xcode: add StoreKitTest.framework as Optional in Build Phases → Link Binary With Libraries."; \
+		echo "  4. Run with GE_IAP_MODE=local to activate."; \
+	fi
+
 # ────────────────────────────────────────────────
 # Generic targets (use CLEAN, COMPILE_DB_DEPS)
 # ────────────────────────────────────────────────
@@ -1095,6 +1129,27 @@ pool-drain:
 	fi
 	@echo "  Pool drained."
 
+# ────────────────────────────────────────────────
+# Claude Code plugin installation
+#
+# `make ship-init` symlinks the ge repo into ~/.claude/plugins/ge so that
+# Claude Code picks up the /ge:ship, /ge:release-notes, /ge:ship-status, and
+# /ge:onboard skills. Run once per checkout; re-running is safe (idempotent).
+#
+# The symlink points at the ge submodule root ($(ge) resolved to its absolute
+# path), not at the consuming project. Claude Code loads the plugin from
+# .claude-plugin/plugin.json at that root.
+# ────────────────────────────────────────────────
+
+.PHONY: ship-init
+ship-init:
+	@mkdir -p ~/.claude/plugins
+	@if [ ! -L ~/.claude/plugins/ge ]; then \
+		ln -s "$$(cd $(ge) && pwd)" ~/.claude/plugins/ge && echo "Linked ~/.claude/plugins/ge → $$(cd $(ge) && pwd)"; \
+	else \
+		echo "~/.claude/plugins/ge already exists"; \
+	fi
+
 # Canned recipe for the parent to expand at the end of its init target.
 define ge/INIT_DONE
 	@echo ""
@@ -1103,6 +1158,124 @@ define ge/INIT_DONE
 	@echo "  make run          # Build and run"
 	@echo "  make test         # Run all tests"
 endef
+
+# ── 🎯T64.* ship substrate ───────────────────────────────────────────────────
+#
+# Targets for the studio-wide deployment pipeline (ge submodule).
+# Consuming games include ge/Module.mk and get these targets automatically.
+#
+# Usage in a game repo (all require SHIP_SCHEME + env vars from docs/release-setup.md):
+#
+#   make ship-preflight                     # ← run first; prints READY or BLOCKED
+#   make ship-alpha                         # TestFlight internal, no version bump
+#   make ship-beta VERSION=0.31.0           # cuts v0.31.0-beta.N, external TF
+#   make ship-release VERSION=0.31.0 CONFIRM=1  # store release, tags, submits
+#   make ship-worktree TAG=v0.4.0           # create isolated build worktree
+#   make ship-clean                         # prune stale worktrees (>14 days)
+#   make ge/ci-init                         # copy GHA release workflow into game repo
+#
+# Override knobs (set in your game Makefile before the -include $(ge)/Module.mk):
+#   SHIP_SCHEME        — Xcode scheme (e.g. MultiMaze2). Default: $(APP_DISPLAY_NAME).
+#   SHIP_BUILD_DIR     — Where worktrees and IPAs land. Default: build/ship.
+#   SHIP_CLEAN_DAYS    — Prune worktrees older than N days. Default: 14.
+#   GHA_WORKFLOW_DEST  — Where ge/ci-init copies the workflow. Default: .github/workflows.
+
+SHIP_SCHEME     ?= $(APP_DISPLAY_NAME)
+SHIP_BUILD_DIR  ?= build/ship
+SHIP_CLEAN_DAYS ?= 14
+GHA_WORKFLOW_DEST ?= .github/workflows
+
+# PATH prefix: use system rsync (not Homebrew 3.x) for xcodebuild codesign.
+ge/SHIP_PATH = /usr/bin:/bin:/usr/sbin:/sbin:$(PATH)
+
+# ── ship-preflight ─────────────────────────────────────────────────────────
+# Standalone pre-build gate: git clean? env vars set? match works?
+
+.PHONY: ship-preflight
+ship-preflight:
+	SHIP_SCHEME=$(SHIP_SCHEME) \
+	    $(ge)/tools/ship/preflight.sh \
+	    --lane $(if $(LANE),$(LANE),alpha) \
+	    $(if $(VERSION),--version $(VERSION),)
+
+# ── ship-worktree ──────────────────────────────────────────────────────────
+# Create an isolated worktree at TAG. Used by ship-build and tests.
+# TAG is required: `make ship-worktree TAG=v0.4.0`
+
+.PHONY: ship-worktree
+ship-worktree:
+	@if [ -z "$(TAG)" ]; then \
+	    echo "Usage: make ship-worktree TAG=v0.4.0"; exit 1; fi
+	$(ge)/tools/ship/worktree.sh --create $(TAG)
+
+# ── ship-alpha ─────────────────────────────────────────────────────────────
+# Build at HEAD, upload to TestFlight internal testers, no semver bump.
+
+.PHONY: ship-alpha
+ship-alpha:
+	PATH=$(ge/SHIP_PATH) \
+	SHIP_SCHEME=$(SHIP_SCHEME) \
+	    $(ge)/tools/ship/release.sh --lane alpha
+
+# ── ship-beta ──────────────────────────────────────────────────────────────
+# Cut v{VERSION}-beta.N, upload to TestFlight external, push beta tag.
+# VERSION is required: `make ship-beta VERSION=0.31.0`
+
+.PHONY: ship-beta
+ship-beta:
+	@if [ -z "$(VERSION)" ]; then \
+	    echo "Usage: make ship-beta VERSION=0.31.0"; exit 1; fi
+	PATH=$(ge/SHIP_PATH) \
+	SHIP_SCHEME=$(SHIP_SCHEME) \
+	    $(ge)/tools/ship/release.sh --lane beta --version $(VERSION)
+
+# ── ship-release ───────────────────────────────────────────────────────────
+# Tag v{VERSION}, build, upload, submit for App Store review.
+# Requires CONFIRM=1 to prevent accidental store submissions.
+# VERSION is required: `make ship-release VERSION=0.31.0 CONFIRM=1`
+
+.PHONY: ship-release
+ship-release:
+	@if [ -z "$(VERSION)" ]; then \
+	    echo "Usage: make ship-release VERSION=0.31.0 CONFIRM=1"; exit 1; fi
+	@if [ -z "$(CONFIRM)" ] || [ "$(CONFIRM)" != "1" ]; then \
+	    echo "ERROR: make ship-release requires CONFIRM=1."; \
+	    echo "  make ship-release VERSION=$(VERSION) CONFIRM=1"; exit 1; fi
+	PATH=$(ge/SHIP_PATH) \
+	SHIP_SCHEME=$(SHIP_SCHEME) \
+	    $(ge)/tools/ship/release.sh --lane release --version $(VERSION) --confirm
+
+# ── ship-clean ─────────────────────────────────────────────────────────────
+# Prune worktrees in build/ship/ older than SHIP_CLEAN_DAYS (default 14).
+
+.PHONY: ship-clean
+ship-clean:
+	$(ge)/tools/ship/worktree.sh --clean --max-age-days $(SHIP_CLEAN_DAYS)
+
+# ── ge/ci-init ─────────────────────────────────────────────────────────────
+# Copy the GHA release workflow template from ge into the consuming game repo.
+# Idempotent — safe to re-run after ge submodule bumps. Copies only the
+# template; the game repo's own .github/workflows/ may have other files.
+
+.PHONY: ge/ci-init
+ge/ci-init:
+	@mkdir -p $(GHA_WORKFLOW_DEST)
+	@src="$(ge)/.github/workflows/release.yml"; \
+	dest="$(GHA_WORKFLOW_DEST)/release.yml"; \
+	if [ -f "$$dest" ]; then \
+	    if cmp -s "$$src" "$$dest"; then \
+	        echo "ge/ci-init: $(GHA_WORKFLOW_DEST)/release.yml already up to date"; \
+	    else \
+	        cp "$$src" "$$dest"; \
+	        echo "ge/ci-init: updated $(GHA_WORKFLOW_DEST)/release.yml (ge submodule bumped)"; \
+	    fi; \
+	else \
+	    cp "$$src" "$$dest"; \
+	    echo "ge/ci-init: created $(GHA_WORKFLOW_DEST)/release.yml"; \
+	    echo "  Edit it to set APP_PACKAGE_NAME, SHIP_SCHEME, and enable the Android job."; \
+	fi
+
+# ── End of 🎯T64.* ship substrate ─────────────────────────────────────────
 
 # Dep-file include for the app's own objects. Engine object .d files are
 # already picked up by their own implicit pattern-rule dep tracking.

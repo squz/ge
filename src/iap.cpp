@@ -135,10 +135,18 @@ Store& store() {
                 SPDLOG_WARN("GE_IAP_MODE=platform but no platform store available; falling back to stub");
                 instance = std::make_unique<StubStore>();
             }
+        } else if (mode == "local") {
+            // local mode (🎯T65.4): iOS reads from StoreKit.storekit via
+            // SKTestSession (GEStoreKit2LocalBridgeImpl); Android routes
+            // buy() through android.test.* reserved SKUs. On desktop there
+            // is no platform store, so local falls through to stub.
+            instance = detail::makePlatformStore();
+            if (!instance) {
+                SPDLOG_WARN("GE_IAP_MODE=local but no platform store available on this platform; falling back to stub");
+                instance = std::make_unique<StubStore>();
+            }
         } else {
-            // local mode lands with T65.4. Until then, anything
-            // unrecognised falls back to stub with a warning.
-            SPDLOG_WARN("GE_IAP_MODE={} not yet implemented; falling back to stub", mode);
+            SPDLOG_WARN("GE_IAP_MODE={} not recognised; falling back to stub", mode);
             instance = std::make_unique<StubStore>();
         }
     });

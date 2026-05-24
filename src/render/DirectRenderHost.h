@@ -27,8 +27,8 @@ public:
     int height() const override;
     DeviceClass deviceClass() const override;
     bool paused() const override;
-    SafeAreaInsets drawSafeInsets() const override;
-    SafeAreaInsets uiSafeInsets() const override;
+    SafeAreaInsets drawSafeInsetsInPts() const override;
+    SafeAreaInsets uiSafeInsetsInPts() const override;
     const Context& context() const override;
 
     void send(const wire::SessionConfig&) override;

@@ -20,9 +20,19 @@ bool Button::handleEvent(const PointerEvent& ev) {
         return true;
 
     case PointerEvent::Move:
+        // Drift-in capture (🎯T62): a Move arriving inside while idle
+        // captures the touch — same effect as a Down inside. Lets the
+        // user roll a finger onto a button from outside, matching
+        // UIButton behaviour on iOS.
+        if (phase == Idle) {
+            if (!inside) return false;
+            activeId = ev.id;
+            phase = PressedInside;
+            if (onHighlightChange) onHighlightChange(true);
+            return true;
+        }
         // Only the tracked finger drives state transitions; other
         // fingers' motion is ignored.
-        if (phase == Idle) return false;
         if (ev.id != activeId) return false;
         if (inside && phase == PressedOutside) {
             phase = PressedInside;

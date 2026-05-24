@@ -1,0 +1,47 @@
+{
+  "_comment": "StoreKit configuration file for GE_IAP_MODE=local testing.",
+  "_comment2": "Copy to your consuming app's ios/ directory and add to Xcode: Build Phases → Copy Bundle Resources.",
+  "_comment3": "Customize product IDs to match your ge::iap::setCatalogue() registration.",
+  "_comment4": "Format: Apple StoreKit Testing configuration (Xcode 12+, SKTestSession).",
+  "identifier": "ge-storekit-template",
+  "nonConsumableProducts": [
+    {
+      "displayPrice": "2.99",
+      "familySharable": false,
+      "internalID": "pro",
+      "localizations": [
+        {
+          "description": "Unlock all premium features",
+          "displayName": "Pro Upgrade",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.example.app.pro",
+      "referenceName": "pro",
+      "type": "NonConsumable"
+    }
+  ],
+  "consumableProducts": [
+    {
+      "displayPrice": "0.99",
+      "familySharable": false,
+      "internalID": "hints_10",
+      "localizations": [
+        {
+          "description": "A bundle of 10 hints",
+          "displayName": "10 Hints",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.example.app.hints_10",
+      "referenceName": "hints_10",
+      "type": "Consumable"
+    }
+  ],
+  "autoRenewableSubscriptions": [],
+  "nonRenewingSubscriptions": [],
+  "version": {
+    "major": 2,
+    "minor": 0
+  }
+}

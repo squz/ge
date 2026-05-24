@@ -9,6 +9,32 @@ profile: game  <!-- interactive rendering + streaming; "tests pass" doesn't guar
 
 Apps built on ge use a **server/player architecture**: the app (server) renders headless via bgfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
 
+## ge Claude Code Plugin
+
+ge ships a Claude Code plugin that exposes four skills for shipping ge-consumer apps.
+
+**Installation (one-time per checkout):**
+
+```bash
+cd ~/work/github.com/squz/<game>   # the consuming app's repo, not ge itself
+make ship-init
+```
+
+This symlinks `~/.claude/plugins/ge` → the ge submodule root. Restart Claude Code
+after running it. The skills are then available as `/ge:*` commands.
+
+**Skills:**
+
+| Skill | Description |
+|---|---|
+| `/ge:ship` | Conversational orchestrator — ask alpha/beta/release intent, run preflight, dispatch to `make ship-alpha/ship-beta/ship-release`. Never bypasses the make substrate. |
+| `/ge:release-notes` | Draft CHANGELOG bullets from `git log <last-tag>..HEAD`, grouped by 🎯T-prefix. Idempotent. |
+| `/ge:ship-status` | Read `build/ship/*/manifest.json` across squz game repos and emit a portfolio table (repo, lane, version, timestamp, SHA). |
+| `/ge:onboard` | Walk a new engineer from zero to a shippable machine state: clone, fastlane, ASC API key, match passphrase, plugin install, cert verify. |
+
+**Plugin location:** `.claude-plugin/plugin.json` at the ge repo root; skills
+live under `skills/{ship,release-notes,ship-status,onboard}/SKILL.md`.
+
 ## Integrating ge into a New App
 
 ### Minimal Example
@@ -42,7 +68,7 @@ Key points:
 - **App resources are created per session** (each reconnect gets a fresh `Context`)
 - The factory callback receives a `ge::Context` (rects, device class, DB) and returns a `RunConfig`
 - `RunConfig` uses designated initializers: `onUpdate`, `onRender`, `onEvent`, `onShutdown`
-- `onRender(const Context&)` is called each frame. The Context exposes three rects (`drawSafeRect`, `uiSafeRect`, `fullRect`) — the game must consciously pick the right one for each piece of work; there is no shortcut `width/height` to dodge the question. The engine refreshes them all before each call. Future per-frame state (parallax delta, tilt, …) joins `Context`, not the signature. bgfx frame submission happens inside `onRender`.
+- `onRender(const Context&)` is called each frame. The Context exposes three rects (`drawSafeRectInPts`, `uiSafeRectInPts`, `fullRectInPts`) — all in point space (🎯T60). The game must consciously pick the right one for each piece of work; there is no shortcut `width/height` to dodge the question. The engine refreshes them all before each call. Future per-frame state (parallax delta, tilt, …) joins `Context`, not the signature. bgfx frame submission happens inside `onRender`.
 - `ge::run` blocks until SIGINT or all sessions end
 - Ctrl+C terminates the process gracefully
 
@@ -297,6 +323,8 @@ player: $(ge/PLAYER)
 | `ge/src/text.cpp` | `ge::rasterizeText` (FreeType) |
 | `ge/src/VideoEncoder_apple.mm` | H.264 encoding via VideoToolbox |
 | `ge/src/VideoDecoder_apple.mm` | H.264 decoding via VideoToolbox |
+| `ge/src/audio.cpp` | `ge::audio` — device registry + pause/resume state machine (🎯T7) |
+| `ge/src/audio_apple.mm` | iOS AVAudioSession interruption + route-change observers (🎯T43) |
 | `ge/tools/player_capture_apple.mm` | Player screen capture backend (Apple) |
 
 ## H.264 Streaming Protocol
@@ -359,11 +387,38 @@ The player has no app-specific code — it works with any ge app.
 
 The player retries on disconnect with exponential backoff: 10ms initial, doubling to 2000ms cap, reset on success. This means you can restart the server and the player will reconnect automatically.
 
-### Audio Lifecycle (iOS / Android)
+### Audio Lifecycle (iOS / Android) (🎯T7 / 🎯T43)
 
-`AudioPlayer` automatically pauses all audio output when the OS backgrounds the app (`SDL_EVENT_DID_ENTER_BACKGROUND`) and resumes it when the app returns to the foreground (`SDL_EVENT_DID_ENTER_FOREGROUND`). This is wired via `SDL_AddEventWatch` inside `AudioPlayer`'s constructor — no game code or player-loop changes are required. The watch is removed in the destructor.
+ge provides a centralized audio control API (`<ge/audio.h>`) that automatically pauses all registered SDL audio devices when the app is backgrounded or loses audio focus, and resumes them when it returns to the foreground or regains focus.
 
-Desktop builds are unaffected: SDL does not fire these events on macOS/Linux/Windows.
+**`ge::audio` API (🎯T7 + 🎯T43):**
+
+```cpp
+#include <ge/audio.h>
+
+// Register a device — engine pauses/resumes it automatically.
+SDL_AudioDeviceID dev = SDL_OpenAudioDevice(...);
+auto reg = ge::audio::registerDevice(dev);  // RAII; keep alive
+
+// Query state:
+ge::audio::FocusState s = ge::audio::state();  // Active or Paused
+```
+
+The `Registration` RAII handle unregisters the device when dropped. `AudioPlayer` (wire-mode player) calls `registerDevice` itself, so no action is needed for wire-mode audio. Direct-mode apps that open their own SDL audio device call `registerDevice` once in their audio init.
+
+**What the engine handles automatically (no game code required):**
+
+| Event | iOS | Android |
+|---|---|---|
+| App backgrounded | `SDL_EVENT_DID_ENTER_BACKGROUND` → `onBackground()` | `WINDOW_FOCUS_LOST` / `WINDOW_MINIMIZED` → `onBackground()` |
+| App foregrounded | `SDL_EVENT_DID_ENTER_FOREGROUND` → `onForeground()` | `WINDOW_RESTORED` / `WINDOW_FOCUS_GAINED` → `onForeground()` |
+| Phone call / alarm (T43) | `AVAudioSessionInterruptionNotification` Began → `onAudioFocusLost()` | `AudioManager.OnAudioFocusChangeListener` LOSS → `onAudioFocusLost()` |
+| Call ends / resumable (T43) | Notification Ended + shouldResume → `onAudioFocusGained()` | `OnAudioFocusChangeListener` GAIN → `onAudioFocusGained()` |
+| Headphones unplugged (T43) | `AVAudioSessionRouteChangeNotification` OldDeviceUnavailable → brief pause + resume | (handled by Android OS / AudioManager) |
+
+The two "silence reasons" (background + focus lost) are independent: both must clear before audio resumes. iOS audio-focus integration installs `AVAudioSession` notification observers in `DirectRenderHost`'s constructor via `ge::audio::installAppleAudioObservers()`. Android routes audio focus through `GeActivity.java`'s `OnAudioFocusChangeListener` → `nativeOnAudioFocusChange()` JNI → atomic drained by `pumpEvents()`.
+
+Desktop builds are unaffected: SDL does not fire background/foreground events on macOS/Linux/Windows, and there is no audio focus concept.
 
 ### Ged Quiet Mode
 
@@ -440,7 +495,7 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 ### Session Host
 
 - **`ge::run(Factory, SessionHostConfig)`** (`SessionHost.h`) — Blocks until SIGINT or all sessions end. Connects to ged via sideband WebSocket, sets up bgfx rendering (headless H.264 encode by default, or native window when `headless=false`), and calls the factory for each attaching player. The factory receives a `ge::Context` and returns a `RunConfig`. `SessionHostConfig` controls default dimensions, headless mode, and app identity for the persistent database path.
-- **`ge::Context`** — Platform context passed to the factory once at session start and to `onRender` each frame. Provides `drawSafeRect()` / `uiSafeRect()` / `fullRect()` (rect accessors, see `ge::Rect`), `safeArea()` (per-edge insets), `deviceClass()`, `pixelsPerPt()` / `ptsPerPixel()` / `deviceUiScale()` (sizing scalars, below), `parallax()` (device-tilt parallax, see `SessionHostConfig.parallaxFactor`), and `db()` (the engine-managed sqlpipe database). The safe rect is *advisory*, not a clip region — games are free to draw anywhere on the surface but should keep the gameplay grid inside the safe rect so chrome doesn't intrude on it. Cheaply copyable (shared_ptr internals); accessors return live values that the engine updates before each callback.
+- **`ge::Context`** — Platform context passed to the factory once at session start and to `onRender` each frame. Provides `drawSafeRectInPts()` / `uiSafeRectInPts()` / `fullRectInPts()` (rect accessors in point space, 🎯T60, see `ge::Rect`), `drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (per-edge `SafeAreaInsets` in pt — 🎯T37 — reach for these only when aligning against a specific chrome edge), `deviceClass()`, `pixelsPerPt()` / `ptsPerPixel()` / `deviceUiScale()` (sizing scalars, below), `parallax()` (device-tilt parallax, see `SessionHostConfig.parallaxFactor`), and `db()` (the engine-managed sqlpipe database). The safe rect is *advisory*, not a clip region — games are free to draw anywhere on the surface but should keep the gameplay grid inside the safe rect so chrome doesn't intrude on it. Cheaply copyable (shared_ptr internals); accessors return live values that the engine updates before each callback. **🎯T60 migration**: pre-T60 `drawSafeRect()` / `uiSafeRect()` / `fullRect()` were renamed to `*InPts()` — consumers must update at compile time; no silent fallback exists.
 - **Sizing scalars on `Context`** — Two distinct axes for cross-device sizing:
   - `pixelsPerPt()` / `ptsPerPixel()` — physical-size axis. 1pt is OS-calibrated (1/163" on iPhones, 1/132" on iPads, etc.) so the same pt count yields a similar physical mm at the device's typical viewing distance. iPhone @3x: 3.0; iPad @2x: 2.0; desktop: 1.0. Use for **touch targets, body text, fixed-feel chrome** — anything where the constraint is "must be at least N physical mm". Reciprocal pair.
   - `deviceUiScale()` — form-factor axis. Sublinear scale: `sqrt(short_side_mm / 65mm)` where 65mm is the iPhone-Pro-Max-class reference. 1.0 on the reference phone, ~1.55 on an 11" iPad. Use for **chrome icons, headlines, presentation art** that should *grow* on tablets without blowing up linearly. Returns 1.0 on desktop and 1.0 in wire mode if the player's `pixelRatio` is unknown.
@@ -448,22 +503,36 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 - **System back-press (`RunConfig::onBackPressed`, 🎯T44)** — Setting this consumes the Android Back button / predictive-back gesture (`OnBackInvokedDispatcher` on API 33+, legacy `onBackPressed` override otherwise) and runs the callback on the game thread. Use to surface a pause menu, confirm exit, or step back through an in-game stack. Leaving the field unset means the OS handles back (typically backgrounding the app). iOS is a no-op in practice — the immersive flag suppresses edge-swipe-back. The callback fires one frame late (the engine drains a pending atomic in `pumpEvents` to keep dispatch on the game thread), but the predictive-back animation is unaffected because Java's "consumed?" answer is synchronous.
 - **OS memory-pressure warnings (`RunConfig::onMemoryWarning`, 🎯T45)** — Fires when iOS sends `UIApplicationDidReceiveMemoryWarningNotification` (always Critical) or Android sends `onTrimMemory(level)` (mapped to `Low` / `Moderate` / `Critical` via the engine's collapse of the five Android buckets — `RUNNING_MODERATE`→Low, `RUNNING_LOW`/`UI_HIDDEN`/`BACKGROUND`/`MODERATE`→Moderate, `RUNNING_CRITICAL`/`COMPLETE`→Critical). The engine drops its own caches first; the game's response is layered on top. Recommended action: drop high-cost caches (texture mips, audio decoders, font glyph atlases) in proportion to the level. Both events fire on the game thread (the engine drains a pending atomic in `pumpEvents`, same pattern as back-press).
 - **Device-tilt parallax (`parallax()` + `SessionHostConfig.parallaxFactor`, 🎯T9)** — Reproduces the Apple Spatial Scenes effect: subtle device tilt drives a parallax offset that the game applies to its scene. Set `SessionHostConfig.parallaxFactor` > 0 to opt in (the same float controls both opt-in and sensitivity, scaling the engine's screen-XY delta before exposure). The engine maintains a 1.0 s EMA baseline so sustained tilts settle to the new neutral; `Context::parallax()` returns the recent delta as `la::float2{rotX, rotY}` in radians, suitable for `cameraOffset += ctx.parallax() * depth;` or feeding a small rotation matrix. Sensor source: iOS `CMMotionManager.deviceMotion.attitude` (sensor-fused, captures vertical-axis twist that gravity alone misses); Android `Sensor.TYPE_GAME_ROTATION_VECTOR` via JNI to the activity's `getAttitude()` (gyro+accel, no magnetometer — the EMA absorbs whatever heading reference Android picks). Desktop is a no-op (returns `{0, 0}`). Wire-mode parallax (player→server attitude streaming) is deferred until the player port lands.
-- **`ge::Rect`** — `{ x, y, w, h }` float rectangle. Returned by `Context::drawSafeRect()`, `Context::uiSafeRect()`, and `Context::fullRect()` (all in screen-coord, where +y points down per SDL/bgfx). The Rect type is **direction-agnostic** (caller decides what +y means) and **sign-honest** (methods compute their formulas as written; signed-area rects produce well-defined non-conventional results rather than asserting). Corner accessors are direction-agnostic: `x0y0()`, `x1y0()`, `x0y1()`, `x1y1()` — first index is position along x (0 = origin, 1 = far), second along y.
+- **`ge::Rect`** — `{ x, y, w, h }` float rectangle. Returned by `Context::drawSafeRectInPts()`, `Context::uiSafeRectInPts()`, and `Context::fullRectInPts()` (all in point space per 🎯T60; +y points down per SDL/bgfx convention). The Rect type is **direction-agnostic** (caller decides what +y means) and **sign-honest** (methods compute their formulas as written; signed-area rects produce well-defined non-conventional results rather than asserting). Corner accessors are direction-agnostic: `x0y0()`, `x1y0()`, `x0y1()`, `x1y1()` — first index is position along x (0 = origin, 1 = far), second along y.
   - **Constructors:**
     - `Rect{x, y, w, h}` — 4 floats directly.
     - `Rect{{.origin = {1, 2}, .size = {3, 4}}}` — `OriginSize` tagged ctor.
     - `Rect{{.a = {1, 2}, .b = {5, 6}}}` — `Corners` tagged ctor (sign-preserving; `Rect{Corners{a, b}}.normalized()` is the order-independent bbox of two points).
     - Designated init disambiguates the two tagged forms — `Rect{{1, 2}, {3, 4}}` is a deliberate compile error.
-  - **Math** (v0.8.0+): `size()`, `halfExtents()`, `center()`, `area()` (signed `w * h`), `aspect()`, `empty()` (true iff `w == 0 || h == 0`; signed-area rects are *not* empty), contextual-`bool` (`if (r) ...` = non-empty) and `operator!()`, `contains(point)` (half-open `[x,x+w) × [y,y+h)`), `contains(other)`, `intersects(other)`, `intersect(other)`, `bbox(other)`, `translated(la::float2)`, `withOrigin(la::float2)` / `withSize(la::float2)`, `adjusted(Rect)` (component-wise add of all four fields — composes with the `Corners` ctor to express inset/outset/per-edge mutate as `r.adjusted({{.a = {l, t}, .b = {-r, -b}}})`), `scaled(ScalingVec)` / `scaled(ScalingScalar)` (pivot scaling around a normalized rect-local center, default `{0.5, 0.5}`), `normalized()` (positive-w/h form of a possibly-signed rect; preserves the region), `operator*(float)` / `operator/(float)`, `operator==/!=`, `Rect::centered(c, sz)`, `fitInside(la::float2 content)` (CSS `object-fit: contain` — largest sub-rect of `*this` with content's aspect ratio, centered; letterboxes / pillarboxes), `fillInside(la::float2 content)` (CSS `object-fit: cover` — smallest rect with content's aspect that covers `*this`, centered; overflows on the non-binding axis). Half-open hit-test matches SDL/bgfx pixel coords so adjacent rects tile without overlap. There is **no `inset` / `outset` family of methods** — `adjusted + Corners` is the unified primitive, and `Context::drawSafeRect` / `uiSafeRect` use it internally to apply `SafeAreaInsets`.
+  - **Math** (v0.8.0+): `size()`, `halfExtents()`, `center()`, `area()` (signed `w * h`), `aspect()`, `empty()` (true iff `w == 0 || h == 0`; signed-area rects are *not* empty), contextual-`bool` (`if (r) ...` = non-empty) and `operator!()`, `contains(point)` (half-open `[x,x+w) × [y,y+h)`), `contains(other)`, `intersects(other)`, `intersect(other)`, `bbox(other)`, `translated(la::float2)`, `withOrigin(la::float2)` / `withSize(la::float2)`, `adjusted(Rect)` (component-wise add of all four fields — composes with the `Corners` ctor to express inset/outset/per-edge mutate as `r.adjusted({{.a = {l, t}, .b = {-r, -b}}})`), `scaled(ScalingVec)` / `scaled(ScalingScalar)` (pivot scaling around a normalized rect-local center, default `{0.5, 0.5}`), `normalized()` (positive-w/h form of a possibly-signed rect; preserves the region), `operator*(float)` / `operator/(float)`, `operator==/!=`, `Rect::centered(c, sz)`, `fitInside(la::float2 content)` (CSS `object-fit: contain` — largest sub-rect of `*this` with content's aspect ratio, centered; letterboxes / pillarboxes), `fillInside(la::float2 content)` (CSS `object-fit: cover` — smallest rect with content's aspect that covers `*this`, centered; overflows on the non-binding axis). Half-open hit-test matches point coords. There is **no `inset` / `outset` family of methods** — `adjusted + Corners` is the unified primitive, and `Context::drawSafeRectInPts` / `uiSafeRectInPts` use it internally to apply `SafeAreaInsets`.
 - **linalg aliases in `ge::la`** — `ge/Linalg.h` re-exports the full `linalg::aliases` set into `ge::la` and is included by every public ge header, so games can write `ge::la::float2` / `ge::la::float4x4` / `ge::la::int3` no matter which ge header they pulled in. The sub-namespace is deliberate: keeps linalg's 96 aliases out of `ge::`'s autocomplete and preserves a clean visual marker at use sites that the type came from linalg, not ge proper. `using namespace ge::la;` brings the short forms in unqualified for game code that wants them.
 - **`ge::ortho`** (🎯T54) — 2D projection builders. `ge::ortho::letterbox(content, screen)` returns a `float4x4` that maps content-space onto clip space, preserving content's aspect ratio (the dominant axis fills the screen; the opposite axis is *extended* so content drawn outside the nominal `(0..content)` rect lands in the letterbox/pillarbox bars — useful for backdrop bleed). `pixelOrtho(w, h)` is the no-aspect variant: `(0..w, 0..h)` directly to clip space, top-left origin / +Y down. `screenToContent(screenPt, content, screen)` is the inverse of `letterbox` for hit-testing under a letterboxed projection.
 - **`ge::gesture`** (🎯T55) — Pure-math swipe predicates. `isHorizontalSwipe(dx, dy, threshold, dominanceRatio = 1.5f)` returns true iff `|dx| > threshold` AND `|dx| > |dy| * dominanceRatio`. `isVerticalSwipe` is the axis-swapped sibling. No platform / SDL deps; consumer accumulates per-frame deltas and decides routing.
 - **`ge::layout`** (🎯T58) — Grid-row and grid-column position helpers. `gridY(rowIdx, rowH, gap, topMargin)` and `gridX(colIdx, colW, gap, leftMargin)` return positions for fixed-row stacks; both honor negative indices.
 - **`ge::Button` and `ge::ButtonGroup`** (`<ge/button.h>`) — Standard touch/click button interactor with iOS-style press semantics: tap down inside highlights, drag outside un-highlights, drag back in re-highlights, release inside fires, release outside doesn't. `Button` is rendering-agnostic — consumer supplies a `hitTest` predicate (`ge::rectHitTest(rect)` for the common case, or a lambda wrapping `lunasvg::Document::elementFromPoint`, or anything else) and queries `highlighted()` from the render loop (or wires `onHighlightChange` for one-shot side effects). `tracking()` reports whether a press is in flight. `ButtonGroup` borrows a `vector<Button*>` and routes `PointerEvent`s through them with single-button-lock semantics: once a button starts tracking, all subsequent events for any finger are claimed by the group until that button returns to idle. `ge::PointerEvent` is the engine's pre-converted pointer event (`{kind, pos, id}`); SDL → PointerEvent conversion is done by `ge::input::fromSdl` (see next).
-- **`ge::input::sdlPointerEventConverter(const Context&)`** + **`ge::input::fromSdl(const SDL_Event&, la::float2)`** (🎯T59, `<ge/sdl_input.h>`) — Convert SDL pointer events to `ge::PointerEvent` in render-surface **pixel** space (the unit convention shared with `Context::fullRect()` and friends; 🎯T60 tracks a possible future switch to point-space). The primary surface is `sdlPointerEventConverter(ctx)` — returns a callable bound to `ctx` that reads `ctx.fullRect().size()` per call so surface-size changes (resize, orientation) are picked up automatically. `fromSdl` is the underlying free function (used by tests and callers without a Context). Returns `std::optional` — `nullopt` for non-pointer events and for touch-synthetic mouse events (`SDL_TOUCH_MOUSEID`) that duplicate a finger event. Mouse coords are scaled via the SDL window's own point→pixel ratio; touch coords are denormalized against the surface size. Mouse synthesizes a single virtual finger ID (`ge::kMouseId`); touch propagates `SDL_TouchFingerEvent::fingerID` verbatim. Consumers wiring `ge::Button` / `ge::ButtonGroup` use this once at their dispatch site instead of rewriting the SDL boilerplate.
-- **`ge::SafeAreaInsets`** — Per-edge insets (`top`, `bottom`, `left`, `right`, in render-surface pixels) describing the device chrome (camera notch, Dynamic Island, system gestures, home indicator). Most games consume `Context::rect()` instead, but the per-edge insets are available for code that wants to align with a specific chrome edge. All zero on platforms with no safe-area concept (desktop) and on wire-mode sessions until the player→server safe-area plumbing lands (🎯T37 follow-up). On iOS / Android, populated from `SDL_GetWindowSafeArea` in `DirectRenderHost`.
+- **`ge::input::sdlPointerEventConverter(const Context&)`** + **`ge::input::fromSdl(const SDL_Event&, la::float2)`** (🎯T59, 🎯T60, `<ge/sdl_input.h>`) — Convert SDL pointer events to `ge::PointerEvent` in **point space** (🎯T60). The primary surface is `sdlPointerEventConverter(ctx)` — returns a callable bound to `ctx` that reads `ctx.fullRectInPts().size()` per call so surface-size changes (resize, orientation) are picked up automatically. `fromSdl` is the underlying free function (used by tests and callers without a Context); its second arg is `surfaceSizePts`. Returns `std::optional` — `nullopt` for non-pointer events and for touch-synthetic mouse events (`SDL_TOUCH_MOUSEID`) that duplicate a finger event. Mouse coords come from SDL in window-point space and are passed through as-is; touch coords are denormalized against `surfaceSizePts`. Mouse synthesizes a single virtual finger ID (`ge::kMouseId`); touch propagates `SDL_TouchFingerEvent::fingerID` verbatim. Consumers wiring `ge::Button` / `ge::ButtonGroup` use this once at their dispatch site instead of rewriting the SDL boilerplate.
+- **`ge::LongPressWatcher`** (🎯T65.6, `<ge/long_press.h>`) — Long-press gesture detector for "secret" / debug triggers (e.g. a long-press in the top-right corner reveals the IAP debug panel). Rect-region + threshold + onFire callback. `handleEvent(PointerEvent)` from the dispatch site, `update(dt)` each frame; fires exactly once per held press after `thresholdSec`. Single-touch by design (mirrors `ge::Button`). Re-press after fire fires again on the next threshold crossing. Drift-out cancels without firing — the discipline is "hold still", not "drift in". Wiring for the IAP debug panel is a few lines in the consumer's `#ifndef NDEBUG` block: instantiate watcher + `ge::iap::DebugPanel`, route pointer events through both, render the panel's `rows()` with the game's own UI primitives.
+- **`ge::SafeAreaInsets`** — Direction-agnostic per-edge insets (`y0`, `y1`, `x0`, `x1`, in **point space** after 🎯T60) describing the device chrome (camera notch, Dynamic Island, system gestures, home indicator). In ge's SDL/bgfx screen-coord (y-down), `y0` = top, `y1` = bottom, `x0` = left, `x1` = right. Most games consume `Context::drawSafeRectInPts()` / `uiSafeRectInPts()` instead — the rect API is the natural shape. Reach for `Context::drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (🎯T37 + 🎯T60) only when the task is "align flush with a specific chrome edge". All four edges are 0 on platforms with no safe-area concept (desktop) and on wire-mode sessions until the player→server safe-area plumbing lands (🎯T37 follow-up). On iOS / Android, populated from `SDL_GetWindowSafeArea` in `DirectRenderHost` (SDL returns pts; no conversion needed).
 - **`ge::RunConfig`** — Render loop callbacks: `onUpdate(dt)`, `onRender(const Context&)`, `onEvent(SDL_Event)`, `onShutdown()`.
 - **`ge::Factory`** — `std::function<RunConfig(Context)>`.
+
+### High refresh rate during press (🎯T63)
+
+`DirectRenderHost` automatically requests the display's maximum refresh rate whenever a touch or mouse-button press is in flight, and releases it when all presses end. This keeps ProMotion / VRR displays (iPad mini A17 Pro, etc.) in their high-refresh state so button-highlight feedback appears within ≤1 vsync of the Down event — not after a slow-to-recover 60 Hz cycle.
+
+**Mechanism:** `DirectRenderHost` holds one `ge::RefreshRateBoost` (internal, `include/ge/RefreshRateBoost.h`). The counter increments on every `SDL_EVENT_FINGER_DOWN` / `SDL_EVENT_MOUSE_BUTTON_DOWN` and decrements on Up / Cancel. SDL_TOUCH_MOUSEID synthetic mouse events are excluded (they duplicate finger events). On background transition (focus lost / hidden / minimized) the counter is drained to zero.
+
+**Platform details:**
+- **iOS/iPadOS** — a `CADisplayLink` with `preferredFrameRateRange(min=80, max=device_max, preferred=device_max)` is added to the run loop on 0→1 and invalidated on 1→0. CADisplayLink's presence alone is enough to hold the display at high refresh; its callback is a no-op. API-guarded: `preferredFrameRateRange` requires iOS 15+; falls back to `preferredFramesPerSecond` on older OS.
+- **Android** — calls `GeActivity.setFrameRateBoost(bool)` via JNI, which uses `Surface.setFrameRate(maxFps, FRAME_RATE_COMPATIBILITY_DEFAULT)` on API 30+; no-op on older devices.
+- **macOS / desktop** — no-op. Desktop displays don't VRR-throttle on idle.
+
+Consumer apps require no code changes — the boost is entirely engine-internal.
 
 ### Rendering
 
@@ -569,6 +638,14 @@ sprite = ge::renderSvgDocument(*doc, 1024, 256);
 ### Tweak System
 
 - **`Tweak<T>`** (`Tweak.h`) — Generic runtime-tunable parameter with atomic `shared_ptr` for lock-free reads. Specialized types: `EnumTweak` (int with named labels for dropdown UI), `Vec2Tweak` (float2 with per-axis screen direction via `Dir` enum), `AxisTweak` (float with drag axis vector encoding direction+sensitivity), `Color` (float4 alias). Database: `loadOverrides()` opens SQLite DB and applies saved values, `save()` persists a tweak, `resetOne()`/`resetAll()` restore defaults. JSON API: `allToJson()` emits name, value, default, and type-specific metadata; `parseAndApply()` sets a value from JSON; `parseAndReset()` resets by name or all. Global generation counter (`generation()`) increments on every `set()` for change tracking. Header-only, in `tweak::` namespace.
+
+### Audio (🎯T7 / 🎯T43)
+
+- **`ge::audio`** (`<ge/audio.h>`) — Engine-driven pause/resume for SDL audio devices. See the "Audio Lifecycle" section above for the full description. Key surface:
+  - `registerDevice(SDL_AudioDeviceID)` → RAII `Registration`; unregisters on drop.
+  - `pauseAll()` / `resumeAll()` — manual control (engine uses automatically).
+  - `state()` → `FocusState::Active` or `FocusState::Paused`.
+  - `onBackground()` / `onForeground()` / `onAudioFocusLost()` / `onAudioFocusGained()` — engine-internal lifecycle hooks called by DirectRenderHost and AVAudioSession observers.
 
 ### Platform
 
@@ -702,6 +779,16 @@ Game-side code keeps using the local id everywhere — `owned("allpacks")`, `buy
 The bridge is wired into the iOS Xcode project via CMake (`enable_language(Swift)` + `XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER` pointed at `src/iap_apple_bridge.h`). `iap_apple.mm` instantiates the Swift class via `NSClassFromString(@"GEStoreKit2BridgeImpl")` so no autogenerated `<Target>-Swift.h` import is needed in C++. Macros and Module.mk are unaffected — macOS desktop builds compile `iap_apple.mm` to a `makePlatformStore() returns nullptr` stub and skip the Swift file entirely.
 
 **Adding new SK2 surface:** extend the `GEStoreKit2Bridge` / `GEStoreKit2Listener` protocols in `iap_apple_bridge.h`, add the Swift implementation in `iap_apple.swift`, route from C++ in `iap_apple.mm`. The protocol-typed `id<GEStoreKit2Bridge>` keeps C++ type-checked.
+
+**LocalStore mode on iOS (🎯T65.4).** When `GE_IAP_MODE=local`, `iap_apple.mm` instantiates `GEStoreKit2LocalBridgeImpl` (from `iap_apple_local.swift`) instead of `GEStoreKit2BridgeImpl`. The local bridge starts an `SKTestSession` pointed at `StoreKit.storekit` in the app bundle, then delegates all product/purchase calls to the production bridge — the session intercepts StoreKit calls globally. Consumer setup:
+
+1. Run `make ge/storekit-init` to copy `ge/ios/StoreKit.storekit` into `ios/StoreKit.storekit`.
+2. Edit the file to match your `setCatalogue()` registration (remember: ge auto-prefixes local IDs, so `"pro"` → `"com.squz.mygame.pro"`).
+3. In Xcode: **Build Phases → Copy Bundle Resources** → add `StoreKit.storekit`.
+4. In Xcode: **Build Phases → Link Binary With Libraries** → add `StoreKitTest.framework`, set to **Optional**.
+5. Set `GE_IAP_MODE=local` in the Xcode scheme environment variables.
+
+See `docs/iap-testing.md` for the full LocalStore walkthrough and Android `android.test.*` SKU mapping.
 
 - **`<ge/iap.h>`** — Public surface. `Type`, `Product`, `SkuMapping`, `LocalisedProduct`, `Result`, `setCatalogue`, `owned`, `products`, `buy`, `restore`, `testing::setOwned`, `testing::clearAll`.
 
