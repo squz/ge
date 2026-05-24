@@ -1216,10 +1216,22 @@ ship-worktree:
 # ── ship-alpha ─────────────────────────────────────────────────────────────
 # Build at HEAD, upload to TestFlight internal testers, no semver bump.
 
+# Default SHIP_PROJECT to the conventional CMake-generated Xcode project
+# path. Consumer can override (e.g. SHIP_PROJECT := ios/MyHandwritten.xcodeproj)
+# before including Module.mk.
+SHIP_PROJECT ?= ios/build/xcode/$(SHIP_SCHEME).xcodeproj
+
+# `ios` is the consumer's CMake-Xcode codegen target (defined in their
+# Makefile, e.g. `cd ios && cmake -G Xcode -B build/xcode ...`). ge's
+# ship-* lanes depend on it so the .xcodeproj exists at SHIP_PROJECT
+# before gym tries to read it. If the consumer has a hand-written
+# .xcodeproj (no codegen needed), they can stub `ios:` as a no-op.
+
 .PHONY: ship-alpha
-ship-alpha:
+ship-alpha: ios
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	SHIP_PROJECT=$(SHIP_PROJECT) \
 	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane alpha
 
@@ -1228,11 +1240,12 @@ ship-alpha:
 # VERSION is required: `make ship-beta VERSION=0.31.0`
 
 .PHONY: ship-beta
-ship-beta:
+ship-beta: ios
 	@if [ -z "$(VERSION)" ]; then \
 	    echo "Usage: make ship-beta VERSION=0.31.0"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	SHIP_PROJECT=$(SHIP_PROJECT) \
 	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane beta --version $(VERSION)
 
@@ -1242,7 +1255,7 @@ ship-beta:
 # VERSION is required: `make ship-release VERSION=0.31.0 CONFIRM=1`
 
 .PHONY: ship-release
-ship-release:
+ship-release: ios
 	@if [ -z "$(VERSION)" ]; then \
 	    echo "Usage: make ship-release VERSION=0.31.0 CONFIRM=1"; exit 1; fi
 	@if [ -z "$(CONFIRM)" ] || [ "$(CONFIRM)" != "1" ]; then \
@@ -1250,6 +1263,7 @@ ship-release:
 	    echo "  make ship-release VERSION=$(VERSION) CONFIRM=1"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	SHIP_PROJECT=$(SHIP_PROJECT) \
 	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane release --version $(VERSION) --confirm
 
