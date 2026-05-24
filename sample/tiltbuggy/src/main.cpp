@@ -127,7 +127,7 @@ int main(int argc, char* argv[]) {
         .headless = brokered,
         .appName = "tiltbuggy",
         .sensors = wire::kSensorAccelerometer,
-        .orientation = wire::kOrientationLandscape,
+        .orientation = wire::kOrientationAnyLandscape,
         .disableScreenSaver = true,
         .immersive = true,
     });

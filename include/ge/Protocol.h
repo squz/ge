@@ -78,27 +78,32 @@ constexpr uint8_t kSensorAccelerometer = 1;
 
 // Orientation constants — assigned from SDL_DisplayOrientation.
 //
-// CAVEAT (v0.3.0): playerForceOrientation() treats this field as a
-// boolean — any non-zero value enables the iPad orientation lock; the
-// SPECIFIC constant is not honored at runtime. The orientation that
-// gets locked is whichever one iOS picked at launch, constrained by
-// the app bundle's UISupportedInterfaceOrientations in Info.plist.
+// As of v0.31.0 (🎯T36) these constants are authoritative — passing
+// e.g. `kOrientationPortrait` makes the engine narrow
+// `supportedInterfaceOrientations` to portrait at runtime, so iOS
+// will rotate the UI to portrait at launch even if the device is held
+// in landscape and the plist allows all four orientations. The plist's
+// `UISupportedInterfaceOrientations` becomes the fallback (used when
+// the consumer hasn't requested a specific lock), not the gate.
 //
-// To force a specific orientation, narrow the plist:
-//   * "any landscape"   → LandscapeLeft + LandscapeRight
-//   * "LandscapeLeft only" → LandscapeLeft
-//   * "portrait only"   → Portrait + PortraitUpsideDown (or just Portrait)
+// On iPadOS 26+ the swizzled `prefersInterfaceOrientationLocked`
+// (Apple TN3192) freezes the post-launch orientation against the
+// multitasking swivel gesture — same mechanism as before, the
+// difference is the SPECIFIC orientation now matches what the
+// consumer asked for.
 //
-// Setting kOrientationLandscape vs kOrientationLandscapeFlipped today
-// is a no-op difference; both are simply "non-zero, lock please."
-//
-// 🎯T36 tracks aligning the API with its behavior (either collapse to
-// a boolean field, or make these constants authoritative by having the
-// engine narrow supportedInterfaceOrientations at runtime).
+// "Either landscape, lock at launch" (the tilt-game case where the
+// player flips the device freely) is `kOrientationAnyLandscape`.
+// Use it when accelerometer-driven gameplay needs the launch
+// orientation to win regardless of left/right.
 constexpr uint8_t kOrientationLandscape        = SDL_ORIENTATION_LANDSCAPE;
 constexpr uint8_t kOrientationLandscapeFlipped = SDL_ORIENTATION_LANDSCAPE_FLIPPED;
 constexpr uint8_t kOrientationPortrait         = SDL_ORIENTATION_PORTRAIT;
 constexpr uint8_t kOrientationPortraitFlipped  = SDL_ORIENTATION_PORTRAIT_FLIPPED;
+// "Lock at launch to whichever landscape the device is in; reject
+// mid-play rotations." Distinct from the specific constants above,
+// which force one specific landscape.
+constexpr uint8_t kOrientationAnyLandscape     = 0xFE;
 
 // Header for binary wire messages.
 struct MessageHeader {
