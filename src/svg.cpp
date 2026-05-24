@@ -138,4 +138,38 @@ Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH)
     return uploadPixels(bitmapToPixels(bm));
 }
 
+lunasvg::Element hitTestSvgAt(const lunasvg::Document& doc,
+                              float x, float y, float radiusPx) {
+    // lunasvg::Document::elementFromPoint is non-const in some versions;
+    // same const_cast rationale as renderToBitmap above.
+    auto& d = const_cast<lunasvg::Document&>(doc);
+
+    // Centre first — a direct hit wins over any ring sample.
+    if (auto e = d.elementFromPoint(x, y)) return e;
+    if (radiusPx <= 0.0f) return {};
+
+    // 8-point ring at 45° increments. cos/sin computed inline because
+    // C++ <cmath> trig isn't constexpr until C++26; the table form
+    // (eight entries × two floats) is overkill for code that only runs
+    // on a tap.
+    constexpr float kSqrt1_2 = 0.70710678118654752440f;  // 1/√2
+    constexpr float kOffsets[8][2] = {
+        { 1.0f,      0.0f     },  // E
+        { kSqrt1_2,  kSqrt1_2 },  // SE
+        { 0.0f,      1.0f     },  // S
+        {-kSqrt1_2,  kSqrt1_2 },  // SW
+        {-1.0f,      0.0f     },  // W
+        {-kSqrt1_2, -kSqrt1_2 },  // NW
+        { 0.0f,     -1.0f     },  // N
+        { kSqrt1_2, -kSqrt1_2 },  // NE
+    };
+    for (const auto& o : kOffsets) {
+        if (auto e = d.elementFromPoint(x + o[0] * radiusPx,
+                                        y + o[1] * radiusPx)) {
+            return e;
+        }
+    }
+    return {};
+}
+
 } // namespace ge

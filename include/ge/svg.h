@@ -68,4 +68,31 @@ Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH)
 bool registerSvgFontFace(const std::string& family, bool bold, bool italic,
                          const FontRef& ref);
 
+// ─────────────────────────────────────────────────────────────────────
+// Hit testing with fingertip tolerance (🎯T53)
+// ─────────────────────────────────────────────────────────────────────
+//
+// lunasvg's native `Document::elementFromPoint(x, y)` is pixel-precise:
+// the touch must land on the rasterized geometry of the element. For
+// touch UI on real fingers, pixel-precise is too strict — the user
+// taps in the visual neighbourhood of a button, not on its pixel grid.
+//
+// `hitTestSvgAt` samples a small ring of points around the input,
+// returns the first element it finds. Use it where the lunasvg native
+// API would have been called — it's a strictly more forgiving
+// drop-in. Tolerance is in the same coord system as the input (SVG
+// pixels, post `inverse(modelToWorld)` → unit-square × sprite.size).
+//
+// `radiusPx == 0` reduces to a single `elementFromPoint` call. The
+// sample pattern is centre + 8 ring points at 45° increments at the
+// given radius. The centre is consulted first, so a hit on the
+// element under the fingertip is preferred over a neighbour even
+// when both are within radius. The cost is at most 9 lunasvg calls,
+// each ~O(rendered-element-count) — fine for touch handling at 60fps.
+//
+// Returns an invalid `lunasvg::Element` (operator bool == false) on
+// no-hit.
+lunasvg::Element hitTestSvgAt(const lunasvg::Document& doc,
+                              float x, float y, float radiusPx);
+
 } // namespace ge

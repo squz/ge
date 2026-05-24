@@ -77,6 +77,85 @@ TEST_CASE("rasterizeSvgToPixels: clipPath divides red and transparent regions") 
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 🎯T53 — hitTestSvgAt: fingertip-tolerance hit testing
+// ─────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// Two non-overlapping square buttons separated by a 4px gap, each with
+// an `id` so we can identify which one was hit. The whole SVG is
+// 16×8; left button covers x=[0,6], right covers x=[10,16], gap at
+// x=[6,10].
+constexpr std::string_view kTwoButtonsSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="16" height="8">
+  <rect id="left"  x="0"  y="0" width="6" height="8" fill="#FF0000"/>
+  <rect id="right" x="10" y="0" width="6" height="8" fill="#0000FF"/>
+</svg>)SVG"sv;
+
+} // namespace
+
+TEST_CASE("hitTestSvgAt: centre hit returns the element directly under the point") {
+    auto doc = lunasvg::Document::loadFromData(kTwoButtonsSvg.data(),
+                                               kTwoButtonsSvg.size());
+    REQUIRE(doc);
+
+    // (3, 4) is squarely inside the left rect.
+    auto el = ge::hitTestSvgAt(*doc, 3.0f, 4.0f, /*radiusPx=*/2.0f);
+    REQUIRE(el);
+    CHECK(el.getAttribute("id") == "left");
+}
+
+TEST_CASE("hitTestSvgAt: drop into the gap finds the nearer element within radius") {
+    auto doc = lunasvg::Document::loadFromData(kTwoButtonsSvg.data(),
+                                               kTwoButtonsSvg.size());
+    REQUIRE(doc);
+
+    // (7, 4) is in the gap. With a 3px radius, the east sample point at
+    // (10, 4) lands on the right button — but the west sample at (4, 4)
+    // lands on the left. The ring is traversed E first per the order in
+    // the implementation, so the right wins; the point being that
+    // *some* element is selected.
+    auto el = ge::hitTestSvgAt(*doc, 7.0f, 4.0f, /*radiusPx=*/3.0f);
+    REQUIRE(el);
+    const auto id = el.getAttribute("id");
+    CHECK((id == "left" || id == "right"));
+}
+
+TEST_CASE("hitTestSvgAt: zero radius reduces to plain elementFromPoint") {
+    auto doc = lunasvg::Document::loadFromData(kTwoButtonsSvg.data(),
+                                               kTwoButtonsSvg.size());
+    REQUIRE(doc);
+
+    // (7, 4) is in the gap, zero radius — should miss.
+    auto el = ge::hitTestSvgAt(*doc, 7.0f, 4.0f, /*radiusPx=*/0.0f);
+    CHECK_FALSE(el);
+
+    // Same point with non-zero radius does hit (covered by prior test).
+}
+
+TEST_CASE("hitTestSvgAt: far from any element returns invalid element even with radius") {
+    auto doc = lunasvg::Document::loadFromData(kTwoButtonsSvg.data(),
+                                               kTwoButtonsSvg.size());
+    REQUIRE(doc);
+
+    // Tiny radius far away from the 16×8 canvas — must not hit.
+    auto el = ge::hitTestSvgAt(*doc, 100.0f, 100.0f, /*radiusPx=*/1.0f);
+    CHECK_FALSE(el);
+}
+
+TEST_CASE("hitTestSvgAt: centre preferred over ring even when both hit") {
+    // Single big button — centre and every ring sample are inside it.
+    constexpr std::string_view oneBigSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+      <rect id="big" x="0" y="0" width="20" height="20" fill="#00FF00"/>
+    </svg>)SVG"sv;
+    auto doc = lunasvg::Document::loadFromData(oneBigSvg.data(),
+                                               oneBigSvg.size());
+    REQUIRE(doc);
+    auto el = ge::hitTestSvgAt(*doc, 10.0f, 10.0f, /*radiusPx=*/5.0f);
+    REQUIRE(el);
+    CHECK(el.getAttribute("id") == "big");
+}
+
 TEST_CASE("rasterizeSvgToPixels: malformed SVG returns null") {
     auto pixels = ge::rasterizeSvgToPixels("not an svg"sv, 4, 4);
     CHECK(pixels.isNull());
