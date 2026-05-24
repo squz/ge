@@ -86,11 +86,37 @@ platform :ios do
     team_id = ENV.fetch("APPLE_TEAM_ID")
     profile_name = "match AppStore #{app_identifier}"
     # Xcode 16 renamed the exportOptions.plist `method` value from
-    # "app-store" to "app-store-connect". gym 2.234.0's own `export_method`
-    # parameter only validates against the OLD names, so we keep
-    # `export_method: "app-store"` to satisfy gym's validation and override
-    # the actual plist value via `export_options.method: "app-store-connect"`
-    # (export_options wins when both are set).
+    # "app-store" to "app-store-connect". gym 2.234.0:
+    #   1. Its own `export_method:` parameter only validates against the
+    #      OLD names, so we must pass "app-store" there to satisfy gym's
+    #      arg validation (or omit it entirely, but then gym defaults to
+    #      "app-store" anyway).
+    #   2. When building the exportOptions.plist, gym OVERWRITES the
+    #      `method` key with whatever `export_method:` says, regardless
+    #      of what's in `export_options:` — opposite of what the merge
+    #      logic in fastlane/gym/runner.rb appears to do at a glance.
+    #
+    # Net effect: we cannot pass a hash that produces a valid Xcode 16
+    # plist. Workaround: pre-write the plist ourselves, pass the path as
+    # `export_options:`, and gym uses that file verbatim.
+    require "tempfile"
+    plist = Tempfile.new(["ge-export-options", ".plist"])
+    plist.write(<<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>method</key><string>app-store-connect</string>
+        <key>signingStyle</key><string>manual</string>
+        <key>teamID</key><string>#{team_id}</string>
+        <key>provisioningProfiles</key>
+        <dict>
+          <key>#{app_identifier}</key><string>#{profile_name}</string>
+        </dict>
+      </dict>
+      </plist>
+    PLIST
+    plist.close
     gym(
       project:              opts[:project]       || ENV.fetch("SHIP_PROJECT"),
       scheme:               opts[:scheme]        || ENV.fetch("SHIP_SCHEME"),
@@ -104,12 +130,7 @@ platform :ios do
         "PROVISIONING_PROFILE_SPECIFIER='#{profile_name}'",
         "CODE_SIGN_IDENTITY='Apple Distribution'",
       ].join(" "),
-      export_options: {
-        method:                "app-store-connect",
-        signingStyle:          "manual",
-        teamID:                team_id,
-        provisioningProfiles:  { app_identifier => profile_name },
-      },
+      export_options: plist.path,
     )
   end
 
