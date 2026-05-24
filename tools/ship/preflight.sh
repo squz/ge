@@ -107,6 +107,7 @@ required_vars=(
     MATCH_PASSWORD
     SHIP_SCHEME
     APP_ID
+    APPLE_TEAM_ID
 )
 for var in "${required_vars[@]}"; do
     if [ -z "${!var:-}" ]; then
