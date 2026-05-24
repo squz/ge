@@ -932,7 +932,7 @@ targets:
   T36:
     name: SessionConfig.orientation API matches its behaviour — either authoritative per-orientation lock or a clean boolean
     status: identified
-    value: 0.0
+    value: 5.0
     cost: 0.0
     acceptance:
     - 'Either: SessionConfig.orientation is renamed/repurposed as a boolean (option 1), or: passing different kOrientation* constants produces different runtime behaviour (option 2)'
@@ -973,6 +973,16 @@ targets:
       The trigger for picking between #1 and #2: a game wants per-orientation-only lock that the plist alone can't easily express (e.g., "lock to LandscapeLeft, never LandscapeRight, never adapt to device flip mid-play"). At that point, #2 is the right choice. Until then, #1 is honesty.
 
       Constraint to remember: the only iPad orientation-lock mechanism that survives iPadOS 26 multitasking is the `prefersInterfaceOrientationLocked` swizzle (Apple TN3192). Both options have to keep using it; only the input shape changes.
+
+      ---
+      UPDATE 2026-05-24 (multimaze2 consumer incident — concrete cost realised):
+      multimaze2 (portrait tilt game) shipped landscape on iPad because its hand-rolled `ios/Info.plist` listed all four orientations from its first commit, while `main.cpp` correctly set `SessionHostConfig.orientation = kOrientationPortrait`. Knob 2 (swizzle, already in libge) armed and dutifully froze the LAUNCH orientation — which on an iPad held in landscape is landscape. Fix was purely consumer-side: narrow the plist to Portrait. But the failure was silent: nothing in ge flagged that the app requested Portrait while the live/allowed orientation was landscape. This is exactly the integration cost T36 predicted.
+
+      Two takeaways that raise this target's value:
+      - Strong argument for **option 2**: had `kOrientationPortrait` been authoritative (engine narrows supportedInterfaceOrientations to portrait regardless of plist), multimaze2 would have been correct out of the box with zero plist edits — which is precisely the "never fight this again" outcome consumers want.
+      - Cheap interim safeguard worth adding regardless of option 1/2: a **loud startup warning** when `SessionHostConfig.orientation` is non-zero and disagrees with the actual launch orientation / the plist's allowed set. A one-line log ("requested Portrait but launched Landscape; narrow UISupportedInterfaceOrientations") would have turned a multi-step device debugging session into a glance at the console.
+
+      Related: the CMake configure-time copy of Info.plist (consumer builds via add_subdirectory(ge); editing the source plist requires re-running cmake, not just rebuilding) is an adjacent footgun — see 🎯T35 (single CMake build path) and 🎯T30 (single integration path).
     origin: filed-during-v0.4.0-prep — surfaced when user asked 'do we allow setting any landscape or a specific landscape or both?' and the honest answer was 'the API suggests per-orientation control but the implementation treats the field as a boolean'
     discovered: 2026-05-02
   T37:
