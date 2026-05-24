@@ -9,6 +9,32 @@ profile: game  <!-- interactive rendering + streaming; "tests pass" doesn't guar
 
 Apps built on ge use a **server/player architecture**: the app (server) renders headless via bgfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
 
+## ge Claude Code Plugin
+
+ge ships a Claude Code plugin that exposes four skills for shipping ge-consumer apps.
+
+**Installation (one-time per checkout):**
+
+```bash
+cd ~/work/github.com/squz/<game>   # the consuming app's repo, not ge itself
+make ship-init
+```
+
+This symlinks `~/.claude/plugins/ge` → the ge submodule root. Restart Claude Code
+after running it. The skills are then available as `/ge:*` commands.
+
+**Skills:**
+
+| Skill | Description |
+|---|---|
+| `/ge:ship` | Conversational orchestrator — ask alpha/beta/release intent, run preflight, dispatch to `make ship-alpha/ship-beta/ship-release`. Never bypasses the make substrate. |
+| `/ge:release-notes` | Draft CHANGELOG bullets from `git log <last-tag>..HEAD`, grouped by 🎯T-prefix. Idempotent. |
+| `/ge:ship-status` | Read `build/ship/*/manifest.json` across squz game repos and emit a portfolio table (repo, lane, version, timestamp, SHA). |
+| `/ge:onboard` | Walk a new engineer from zero to a shippable machine state: clone, fastlane, ASC API key, match passphrase, plugin install, cert verify. |
+
+**Plugin location:** `.claude-plugin/plugin.json` at the ge repo root; skills
+live under `skills/{ship,release-notes,ship-status,onboard}/SKILL.md`.
+
 ## Integrating ge into a New App
 
 ### Minimal Example
