@@ -48,8 +48,12 @@ fail() { blocked_reasons+=("$*"); }
 # Check 1: git working tree clean
 # ---------------------------------------------------------------------------
 echo "preflight: checking git status..."
-if ! git -C "${REPO_ROOT}" diff --quiet HEAD -- 2>/dev/null || \
-   [ -n "$(git -C "${REPO_ROOT}" status --porcelain 2>/dev/null)" ]; then
+# `--ignore-submodules=untracked` so generated artefacts inside submodules
+# (e.g. ge/web/dist/* built by the ged dashboard) don't trip the gate —
+# they're untracked-in-submodule, not real changes to the parent. Real
+# parent-repo changes still count.
+if ! git -C "${REPO_ROOT}" diff --quiet HEAD --ignore-submodules=untracked -- 2>/dev/null || \
+   [ -n "$(git -C "${REPO_ROOT}" status --porcelain --ignore-submodules=untracked 2>/dev/null)" ]; then
     fail "working tree has uncommitted changes (commit or stash before shipping)"
 else
     echo "  [PASS] working tree clean"
@@ -123,10 +127,29 @@ fi
 echo "preflight: verifying fastlane match (--readonly)..."
 if ! command -v bundle >/dev/null 2>&1; then
     fail "bundler not found — run 'bundle install' (see docs/release-setup.md)"
-elif ! (cd "${REPO_ROOT}" && bundle exec fastlane match appstore --readonly 2>&1); then
-    fail "fastlane match appstore --readonly failed — run 'bundle exec fastlane sync_certs' to diagnose"
 else
-    echo "  [PASS] fastlane match --readonly succeeded"
+    # Pass the API key via fastlane's JSON-format key file. Match doesn't
+    # auto-read APP_STORE_CONNECT_API_KEY_KEY_PATH for the .p8 directly;
+    # it wants the JSON envelope. The envelope is constructed lazily here
+    # so consumers don't have to maintain a separate file (the data is
+    # all in env vars already).
+    api_key_json="${TMPDIR:-/tmp}/ship_preflight_api_key.$$.json"
+    trap 'rm -f "${api_key_json}"' EXIT
+    cat > "${api_key_json}" <<JSON
+{
+  "key_id": "${APP_STORE_CONNECT_API_KEY_KEY_ID}",
+  "issuer_id": "${APP_STORE_CONNECT_API_KEY_ISSUER_ID}",
+  "key": $(awk 'BEGIN{printf "\""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\\n",$0} END{printf "\""}' "${APP_STORE_CONNECT_API_KEY_KEY_PATH}"),
+  "duration": 1200,
+  "in_house": false
+}
+JSON
+    if ! (cd "${REPO_ROOT}" && bundle exec fastlane match appstore --readonly \
+          --api_key_path "${api_key_json}" 2>&1); then
+        fail "fastlane match appstore --readonly failed — run 'bundle exec fastlane sync_certs --api_key_path \"${api_key_json}\"' to diagnose"
+    else
+        echo "  [PASS] fastlane match --readonly succeeded"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
