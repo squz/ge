@@ -894,40 +894,51 @@ targets:
     origin: manual
     discovered: 2026-04-26
   T35:
-    name: ge has a single CMake-driven build path; Module.mk and the hand-rolled iOS template retire
+    name: CMake is gone from ge's and consumer apps' iOS build paths
     status: identified
     value: 0.0
     cost: 0.0
     acceptance:
-    - Top-level `CMakeLists.txt` is the single source of truth for ge's source lists, compile flags, and link line
-    - '`Module.mk` is removed from the tree; README and CLAUDE.md no longer reference it'
-    - Sample apps (`sample/tiltbuggy`, `sample/tiltcal`) build via `cmake -B build && cmake --build build` (or a thin Makefile wrapper); their old hand-written Makefiles are gone or reduced to wrappers
-    - iOS template (`tools/ios-template/CMakeLists.txt.in`) consumes ge via `add_subdirectory(ge)` like the Android template, instead of listing GE_SOURCES directly
-    - An engine-side change that adds a new source file or compile flag requires editing exactly one place to land on macOS desktop + Android + iOS
-    - 'Direct-edit escape hatch documented in CLAUDE.md: how to invoke a one-off compile command, inspect generated build commands, add a non-CMake test target'
+    - ge ships `tools/ios/build_project.rb` (Ruby + CocoaPods' xcodeproj gem) that generates the consumer app's `ios/MultiMaze.xcodeproj` from a small consumer-supplied config + ge's own Module.mk-derived source/flag knowledge
+    - Consumer app's `ios/` contains `project.rb` (committed; declares app name, bundle id, version, game sources, resources) and `MultiMaze.xcodeproj` (generated, gitignored); NO `ios/CMakeLists.txt`, NO `ios/project.yml`
+    - Consumer app's `ios:` make target invokes the Ruby builder (e.g. `bundle exec ruby ios/project.rb`) instead of `cmake -G Xcode` or `xcodegen generate`
+    - 'Code-signing config (Manual + match profile + `Apple Distribution: Squz Pty Ltd (SWA3H3N7TW)`) lives directly in the Ruby builder — no fastlane xcargs overrides, no custom exportOptions.plist gymnastics, no per-consumer signing duplication'
+    - 'fastlane lane returns to the canonical `gym(project:..., scheme:..., export_method: "app-store")` recipe; PRs #98 / #99 / #100 overrides are reverted (Ruby xcodeproj is also the fastlane stack — same language)'
+    - multimaze2 ships to TestFlight via `make ship-alpha` with no CMake involvement on the iOS path
+    - ge/tools/ios-template/* (the old CMakeLists.txt.in scaffolding) replaced with the new Ruby builder + `tools/init-ios.sh` writes the new `ios/project.rb` skeleton
+    - sample/tiltbuggy migrated to the new builder (or marked as TODO if its iOS path is currently dormant)
     context: |-
-      ge currently maintains three different ways for apps to integrate the engine:
+      **Reshaped 2026-05-25 during T69 ship-prep, second iteration.**
 
-      1. `Module.mk` — Makefile include, used by macOS/Linux desktop apps. Hand-listed source files, hand-written compile/link rules, hand-managed include flags.
-      2. `CMakeLists.txt` (top-level) — `add_subdirectory(ge)` integration, used by the Android template (post-T30.3 / PR #36). Same engine sources listed independently here.
-      3. `tools/ios-template/CMakeLists.txt.in` — hand-rolled iOS bundle build that lists ge sources directly without going through either path 1 or 2.
+      First reshape direction (XcodeGen YAML) was a half-step. User pushback (2026-05-25 ~00:30): "given that everything here is being driven programmatically, is XcodeGen really a better solution? Wouldn't the CocoaPods library offer more control, and since it's not human-authored, no real downside?"
 
-      The same source-list information lives in three places. Drift between them has caused multiple bugs in v0.1.0 → v0.2.0:
-      - T30.x dual-shader compile rules required parallel updates in Module.mk, CMakeLists.txt, and the iOS template.
-      - The Android renderer flag changes (Vulkan + GLES, MULTITHREADED=0, GLESv2 → GLESv3) had to land in two separate CMake stanzas after the post-T30.3 restructure.
-      - v0.2.0 shipped with `playerForceOrientation` undefined in libge — DirectRenderHost::send calls it but the stub was missing from both Module.mk and the top-level CMake. Fixed in PR #49 for v0.3.0; required edits in both build paths.
+      Argument is sound: the YAML's main advantage (human-authorability) doesn't apply when nothing is hand-authored. CocoaPods' `xcodeproj` Ruby gem gives full programmatic control over the .pbxproj data model, integrates with the fastlane ecosystem (also Ruby), and lets the project builder read ge's authoritative source list directly (Module.mk) without duplicating it in YAML.
 
-      Each engine-side change has a "did you remember to update all three?" tax that's already cost development time on multiple occasions.
+      Net design:
+      - `ge/tools/ios/build_project.rb` is the engine-side library. It knows how to compose: ge's engine sources (from Module.mk), the vendored libs (bx, bimg, bgfx, sqlite3_ge, lz4_ge, plutovg_ge, lunasvg_ge, liteparser, box2d) as static-library targets, the cross-platform compile flags, the framework link list, the canonical signing config wired to `APPLE_TEAM_ID` env var.
+      - Consumer game ships `ios/project.rb`: declares app name, bundle id, marketing version, game sources, resources, Swift sources (if any). Calls the ge builder.
+      - `ios/MultiMaze.xcodeproj` is generated and gitignored.
 
-      Resolution: unify on CMake. Make ge's top-level `CMakeLists.txt` the single source of truth for sources, flags, and link line. Convert sample apps' Makefiles into thin CMake wrappers (or their own small CMakeLists.txt). Convert the iOS template from hand-rolled GE_SOURCES to `add_subdirectory(ge)` like the Android template. Retire `Module.mk`.
+      Why CMake is gone from the iOS path: see prior reshape note below.
 
-      The user-side cost is small: each consuming game's Makefile becomes a 2-line wrapper around `cmake -B build && cmake --build build`, or a small CMakeLists.txt. The engine-side benefit is one canonical source list / flag list per platform-conditional section.
+      ---
 
-      User reservations (acknowledged 2026-05-02): "I'm just uneasy about relinquishing control to a controlled build system. Plus, I haven't had particularly good experiences using CMake in the past, but if it's the path of least resistance, I'm okay with it." Adopt modern (3.20+) CMake idiom: target-based, no `file(GLOB)`, no `find_package` for vendored deps. Document escape hatches (direct compile commands, `cmake --build -v`).
+      (Prior reshape note retained for history.)
 
-      Constraint that makes pure-Module.mk untenable: Android's Gradle requires CMake or ndk-build to drive the native build. There is no externalNativeBuild type for Make. ge would need at minimum a CMakeLists.txt shim invoked by Gradle even if Module.mk stayed authoritative — and that shim would have to duplicate the source list anyway. So the choice is "CMake everywhere as the canonical path" vs "Module.mk + a CMake shim that mirrors it" — the former is one source of truth, the latter is two.
+      The original T35 framed the unification direction as "unify on CMake". Real-world TestFlight publish attempt on 2026-05-24 proved that direction wrong on iOS:
 
-      Trigger for re-prioritising: each future bug caused by source-list drift is evidence the tax is biting. If a few weeks pass without drift causing a problem, defer further. The release skill's discover.sh and homebrew-tap status checks remain orthogonal.
+      - CMake's Xcode generator hardcodes `CODE_SIGN_STYLE = Automatic`, which causes CLI archive (via gym) to pick the personal "Apple Development" dev cert instead of the match-installed "Apple Distribution" cert. See [[squz-cert-policy]].
+      - Working around with fastlane xcargs (CODE_SIGN_STYLE=Manual + profile specifier + identity) fixed the archive but broke the export step with "Unknown Distribution Error" — Apple's signing tooling doesn't compose cleanly with a project that has Automatic in the file but Manual via CLI override.
+      - 4 ge PRs (#97, #98, #99, #100) and ~90 min of debugging across one session didn't land the publish.
+      - User decision after that session: "We only stuck with cmake because it was supposed to be a five-minute fix. We are now over an hour later and still fighting it. I'm done with it. Get rid of it."
+
+      Scope clarification per user (2026-05-24):
+      - Vendor libs that already ship their own CMakeLists (Box2D, SDL, etc.) can continue to be built via CMake — from within Xcode build phases, treated as opaque libraries.
+      - ge's own `CMakeLists.txt` may stay alive for Android (Gradle requires CMake or ndk-build) and for ge-internal desktop testing of the library.
+      - Module.mk stays for desktop development of consumer apps. The Ruby builder *reads* Module.mk to learn ge's authoritative source list; it doesn't replace it.
+      - The CHANGE is removing CMake from the iOS *app-project* build path in ge's template and in consumer apps.
+
+      See [[t35-prebuilt-libs-design]] for an earlier alternative split. That memo is now superseded by this target's xcodeproj-gem approach.
     origin: filed-during-v0.3.0-prep — surfaced repeatedly during v0.1.0 → v0.2.0 development as the same kind of bug kept hitting the same source-list-drift problem
     discovered: 2026-05-02
   T36:
@@ -2348,6 +2359,7 @@ targets:
     - T65.4
     - T65.5
     - T65.6
+    - T35
     tags:
     - multimaze2
     - release
