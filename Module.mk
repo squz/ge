@@ -127,6 +127,7 @@ ge/SRC_DIRECT = \
 	$(ge)/src/button.cpp \
 	$(ge)/src/sdl_input.cpp \
 	$(ge)/src/render/DirectRenderHost.mm \
+	$(ge)/src/render/RefreshRateBoost_apple.mm \
 	$(ge)/tools/player_orientation_stub.cpp
 
 ge/SRC_BROKERED = \
@@ -275,7 +276,8 @@ ge/TEST_SRC = \
 	$(ge)/src/layout_test.cpp \
 	$(ge)/src/button_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
-	$(ge)/src/iap_test.cpp
+	$(ge)/src/iap_test.cpp \
+	$(ge)/src/render/RefreshRateBoost_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
