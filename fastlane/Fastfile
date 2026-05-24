@@ -1,8 +1,12 @@
 # Fastfile — ge ship substrate (🎯T64.1 base lanes + 🎯T64.2 ship lanes)
 #
 # This file lives in `ge/fastlane/` and is intended to be consumed by
-# individual games. Consuming game repos can `import_from_git` or symlink
-# this file as their own `fastlane/Fastfile` (via `make ge/fastlane-init`).
+# individual games. The recommended way for a consuming game to use it
+# is to ship a one-line passthrough at its own `fastlane/Fastfile`:
+#
+#     import "../ge/fastlane/Fastfile"
+#
+# (matched by `fastlane/Matchfile` with the studio's repo URL + team ID).
 #
 # Lane inventory:
 #   sync_certs         — readonly cert resolve (run daily before any build)
@@ -10,8 +14,31 @@
 #   build_ipa          — build the IPA via gym, pulling certs via sync_certs
 #   upload_testflight  — upload a built IPA to TestFlight
 #   submit_release     — submit the latest TestFlight build for App Store review
+#
+# Env vars expected (consuming game's Makefile / shell profile sets):
+#   APP_ID                                  com.squz.<game>
+#   APP_STORE_CONNECT_API_KEY_KEY_ID        ASC API key ID
+#   APP_STORE_CONNECT_API_KEY_ISSUER_ID     ASC issuer UUID
+#   APP_STORE_CONNECT_API_KEY_KEY_PATH      Path to AuthKey_<KEYID>.p8
+#   MATCH_PASSWORD                          Match passphrase
+#   SHIP_SCHEME                             Xcode scheme name
+#   SHIP_OUTPUT_DIR                         Output dir for the IPA
 
 default_platform(:ios)
+
+# Build the ASC API key hash from env vars once per lane. fastlane's
+# `match` / `pilot` / `deliver` actions all accept `api_key:` (hash) or
+# `api_key_path:` (JSON file). The hash form keeps the .p8 path-as-env-
+# var contract instead of forcing consumers to maintain a JSON envelope.
+def asc_api_key
+  app_store_connect_api_key(
+    key_id:        ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_ID"),
+    issuer_id:     ENV.fetch("APP_STORE_CONNECT_API_KEY_ISSUER_ID"),
+    key_filepath:  ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_PATH"),
+    in_house:      false,
+    duration:      1200,
+  )
+end
 
 platform :ios do
   # ── 🎯T64.1 signing foundation ─────────────────────────────────────────
@@ -20,9 +47,10 @@ platform :ios do
   desc "Use this on every laptop before any build. Idempotent."
   lane :sync_certs do |opts|
     match(
-      type: opts[:type] || "appstore",
-      readonly: true,
-      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+      type:           opts[:type] || "appstore",
+      app_identifier: opts[:app_identifier] || ENV.fetch("APP_ID"),
+      readonly:       true,
+      api_key:        asc_api_key,
     )
   end
 
@@ -31,10 +59,10 @@ platform :ios do
   lane :rotate_certs do |opts|
     raise "rotate_certs requires app_identifier:com.squz.<game>" unless opts[:app_identifier]
     match(
-      type: opts[:type] || "appstore",
+      type:           opts[:type] || "appstore",
       app_identifier: opts[:app_identifier],
-      readonly: false,
-      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+      readonly:       false,
+      api_key:        asc_api_key,
     )
   end
 
@@ -42,34 +70,37 @@ platform :ios do
 
   desc "Build the IPA via gym, using the resolved match certs."
   lane :build_ipa do |opts|
-    sync_certs(type: opts[:type] || "appstore")
+    sync_certs(
+      type:           opts[:type] || "appstore",
+      app_identifier: opts[:app_identifier] || ENV.fetch("APP_ID"),
+    )
     gym(
-      scheme: opts[:scheme] || ENV.fetch("SHIP_SCHEME"),
-      configuration: opts[:configuration] || "Release",
-      export_method: opts[:export_method] || "app-store",
-      output_directory: opts[:output_dir] || ENV.fetch("SHIP_OUTPUT_DIR"),
+      scheme:           opts[:scheme]        || ENV.fetch("SHIP_SCHEME"),
+      configuration:    opts[:configuration] || "Release",
+      export_method:    opts[:export_method] || "app-store",
+      output_directory: opts[:output_dir]    || ENV.fetch("SHIP_OUTPUT_DIR"),
     )
   end
 
   desc "Upload current IPA to TestFlight."
   lane :upload_testflight do |opts|
     pilot(
-      ipa: opts[:ipa],
-      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
-      distribute_external: opts[:external] == true,
-      skip_waiting_for_build_processing: true,
+      ipa:                                opts[:ipa],
+      api_key:                            asc_api_key,
+      distribute_external:                opts[:external] == true,
+      skip_waiting_for_build_processing:  true,
     )
   end
 
   desc "Submit the latest TestFlight build for App Store review."
-  lane :submit_release do |opts|
+  lane :submit_release do |_opts|
     deliver(
-      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+      api_key:           asc_api_key,
       submit_for_review: true,
       automatic_release: true,
-      force: true,
-      skip_metadata: false,
-      skip_screenshots: true,
+      force:             true,
+      skip_metadata:     false,
+      skip_screenshots:  true,
     )
   end
 end
