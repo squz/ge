@@ -323,6 +323,8 @@ player: $(ge/PLAYER)
 | `ge/src/text.cpp` | `ge::rasterizeText` (FreeType) |
 | `ge/src/VideoEncoder_apple.mm` | H.264 encoding via VideoToolbox |
 | `ge/src/VideoDecoder_apple.mm` | H.264 decoding via VideoToolbox |
+| `ge/src/audio.cpp` | `ge::audio` — device registry + pause/resume state machine (🎯T7) |
+| `ge/src/audio_apple.mm` | iOS AVAudioSession interruption + route-change observers (🎯T43) |
 | `ge/tools/player_capture_apple.mm` | Player screen capture backend (Apple) |
 
 ## H.264 Streaming Protocol
@@ -385,11 +387,38 @@ The player has no app-specific code — it works with any ge app.
 
 The player retries on disconnect with exponential backoff: 10ms initial, doubling to 2000ms cap, reset on success. This means you can restart the server and the player will reconnect automatically.
 
-### Audio Lifecycle (iOS / Android)
+### Audio Lifecycle (iOS / Android) (🎯T7 / 🎯T43)
 
-`AudioPlayer` automatically pauses all audio output when the OS backgrounds the app (`SDL_EVENT_DID_ENTER_BACKGROUND`) and resumes it when the app returns to the foreground (`SDL_EVENT_DID_ENTER_FOREGROUND`). This is wired via `SDL_AddEventWatch` inside `AudioPlayer`'s constructor — no game code or player-loop changes are required. The watch is removed in the destructor.
+ge provides a centralized audio control API (`<ge/audio.h>`) that automatically pauses all registered SDL audio devices when the app is backgrounded or loses audio focus, and resumes them when it returns to the foreground or regains focus.
 
-Desktop builds are unaffected: SDL does not fire these events on macOS/Linux/Windows.
+**`ge::audio` API (🎯T7 + 🎯T43):**
+
+```cpp
+#include <ge/audio.h>
+
+// Register a device — engine pauses/resumes it automatically.
+SDL_AudioDeviceID dev = SDL_OpenAudioDevice(...);
+auto reg = ge::audio::registerDevice(dev);  // RAII; keep alive
+
+// Query state:
+ge::audio::FocusState s = ge::audio::state();  // Active or Paused
+```
+
+The `Registration` RAII handle unregisters the device when dropped. `AudioPlayer` (wire-mode player) calls `registerDevice` itself, so no action is needed for wire-mode audio. Direct-mode apps that open their own SDL audio device call `registerDevice` once in their audio init.
+
+**What the engine handles automatically (no game code required):**
+
+| Event | iOS | Android |
+|---|---|---|
+| App backgrounded | `SDL_EVENT_DID_ENTER_BACKGROUND` → `onBackground()` | `WINDOW_FOCUS_LOST` / `WINDOW_MINIMIZED` → `onBackground()` |
+| App foregrounded | `SDL_EVENT_DID_ENTER_FOREGROUND` → `onForeground()` | `WINDOW_RESTORED` / `WINDOW_FOCUS_GAINED` → `onForeground()` |
+| Phone call / alarm (T43) | `AVAudioSessionInterruptionNotification` Began → `onAudioFocusLost()` | `AudioManager.OnAudioFocusChangeListener` LOSS → `onAudioFocusLost()` |
+| Call ends / resumable (T43) | Notification Ended + shouldResume → `onAudioFocusGained()` | `OnAudioFocusChangeListener` GAIN → `onAudioFocusGained()` |
+| Headphones unplugged (T43) | `AVAudioSessionRouteChangeNotification` OldDeviceUnavailable → brief pause + resume | (handled by Android OS / AudioManager) |
+
+The two "silence reasons" (background + focus lost) are independent: both must clear before audio resumes. iOS audio-focus integration installs `AVAudioSession` notification observers in `DirectRenderHost`'s constructor via `ge::audio::installAppleAudioObservers()`. Android routes audio focus through `GeActivity.java`'s `OnAudioFocusChangeListener` → `nativeOnAudioFocusChange()` JNI → atomic drained by `pumpEvents()`.
+
+Desktop builds are unaffected: SDL does not fire background/foreground events on macOS/Linux/Windows, and there is no audio focus concept.
 
 ### Ged Quiet Mode
 
@@ -596,6 +625,14 @@ sprite = ge::renderSvgDocument(*doc, 1024, 256);
 ### Tweak System
 
 - **`Tweak<T>`** (`Tweak.h`) — Generic runtime-tunable parameter with atomic `shared_ptr` for lock-free reads. Specialized types: `EnumTweak` (int with named labels for dropdown UI), `Vec2Tweak` (float2 with per-axis screen direction via `Dir` enum), `AxisTweak` (float with drag axis vector encoding direction+sensitivity), `Color` (float4 alias). Database: `loadOverrides()` opens SQLite DB and applies saved values, `save()` persists a tweak, `resetOne()`/`resetAll()` restore defaults. JSON API: `allToJson()` emits name, value, default, and type-specific metadata; `parseAndApply()` sets a value from JSON; `parseAndReset()` resets by name or all. Global generation counter (`generation()`) increments on every `set()` for change tracking. Header-only, in `tweak::` namespace.
+
+### Audio (🎯T7 / 🎯T43)
+
+- **`ge::audio`** (`<ge/audio.h>`) — Engine-driven pause/resume for SDL audio devices. See the "Audio Lifecycle" section above for the full description. Key surface:
+  - `registerDevice(SDL_AudioDeviceID)` → RAII `Registration`; unregisters on drop.
+  - `pauseAll()` / `resumeAll()` — manual control (engine uses automatically).
+  - `state()` → `FocusState::Active` or `FocusState::Paused`.
+  - `onBackground()` / `onForeground()` / `onAudioFocusLost()` / `onAudioFocusGained()` — engine-internal lifecycle hooks called by DirectRenderHost and AVAudioSession observers.
 
 ### Platform
 

@@ -124,6 +124,8 @@ ge/SRC_DIRECT = \
 	$(ge)/src/iap.cpp \
 	$(ge)/src/iap_apple.mm \
 	$(ge)/src/log.cpp \
+	$(ge)/src/audio.cpp \
+	$(ge)/src/audio_apple.mm \
 	$(ge)/src/button.cpp \
 	$(ge)/src/long_press.cpp \
 	$(ge)/src/sdl_input.cpp \
@@ -278,7 +280,8 @@ ge/TEST_SRC = \
 	$(ge)/src/long_press_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
 	$(ge)/src/iap_test.cpp \
-	$(ge)/src/iap_local_test.cpp
+	$(ge)/src/iap_local_test.cpp \
+	$(ge)/src/audio_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)

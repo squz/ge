@@ -7,6 +7,7 @@
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
 
+#include <ge/audio.h>
 #include <ge/FileIO.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
@@ -31,6 +32,15 @@
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
 #endif
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+namespace ge::audio {
+// Defined in audio_apple.mm — install/remove AVAudioSession notification
+// observers for interruption (call, alarm) and route-change (headphone unplug).
+void installAppleAudioObservers();
+void removeAppleAudioObservers();
+} // namespace ge::audio
 #endif
 
 #if defined(__ANDROID__)
@@ -74,7 +84,7 @@ float computeDeviceUiScale(DeviceClass dc, int surfaceW, int surfaceH, float pix
     return std::sqrt(shortSideMm / kReferenceShortSideMm);
 }
 
-// 🎯T44 / 🎯T45 OS-event plumbing.
+// 🎯T44 / 🎯T45 / 🎯T43 OS-event plumbing.
 // The platform fires these on the wrong thread (Android UI thread for
 // JNI; iOS notification queue for memory warnings). We can't safely
 // touch the game's state from there, so each event sets an atomic
@@ -88,6 +98,15 @@ std::atomic<bool> g_backHandlerActive{false};
 std::atomic<bool> g_pendingBackPressed{false};
 // -1 = no event; 0/1/2 = MemoryPressureLevel::{Low, Moderate, Critical}.
 std::atomic<int>  g_pendingMemoryWarning{-1};
+
+#if defined(__ANDROID__)
+// 🎯T43 Android audio focus. Java's OnAudioFocusChangeListener fires on
+// the UI thread and stores a signed delta here:
+//   +1 = focus gained (resume)
+//   -1 = focus lost (pause: LOSS, LOSS_TRANSIENT, LOSS_TRANSIENT_CAN_DUCK)
+// pumpEvents drains this on the game thread.
+std::atomic<int> g_pendingAudioFocusChange{0};
+#endif
 
 #if defined(__ANDROID__)
 // Android's TRIM_MEMORY_* constants. Mirror SDK values rather than
@@ -214,6 +233,18 @@ JNIEXPORT void JNICALL
 Java_ge_GeActivity_nativeOnTrimMemory(JNIEnv*, jclass, jint level) {
     int mapped = mapAndroidTrimLevel(level);
     if (mapped >= 0) g_pendingMemoryWarning.store(mapped);
+}
+
+// 🎯T43: audio focus change from Java's OnAudioFocusChangeListener.
+// focusChange mirrors AudioManager constants:
+//   AUDIOFOCUS_GAIN                  =  1 → resume
+//   AUDIOFOCUS_LOSS                  = -1 → pause
+//   AUDIOFOCUS_LOSS_TRANSIENT        = -2 → pause
+//   AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK= -3 → pause (we don't duck, just pause)
+JNIEXPORT void JNICALL
+Java_ge_GeActivity_nativeOnAudioFocusChange(JNIEnv*, jclass, jint focusChange) {
+    // Positive → gained, negative → lost.
+    g_pendingAudioFocusChange.store(focusChange > 0 ? 1 : -1);
 }
 
 } // extern "C"
@@ -356,6 +387,15 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
 
     SPDLOG_INFO("DirectRenderHost: {}x{}", i_->width, i_->height);
 
+    // 🎯T43: install platform audio-focus observers.
+#if defined(__APPLE__) && TARGET_OS_IOS
+    ge::audio::installAppleAudioObservers();
+#endif
+    // Android audio focus is requested from GeActivity.java (onResume) via
+    // AudioManager.requestAudioFocus; the JNI bridge
+    // nativeOnAudioFocusChange() feeds g_pendingAudioFocusChange which
+    // pumpEvents() drains on the game thread below.
+
     // Parallax pipeline — opt-in via SessionHostConfig.parallaxFactor.
     // The same float controls opt-in and sensitivity (decided 2026-04-13):
     // > 0 starts the platform sensor, scales the screen-XY delta the
@@ -409,6 +449,7 @@ DirectRenderHost::~DirectRenderHost() {
         [[NSNotificationCenter defaultCenter] removeObserver:i_->memoryWarningObserver];
         i_->memoryWarningObserver = nil;
     }
+    ge::audio::removeAppleAudioObservers();
 #endif
     i_->destroyOffscreen();
 }
@@ -555,11 +596,33 @@ void DirectRenderHost::pumpEvents() {
     if (mem >= 0 && i_->onMemoryWarning) {
         i_->onMemoryWarning(static_cast<MemoryPressureLevel>(mem));
     }
+#if defined(__ANDROID__)
+    // 🎯T43: drain Android audio focus change (set from Java's
+    // OnAudioFocusChangeListener via nativeOnAudioFocusChange).
+    int focusDelta = g_pendingAudioFocusChange.exchange(0);
+    if (focusDelta < 0) {
+        ge::audio::onAudioFocusLost();
+    } else if (focusDelta > 0) {
+        ge::audio::onAudioFocusGained();
+    }
+#endif
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_EVENT_QUIT) {
             i_->quit = true;
+            continue;
+        }
+        // 🎯T7: iOS background/foreground audio lifecycle.
+        // SDL fires these events on iOS (not Android) when the app moves
+        // to the background / returns to foreground. Route to ge::audio
+        // before continuing so audio silencing is immediate.
+        if (e.type == SDL_EVENT_DID_ENTER_BACKGROUND) {
+            ge::audio::onBackground();
+            continue;
+        }
+        if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+            ge::audio::onForeground();
             continue;
         }
         // Activity lifecycle on Android. SDL3 doesn't deliver the
@@ -575,12 +638,14 @@ void DirectRenderHost::pumpEvents() {
         if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
             e.type == SDL_EVENT_WINDOW_HIDDEN     ||
             e.type == SDL_EVENT_WINDOW_MINIMIZED) {
+            ge::audio::onBackground();  // 🎯T7: silence audio on Android background
             i_->bgfxCtx->onBackground();
             continue;
         }
         if (e.type == SDL_EVENT_WINDOW_RESTORED   ||
             e.type == SDL_EVENT_WINDOW_FOCUS_GAINED ||
             e.type == SDL_EVENT_WINDOW_SHOWN) {
+            ge::audio::onForeground();  // 🎯T7: resume audio on Android foreground
             i_->bgfxCtx->onForeground();
             // bgfxCtx may have picked up a resized backbuffer; sync our
             // view of it so the next frame's viewports match.
