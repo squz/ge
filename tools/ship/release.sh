@@ -146,7 +146,7 @@ if [ "${lane}" = "alpha" ]; then
     echo "ship/release: building IPA..."
     (
         cd "${REPO_ROOT}"
-        PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}" \
+        PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
         bundle exec fastlane build_ipa \
             scheme:"${SHIP_SCHEME}" \
@@ -200,7 +200,7 @@ if [ "${lane}" = "beta" ]; then
 
     (
         cd "${REPO_ROOT}"
-        PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}" \
+        PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
         bundle exec fastlane build_ipa \
             scheme:"${SHIP_SCHEME}" \
@@ -269,7 +269,7 @@ if [ "${lane}" = "release" ]; then
 
     (
         cd "${REPO_ROOT}"
-        PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}" \
+        PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
         bundle exec fastlane build_ipa \
             scheme:"${SHIP_SCHEME}" \
