@@ -634,7 +634,7 @@ targets:
     discovered: 2026-04-12
   T30:
     name: ge has a single integration path on every platform — consumers do add_subdirectory(ge) and get everything
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -645,6 +645,7 @@ targets:
     context: 'Discovered 2026-04-19 while investigating Android tilt testing. ge currently has two Android integration paths: (a) add_subdirectory(ge) + link ge — the documented path, used by multimaze2, broken because ge''s Android CMakeLists branch doesn''t link SDL3_ttf and Text.cpp''s FontLoader dependency is Apple-only; (b) hand-picked GE_SOURCES list — used by sample/tiltbuggy/android, works by explicitly omitting Text.cpp and FontLoader_apple.mm (see sample/tiltbuggy/android/app/src/main/cpp/CMakeLists.txt:76-78). Having two paths is the bug — consumers have to reason about which subset of ge is safe on which platform, and bit-rot is inevitable (multimaze2''s Android CMakeLists already omits Text.cpp quietly). Principle: one path, everyone gets everything. Decomposes into T30.1 (SDL3_ttf + deps for Android), T30.2 (FontLoader_android implementation so Text.cpp compiles cross-platform), T30.3 (migrate sample/tiltbuggy Android to add_subdirectory(ge)), and a CLAUDE.md doc update baked into acceptance.'
     origin: 'forked-from: 🎯T28.4 / Android tilt-testing investigation 2026-04-19'
     discovered: 2026-04-19
+    achieved: 2026-05-24
   T30.1:
     name: ge's Android build links SDL3_ttf + freetype/harfbuzz/plutosvg/plutovg
     status: achieved
@@ -2268,6 +2269,72 @@ targets:
     origin: manual
     discovered: 2026-05-23
     achieved: 2026-05-24
+  T69:
+    name: ge has shipped everything multimaze2 needs for its iOS App Store v1.0
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - All declared dependency targets are achieved and retired.
+    - multimaze2's iOS build consumes a released ge version that contains all of the above; no fork or local patch on the ge side.
+    - multimaze2 on iPad mini A17 Pro and modern iPhones renders its top bar clear of the camera / Dynamic Island / home indicator (T37).
+    - Tapping any chrome button (including edge-tight ones) on iPad lights up the highlight on the initial touch — no drift-finger-to-confirm UX (T62/T63).
+    - Music / SFX pause cleanly when the multimaze2 app is backgrounded, when a phone call comes in, and when another media app starts playing; resume cleanly when foregrounded (T7, T43).
+    - multimaze2's lunasvg-driven chrome routes taps via lunasvg with fingertip tolerance — no rect-based hitExpandPt workaround remains (T53).
+    - multimaze2 authors touch targets in pt without per-site pixelsPerPt multiplication (T60).
+    - multimaze2 sells one or more non-consumable IAP unlocks via ge::iap, with entitlements persisting across app restarts and reinstalls (T65.5), and a developer debug panel available in non-release builds (T65.6).
+    - 'multimaze2 ships through the studio-wide deployment substrate: match-managed signing, ge-driven make-rule lanes, Claude Code plugin, worktree-isolated builds, runtime-readable build manifest, laptop-driven iOS lanes (T64.1–T64.6).'
+    - multimaze2 has been submitted to App Store Connect at least once via the unified pipeline — not a one-off manual archive.
+    context: |-
+      Filed 2026-05-24 to refocus ge's frontier on multimaze2's iOS App Store v1.0 as the next concrete release milestone. multimaze2 is the next ge-consumer game heading to a store. Before this target existed, ge's frontier mixed multimaze2-blocking work with unrelated structural targets (pigeon transport, sokol migration, spyder test infra, etc.) at similar priority levels. This target gathers the multimaze2-blocking subset so /cv can focus on what actually moves the needle on shipping.
+
+      Scope decisions made during the 2026-05-24 conversation:
+      - Platform: iOS App Store only at first release. No Android, no desktop. Drops T39 (Android emu vulkan colour swap), T50.1 (Android adaptive icon split), T64.6's Android-CI half.
+      - IAP: non-consumable unlocks only. T65.5 (entitlement cache) and T65.6 (debug panel) are dependencies. T65.4 (LocalStore .storekit / android.test.*) is also included as a dev-velocity boost — the LocalStore path is already touched by T65.5/T65.6 work and gives developers offline iteration without sandbox accounts. T65.7 (tiltbuggy as IAP proving ground) is excluded — multimaze2 IS the real-world proving ground; tiltbuggy duplicating it would be busywork.
+      - Push: out. multimaze2 v1.0 doesn't use push. T46 not a dependency.
+      - Ship infra: T64 family is a hard dependency, not parallel work. multimaze2 is the proving ground for the unified deployment substrate. T64.7 (MinicadesKit back-port) is cross-portfolio and not on the multimaze2 critical path — excluded.
+      - Audio: both T7 (background pause) and T43 (audio focus / interruption) are mobile-shipping hygiene. Reviewers flag missing handling.
+      - UX bugs: T37 (safe-area), T62 (button drift-in), T63 (refresh-on-press) were all discovered while testing multimaze2 on iPad mini A17 Pro; they are direct release blockers.
+      - Layout / hit testing: T53 (lunasvg fingertip-tolerance) and T60 (point-native layout) both name multimaze2 in their acceptance criteria. Without them, multimaze2 ships with workarounds; with them, the workarounds disappear.
+
+      Reverse coupling: 🎯T38 (bgfx → sokol_gfx migration) is explicitly deferred until multimaze2, esfera2, and yourworld2 have shipped. Retiring THIS target is part of what unblocks T38.
+
+      What is NOT in scope here (and should stay parallel work):
+      - 🎯T11 (pigeon transport) — multimaze2 is direct-mode; transport doesn't matter to it
+      - 🎯T34 (player-as-ge-app) — architecture, not shipping-blocker
+      - 🎯T35 (CMake-only build) — T64 covers ship workflow needs
+      - 🎯T33 (spyder test infra) — dev tooling, not release-blocker
+      - 🎯T16 (tiltbuggy dynamics), T9 parallax — different game / optional
+      - 🎯T2 (smoke-test network), T8 (release-config accel sim), T1 (Wasm) — dev infrastructure
+      - 🎯T5 / T6 (player UI) — multimaze2 is direct-mode
+
+      Achievement of this target means: ge has delivered everything multimaze2 needs from the engine side. multimaze2's own readiness (gameplay completeness, App Store metadata, screenshots, copyright, IAP store-side product setup) lives in multimaze2's repo, not ge's.
+    depends_on:
+    - T7
+    - T37
+    - T43
+    - T53
+    - T60
+    - T62
+    - T63
+    - T64.1
+    - T64.2
+    - T64.3
+    - T64.4
+    - T64.5
+    - T64.6
+    - T65.4
+    - T65.5
+    - T65.6
+    tags:
+    - multimaze2
+    - release
+    - ios
+    - app-store
+    - milestone
+    - consumer-game
+    origin: manual
+    discovered: 2026-05-24
   T7:
     name: Audio pauses when the app is backgrounded
     status: identified
