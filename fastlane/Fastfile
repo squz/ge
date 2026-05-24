@@ -1,0 +1,39 @@
+# Fastfile (🎯T64.1 — base lanes for the ge ship substrate; T64.2 layers
+# the ge-specific ship_alpha/beta/release lanes on top of this scaffold).
+#
+# This file lives in `ge/fastlane/` and is imported by consuming games via
+# `import_from_git` in their own fastlane/Fastfile, so the lanes here are
+# the lowest common denominator: sync_certs, build_ipa, upload_testflight.
+# Game-specific lanes (custom screenshots, store metadata, etc.) live in
+# the game's own Fastfile and call into these.
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Resolve signing certificates + provisioning profiles from squz/certs (read-only)."
+  desc "Use this on every laptop before any build. Idempotent."
+  lane :sync_certs do |opts|
+    match(
+      type: opts[:type] || "appstore",
+      readonly: true,
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+    )
+  end
+
+  desc "Mint a new cert / provisioning profile for an app identifier."
+  desc "Run once per new app or when certs are rotated. Requires write access to squz/certs."
+  lane :rotate_certs do |opts|
+    raise "rotate_certs requires app_identifier:com.squz.<game>" unless opts[:app_identifier]
+    match(
+      type: opts[:type] || "appstore",
+      app_identifier: opts[:app_identifier],
+      readonly: false,
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+    )
+  end
+
+  # build_ipa / upload_testflight / ship_alpha / ship_beta / ship_release lanes
+  # land in 🎯T64.2 once the worktree-isolated build orchestration (🎯T64.4)
+  # and the manifest embedding (🎯T64.5) are in place. This file is the
+  # signing-only foundation.
+end
