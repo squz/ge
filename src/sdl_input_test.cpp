@@ -41,7 +41,7 @@ TEST_CASE("fromSdl: SDL_EVENT_QUIT returns nullopt") {
 // Finger events — pure math, no window lookup needed.
 // ─────────────────────────────────────────────────────────────────────
 
-TEST_CASE("fromSdl: SDL_EVENT_FINGER_DOWN denormalizes to surface pixels") {
+TEST_CASE("fromSdl: SDL_EVENT_FINGER_DOWN denormalizes to surface pts") {
     SDL_Event ev{};
     ev.type = SDL_EVENT_FINGER_DOWN;
     ev.tfinger.x = 0.5f;
@@ -127,20 +127,15 @@ TEST_CASE("fromSdl: mouse-motion event from SDL_TOUCH_MOUSEID returns nullopt") 
 // window creation without affecting unrelated tests.
 // ─────────────────────────────────────────────────────────────────────
 
-TEST_CASE("fromSdl: mouse events use SDL window scaling and synthesise kMouseId") {
+TEST_CASE("fromSdl: mouse events use SDL window coords (pt) and synthesise kMouseId") {
+    // After 🎯T60, PointerEvent.pos is in point space. SDL mouse events
+    // carry window-point coords directly — no pixel scaling is applied.
+    // The window parameter is kept to ensure fromSdl still accepts a
+    // valid windowID without crashing, but the coords should be verbatim.
     REQUIRE(SDL_Init(SDL_INIT_VIDEO));
     SDL_Window* win = SDL_CreateWindow("ge-test", 200, 100, 0);
     REQUIRE(win != nullptr);
     const SDL_WindowID wid = SDL_GetWindowID(win);
-
-    // Whatever the scale ratio happens to be on the test host, the
-    // converter should match it. Sample it here and assert that the
-    // converter applies it consistently.
-    int pixW = 0, pixH = 0, ptW = 0, ptH = 0;
-    SDL_GetWindowSizeInPixels(win, &pixW, &pixH);
-    SDL_GetWindowSize(win, &ptW, &ptH);
-    const float sx = ptW > 0 ? float(pixW) / float(ptW) : 1.0f;
-    const float sy = ptH > 0 ? float(pixH) / float(ptH) : 1.0f;
 
     SDL_Event ev{};
     ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
@@ -153,8 +148,9 @@ TEST_CASE("fromSdl: mouse events use SDL window scaling and synthesise kMouseId"
     REQUIRE(pe.has_value());
     CHECK(pe->kind == PointerEvent::Down);
     CHECK(pe->id == kMouseId);
-    CHECK(pe->pos.x == doctest::Approx(50.f * sx));
-    CHECK(pe->pos.y == doctest::Approx(25.f * sy));
+    // Coords are window points — no px scaling applied (🎯T60).
+    CHECK(pe->pos.x == doctest::Approx(50.f));
+    CHECK(pe->pos.y == doctest::Approx(25.f));
 
     // MOUSE_UP shares the path.
     ev.type = SDL_EVENT_MOUSE_BUTTON_UP;
@@ -163,7 +159,7 @@ TEST_CASE("fromSdl: mouse events use SDL window scaling and synthesise kMouseId"
     CHECK(pe->kind == PointerEvent::Up);
     CHECK(pe->id == kMouseId);
 
-    // MOTION applies the same scaling.
+    // MOTION: same — raw window-point coords.
     SDL_Event mev{};
     mev.type = SDL_EVENT_MOUSE_MOTION;
     mev.motion.which = 1;
@@ -174,14 +170,16 @@ TEST_CASE("fromSdl: mouse events use SDL window scaling and synthesise kMouseId"
     REQUIRE(pe.has_value());
     CHECK(pe->kind == PointerEvent::Move);
     CHECK(pe->id == kMouseId);
-    CHECK(pe->pos.x == doctest::Approx(100.f * sx));
-    CHECK(pe->pos.y == doctest::Approx(50.f * sy));
+    CHECK(pe->pos.x == doctest::Approx(100.f));
+    CHECK(pe->pos.y == doctest::Approx(50.f));
 
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
 
-TEST_CASE("fromSdl: unknown windowID falls back to identity scaling") {
+TEST_CASE("fromSdl: unknown windowID returns raw window-point coords") {
+    // After 🎯T60, mouse coords are window pts — no scaling regardless of
+    // whether the windowID resolves or not.
     SDL_Event ev{};
     ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     ev.button.which = 1;

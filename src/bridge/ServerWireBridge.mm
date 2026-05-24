@@ -265,9 +265,9 @@ void ServerWireBridge::beginFrame() {
     // follow-up); apps still consume the rect accessors identically
     // in both modalities.
     if (i_->ctx) {
-        i_->ctx->setDimensions(i_->width, i_->height);
-        i_->ctx->setDrawSafeInsets(drawSafeInsets());
-        i_->ctx->setUiSafeInsets(uiSafeInsets());
+        i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+        i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+        i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
     }
 }
 

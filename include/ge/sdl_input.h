@@ -17,7 +17,7 @@
 namespace ge::input {
 
 // Convert an SDL event into a `ge::PointerEvent` in render-surface
-// pixel space.
+// point space (🎯T60).
 //
 // Returns `std::nullopt` if:
 //   - The event isn't a pointer event (key down, gamepad, sensor, …).
@@ -26,20 +26,22 @@ namespace ge::input {
 //     mock mouse event on mobile, and forwarding both would
 //     double-pump the state machine.
 //
-// `surfaceSize` is the render-surface pixel dimensions; finger
-// events use it to denormalize SDL's (0..1) touch coords. Mouse
-// events use the SDL window's own point→pixel scaling (queried via
-// `SDL_GetWindowSize` / `SDL_GetWindowSizeInPixels`) and ignore
-// `surfaceSize` — the two coord systems converge on render-surface
-// pixels.
+// `surfaceSizePts` is the render-surface size in points (i.e.
+// `ctx.fullRectInPts().size()`). Finger events use it to denormalize
+// SDL's (0..1) touch coords into pt coords. Mouse events use the SDL
+// window's own point→pixel scaling (queried via `SDL_GetWindowSize` /
+// `SDL_GetWindowSizeInPixels`) and ignore `surfaceSizePts` — mouse
+// coords from SDL_Event are already in window points and are then
+// scaled to pixels to maintain consistency with finger events; on
+// desktop where pixelsPerPt == 1, pixels == points.
 //
 // Touch `fingerID` is propagated as-is; mouse synthesises a single
 // virtual finger with `ge::kMouseId`.
 std::optional<PointerEvent> fromSdl(const SDL_Event& ev,
-                                    la::float2 surfaceSize);
+                                    la::float2 surfaceSizePts);
 
 // Returns a callable bound to `ctx`. The lambda reads
-// `ctx.fullRect().size()` per call so surface-size changes (window
+// `ctx.fullRectInPts().size()` per call so surface-size changes (window
 // resize, orientation flip) are picked up automatically — no resize
 // listener required on the consumer side.
 //
@@ -51,7 +53,7 @@ std::optional<PointerEvent> fromSdl(const SDL_Event& ev,
 // callers that don't have a Context handy.
 inline auto sdlPointerEventConverter(const Context& ctx) {
     return [&ctx](const SDL_Event& ev) -> std::optional<PointerEvent> {
-        return fromSdl(ev, ctx.fullRect().size());
+        return fromSdl(ev, ctx.fullRectInPts().size());
     };
 }
 

@@ -9,7 +9,7 @@
 //
 // On iOS, the platform doesn't expose a clean cutout-only signal, so
 // the value matches the full SDL safe-area (best the platform allows;
-// drawSafeRect == uiSafeRect on iOS as a result).
+// drawSafeRectInPts == uiSafeRectInPts on iOS as a result).
 //
 // On Android, queried via JNI from the activity's
 // `getDisplayCutoutInsets()` helper — `WindowInsets.Type.displayCutout()`.
@@ -19,8 +19,10 @@
 
 namespace ge {
 
-// Returns insets in pixel units. Zero on desktop and on platforms
-// where the cutout query isn't available.
+// Returns insets in pixel units (Android JNI uses pixels). Callers
+// are responsible for dividing by pixelsPerPt to convert to pt before
+// passing to Context::setDrawSafeInsets. Zero on desktop and on
+// platforms where the cutout query isn't available.
 SafeAreaInsets queryDisplayCutoutInsets();
 
 } // namespace ge

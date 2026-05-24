@@ -79,13 +79,13 @@ public:
     // Default false; only DirectRenderHost on Android ever returns true.
     virtual bool paused() const { return false; }
 
-    // Display-cutout-only insets — drives Context::drawSafeRect.
+    // Display-cutout-only insets in pt — drives Context::drawSafeRectInPts.
     // Default zeros for hosts with no chrome concept (desktop) or
     // pre-🎯T37-followup wire mode.
-    virtual SafeAreaInsets drawSafeInsets() const { return {}; }
-    // Full input-safe insets (cutouts + gesture / tappable zones) —
-    // drives Context::uiSafeRect.
-    virtual SafeAreaInsets uiSafeInsets() const { return {}; }
+    virtual SafeAreaInsets drawSafeInsetsInPts() const { return {}; }
+    // Full input-safe insets in pt (cutouts + gesture / tappable zones) —
+    // drives Context::uiSafeRectInPts.
+    virtual SafeAreaInsets uiSafeInsetsInPts() const { return {}; }
 
     // The session's live Context. Each host owns its Context — db
     // setup, device-class and dimensions are all host-specific — and

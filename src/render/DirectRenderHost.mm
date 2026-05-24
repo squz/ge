@@ -382,8 +382,8 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     }
     i_->ctx.emplace(i_->width, i_->height, deviceClass(),
                     dbPath, config.schemaDdl);
-    i_->ctx->setDrawSafeInsets(drawSafeInsets());
-    i_->ctx->setUiSafeInsets(uiSafeInsets());
+    i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+    i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
     {
         SDL_Window* win = i_->bgfxCtx->window();
         // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
@@ -427,12 +427,16 @@ DeviceClass DirectRenderHost::deviceClass() const {
 bool DirectRenderHost::paused() const { return i_->bgfxCtx && i_->bgfxCtx->paused(); }
 const Context& DirectRenderHost::context() const { return *i_->ctx; }
 
-SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
+SafeAreaInsets DirectRenderHost::uiSafeInsetsInPts() const {
     // SDL3's safe area on Android unions systemBars + systemGestures
     // + mandatorySystemGestures + tappableElement + displayCutout —
     // the full input-safe rectangle. iOS reports its own safeAreaInsets
     // (cutouts + home indicator). Either way, this is what we want
-    // for uiSafeRect: the strictest "place interactive UI here" zone.
+    // for uiSafeRectInPts: the strictest "place interactive UI here" zone.
+    //
+    // SDL_GetWindowSafeArea and SDL_GetWindowSize both return point-space
+    // values (OS-logical coords), so the insets this function computes are
+    // already in pt — no pixel-density multiplication needed. (🎯T60)
     SafeAreaInsets out{};
     if (!i_->bgfxCtx) return out;
     SDL_Window* win = i_->bgfxCtx->window();
@@ -442,20 +446,17 @@ SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
     int winW = 0, winH = 0;
     SDL_GetWindowSize(win, &winW, &winH);
     if (winW <= 0 || winH <= 0) return out;
-    // Convert window-coord (point) insets → pixel insets via the
-    // surface's pixel-density ratio so they match the pixel-coord
-    // surface dims the engine reports. Screen is y-down (SDL/bgfx),
+    // SDL window coords are in points. Insets = the distance from each
+    // edge to the safe rect edge, in pt. Screen is y-down (SDL/bgfx),
     // so the OS-supplied "top" inset goes into the smaller-y edge
     // field (y0), and "bottom" into the larger-y edge field (y1).
-    const float xScale = float(i_->width)  / float(winW);
-    const float yScale = float(i_->height) / float(winH);
-    auto scale = [](int v, float s) {
-        return v <= 0 ? 0.0f : std::ceil(float(v) * s);
+    auto ptInset = [](int v) {
+        return v <= 0 ? 0.0f : std::ceil(float(v));
     };
-    out.x0 = scale(safe.x,                   xScale);  // left in y-down
-    out.x1 = scale(winW - safe.x - safe.w,   xScale);  // right
-    out.y0 = scale(safe.y,                   yScale);  // top in y-down
-    out.y1 = scale(winH - safe.y - safe.h,   yScale);  // bottom
+    out.x0 = ptInset(safe.x);               // left in y-down, pt
+    out.x1 = ptInset(winW - safe.x - safe.w); // right, pt
+    out.y0 = ptInset(safe.y);               // top in y-down, pt
+    out.y1 = ptInset(winH - safe.y - safe.h); // bottom, pt
 
 #if defined(__APPLE__) && TARGET_OS_IOS
     // iOS's SDL_GetWindowSafeArea reports only the static-chrome insets
@@ -476,23 +477,29 @@ SafeAreaInsets DirectRenderHost::uiSafeInsets() const {
     // iOS version.
     constexpr float kIosTopGesturePt    = 20.0f;
     constexpr float kIosBottomGesturePt = 34.0f;
-    out.y0 = std::max(out.y0, kIosTopGesturePt    * yScale);
-    out.y1 = std::max(out.y1, kIosBottomGesturePt * yScale);
+    out.y0 = std::max(out.y0, kIosTopGesturePt);
+    out.y1 = std::max(out.y1, kIosBottomGesturePt);
 #endif
 
     return out;
 }
 
-SafeAreaInsets DirectRenderHost::drawSafeInsets() const {
-    // Display-cutout-only insets — what physically obscures pixels.
+SafeAreaInsets DirectRenderHost::drawSafeInsetsInPts() const {
+    // Display-cutout-only insets in pt — what physically obscures pixels.
     // On Android we query WindowInsets.Type.displayCutout() via JNI
     // (gesture / tappable zones excluded). On iOS / desktop we fall
     // back to the full SDL safe area — iOS doesn't decompose its
-    // safeAreaInsets cleanly so drawSafeRect == uiSafeRect there.
+    // safeAreaInsets cleanly so drawSafeRectInPts == uiSafeRectInPts there.
 #if defined(__ANDROID__)
-    return queryDisplayCutoutInsets();
+    // queryDisplayCutoutInsets returns pixel units (Android's WindowInsets
+    // uses px). Divide by pixelsPerPt to convert to pt. (🎯T60)
+    const SafeAreaInsets px = queryDisplayCutoutInsets();
+    SDL_Window* win = i_->bgfxCtx ? i_->bgfxCtx->window() : nullptr;
+    const float ppt = (win && SDL_GetWindowDisplayScale(win) > 0.0f)
+                      ? SDL_GetWindowDisplayScale(win) : 1.0f;
+    return {px.y0 / ppt, px.y1 / ppt, px.x0 / ppt, px.x1 / ppt};
 #else
-    return uiSafeInsets();
+    return uiSafeInsetsInPts();
 #endif
 }
 
@@ -671,9 +678,9 @@ void DirectRenderHost::beginFrame() {
     // Refresh per-frame Context state (post-resize + current insets)
     // so onUpdate / onRender accessors observe live values.
     if (i_->ctx) {
-        i_->ctx->setDimensions(i_->width, i_->height);
-        i_->ctx->setDrawSafeInsets(drawSafeInsets());
-        i_->ctx->setUiSafeInsets(uiSafeInsets());
+        i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+        i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+        i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
         SDL_Window* win = i_->bgfxCtx->window();
         // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
         // On iOS the second factor is always 1.0, so this matches

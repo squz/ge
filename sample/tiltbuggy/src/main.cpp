@@ -100,9 +100,9 @@ int main(int argc, char* argv[]) {
                 }
 
                 // BUY PRO button tap (🎯T65.7): convert SDL pointer events
-                // to ge::PointerEvent in render-surface pixel space, then
-                // hit-test against the same screen rect Renderer draws at.
-                auto pe = ge::input::fromSdl(e, ctx.fullRect().size());
+                // to ge::PointerEvent in pt space (🎯T60), then hit-test
+                // against the same screen rect Renderer draws at.
+                auto pe = ge::input::fromSdl(e, ctx.fullRectInPts().size());
                 if (pe && pe->kind == ge::PointerEvent::Down
                        && !ge::iap::owned("pro")
                        && !state.proPurchaseInFlight

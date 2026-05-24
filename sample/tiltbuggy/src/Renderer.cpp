@@ -192,12 +192,12 @@ constexpr uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) {
 
 } // namespace
 
-// BUY PRO button screen rect. Lives at the top-left corner of the UI
-// safe rect so it never sits under the camera notch / Dynamic Island.
+// BUY PRO button screen rect in pt. Lives at the top-left corner of the
+// UI safe rect so it never sits under the camera notch / Dynamic Island.
 // Size scales with pixelsPerPt so the tap target stays at ~85 × 27 pt
 // (above Apple HIG's 44 pt minimum) on every device class.
 ge::Rect proButtonRect(const ge::Context& c) {
-    const auto safe = c.uiSafeRect();
+    const auto safe = c.uiSafeRectInPts();
     const float pad = 16.f * c.pixelsPerPt();
     const float bw  = 85.f * 3.0f * c.pixelsPerPt();
     const float bh  = 27.f * 3.0f * c.pixelsPerPt();
@@ -245,9 +245,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
                          float /*tiltX*/, float /*tiltY*/) {
     // The host's composite pass applies viewport tilt (when synthesized
     // tilt is non-zero). The game just renders a flat top-down view.
-    auto surf = c.fullRect();
-    bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(surf.w),
-                                static_cast<uint16_t>(surf.h));
+    auto surf = c.fullRectInPts();
+    bgfx::setViewRect(0, 0, 0,
+                      static_cast<uint16_t>(surf.w * c.pixelsPerPt()),
+                      static_cast<uint16_t>(surf.h * c.pixelsPerPt()));
     // Black outside the playfield so device chrome bleeds onto a clean
     // background rather than stale bgfx backbuffer. The safe rect just
     // tells us where to put the brown maze; effects that want to reach
@@ -284,10 +285,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     std::vector<PosColorVertex> verts;
     verts.reserve(6 * (2 + scene.surfaces().size()));
 
-    // Brown playfield placed at c.drawSafeRect() — tiltbuggy is touch-
-    // free, so the maze can extend into gesture zones (the wider rect).
-    // World maps [-orthoW, +orthoW] to [0, surf.w] in pixels.
-    auto safeRect = c.drawSafeRect();
+    // Brown playfield placed at c.drawSafeRectInPts() — tiltbuggy is
+    // touch-free, so the maze can extend into gesture zones (the wider
+    // rect). World maps [-orthoW, +orthoW] to [0, surf.w] in pts.
+    auto safeRect = c.drawSafeRectInPts();
     const float pxToWorldX = (surf.w > 0) ? (2.f * orthoW / float(surf.w)) : 0.f;
     const float pxToWorldY = (surf.h > 0) ? (2.f * orthoH / float(surf.h)) : 0.f;
     const float bgL = -orthoW + safeRect.x                * pxToWorldX;

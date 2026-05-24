@@ -288,8 +288,8 @@ constexpr bool operator!=(const Rect& a, const Rect& b) { return !(a == b); }
 // y-axis-named field labels. Engine-internal struct — used to
 // populate the rect accessors below; apps consume the rects directly.
 // To apply to a Rect, callers compose `Rect::adjusted` with a
-// `Corners`-constructed delta, which is what `Context::drawSafeRect`
-// and `Context::uiSafeRect` do internally.
+// `Corners`-constructed delta, which is what `Context::drawSafeRectInPts`
+// and `Context::uiSafeRectInPts` do internally.
 struct SafeAreaInsets {
     float y0 = 0;
     float y1 = 0;
@@ -320,18 +320,28 @@ public:
     // entirely seen by the user. Visuals here can extend into gesture
     // zones — a glow that paints under a swipe-up area is fine, since
     // glows don't take input.
-    Rect drawSafeRect() const;
+    // Returned in point space (🎯T60). All three rect accessors are in
+    // points; multiply by pixelsPerPt() to convert to pixel coords for
+    // bgfx viewport / viewport calls.
+    Rect drawSafeRectInPts() const;
     // The largest rectangle in which interactive UI is safe — excludes
     // display cutouts AND OS-reserved gesture / tappable zones (back-
     // swipe, recent-apps, status pull, etc). Use for **buttons,
     // sliders, drag handles**: anything that takes input. Smaller
-    // than drawSafeRect on devices with system gestures.
-    Rect uiSafeRect() const;
+    // than drawSafeRectInPts() on devices with system gestures.
+    Rect uiSafeRectInPts() const;
     // The full bgfx backbuffer rectangle — origin (0,0), full surface
-    // size. Use when you genuinely want to bleed past every safe area
-    // (full-surface backgrounds, decorative imagery that surrounds
-    // chrome). On desktop this is identical to the other two rects.
-    Rect fullRect() const;
+    // size in points. Use when you genuinely want to bleed past every
+    // safe area (full-surface backgrounds, decorative imagery that
+    // surrounds chrome). On desktop this is identical to the other two
+    // rects. Multiply by pixelsPerPt() for bgfx pixel coords.
+    Rect fullRectInPts() const;
+
+    // Per-edge safe-area insets in pt (🎯T60). Most games consume the
+    // rect accessors above; these are available for code that wants to
+    // align with a specific chrome edge directly.
+    SafeAreaInsets drawSafeInsetsInPts() const;
+    SafeAreaInsets uiSafeInsetsInPts()   const;
 
     DeviceClass deviceClass() const;
 
@@ -378,9 +388,16 @@ public:
     // Engine-internal: refresh per-frame state. Apps should not call
     // these — the run loop wires them up before each onUpdate /
     // onRender pair so accessors above always read live values.
-    void setDimensions(int surfaceWidth, int surfaceHeight);
-    void setDrawSafeInsets(SafeAreaInsets);
-    void setUiSafeInsets(SafeAreaInsets);
+    //
+    // setSurfaceDimensions takes pixels (the GPU-facing unit); the rect
+    // accessors divide by pixelsPerPt to expose pt-space values.
+    //
+    // setDrawSafeInsets / setUiSafeInsets take pt-space insets — render
+    // hosts must convert from pixel insets (SDL_GetWindowSafeArea etc.)
+    // before calling these.
+    void setSurfaceDimensions(int surfacePxW, int surfacePxH);
+    void setDrawSafeInsets(SafeAreaInsets inPt);
+    void setUiSafeInsets(SafeAreaInsets inPt);
     void setPixelsPerPt(float);
     void setDeviceUiScale(float);
     void setParallax(la::float2);

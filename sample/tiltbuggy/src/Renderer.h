@@ -10,9 +10,9 @@ namespace tiltbuggy {
 
 class Scene;  // from Scene.h — written by a parallel agent
 
-// Screen-pixel rect of the "BUY PRO" button. Returned in render-surface
-// pixel coordinates matching ge::input::fromSdl's output, so main.cpp's
-// onEvent hit-test and Renderer's draw position share one source of truth.
+// Point-space rect of the "BUY PRO" button. Returned in pt matching
+// ge::input::fromSdl's output (🎯T60), so main.cpp's onEvent hit-test
+// and Renderer's draw position share one source of truth.
 ge::Rect proButtonRect(const ge::Context& c);
 
 class Renderer {
@@ -28,9 +28,9 @@ public:
 
     // Clear + draw the scene. Call per frame under bgfx view 0
     // covering the full surface. The playfield is placed at
-    // `c.drawSafeRect()` (display-cutout-safe — visuals here aren't
+    // `c.drawSafeRectInPts()` (display-cutout-safe — visuals here aren't
     // physically obscured) and the renderer is free to draw anywhere
-    // on `c.fullRect()` for effects that bleed past it.
+    // on `c.fullRectInPts()` for effects that bleed past it.
     // `tiltX` / `tiltY` are normalized (~[-1, +1]) device tilt; the
     // host's composite pass applies viewport tilt when synthesized
     // tilt is non-zero. Pass (0, 0) for a flat top-down view.
