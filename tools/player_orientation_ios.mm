@@ -1,54 +1,68 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// iOS orientation lock via prefersInterfaceOrientationLocked (iPadOS 26+).
-// This is Apple's official replacement for UIRequiresFullScreen (TN3192).
-// We swizzle UIViewController to override the property because SDL's
-// view controller doesn't know about our SessionConfig.
+// iOS orientation lock (🎯T36). Two swizzles on UIViewController:
 //
-// HOW THE LOCK ACTUALLY WORKS — read this before "simplifying" anything.
+//   1. `prefersInterfaceOrientationLocked` (Apple TN3192, iPadOS 26+)
+//      returns YES once a lock has been requested. This freezes the
+//      post-launch orientation against the iPadOS multitasking
+//      swivel gesture.
+//   2. `supportedInterfaceOrientations` is narrowed to the consumer's
+//      requested orientation when a lock is active. iOS rotates the
+//      UI at launch to a supported orientation, so the swizzle here
+//      effectively forces the specific orientation regardless of how
+//      the device was held when launching.
 //
-// The swizzle below alone CANNOT force a specific orientation. All it can do
-// is freeze the current orientation against the user's swivel gesture, and
-// the orientation it freezes to is bounded by supportedInterfaceOrientations
-// (which on iPad UIKit derives from Info.plist UISupportedInterfaceOrientations).
-//
-// To get "always landscape, ignore device orientation at launch", you need
-// BOTH pieces:
-//   1. Narrow UISupportedInterfaceOrientations in Info.plist to just the
-//      orientations you want. UIKit rotates the UI to a supported orientation
-//      at launch if the device is held in an unsupported one. (iPad
-//      multitasking ignores this list as a runtime restriction — the user
-//      can still resize the window — but the launch rotation still happens
-//      and the swizzle's lock is bounded by it.)
-//   2. The swizzle below, which overrides
-//      UIViewController.prefersInterfaceOrientationLocked (Apple TN3192,
-//      iPadOS 26+) to return YES, locking the post-launch orientation
-//      against swivel.
+// The plist's `UISupportedInterfaceOrientations` becomes the fallback
+// (consulted when no runtime lock is set) rather than the gate.
+// Consumers can leave the plist permissive (all four orientations)
+// and let `SessionConfig.orientation` decide at runtime.
 //
 // Things that DON'T work and should not be re-tried:
 //   * UIRequiresFullScreen                         — deprecated, ignored on iPad.
 //   * SDL_HINT_ORIENTATIONS                        — limits the supported set
 //                                                    only; no runtime force.
-//   * UIWindowScene requestGeometryUpdate          — silently no-ops on iPad.
+//   * UIWindowScene requestGeometryUpdate alone    — silently no-ops on iPad.
 //   * setNeedsUpdateOfSupportedInterfaceOrientations alone — only flips
 //                                                    UIKit's view of the
 //                                                    supported set; doesn't
 //                                                    create a lock.
-// History: e0da016 reverted the "plist alone" experiment; 5c2f2a5 added
-// this swizzle. Both commits are needed context if you're touching this.
 //
-// Direct-render apps (DirectRenderHost) call playerForceOrientation from
-// DirectRenderHost::send when SessionConfig.orientation is non-zero.
+// History:
+//   * e0da016 reverted the "plist alone" experiment.
+//   * 5c2f2a5 added the prefersInterfaceOrientationLocked swizzle (boolean-mode lock).
+//   * v0.31.0 (🎯T36) added the supportedInterfaceOrientations swizzle so
+//     the specific constant is honored.
 
 #include "player_orientation.h"
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #include <SDL3/SDL_video.h>
+#include <spdlog/spdlog.h>
 
-// Global flag — set by playerForceOrientation, read by the swizzled property.
-static BOOL g_orientationLocked = NO;
+// Sentinel matching ge::wire::kOrientationAnyLandscape (Protocol.h).
+// Kept in sync by inspection — Protocol.h's constant is exported as
+// uint8_t; both files have a comment pointing at the other.
+static constexpr uint8_t kLockAnyLandscape = 0xFE;
+
+// 0 = unlocked. Non-zero = the SDL_ORIENTATION_* (or sentinel) value
+// the consumer requested. Read by both swizzles.
+static uint8_t g_lockedOrientation = 0;
+
+// Map a requested lock value to the iOS interface-orientation mask.
+static UIInterfaceOrientationMask geLockMask(uint8_t lock) {
+    switch (lock) {
+        case SDL_ORIENTATION_PORTRAIT:          return UIInterfaceOrientationMaskPortrait;
+        case SDL_ORIENTATION_PORTRAIT_FLIPPED:  return UIInterfaceOrientationMaskPortraitUpsideDown;
+        // SDL's "Landscape" is the device tilted left (UIDeviceOrientationLandscapeLeft),
+        // which iOS surfaces to UIKit as UIInterfaceOrientationLandscapeRight.
+        case SDL_ORIENTATION_LANDSCAPE:         return UIInterfaceOrientationMaskLandscapeRight;
+        case SDL_ORIENTATION_LANDSCAPE_FLIPPED: return UIInterfaceOrientationMaskLandscapeLeft;
+        case kLockAnyLandscape:                 return UIInterfaceOrientationMaskLandscape;
+        default:                                return UIInterfaceOrientationMaskAll;
+    }
+}
 
 @interface UIViewController (GeOrientationLock)
 @end
@@ -56,14 +70,36 @@ static BOOL g_orientationLocked = NO;
 @implementation UIViewController (GeOrientationLock)
 
 + (void)load {
-    // Swizzle prefersInterfaceOrientationLocked if it exists (iPadOS 26+).
-    SEL sel = @selector(prefersInterfaceOrientationLocked);
-    Method orig = class_getInstanceMethod([UIViewController class], sel);
-    if (!orig) return;
-    IMP newImp = imp_implementationWithBlock(^BOOL(id self) {
-        return g_orientationLocked;
-    });
-    method_setImplementation(orig, newImp);
+    // Swizzle 1 — prefersInterfaceOrientationLocked (iPadOS 26+).
+    {
+        SEL sel = @selector(prefersInterfaceOrientationLocked);
+        Method orig = class_getInstanceMethod([UIViewController class], sel);
+        if (orig) {
+            IMP newImp = imp_implementationWithBlock(^BOOL(id self) {
+                return g_lockedOrientation != 0;
+            });
+            method_setImplementation(orig, newImp);
+        }
+    }
+
+    // Swizzle 2 — supportedInterfaceOrientations. When locked, narrow
+    // to the requested mask so iOS rotates the UI to it at launch.
+    // When unlocked, fall through to the original (plist-derived) mask.
+    {
+        SEL sel = @selector(supportedInterfaceOrientations);
+        Method orig = class_getInstanceMethod([UIViewController class], sel);
+        if (orig) {
+            IMP originalImp = method_getImplementation(orig);
+            IMP newImp = imp_implementationWithBlock(^UIInterfaceOrientationMask(id self) {
+                if (g_lockedOrientation == 0) {
+                    using OrigFn = UIInterfaceOrientationMask (*)(id, SEL);
+                    return ((OrigFn)originalImp)(self, sel);
+                }
+                return geLockMask(g_lockedOrientation);
+            });
+            method_setImplementation(orig, newImp);
+        }
+    }
 }
 
 @end
@@ -87,33 +123,68 @@ int playerGetPhysicalOrientation() {
     }
 }
 
+// Best-effort name for the diagnostic log.
+static const char* geLockName(uint8_t lock) {
+    switch (lock) {
+        case SDL_ORIENTATION_PORTRAIT:          return "Portrait";
+        case SDL_ORIENTATION_PORTRAIT_FLIPPED:  return "PortraitFlipped";
+        case SDL_ORIENTATION_LANDSCAPE:         return "Landscape (LandscapeRight)";
+        case SDL_ORIENTATION_LANDSCAPE_FLIPPED: return "LandscapeFlipped (LandscapeLeft)";
+        case kLockAnyLandscape:                 return "AnyLandscape";
+        default:                                return "Unknown";
+    }
+}
+
 void playerForceOrientation(uint8_t orientation) {
     if (orientation == 0) return;
 
-    // Start generating device orientation notifications early so that
-    // UIDevice.current.orientation is populated by the time the first
-    // keyboard tilt event arrives.
     if (!g_deviceOrientationActive) {
         [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
         g_deviceOrientationActive = true;
     }
 
-    g_orientationLocked = YES;
+    g_lockedOrientation = orientation;
+
+    UIInterfaceOrientationMask requested = geLockMask(orientation);
+    SPDLOG_INFO("playerForceOrientation: lock {} (mask=0x{:x})", geLockName(orientation), (unsigned)requested);
+
+    // Cross-check against the plist's UISupportedInterfaceOrientations. If
+    // none of the requested orientations are in the plist's allowed set,
+    // iOS won't be able to honor the lock during launch — a loud log
+    // saves the multimaze2-style debugging session.
+    NSArray<NSString*>* plistOrientations =
+        [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
+    if (plistOrientations) {
+        UIInterfaceOrientationMask plistMask = 0;
+        for (NSString* o in plistOrientations) {
+            if ([o isEqualToString:@"UIInterfaceOrientationPortrait"])           plistMask |= UIInterfaceOrientationMaskPortrait;
+            else if ([o isEqualToString:@"UIInterfaceOrientationPortraitUpsideDown"]) plistMask |= UIInterfaceOrientationMaskPortraitUpsideDown;
+            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeLeft"]) plistMask |= UIInterfaceOrientationMaskLandscapeLeft;
+            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeRight"]) plistMask |= UIInterfaceOrientationMaskLandscapeRight;
+        }
+        if ((plistMask & requested) == 0) {
+            SPDLOG_WARN(
+                "Info.plist UISupportedInterfaceOrientations (0x{:x}) does not include "
+                "requested orientation {} (0x{:x}). The swizzle overrides this at runtime, "
+                "but narrowing the plist matches engine intent and avoids brief launch flicker.",
+                (unsigned)plistMask, geLockName(orientation), (unsigned)requested);
+        }
+    }
 
     for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
         if (![s isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *scene = (UIWindowScene *)s;
         for (UIWindow *w in scene.windows) {
             UIViewController *vc = w.rootViewController;
-            SEL updateSel =
-                @selector(setNeedsUpdateOfPrefersInterfaceOrientationLocked);
+            // Refresh both the lock state and the supported-orientations
+            // set so iOS re-evaluates and rotates the UI if needed.
+            [vc setNeedsUpdateOfSupportedInterfaceOrientations];
+            SEL updateSel = @selector(setNeedsUpdateOfPrefersInterfaceOrientationLocked);
             if ([vc respondsToSelector:updateSel]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                 [vc performSelector:updateSel];
 #pragma clang diagnostic pop
-            } else {
-                [vc setNeedsUpdateOfSupportedInterfaceOrientations];
             }
         }
     }

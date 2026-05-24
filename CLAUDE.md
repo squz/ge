@@ -400,12 +400,22 @@ This was the takeaway of a long debugging session in v0.1.0 (see commit `e0da016
 
 **How games request the lock:**
 
-- **Direct-render apps** (`DirectRenderHost`-mode, e.g. TiltBuggy): set `SessionHostConfig.orientation = wire::kOrientationLandscape` (or any non-zero `wire::kOrientation*` constant). The engine calls `playerForceOrientation` from `DirectRenderHost::send` automatically. The orientation stub/swizzle is now linked into `libge` (v0.3.0+), so apps don't need to add anything to their build.
+- **Direct-render apps** (`DirectRenderHost`-mode, e.g. TiltBuggy): set `SessionHostConfig.orientation = wire::kOrientationPortrait` (or whichever `wire::kOrientation*` constant matches the game's intent). The engine calls `playerForceOrientation` from `DirectRenderHost::send` automatically. The orientation stub/swizzle is linked into `libge` (v0.3.0+), so apps don't need to add anything to their build.
 - **Player apps** get this for free — `wire::SessionConfig.orientation` from the server triggers `playerForceOrientation()` over the wire.
 
-**API caveat (v0.3.0):** the `wire::kOrientation*` enum has four constants (Landscape, LandscapeFlipped, Portrait, PortraitFlipped) but `playerForceOrientation` currently treats the field as a **boolean** — any non-zero value enables the lock; the *specific* value is not honored. The orientation that gets locked is whichever one iOS picked at launch, bounded by your `UISupportedInterfaceOrientations`. To force "specifically LandscapeLeft only," narrow the plist to `LandscapeLeft` only — don't rely on passing `kOrientationLandscape` vs `kOrientationLandscapeFlipped` to differentiate, because today they don't. 🎯T36 tracks aligning the API with its behavior (either collapse to a boolean or make the constants authoritative).
+**Authoritative orientation locks (🎯T36, v0.31.0+).** Each `wire::kOrientation*` constant now produces a specific runtime behaviour:
 
-If you find yourself editing `UISupportedInterfaceOrientations` to fix an orientation problem, you're in the right place — but make sure you've also set `SessionHostConfig.orientation` non-zero, or the lock won't survive the iPad's swivel gesture.
+| Constant | iOS effect |
+|---|---|
+| `kOrientationPortrait` | UI locked to Portrait (home indicator at bottom) |
+| `kOrientationPortraitFlipped` | UI locked to PortraitUpsideDown |
+| `kOrientationLandscape` | UI locked to LandscapeRight (SDL convention; home indicator on left) |
+| `kOrientationLandscapeFlipped` | UI locked to LandscapeLeft |
+| `kOrientationAnyLandscape` | UI locked at launch to whichever landscape iOS picks; user can't rotate mid-play. Use for tilt games where the player flips the device freely. |
+
+The engine narrows `UISupportedInterfaceOrientations` to the requested mask at runtime, so iOS rotates the UI at launch even if the device was held in a non-matching orientation. The `Info.plist`'s `UISupportedInterfaceOrientations` becomes the **fallback** (used when no runtime lock is set), not the gate. You can leave the plist permissive and let `SessionConfig.orientation` decide.
+
+If `SessionConfig.orientation` is set but the plist's allowed set doesn't include the requested orientation, the engine logs a loud `SPDLOG_WARN` pointing at the mismatch — the override still works (swizzle overrides plist at runtime), but narrowing the plist matches engine intent and avoids brief launch flicker.
 
 ## ged Features
 
