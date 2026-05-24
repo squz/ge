@@ -1185,8 +1185,12 @@ SHIP_BUILD_DIR  ?= build/ship
 SHIP_CLEAN_DAYS ?= 14
 GHA_WORKFLOW_DEST ?= .github/workflows
 
-# PATH prefix: use system rsync (not Homebrew 3.x) for xcodebuild codesign.
-ge/SHIP_PATH = /usr/bin:/bin:/usr/sbin:/sbin:$(PATH)
+# PATH for ship rules: keep the user's PATH FIRST so Homebrew Ruby/bundler/
+# etc. resolve correctly, and append system paths as a fallback (for tools
+# like /usr/bin/rsync that xcodebuild's codesign step needs). The original
+# prepend-system pattern broke `bundle exec` on Homebrew-Ruby laptops by
+# resolving to macOS system Ruby 2.6 instead.
+ge/SHIP_PATH = $(PATH):/usr/bin:/bin:/usr/sbin:/sbin
 
 # ── ship-preflight ─────────────────────────────────────────────────────────
 # Standalone pre-build gate: git clean? env vars set? match works?
