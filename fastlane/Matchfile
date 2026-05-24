@@ -1,0 +1,40 @@
+# Matchfile (🎯T64.1) — studio-wide signing config
+#
+# fastlane match reads this when called via `bundle exec fastlane match <type>`
+# or from a Fastfile lane. It points at a single private git repo that holds
+# encrypted code-signing certificates and provisioning profiles for the entire
+# squz portfolio (and minicadesmobile too, eventually).
+#
+# Why a shared repo:
+#   - Apple Team SWA3H3N7TW is shared across squz + minicadesmobile, so the
+#     cert prefix space doesn't collide.
+#   - Both engineers' laptops resolve signing with one passphrase, one fetch.
+#   - New game = `match appstore --app_identifier com.squz.newgame.<game>`
+#     and the cert lands in the shared repo, available to any laptop.
+#
+# Setup (one-time, by an engineer with Apple Developer Program access):
+#   1. Generate an App Store Connect API key (ASC → Users & Access → Keys →
+#      Generate). Save the .p8 to ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8.
+#   2. Export env vars (see docs/release-setup.md for shell snippet):
+#        export APP_STORE_CONNECT_API_KEY_KEY_ID=<KEYID>
+#        export APP_STORE_CONNECT_API_KEY_ISSUER_ID=<ISSUERID>
+#        export APP_STORE_CONNECT_API_KEY_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8
+#        export MATCH_PASSWORD=<passphrase shared via 1Password>
+#   3. `bundle exec fastlane match init` — initializes the squz/certs repo.
+#   4. `bundle exec fastlane match appstore --app_identifier com.squz.<game>`
+#      for each app identifier you need to sign.
+#
+# Day-to-day on any laptop:
+#   - `bundle exec fastlane match appstore --readonly` (resolves existing
+#      certs, no prompts).
+
+git_url("git@github.com:squz/certs.git")
+storage_mode("git")
+type("appstore")  # default; lanes pass `type:` to override for adhoc/development
+
+# All squz + minicadesmobile signing rolls up under one Apple Team.
+team_id("SWA3H3N7TW")
+
+# Per-app identifiers are passed at the call site so this Matchfile doesn't
+# need touching when a new game joins the portfolio.
+# Example: `bundle exec fastlane match appstore --app_identifier com.squz.multimaze2`
