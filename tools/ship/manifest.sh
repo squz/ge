@@ -17,7 +17,12 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+# REPO_ROOT = consuming project root when ge is a submodule, else ge's own root.
+# See preflight.sh for the rationale.
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ]; then
+    REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+fi
 SHIP_BUILD_DIR="${REPO_ROOT}/build/ship"
 
 # ---------------------------------------------------------------------------
@@ -143,26 +148,28 @@ ship_manifest_embed_android() {
 # ---------------------------------------------------------------------------
 # Standalone mode
 # ---------------------------------------------------------------------------
-case "${1:-}" in
-    --write)
-        tag="${2:?Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]}"
-        lane="${3:?Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]}"
-        worktree="${4:-}"
-        ship_manifest_write "${tag}" "${lane}" "${worktree}"
-        ;;
-    --embed-ios)
-        ship_manifest_embed_ios "${2:?}" "${3:?}"
-        ;;
-    --embed-android)
-        ship_manifest_embed_android "${2:?}" "${3:?}"
-        ;;
-    "")
-        # Sourced — do nothing.
-        ;;
-    *)
-        echo "Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]" >&2
-        echo "       manifest.sh --embed-ios WORKTREE_DIR MANIFEST_PATH" >&2
-        echo "       manifest.sh --embed-android WORKTREE_DIR MANIFEST_PATH" >&2
-        exit 1
-        ;;
-esac
+# Guard: only run when EXECUTED directly, not when SOURCED from
+# release.sh / build.sh. Same fix as worktree.sh — without this, `$1`
+# inherits the caller's argv and trips the unknown-arg path.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    case "${1:-}" in
+        --write)
+            tag="${2:?Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]}"
+            lane="${3:?Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]}"
+            worktree="${4:-}"
+            ship_manifest_write "${tag}" "${lane}" "${worktree}"
+            ;;
+        --embed-ios)
+            ship_manifest_embed_ios "${2:?}" "${3:?}"
+            ;;
+        --embed-android)
+            ship_manifest_embed_android "${2:?}" "${3:?}"
+            ;;
+        *)
+            echo "Usage: manifest.sh --write TAG LANE [WORKTREE_DIR]" >&2
+            echo "       manifest.sh --embed-ios WORKTREE_DIR MANIFEST_PATH" >&2
+            echo "       manifest.sh --embed-android WORKTREE_DIR MANIFEST_PATH" >&2
+            exit 1
+            ;;
+    esac
+fi
