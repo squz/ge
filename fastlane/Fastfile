@@ -75,6 +75,7 @@ platform :ios do
       app_identifier: opts[:app_identifier] || ENV.fetch("APP_ID"),
     )
     gym(
+      project:          opts[:project]       || ENV.fetch("SHIP_PROJECT"),
       scheme:           opts[:scheme]        || ENV.fetch("SHIP_SCHEME"),
       configuration:    opts[:configuration] || "Release",
       export_method:    opts[:export_method] || "app-store",
