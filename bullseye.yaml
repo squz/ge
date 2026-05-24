@@ -1816,10 +1816,10 @@ targets:
     value: 0.0
     cost: 0.0
     acceptance:
-    - A private repo (e.g. marcelocantos/certs) holds appstore + adhoc + development cert types for the studio
+    - The private repo squz/certs holds appstore + adhoc + development cert types for the studio (replaces the marcelocantos/certs placeholder in the original draft).
     - Both engineers' laptops resolve signing via `bundle exec fastlane match appstore --readonly` without prompting
     - Adding a new app identifier (e.g. com.squz.newgame) is one `match appstore --app_identifier ...` call
-    - Matchfile template lives in ge with the repo URL and team ID; consuming games copy it via ge/fastlane-init
+    - Matchfile template lives in ge with the repo URL (git@github.com:squz/certs.git) and team ID; consuming games copy it via ge/fastlane-init
     - Match passphrase + ASC API key documented in ge/docs/release-setup.md with exact env-var names
     context: Highest-leverage piece of T64 — must land before any deployment automation grows further in either portfolio, otherwise migration cost grows. Both portfolios already share Apple Team ID SWA3H3N7TW so the cert prefix space doesn't conflict. mnemo records ~30 min per game lost to "Apple Development" vs "Apple Distribution" signing confusion in stock-car-racing — this is the recurring tax match eliminates.
     depends_on:
