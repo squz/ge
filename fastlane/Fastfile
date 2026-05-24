@@ -1,15 +1,21 @@
-# Fastfile (🎯T64.1 — base lanes for the ge ship substrate; T64.2 layers
-# the ge-specific ship_alpha/beta/release lanes on top of this scaffold).
+# Fastfile — ge ship substrate (🎯T64.1 base lanes + 🎯T64.2 ship lanes)
 #
-# This file lives in `ge/fastlane/` and is imported by consuming games via
-# `import_from_git` in their own fastlane/Fastfile, so the lanes here are
-# the lowest common denominator: sync_certs, build_ipa, upload_testflight.
-# Game-specific lanes (custom screenshots, store metadata, etc.) live in
-# the game's own Fastfile and call into these.
+# This file lives in `ge/fastlane/` and is intended to be consumed by
+# individual games. Consuming game repos can `import_from_git` or symlink
+# this file as their own `fastlane/Fastfile` (via `make ge/fastlane-init`).
+#
+# Lane inventory:
+#   sync_certs         — readonly cert resolve (run daily before any build)
+#   rotate_certs       — mint new cert/profile for a new app identifier
+#   build_ipa          — build the IPA via gym, pulling certs via sync_certs
+#   upload_testflight  — upload a built IPA to TestFlight
+#   submit_release     — submit the latest TestFlight build for App Store review
 
 default_platform(:ios)
 
 platform :ios do
+  # ── 🎯T64.1 signing foundation ─────────────────────────────────────────
+
   desc "Resolve signing certificates + provisioning profiles from squz/certs (read-only)."
   desc "Use this on every laptop before any build. Idempotent."
   lane :sync_certs do |opts|
@@ -32,8 +38,38 @@ platform :ios do
     )
   end
 
-  # build_ipa / upload_testflight / ship_alpha / ship_beta / ship_release lanes
-  # land in 🎯T64.2 once the worktree-isolated build orchestration (🎯T64.4)
-  # and the manifest embedding (🎯T64.5) are in place. This file is the
-  # signing-only foundation.
+  # ── 🎯T64.2 ship lanes ──────────────────────────────────────────────────
+
+  desc "Build the IPA via gym, using the resolved match certs."
+  lane :build_ipa do |opts|
+    sync_certs(type: opts[:type] || "appstore")
+    gym(
+      scheme: opts[:scheme] || ENV.fetch("SHIP_SCHEME"),
+      configuration: opts[:configuration] || "Release",
+      export_method: opts[:export_method] || "app-store",
+      output_directory: opts[:output_dir] || ENV.fetch("SHIP_OUTPUT_DIR"),
+    )
+  end
+
+  desc "Upload current IPA to TestFlight."
+  lane :upload_testflight do |opts|
+    pilot(
+      ipa: opts[:ipa],
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+      distribute_external: opts[:external] == true,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Submit the latest TestFlight build for App Store review."
+  lane :submit_release do |opts|
+    deliver(
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_KEY_PATH"],
+      submit_for_review: true,
+      automatic_release: true,
+      force: true,
+      skip_metadata: false,
+      skip_screenshots: true,
+    )
+  end
 end

@@ -37,8 +37,9 @@ export APP_STORE_CONNECT_API_KEY_KEY_PATH="$HOME/.appstoreconnect/private_keys/A
 # Match passphrase — paste from 1Password ("squz / match passphrase").
 export MATCH_PASSWORD="<passphrase>"
 
-# Optional: where Ruby + fastlane live. If you used Homebrew's `ruby`,
-# these defaults usually work without override.
+# Per-game: the Xcode scheme name (e.g. "MultiMaze2"). Set in the game's
+# .zshrc or in the Makefile as SHIP_SCHEME := MyGame.
+export SHIP_SCHEME="<your Xcode scheme>"
 ```
 
 Reload your shell or `source ~/.zshrc`.
@@ -46,7 +47,7 @@ Reload your shell or `source ~/.zshrc`.
 ## Step 3 — Ruby + fastlane
 
 ```sh
-cd ~/work/github.com/squz/ge
+cd ~/work/github.com/squz/<your-game>
 bundle install        # reads Gemfile, installs fastlane 2.234.x
 ```
 
@@ -54,46 +55,48 @@ If `bundle` complains about Ruby version, install the recommended one via
 Homebrew: `brew install ruby` and add `/opt/homebrew/opt/ruby/bin` to your
 `PATH` ahead of the system Ruby.
 
-## Step 4 — Verify
+## Step 4 — Verify match
 
 ```sh
-cd ~/work/github.com/squz/ge
-bundle exec fastlane match appstore --readonly
+bundle exec fastlane sync_certs
+# Should resolve and install certs silently. If it prompts for a password,
+# double-check MATCH_PASSWORD and the squz/certs SSH key.
 ```
 
-Expected: fastlane clones `squz/certs`, decrypts with `MATCH_PASSWORD`,
-imports certs into your Keychain. No prompts. Output ends with
-`Successfully installed certificate`.
+## Step 5 — Run ship-preflight
 
-If it asks for a password, your `MATCH_PASSWORD` env var isn't set or is
-wrong. If it errors on the git fetch, you don't yet have access to
-`squz/certs` — message Marcelo.
+```sh
+make ship-preflight
+# Should print "READY". Any "BLOCKED:" entries list what still needs fixing.
+```
 
-## Step 5 — Plugin symlink (Claude Code, 🎯T64.3)
+## Step 6 — Plugin symlink (Claude Code, 🎯T64.3)
 
 ```sh
 make ship-init
 ```
 
-Idempotent. Creates `~/.claude/plugins/ge` → `ge/` symlink so `/ge:ship`
-and friends are available in Claude Code sessions.
+Idempotent. Creates `~/.claude/plugins/ge` → `ge/` symlink so `/ge:ship`,
+`/ge:release-notes`, `/ge:ship-status`, `/ge:onboard` are available in
+Claude Code sessions.
 
-## Adding a new app identifier (rare — only Marcelo or whoever owns the
-new game does this)
+## Adding a new app identifier
+
+When you add a new game (e.g. `com.squz.mynewgame`):
 
 ```sh
-cd ~/work/github.com/squz/ge
-bundle exec fastlane rotate_certs app_identifier:com.squz.newgame type:appstore
+bundle exec fastlane rotate_certs app_identifier:com.squz.mynewgame
 ```
 
-This mints a fresh certificate + provisioning profile for
-`com.squz.newgame`, encrypts it, and pushes to `squz/certs`. Other
-engineers pick it up on their next `match appstore --readonly`.
+This mints a new Distribution cert + App Store provisioning profile in the
+`squz/certs` repo. Both engineers' laptops pick it up on the next
+`sync_certs` / `bundle exec fastlane match appstore --readonly` call.
 
-## Rotating expired or compromised certs
+## Cert rotation
+
+When a Distribution cert expires or is revoked:
 
 ```sh
-cd ~/work/github.com/squz/ge
 bundle exec fastlane match nuke distribution   # revoke + delete from ASC + repo
 bundle exec fastlane rotate_certs app_identifier:com.squz.<game> type:appstore
 ```
@@ -101,3 +104,59 @@ bundle exec fastlane rotate_certs app_identifier:com.squz.<game> type:appstore
 Note: `match nuke` is irreversible. Re-running `rotate_certs` after a
 nuke generates new certs that need to land in any games actively shipping
 with the old certs — coordinate before nuking.
+
+---
+
+## GitHub Actions setup (🎯T64.6)
+
+The release workflow template at `.github/workflows/release.yml` (in ge) is
+copied into each game repo via `make ge/ci-init`. The workflow is tag-triggered:
+
+| Tag pattern | Behaviour |
+|---|---|
+| `v*` | Android → Play Production; iOS → (laptop, see below) |
+| `v*-beta.*` | Android → Play Internal + Closed Beta |
+
+### Required secrets
+
+Configure these at the **organisation level** (squz or minicadesmobile) so
+every game repo inherits them without per-repo setup:
+
+| Secret | Description |
+|---|---|
+| `ASC_API_KEY_ID` | App Store Connect API Key ID (from Step 1 above) |
+| `ASC_API_ISSUER_ID` | App Store Connect Issuer ID |
+| `ASC_API_KEY` | Contents of the `.p8` key file, base64-encoded: `base64 -i AuthKey_XXXXX.p8` |
+| `MATCH_PASSWORD` | Match passphrase (same as your shell env var) |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Google Play service account JSON, base64-encoded |
+
+### Required variables
+
+| Variable | Description |
+|---|---|
+| `APP_PACKAGE_NAME` | Android package name, e.g. `com.squz.multimaze2` |
+| `SHIP_SCHEME` | Xcode scheme name, e.g. `MultiMaze2` |
+
+Set these at the org level for defaults, override at the repo level for per-game values.
+
+### iOS: why laptop-only for now
+
+macOS GitHub Actions runners cost ~10× more than Linux runners. The iOS
+workflow job is scaffolded (secrets + steps documented) but disabled via
+`if: false`. Enabling it requires:
+
+1. Remove the `if: false` line from the `ios:` job in the workflow file.
+2. Confirm the org-level secrets listed above are set.
+3. Push a tag.
+
+Estimated migration time: ~30 minutes. Do it when macOS runner costs are
+acceptable or when the team grows beyond one laptop.
+
+### One-time: copy the workflow into a game repo
+
+```sh
+cd ~/work/github.com/squz/my-game
+make ge/ci-init
+# Copies .github/workflows/release.yml from ge into the game repo.
+# Idempotent — safe to re-run after ge submodule updates.
+```

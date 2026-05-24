@@ -1,5 +1,6 @@
-# Gemfile (🎯T64.1) — pins fastlane for reproducible ship runs across both
-# engineers' laptops and (later, 🎯T64.6) the GitHub Actions release path.
+# Gemfile (🎯T64.1 + 🎯T64.2) — pins fastlane for reproducible ship runs
+# across both engineers' laptops and (later, 🎯T64.6) the GitHub Actions
+# release path.
 #
 # Install: `bundle install` (one-time per checkout)
 # Run:     `bundle exec fastlane <lane>`

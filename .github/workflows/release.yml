@@ -1,0 +1,171 @@
+# .github/workflows/release.yml — 🎯T64.6 game-repo release workflow template
+#
+# TEMPLATE FILE — copy into your game repo's .github/workflows/ via:
+#   make ge/ci-init
+#
+# Tag triggers:
+#   v*              → Android build → Play Store Production (stable release)
+#   v*-beta.*       → Android build → Play Store Internal + Closed Beta track
+#
+# iOS: runs on the developer's laptop via `make ship-release VERSION=x.y.z CONFIRM=1`
+# (see docs/release-setup.md). The iOS job below is scaffolded and DISABLED
+# (if: false) to document the required secrets and migration path — enabling it
+# is a ~30-minute job once macOS runner costs are acceptable.
+#
+# Required GitHub Actions secrets (configure at the org level — squz or
+# minicadesmobile — so every game repo inherits them without separate setup):
+#
+#   iOS (currently laptop-only; set these for future CI migration):
+#     ASC_API_KEY_ID        — App Store Connect API Key ID (from T64.1 setup)
+#     ASC_API_ISSUER_ID     — App Store Connect Issuer ID
+#     ASC_API_KEY           — Contents of the .p8 key file (base64-encoded)
+#     MATCH_PASSWORD        — Match passphrase for squz/certs repo
+#
+#   Android (required for the enabled Android job):
+#     PLAY_SERVICE_ACCOUNT_JSON — Google Play service account JSON (base64-encoded)
+#                                 with "Release manager" role for the game's app.
+#
+#   Shared:
+#     HOMEBREW_TAP_TOKEN    — GitHub PAT with write access to squz/homebrew-tap
+#                             (if the game publishes a Homebrew formula)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Android release ──────────────────────────────────────────────────────
+  # Enabled from day 1: Linux runners are cheap and Android tooling is
+  # self-contained. Stable tags (v0.31.0) go to Production; beta tags
+  # (v0.31.0-beta.1) go to Internal + Closed Beta.
+
+  android:
+    name: Android release
+    runs-on: ubuntu-latest
+
+    # TODO: remove the if: false once the game's Android build is ready.
+    if: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Parse tag
+        id: tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if echo "$TAG" | grep -qE '\-beta\.[0-9]+$'; then
+            TRACK="internal"
+          else
+            TRACK="production"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "track=${TRACK}"     >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Write build manifest
+        run: |
+          mkdir -p build/ship/"${GITHUB_REF_NAME}"
+          bash tools/ship/manifest.sh --write "${GITHUB_REF_NAME}" \
+            "$(echo '${GITHUB_REF_NAME}' | grep -q beta && echo beta || echo release)"
+
+      - name: Build Android release AAB
+        run: |
+          # Embed the manifest into the Android res/raw tree before building.
+          bash tools/ship/manifest.sh --embed-android . \
+            build/ship/"${GITHUB_REF_NAME}"/manifest.json
+          cd android && ./gradlew bundleRelease
+
+      - name: Sign AAB
+        # TODO: configure signing via keystore secret injected here.
+        run: echo "Signing step — configure keystore secret + sign_aab action"
+
+      - name: Upload to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.APP_PACKAGE_NAME }}
+          releaseFiles: android/app/build/outputs/bundle/release/*.aab
+          track: ${{ steps.tag.outputs.track }}
+          status: completed
+        env:
+          # Set APP_PACKAGE_NAME in the game's workflow or as an org variable.
+          APP_PACKAGE_NAME: ${{ vars.APP_PACKAGE_NAME }}
+
+  # ── iOS release (LAPTOP-ONLY for now) ────────────────────────────────────
+  # iOS runs from the developer's laptop:
+  #   make ship-release VERSION=x.y.z CONFIRM=1
+  #
+  # This job is scaffolded with the required secrets and steps so that
+  # flipping to GHA iOS runners is a ~30-minute job:
+  #   1. Remove `if: false`.
+  #   2. Ensure the org-level secrets listed at the top of this file are set.
+  #   3. Confirm SHIP_SCHEME and APP_ID match the game's Xcode project.
+  #   4. Push a tag — this job runs it.
+
+  ios:
+    name: iOS release (disabled — runs on laptop)
+    runs-on: macos-15
+    if: false  # Remove this line to enable GHA iOS builds (see comment above)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Ruby + fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Set up ASC API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.ASC_API_KEY }}" | base64 --decode \
+            > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID:     ${{ secrets.ASC_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID:  ${{ secrets.ASC_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY_PATH:   ${{ format('{0}/.appstoreconnect/private_keys/AuthKey_{1}.p8', github.workspace, secrets.ASC_API_KEY_ID) }}
+
+      - name: Run preflight
+        run: bash tools/ship/preflight.sh --lane release --version "${GITHUB_REF_NAME#v}"
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID:     ${{ secrets.ASC_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID:  ${{ secrets.ASC_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY_PATH:   ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+          MATCH_PASSWORD:                        ${{ secrets.MATCH_PASSWORD }}
+          SHIP_SCHEME:                           ${{ vars.SHIP_SCHEME }}
+
+      - name: Ship release
+        run: |
+          bash tools/ship/release.sh \
+            --lane release \
+            --version "${GITHUB_REF_NAME#v}" \
+            --confirm
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID:     ${{ secrets.ASC_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID:  ${{ secrets.ASC_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY_PATH:   ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+          MATCH_PASSWORD:                        ${{ secrets.MATCH_PASSWORD }}
+          SHIP_SCHEME:                           ${{ vars.SHIP_SCHEME }}
