@@ -259,7 +259,21 @@ AppleStore::AppleStore() {
         SPDLOG_INFO("AppleStore: primed {} entitlements from Keychain cache", entitled.size());
     }
 
-    Class implClass = NSClassFromString(@"GEStoreKit2BridgeImpl");
+    // 🎯T65.4: GE_IAP_MODE=local uses SKTestSession via
+    // GEStoreKit2LocalBridgeImpl; platform (the default) uses the
+    // production GEStoreKit2BridgeImpl.
+    const char* envMode = std::getenv("GE_IAP_MODE");
+    const bool localMode = envMode && std::string(envMode) == "local";
+    NSString* className = localMode
+        ? @"GEStoreKit2LocalBridgeImpl"
+        : @"GEStoreKit2BridgeImpl";
+
+    Class implClass = NSClassFromString(className);
+    if (!implClass && localMode) {
+        // Local bridge not compiled in — fall back to production bridge.
+        SPDLOG_WARN("AppleStore: GEStoreKit2LocalBridgeImpl not found — iap_apple_local.swift missing from build; falling back to production bridge");
+        implClass = NSClassFromString(@"GEStoreKit2BridgeImpl");
+    }
     if (!implClass) {
         SPDLOG_ERROR("AppleStore: GEStoreKit2BridgeImpl not found — Swift bridge missing from build");
         return;

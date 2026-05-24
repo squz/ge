@@ -277,7 +277,8 @@ ge/TEST_SRC = \
 	$(ge)/src/button_test.cpp \
 	$(ge)/src/long_press_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
-	$(ge)/src/iap_test.cpp
+	$(ge)/src/iap_test.cpp \
+	$(ge)/src/iap_local_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
@@ -735,6 +736,30 @@ ge/ios-init:
 	@if [ -z "$(APP_ID)" ] || [ -z "$(APP_NAME)" ]; then \
 		echo "Error: set APP_ID and APP_NAME"; exit 1; fi
 	$(ge)/tools/init-ios.sh "$(APP_ID)" "$(APP_DISPLAY_NAME)" "$(IOS_DEVELOPMENT_TEAM)"
+
+# storekit-init — copy the engine's StoreKit.storekit template into the
+# consuming app's ios/ directory for use with GE_IAP_MODE=local (🎯T65.4).
+#
+# Run once after `make ge/ios-init`, then customise the product IDs to match
+# your ge::iap::setCatalogue() registration. The file must be added to the
+# Xcode target's Build Phases → Copy Bundle Resources so it lands in the app
+# bundle where GEStoreKit2LocalBridgeImpl can find it at runtime.
+#
+# Safe to re-run — will not overwrite an existing ios/StoreKit.storekit.
+.PHONY: ge/storekit-init
+ge/storekit-init:
+	@if [ -f ios/StoreKit.storekit ]; then \
+		echo "ios/StoreKit.storekit already exists — not overwriting."; \
+	else \
+		mkdir -p ios; \
+		cp "$(ge)/ios/StoreKit.storekit" ios/StoreKit.storekit; \
+		echo "Created ios/StoreKit.storekit from engine template."; \
+		echo "Next steps:"; \
+		echo "  1. Edit ios/StoreKit.storekit: set product IDs to match your setCatalogue() registration."; \
+		echo "  2. In Xcode: add StoreKit.storekit to Build Phases → Copy Bundle Resources."; \
+		echo "  3. In Xcode: add StoreKitTest.framework as Optional in Build Phases → Link Binary With Libraries."; \
+		echo "  4. Run with GE_IAP_MODE=local to activate."; \
+	fi
 
 # ────────────────────────────────────────────────
 # Generic targets (use CLEAN, COMPILE_DB_DEPS)

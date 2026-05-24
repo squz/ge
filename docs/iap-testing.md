@@ -90,6 +90,104 @@ If you specifically want to validate the platform framework path without
 sandbox credentials, use `GE_IAP_MODE=local` (🎯T65.4): iOS reads from a
 committed `.storekit` file, Android uses the reserved `android.test.*` SKUs.
 
+### LocalStore mode (🎯T65.4)
+
+`GE_IAP_MODE=local` activates the LocalStore backend on iOS and Android.
+Desktop falls back to stub (with a log warning) because there is no local
+platform equivalent.
+
+**iOS LocalStore** — `SKTestSession` + `.storekit` file
+
+1. Run `make ge/storekit-init` to copy `ge/ios/StoreKit.storekit` into your
+   app's `ios/StoreKit.storekit`.
+
+2. Customise `ios/StoreKit.storekit`: set `productID` to match the SKUs
+   that `ge::iap::setCatalogue()` will register (remember: ge auto-prefixes
+   local IDs with the bundle ID, so `"pro"` becomes `"com.squz.tiltbuggy.pro"`).
+
+3. In Xcode, add `StoreKit.storekit` to the target's **Build Phases →
+   Copy Bundle Resources** so it lands in the app bundle at runtime.
+
+4. In Xcode, add `StoreKitTest.framework` to **Build Phases → Link Binary
+   With Libraries** and set it to **Optional**.
+
+5. Set `GE_IAP_MODE=local` in the Xcode scheme's environment variables
+   (Edit Scheme → Run → Arguments → Environment Variables) or export it
+   before launching from a shell.
+
+6. Build and run. `products()` returns the products defined in the
+   `.storekit` file. `buy()` exercises the real StoreKit 2 signature-
+   verification path (fake product, real framework flow).
+
+**Note on purchase dialogs**: `GEStoreKit2LocalBridgeImpl` sets
+`SKTestSession.disableDialogs = true`, suppressing the confirmation sheet.
+Purchases complete programmatically — ideal for unit-style iteration. If
+you want to exercise the full UI flow, set `disableDialogs = false` in
+`iap_apple_local.swift`.
+
+**iOS fallback — missing StoreKit.storekit**: if the `.storekit` file is
+absent from the bundle, the engine logs a warning and falls back to the
+production StoreKit bridge (which will find no products). The app continues
+to function; `buy()` returns `ok=false` with `error = "product not yet
+fetched from store"`.
+
+**Android LocalStore** — `android.test.*` reserved SKUs
+
+No `.storekit` file or Xcode setup is needed. Google Play Billing
+recognises a fixed set of reserved product IDs for testing without registering
+real products in Play Console:
+
+| Reserved SKU | Simulates |
+|---|---|
+| `android.test.purchased` | Successful purchase |
+| `android.test.canceled` | User-cancelled |
+| `android.test.refunded` | Immediately refunded |
+| `android.test.item_unavailable` | Product unavailable |
+
+When `GE_IAP_MODE=local` is active, `AndroidLocalStore` substitutes the
+platform SKU for every product:
+
+- **Default**: all products map to `android.test.purchased` (the happy path).
+- **Override**: set `SkuMapping.android` to one of the reserved SKUs to test
+  failure paths:
+
+  ```cpp
+  ge::iap::setCatalogue({
+      {.id = "pro", .type = iap::Type::NonConsumable},   // → android.test.purchased
+      {
+          .id   = "test_cancel",
+          .type = iap::Type::NonConsumable,
+          .sku  = ge::iap::SkuMapping{.android = "android.test.canceled"},
+      },
+  });
+  ```
+
+`products()` in local Android mode returns synthetic localised entries
+(price `"$0.99"`, currency `"USD"`) because Play Billing does not return
+product metadata for `android.test.*` SKUs.
+
+Set `GE_IAP_MODE=local` via `adb shell setprop` or the app's launch environment
+before starting the process.
+
+**Worked example — iOS local mode session**
+
+```bash
+# 1. Copy the template (once per app)
+make ge/storekit-init
+
+# 2. Edit ios/StoreKit.storekit — set productID to match your catalogue.
+#    Example: "com.squz.mygame.pro", "com.squz.mygame.hints_10"
+
+# 3. Set up in Xcode (Copy Bundle Resources + StoreKitTest.framework)
+
+# 4. Launch with local mode
+GE_IAP_MODE=local make ge/ios    # build
+# Then set GE_IAP_MODE=local in the Xcode scheme and run
+
+# The debug panel (🎯T65.6) shows products from the .storekit file.
+# buy("pro", cb) exercises StoreKit 2 flow against the fake product.
+```
+
 ## Credentials
 
 All sandbox Apple IDs and license tester Google account credentials live in

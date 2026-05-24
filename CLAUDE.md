@@ -730,6 +730,16 @@ The bridge is wired into the iOS Xcode project via CMake (`enable_language(Swift
 
 **Adding new SK2 surface:** extend the `GEStoreKit2Bridge` / `GEStoreKit2Listener` protocols in `iap_apple_bridge.h`, add the Swift implementation in `iap_apple.swift`, route from C++ in `iap_apple.mm`. The protocol-typed `id<GEStoreKit2Bridge>` keeps C++ type-checked.
 
+**LocalStore mode on iOS (🎯T65.4).** When `GE_IAP_MODE=local`, `iap_apple.mm` instantiates `GEStoreKit2LocalBridgeImpl` (from `iap_apple_local.swift`) instead of `GEStoreKit2BridgeImpl`. The local bridge starts an `SKTestSession` pointed at `StoreKit.storekit` in the app bundle, then delegates all product/purchase calls to the production bridge — the session intercepts StoreKit calls globally. Consumer setup:
+
+1. Run `make ge/storekit-init` to copy `ge/ios/StoreKit.storekit` into `ios/StoreKit.storekit`.
+2. Edit the file to match your `setCatalogue()` registration (remember: ge auto-prefixes local IDs, so `"pro"` → `"com.squz.mygame.pro"`).
+3. In Xcode: **Build Phases → Copy Bundle Resources** → add `StoreKit.storekit`.
+4. In Xcode: **Build Phases → Link Binary With Libraries** → add `StoreKitTest.framework`, set to **Optional**.
+5. Set `GE_IAP_MODE=local` in the Xcode scheme environment variables.
+
+See `docs/iap-testing.md` for the full LocalStore walkthrough and Android `android.test.*` SKU mapping.
+
 - **`<ge/iap.h>`** — Public surface. `Type`, `Product`, `SkuMapping`, `LocalisedProduct`, `Result`, `setCatalogue`, `owned`, `products`, `buy`, `restore`, `testing::setOwned`, `testing::clearAll`.
 
 ### Testing

@@ -341,7 +341,85 @@ void AndroidStore::onRestoreFinished(bool ok, const std::string& error) {
     if (cb) cb({.ok = ok, .id = {}, .error = error});
 }
 
+// ── AndroidLocalStore ──────────────────────────────────────────────────────
+//
+// GE_IAP_MODE=local on Android. Overrides AndroidStore::setCatalogue to
+// substitute the reserved Play Billing test SKUs:
+//
+//   android.test.purchased        — always succeeds
+//   android.test.canceled         — always fails (user cancelled)
+//   android.test.item_unavailable — product unavailable
+//   android.test.refunded         — immediately refunded
+//
+// All products map to android.test.purchased by default (the happy-path
+// test route). A product can override this by setting:
+//
+//   SkuMapping.android = "android.test.canceled"    // test the failure path
+//   SkuMapping.android = "android.test.item_unavailable"
+//
+// The local-id → test-sku mapping preserves all callback routing so
+// buy("pro", cb) still fires cb with id="pro".
+//
+// Verification note: Play Billing will not return real product metadata for
+// android.test.* SKUs — onProductFetched() will not be called. products()
+// returns synthetic entries (same as StubStore) so the UI can render
+// price labels during local-mode iteration.
+
+struct AndroidLocalStore : AndroidStore {
+    // Synthetic localised products (no Play Billing metadata available for
+    // android.test.* SKUs — Play Billing does not return product info for them).
+    std::unordered_map<std::string, LocalisedProduct> syntheticLocalised;
+
+    void setCatalogue(std::vector<Product> next) override {
+        // Remap platform SKUs to android.test.* before handing off.
+        std::vector<Product> remapped = next;
+        for (auto& p : remapped) {
+            // If the product already has an explicit android.test.* SKU
+            // override, respect it. Otherwise map to android.test.purchased.
+            if (p.sku && !p.sku->android.empty() &&
+                    p.sku->android.rfind("android.test.", 0) == 0) {
+                // Already a test SKU — leave as-is.
+            } else {
+                // Force to android.test.purchased (happy path).
+                if (!p.sku) p.sku = SkuMapping{};
+                p.sku->android = "android.test.purchased";
+            }
+        }
+
+        // Populate synthetic localised entries before calling through —
+        // Play Billing won't return product info for android.test.* SKUs.
+        {
+            std::lock_guard lock(mu);
+            for (const auto& p : next) {
+                syntheticLocalised[p.id] = {
+                    .id          = p.id,
+                    .title       = p.id,
+                    .description = "(local) " + p.id,
+                    .price       = "$0.99",
+                    .currency    = "USD",
+                };
+            }
+        }
+
+        AndroidStore::setCatalogue(std::move(remapped));
+    }
+
+    std::vector<LocalisedProduct> products() const override {
+        // Return synthetic entries — Play Billing won't respond for test SKUs.
+        std::lock_guard lock(mu);
+        std::vector<LocalisedProduct> out;
+        out.reserve(syntheticLocalised.size());
+        for (const auto& [id, lp] : syntheticLocalised) out.push_back(lp);
+        return out;
+    }
+};
+
 std::unique_ptr<Store> makePlatformStore() {
+    const char* envMode = std::getenv("GE_IAP_MODE");
+    if (envMode && std::string(envMode) == "local") {
+        SPDLOG_INFO("GE_IAP_MODE=local: AndroidLocalStore active — buy() routes to android.test.purchased");
+        return std::make_unique<AndroidLocalStore>();
+    }
     return std::make_unique<AndroidStore>();
 }
 
