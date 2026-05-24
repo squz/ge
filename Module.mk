@@ -1097,6 +1097,27 @@ pool-drain:
 	fi
 	@echo "  Pool drained."
 
+# ────────────────────────────────────────────────
+# Claude Code plugin installation
+#
+# `make ship-init` symlinks the ge repo into ~/.claude/plugins/ge so that
+# Claude Code picks up the /ge:ship, /ge:release-notes, /ge:ship-status, and
+# /ge:onboard skills. Run once per checkout; re-running is safe (idempotent).
+#
+# The symlink points at the ge submodule root ($(ge) resolved to its absolute
+# path), not at the consuming project. Claude Code loads the plugin from
+# .claude-plugin/plugin.json at that root.
+# ────────────────────────────────────────────────
+
+.PHONY: ship-init
+ship-init:
+	@mkdir -p ~/.claude/plugins
+	@if [ ! -L ~/.claude/plugins/ge ]; then \
+		ln -s "$$(cd $(ge) && pwd)" ~/.claude/plugins/ge && echo "Linked ~/.claude/plugins/ge → $$(cd $(ge) && pwd)"; \
+	else \
+		echo "~/.claude/plugins/ge already exists"; \
+	fi
+
 # Canned recipe for the parent to expand at the end of its init target.
 define ge/INIT_DONE
 	@echo ""
