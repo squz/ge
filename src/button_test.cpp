@@ -269,6 +269,118 @@ TEST_CASE("ButtonGroup: cancel of active button does not corrupt group state") {
     CHECK_FALSE(a.tracking());
 
     // Group's `active` pointer is stale until next event, then clears.
-    g.handleEvent(move(60, 60));   // a is idle; move on stale pointer is no-op
+    // Use an outside-Move so drift-in capture (🎯T62) doesn't re-engage
+    // the cancelled button — we're testing group cleanup, not button
+    // re-capture.
+    g.handleEvent(move(200, 200));   // a is idle; outside move is a no-op
     CHECK(g.active == nullptr);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 🎯T62: drift-in capture (Move while Idle, inside → engage)
+// ─────────────────────────────────────────────────────────────────────
+
+TEST_CASE("Button: Move while Idle inside captures the touch (drift-in)") {
+    bool fired = false;
+    std::vector<bool> highlights;
+    Button btn{
+        .hitTest = rectHitTest({0, 0, 100, 100}),
+        .onFire = [&]{ fired = true; },
+        .onHighlightChange = [&](bool h){ highlights.push_back(h); },
+    };
+
+    // No prior Down — just a Move that lands inside. Should engage.
+    CHECK(btn.handleEvent(move(50, 50, /*id=*/7)));
+    CHECK(btn.highlighted());
+    CHECK(btn.tracking());
+    CHECK(highlights == std::vector<bool>{true});
+
+    // A subsequent Up on the same id releases inside → fires.
+    CHECK(btn.handleEvent(up(50, 50, /*id=*/7)));
+    CHECK(fired);
+    CHECK_FALSE(btn.tracking());
+    CHECK(highlights == std::vector<bool>{true, false});
+}
+
+TEST_CASE("Button: Move while Idle outside does NOT capture") {
+    bool fired = false;
+    bool highlighted = false;
+    Button btn{
+        .hitTest = rectHitTest({0, 0, 100, 100}),
+        .onFire = [&]{ fired = true; },
+        .onHighlightChange = [&](bool h){ highlighted = h; },
+    };
+
+    CHECK_FALSE(btn.handleEvent(move(200, 200, /*id=*/7)));
+    CHECK_FALSE(btn.tracking());
+    CHECK_FALSE(highlighted);
+
+    // Up afterwards is also a no-op (no active id).
+    CHECK_FALSE(btn.handleEvent(up(200, 200, /*id=*/7)));
+    CHECK_FALSE(fired);
+}
+
+TEST_CASE("Button: drift-in then drag outside then back in then release inside fires") {
+    bool fired = false;
+    Button btn{
+        .hitTest = rectHitTest({0, 0, 100, 100}),
+        .onFire = [&]{ fired = true; },
+    };
+
+    btn.handleEvent(move(50, 50, /*id=*/7));     // drift-in capture
+    CHECK(btn.highlighted());
+    btn.handleEvent(move(200, 50, /*id=*/7));    // out
+    CHECK_FALSE(btn.highlighted());
+    CHECK(btn.tracking());
+    btn.handleEvent(move(60, 60, /*id=*/7));     // back in
+    CHECK(btn.highlighted());
+    btn.handleEvent(up(60, 60, /*id=*/7));
+    CHECK(fired);
+}
+
+TEST_CASE("Button: second finger's drift-in is ignored while another finger tracks") {
+    bool fired = false;
+    Button btn{
+        .hitTest = rectHitTest({0, 0, 100, 100}),
+        .onFire = [&]{ fired = true; },
+    };
+
+    // Finger 1 drifts in.
+    CHECK(btn.handleEvent(move(50, 50, /*id=*/1)));
+    CHECK(btn.tracking());
+
+    // Finger 2 moves inside — ignored (single-touch by design).
+    CHECK_FALSE(btn.handleEvent(move(60, 60, /*id=*/2)));
+
+    // Finger 1 releases inside — fires.
+    CHECK(btn.handleEvent(up(50, 50, /*id=*/1)));
+    CHECK(fired);
+}
+
+TEST_CASE("ButtonGroup: drift-in capture on Move routes through the group lock") {
+    int firedA = 0, firedB = 0;
+    Button a{
+        .hitTest = rectHitTest({0, 0, 100, 100}),
+        .onFire = [&]{ ++firedA; },
+    };
+    Button b{
+        .hitTest = rectHitTest({200, 0, 100, 100}),
+        .onFire = [&]{ ++firedB; },
+    };
+    ButtonGroup g{.buttons = {&a, &b}};
+
+    // Move inside A — A captures via drift-in, group locks to A.
+    CHECK(g.handleEvent(move(50, 50, /*id=*/7)));
+    CHECK(g.active == &a);
+    CHECK(a.highlighted());
+
+    // While A is locked, a Down inside B is claimed by the group but B never sees it.
+    CHECK(g.handleEvent(down(250, 50, /*id=*/8)));
+    CHECK_FALSE(b.tracking());
+
+    // Up inside A fires A.
+    CHECK(g.handleEvent(up(50, 50, /*id=*/7)));
+    CHECK(g.active == nullptr);
+    CHECK(firedA == 1);
+    CHECK(firedB == 0);
 }
