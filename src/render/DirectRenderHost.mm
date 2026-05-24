@@ -10,6 +10,7 @@
 #include <ge/audio.h>
 #include <ge/FileIO.h>
 #include <ge/Protocol.h>
+#include <ge/RefreshRateBoost.h>
 #include <ge/Resource.h>
 #include <ge/Signal.h>
 
@@ -277,6 +278,12 @@ struct DirectRenderHost::Impl {
     // 🎯T44 / 🎯T45 callbacks — set by runDirect after factory.
     std::function<void()> onBackPressed;
     std::function<void(MemoryPressureLevel)> onMemoryWarning;
+
+    // 🎯T63 High-refresh-rate during press.
+    // Incremented on every pointer Down, decremented on every Up/Cancel.
+    // When non-zero the platform is asked to maintain max display refresh.
+    RefreshRateBoost refreshRateBoost;
+
 #if defined(__APPLE__) && TARGET_OS_IOS
     id memoryWarningObserver = nil;
 #endif
@@ -639,6 +646,9 @@ void DirectRenderHost::pumpEvents() {
             e.type == SDL_EVENT_WINDOW_HIDDEN     ||
             e.type == SDL_EVENT_WINDOW_MINIMIZED) {
             ge::audio::onBackground();  // 🎯T7: silence audio on Android background
+            // 🎯T63 Drain presses so we don't leave the display pinned
+            // at max refresh after a background transition.
+            i_->refreshRateBoost.drainPresses();
             i_->bgfxCtx->onBackground();
             continue;
         }
@@ -684,6 +694,28 @@ void DirectRenderHost::pumpEvents() {
                 o = SDL_GetCurrentDisplayOrientation(disp);
             }
             rotateAccelToScreen(o, e.sensor.data);
+        }
+        // 🎯T63 High-refresh-rate during press.
+        // Track all pointer down/up events to maintain an accurate press
+        // counter. SDL_TOUCH_MOUSEID synthetic mouse events from touch are
+        // filtered: on platforms that generate both finger and synthetic
+        // mouse events for a touch (iOS/Android), only the finger events
+        // arrive here (the player filters SDL_TOUCH_MOUSEID in sdl_input).
+        // DirectRenderHost runs on real hardware so SDL finger events are
+        // the authoritative source; mouse button events cover desktop too.
+        if (e.type == SDL_EVENT_FINGER_DOWN) {
+            i_->refreshRateBoost.engagePress();
+        } else if (e.type == SDL_EVENT_FINGER_UP ||
+                   e.type == SDL_EVENT_FINGER_CANCELED) {
+            i_->refreshRateBoost.releasePress();
+        } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (e.button.which != SDL_TOUCH_MOUSEID) {
+                i_->refreshRateBoost.engagePress();
+            }
+        } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            if (e.button.which != SDL_TOUCH_MOUSEID) {
+                i_->refreshRateBoost.releasePress();
+            }
         }
         if (i_->eventHandler) i_->eventHandler(e);
     }

@@ -521,6 +521,19 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 - **`ge::RunConfig`** — Render loop callbacks: `onUpdate(dt)`, `onRender(const Context&)`, `onEvent(SDL_Event)`, `onShutdown()`.
 - **`ge::Factory`** — `std::function<RunConfig(Context)>`.
 
+### High refresh rate during press (🎯T63)
+
+`DirectRenderHost` automatically requests the display's maximum refresh rate whenever a touch or mouse-button press is in flight, and releases it when all presses end. This keeps ProMotion / VRR displays (iPad mini A17 Pro, etc.) in their high-refresh state so button-highlight feedback appears within ≤1 vsync of the Down event — not after a slow-to-recover 60 Hz cycle.
+
+**Mechanism:** `DirectRenderHost` holds one `ge::RefreshRateBoost` (internal, `include/ge/RefreshRateBoost.h`). The counter increments on every `SDL_EVENT_FINGER_DOWN` / `SDL_EVENT_MOUSE_BUTTON_DOWN` and decrements on Up / Cancel. SDL_TOUCH_MOUSEID synthetic mouse events are excluded (they duplicate finger events). On background transition (focus lost / hidden / minimized) the counter is drained to zero.
+
+**Platform details:**
+- **iOS/iPadOS** — a `CADisplayLink` with `preferredFrameRateRange(min=80, max=device_max, preferred=device_max)` is added to the run loop on 0→1 and invalidated on 1→0. CADisplayLink's presence alone is enough to hold the display at high refresh; its callback is a no-op. API-guarded: `preferredFrameRateRange` requires iOS 15+; falls back to `preferredFramesPerSecond` on older OS.
+- **Android** — calls `GeActivity.setFrameRateBoost(bool)` via JNI, which uses `Surface.setFrameRate(maxFps, FRAME_RATE_COMPATIBILITY_DEFAULT)` on API 30+; no-op on older devices.
+- **macOS / desktop** — no-op. Desktop displays don't VRR-throttle on idle.
+
+Consumer apps require no code changes — the boost is entirely engine-internal.
+
 ### Rendering
 
 - **`BgfxContext`** (`BgfxContext.h`) — Manages the bgfx device lifecycle: initialization (Metal on macOS, Vulkan on Android), frame begin/end, and headless vs. windowed mode. Used internally by `SessionHost`; apps interact with bgfx directly via its API rather than through this class.
