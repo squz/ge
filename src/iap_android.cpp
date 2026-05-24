@@ -76,6 +76,16 @@ struct ScopedEnv {
 struct AndroidStore : Store {
     mutable std::mutex                                  mu;
     std::unordered_map<std::string, Product>            catalogue;
+    // 🎯T65.5: Android EncryptedSharedPreferences entitlement cache —
+    // deferred. T69 (multimaze2 iOS App Store v1.0) is iOS-only; the
+    // Android equivalent of the iOS Keychain priming (see iap_apple.mm)
+    // lands when an Android consumer game ships. The pattern is the
+    // same: prime `entitled` from a JNI call to GetEntitlementCache on
+    // construction; persist via PutEntitlementCache after every
+    // successful purchase ack and after the launch reconciliation
+    // completes. Until then, owned() returns false for the first ~1 s
+    // after Android process launch (BillingClient queryPurchases async
+    // latency).
     std::unordered_set<std::string>                     entitled;
     std::unordered_map<std::string, LocalisedProduct>   localised;
     std::unordered_map<std::string, BuyCallback>        pendingBuys;

@@ -37,6 +37,7 @@
 #if defined(__APPLE__) && (TARGET_OS_IPHONE || TARGET_OS_TV || TARGET_OS_WATCH)
 
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
 
 #import "iap_apple_bridge.h"
 
@@ -68,6 +69,90 @@ std::string platformSkuFor(const Product& p) {
 
 std::string nsstr(NSString* _Nullable s) {
     return s ? std::string([s UTF8String]) : std::string{};
+}
+
+// ── Keychain entitlement cache (🎯T65.5) ─────────────────────────────
+//
+// StoreKit 2's currentEntitlements walk is async and takes ~1 s after
+// process launch. Until it completes, owned() returns false even for
+// entitled products — long enough for a paywall-gated screen to render
+// the wrong state. The Keychain cache fills that gap: every confirmed
+// entitlement is mirrored to Keychain (read instantly on next launch),
+// and the StoreKit walk reconciles when it finishes (correcting
+// revocations, refunds, family-sharing changes).
+//
+// Storage: one Keychain generic-password item per process bundle,
+// payload is the newline-separated set of currently-owned local IDs.
+// Accessibility: kSecAttrAccessibleAfterFirstUnlock — survives reboot
+// once the user has unlocked once; not synced to iCloud Keychain
+// (entitlements are per-device).
+
+NSString* keychainService() {
+    NSString* bundleId = [[NSBundle mainBundle] bundleIdentifier];
+    return [NSString stringWithFormat:@"%@.ge.iap.entitlements",
+            bundleId ?: @"unknown"];
+}
+
+NSMutableDictionary* keychainBaseQuery() {
+    NSMutableDictionary* q = [NSMutableDictionary dictionary];
+    q[(__bridge id)kSecClass]       = (__bridge id)kSecClassGenericPassword;
+    q[(__bridge id)kSecAttrService] = keychainService();
+    q[(__bridge id)kSecAttrAccount] = @"entitlements";
+    return q;
+}
+
+std::unordered_set<std::string> loadKeychainEntitlements() {
+    NSMutableDictionary* q = keychainBaseQuery();
+    q[(__bridge id)kSecReturnData] = @YES;
+    q[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+
+    CFTypeRef result = nullptr;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)q, &result);
+    if (status == errSecItemNotFound) return {};
+    if (status != errSecSuccess) {
+        SPDLOG_WARN("AppleStore Keychain read failed: OSStatus {}", (int)status);
+        return {};
+    }
+    NSData* data = (__bridge_transfer NSData*)result;
+    NSString* blob = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!blob) return {};
+
+    std::unordered_set<std::string> out;
+    NSArray<NSString*>* lines = [blob componentsSeparatedByString:@"\n"];
+    for (NSString* line in lines) {
+        if (line.length == 0) continue;
+        out.insert(std::string([line UTF8String]));
+    }
+    return out;
+}
+
+void saveKeychainEntitlements(const std::unordered_set<std::string>& entitled) {
+    NSMutableString* joined = [NSMutableString string];
+    bool first = true;
+    for (const auto& id : entitled) {
+        if (!first) [joined appendString:@"\n"];
+        [joined appendString:[NSString stringWithUTF8String:id.c_str()]];
+        first = false;
+    }
+    NSData* payload = [joined dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSMutableDictionary* q = keychainBaseQuery();
+    OSStatus existing = SecItemCopyMatching((__bridge CFDictionaryRef)q, nullptr);
+    if (existing == errSecSuccess) {
+        NSDictionary* update = @{(__bridge id)kSecValueData: payload};
+        OSStatus s = SecItemUpdate((__bridge CFDictionaryRef)q,
+                                   (__bridge CFDictionaryRef)update);
+        if (s != errSecSuccess) {
+            SPDLOG_WARN("AppleStore Keychain update failed: OSStatus {}", (int)s);
+        }
+    } else {
+        q[(__bridge id)kSecValueData]      = payload;
+        q[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+        OSStatus s = SecItemAdd((__bridge CFDictionaryRef)q, nullptr);
+        if (s != errSecSuccess) {
+            SPDLOG_WARN("AppleStore Keychain add failed: OSStatus {}", (int)s);
+        }
+    }
 }
 
 } // namespace
@@ -164,6 +249,16 @@ struct AppleStore : Store {
 namespace ge::iap::detail {
 
 AppleStore::AppleStore() {
+    // 🎯T65.5: prime the entitlement set from Keychain so owned() returns
+    // the right answer on frame 0. The async StoreKit walk
+    // (loadCurrentEntitlements below) reconciles when it completes —
+    // additions land in the set, and the post-walk save will drop any
+    // IDs that StoreKit no longer credits (revoked, refunded, etc.).
+    entitled = loadKeychainEntitlements();
+    if (!entitled.empty()) {
+        SPDLOG_INFO("AppleStore: primed {} entitlements from Keychain cache", entitled.size());
+    }
+
     Class implClass = NSClassFromString(@"GEStoreKit2BridgeImpl");
     if (!implClass) {
         SPDLOG_ERROR("AppleStore: GEStoreKit2BridgeImpl not found — Swift bridge missing from build");
@@ -267,6 +362,8 @@ void AppleStore::onProductFetched(const std::string& sku,
 void AppleStore::onTransactionUpdate(const std::string& sku, bool ok, const std::string& error) {
     std::string localId;
     bool isConsumable = false;
+    bool persist = false;
+    std::unordered_set<std::string> snapshot;
     BuyCallback cb;
     {
         std::lock_guard lock(mu);
@@ -278,13 +375,20 @@ void AppleStore::onTransactionUpdate(const std::string& sku, bool ok, const std:
         localId = skuIt->second;
         auto pIt = catalogue.find(localId);
         if (pIt != catalogue.end()) isConsumable = pIt->second.type == Type::Consumable;
-        if (ok && !isConsumable) entitled.insert(localId);
+        if (ok && !isConsumable) {
+            auto [_, inserted] = entitled.insert(localId);
+            if (inserted) {
+                persist = true;
+                snapshot = entitled;  // copy under lock for off-lock write
+            }
+        }
         auto cbIt = pendingBuys.find(localId);
         if (cbIt != pendingBuys.end()) {
             cb = std::move(cbIt->second);
             pendingBuys.erase(cbIt);
         }
     }
+    if (persist) saveKeychainEntitlements(snapshot);
     if (cb) cb({.ok = ok, .id = localId, .error = error});
 }
 
@@ -305,18 +409,32 @@ void AppleStore::onCurrentEntitlement(const std::string& sku) {
 
 void AppleStore::onCurrentEntitlementsFinished() {
     // Phase marker — the entitlement cache is now populated for SKUs
-    // we know about. Useful for diagnostics and future cache-ready
-    // notifications. No game-visible effect today.
-    SPDLOG_INFO("AppleStore: currentEntitlements walk complete");
+    // we know about. 🎯T65.5: persist the reconciled set so the next
+    // launch primes from Keychain with whatever StoreKit confirms now
+    // (including any subset/superset changes vs. the Keychain prime).
+    std::unordered_set<std::string> snapshot;
+    {
+        std::lock_guard lock(mu);
+        snapshot = entitled;
+    }
+    saveKeychainEntitlements(snapshot);
+    SPDLOG_INFO("AppleStore: currentEntitlements walk complete ({} entitled)", snapshot.size());
 }
 
 void AppleStore::onRestoreFinished(bool ok, const std::string& error) {
     RestoreCallback cb;
+    std::unordered_set<std::string> snapshot;
+    bool persist = false;
     {
         std::lock_guard lock(mu);
         cb = std::move(pendingRestore);
         pendingRestore = {};
+        if (ok) {
+            persist = true;
+            snapshot = entitled;
+        }
     }
+    if (persist) saveKeychainEntitlements(snapshot);
     if (cb) cb({.ok = ok, .id = {}, .error = error});
 }
 
