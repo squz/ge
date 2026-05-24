@@ -42,6 +42,9 @@ Rect Context::fullRect()     const {
     return Rect{0, 0, float(m->surfaceWidth), float(m->surfaceHeight)};
 }
 
+SafeAreaInsets Context::drawSafeInsets() const { return m->drawInsets; }
+SafeAreaInsets Context::uiSafeInsets()   const { return m->uiInsets;   }
+
 DeviceClass Context::deviceClass() const { return m->deviceClass; }
 float Context::pixelsPerPt() const  { return m->pixelsPerPt; }
 float Context::ptsPerPixel() const  { return 1.0f / m->pixelsPerPt; }

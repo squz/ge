@@ -285,11 +285,20 @@ constexpr bool operator!=(const Rect& a, const Rect& b) { return !(a == b); }
 // edge, `y1` on the larger-y edge, similarly for x. In the engine's
 // screen-coord (y-down per SDL/bgfx), `y0` is the top inset and `y1`
 // is the bottom inset; the rename is a deliberate move away from
-// y-axis-named field labels. Engine-internal struct — used to
-// populate the rect accessors below; apps consume the rects directly.
-// To apply to a Rect, callers compose `Rect::adjusted` with a
-// `Corners`-constructed delta, which is what `Context::drawSafeRect`
-// and `Context::uiSafeRect` do internally.
+// y-axis-named field labels.
+//
+// Most consumers should reach for `Context::drawSafeRect()` /
+// `uiSafeRect()` — the rect API is the natural shape for "lay out
+// inside the safe region". The per-edge accessors
+// (`Context::drawSafeInsets()` / `uiSafeInsets()`, 🎯T37) are for
+// code that needs to align against a specific chrome edge — e.g.
+// "place the top bar flush with the camera notch's bottom edge",
+// where `uiSafeInsets().y0` is exactly the number you want.
+//
+// To apply a `SafeAreaInsets` to a `Rect` directly, compose
+// `Rect::adjusted` with a `Corners`-constructed delta, which is
+// what `Context::drawSafeRect` and `Context::uiSafeRect` do
+// internally.
 struct SafeAreaInsets {
     float y0 = 0;
     float y1 = 0;
@@ -332,6 +341,15 @@ public:
     // (full-surface backgrounds, decorative imagery that surrounds
     // chrome). On desktop this is identical to the other two rects.
     Rect fullRect() const;
+
+    // Per-edge insets in render-surface pixels (🎯T37). Most consumers
+    // want the rect accessors above; reach for these only when the
+    // task is "align with a specific chrome edge" (e.g. flush against
+    // the camera notch's bottom edge = `uiSafeInsets().y0`). All four
+    // edges are 0 on desktop and on wire-mode sessions until the
+    // player→server safe-area plumbing lands.
+    SafeAreaInsets drawSafeInsets() const;
+    SafeAreaInsets uiSafeInsets()   const;
 
     DeviceClass deviceClass() const;
 
