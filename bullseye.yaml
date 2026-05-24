@@ -931,7 +931,7 @@ targets:
     discovered: 2026-05-02
   T36:
     name: SessionConfig.orientation API matches its behaviour — either authoritative per-orientation lock or a clean boolean
-    status: identified
+    status: achieved
     value: 5.0
     cost: 0.0
     acceptance:
@@ -985,6 +985,7 @@ targets:
       Related: the CMake configure-time copy of Info.plist (consumer builds via add_subdirectory(ge); editing the source plist requires re-running cmake, not just rebuilding) is an adjacent footgun — see 🎯T35 (single CMake build path) and 🎯T30 (single integration path).
     origin: filed-during-v0.4.0-prep — surfaced when user asked 'do we allow setting any landscape or a specific landscape or both?' and the honest answer was 'the API suggests per-orientation control but the implementation treats the field as a boolean'
     discovered: 2026-05-02
+    achieved: 2026-05-24
   T37:
     name: Direct-mode apps can read safe-area insets from ge::Context to avoid camera/notch/Dynamic Island chrome
     status: identified
