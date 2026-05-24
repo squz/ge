@@ -184,6 +184,7 @@ set(GE_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sdl_input.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/iap.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/log.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/src/sqlift.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/src/sqlpipe.cpp
 )
@@ -196,6 +197,8 @@ if(APPLE)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/CutoutInsets_stub.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/iap_apple.mm
         ${CMAKE_CURRENT_SOURCE_DIR}/src/log_apple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/audio_apple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/render/RefreshRateBoost_apple.mm
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Attitude_apple.mm)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     list(APPEND GE_CORE_SOURCES
