@@ -989,7 +989,7 @@ targets:
     achieved: 2026-05-24
   T37:
     name: Direct-mode apps can read safe-area insets from ge::Context to avoid camera/notch/Dynamic Island chrome
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1028,6 +1028,7 @@ targets:
     - layout
     origin: 'migrated from GitHub issue #57'
     discovered: 2026-05-03
+    achieved: 2026-05-24
   T38:
     name: ge engine has migrated from bgfx to sokol_gfx
     status: identified
@@ -1256,7 +1257,7 @@ targets:
     achieved: 2026-05-09
   T43:
     name: ge handles audio focus changes (incoming calls, alarms, other media) cross-platform
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1275,6 +1276,7 @@ targets:
     - lifecycle
     origin: manual
     discovered: 2026-05-09
+    achieved: 2026-05-24
   T44:
     name: ge surfaces system back-press as a game callback (Android predictive back + iOS edge swipe)
     status: achieved
@@ -1499,7 +1501,7 @@ targets:
     achieved: 2026-05-10
   T53:
     name: Hit testing on lunasvg-rendered UI supports fingertip tolerance
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1529,6 +1531,7 @@ targets:
     - fingertip-tolerance
     origin: manual
     discovered: 2026-05-10
+    achieved: 2026-05-24
   T54:
     name: ge::ortho ships projection builders for letterbox + pixel-space 2D layouts
     status: achieved
@@ -1711,7 +1714,7 @@ targets:
     discovered: 2026-04-12
   T60:
     name: ge's layout stack is point-native (44pt-sized touch targets work directly without per-call pixelsPerPt multiplication)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1746,6 +1749,7 @@ targets:
     - ergonomics
     origin: manual
     discovered: 2026-05-11
+    achieved: 2026-05-24
   T61:
     name: ge CMake build includes button.cpp and sdl_input.cpp
     status: achieved
@@ -1761,7 +1765,7 @@ targets:
     achieved: 2026-05-11
   T62:
     name: ge::Button captures a press on the first inside-Move (UIButton-style drift-in)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1774,9 +1778,10 @@ targets:
     context: 'Discovered while testing the multimaze2 TopBar refactor on iPad. The chrome buttons highlight only after the user moves their finger slightly after tapping — not on initial Down. Diagnosis: iOS reports the first touch position as the centroid of the contact patch, which is 3–5mm offset from where the user intends to tap (the centroid stabilises over the next ~30–50ms as the finger flattens). For buttons near screen edges or tight to other UI, the initial Down lands just outside the hit rect — the strict-Down-only state machine ignores it. Subsequent Move events with phase == Idle are no-ops, so the button never captures. UIKit''s UIButton solves this by capturing on the first inside touch-tracking event, not just Down: the user feels like the button responded to "wherever my finger ended up", not "wherever the centroid happened to land at the millisecond of first contact". Mirroring that behaviour in ge::Button is the right fix; widening the recommended hitExpand default would only mask the issue.'
     origin: manual
     discovered: 2026-05-11
+    achieved: 2026-05-24
   T63:
     name: ge maintains a high refresh rate on adaptive-refresh displays so press feedback shows up instantly
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1788,6 +1793,7 @@ targets:
     context: 'Discovered while testing the multimaze2 TopBar refactor on iPad mini A17 Pro (Jevons). Symptom: tapping a chrome button inside its hit rect does NOT visibly darken the button; only after the user moves their finger slightly does the darkened state appear. Investigation: the ge::Button state machine is correctly transitioning Idle → PressedInside on Down (verified because onFire fires on release without movement, which only happens when phase == PressedInside on Up). So highlighted() is true the instant Down is processed, but the rendered frame doesn''t reflect it until the user wiggles. The only credible explanation is that iOS''s adaptive-refresh display has dropped the refresh rate very low (10–24Hz, the typical idle floor for ProMotion) and the loop is gated on bgfx::frame()''s vsync wait. The user''s finger movement is what''s kicking the display back up to a higher rate so a new frame actually renders. Affects any ge consumer that uses ge::Button or similar press-feedback affordance on a ProMotion device.'
     origin: manual
     discovered: 2026-05-11
+    achieved: 2026-05-24
   T64:
     name: Unified studio-wide deployment architecture across squz + minicadesmobile
     status: identified
@@ -1812,7 +1818,7 @@ targets:
     discovered: 2026-05-13
   T64.1:
     name: A single studio-wide match repo serves squz + minicadesmobile signing from one encrypted store
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1832,9 +1838,10 @@ targets:
     - studio-wide
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.2:
     name: ge ships a deterministic make-rule deployment substrate that wraps fastlane lanes and worktree orchestration
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1856,9 +1863,10 @@ targets:
     - shell-scripts
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.3:
     name: ge ships a Claude Code plugin exposing /ge:ship, /ge:release-notes, /ge:ship-status, /ge:onboard
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1877,9 +1885,10 @@ targets:
     - agentic-ux
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.4:
     name: All ship pipelines build from a temporary git worktree so WIP cannot leak into a release
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1897,9 +1906,10 @@ targets:
     - isolation
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.5:
     name: Every shipped binary embeds a build manifest accessible at runtime
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1916,9 +1926,10 @@ targets:
     - debugging
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.6:
     name: Android releases trigger from git tag via GitHub Actions; iOS releases run from laptop using the same fastlane lanes
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1939,6 +1950,7 @@ targets:
     - tag-triggered
     origin: manual
     discovered: 2026-05-13
+    achieved: 2026-05-24
   T64.7:
     name: MinicadesKit back-ports ge's new pieces; both portfolios converge on shared signing + plugin UX
     status: identified
@@ -2052,7 +2064,7 @@ targets:
     achieved: 2026-05-17
   T65.4:
     name: LocalStore mode — .storekit (iOS) and android.test.* (Android) for offline dev iteration
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2071,9 +2083,10 @@ targets:
     - local-dev
     origin: manual
     discovered: 2026-05-17
+    achieved: 2026-05-24
   T65.5:
     name: Entitlement cache persists in Keychain (iOS) and EncryptedSharedPreferences (Android)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2093,9 +2106,10 @@ targets:
     - encryptedsharedpreferences
     origin: manual
     discovered: 2026-05-17
+    achieved: 2026-05-24
   T65.6:
     name: ge::iap::DebugPanel — long-press to toggle entitlements in dev builds
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2114,6 +2128,7 @@ targets:
     - lunasvg
     origin: manual
     discovered: 2026-05-17
+    achieved: 2026-05-24
   T65.7:
     name: Tiltbuggy ships a `pro` non-consumable unlock as the proving ground for ge::iap
     status: identified
@@ -2271,7 +2286,7 @@ targets:
     achieved: 2026-05-24
   T69:
     name: ge has shipped everything multimaze2 needs for its iOS App Store v1.0
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2287,6 +2302,13 @@ targets:
     - multimaze2 has been submitted to App Store Connect at least once via the unified pipeline — not a one-off manual archive.
     context: |-
       Filed 2026-05-24 to refocus ge's frontier on multimaze2's iOS App Store v1.0 as the next concrete release milestone. multimaze2 is the next ge-consumer game heading to a store. Before this target existed, ge's frontier mixed multimaze2-blocking work with unrelated structural targets (pigeon transport, sokol migration, spyder test infra, etc.) at similar priority levels. This target gathers the multimaze2-blocking subset so /cv can focus on what actually moves the needle on shipping.
+
+      CONVERGENCE UPDATE 2026-05-24 (PR pending): All 16 ge-side dependency targets (T7, T37, T43, T53, T60, T62, T63, T64.1-6, T65.4-6) achieved and retired in a single mega-PR off branch `t69-multimaze2-release-target`. ge engine has delivered everything multimaze2 needs from its side. Remaining for T69 retirement:
+        1. multimaze2 bumps its ge submodule pointer to the merged commit, sweeps its ~32 `fullRect()` / `drawSafeRect()` / `uiSafeRect()` / `pixelsPerPt() * deviceUiScale()` call sites to the new T60 *InPts() API, deletes the rect-based hitExpandPt workaround in favour of `ge::hitTestSvgAt` (T53).
+        2. Marcelo runs the one-time IRL prereqs: ASC API key generation + .p8 placement, `match init` to seed squz/certs, `rotate_certs` for multimaze2's app identifier (4 actions, ~30 min).
+        3. multimaze2 ships through `make ship-release VERSION=x` and gets accepted (or at minimum submitted) to App Store Connect — the cross-repo proof that the full T64 substrate works end-to-end.
+
+      Until those land, T69 stays `converging`. The ge PR retires the 16 deps independently; T69 retires when multimaze2 actually submits.
 
       Scope decisions made during the 2026-05-24 conversation:
       - Platform: iOS App Store only at first release. No Android, no desktop. Drops T39 (Android emu vulkan colour swap), T50.1 (Android adaptive icon split), T64.6's Android-CI half.
@@ -2337,7 +2359,7 @@ targets:
     discovered: 2026-05-24
   T7:
     name: Audio pauses when the app is backgrounded
-    status: identified
+    status: achieved
     value: 5.0
     cost: 2.0
     acceptance:
@@ -2345,6 +2367,7 @@ targets:
     context: User reported music keeps playing when the iOS app is backgrounded. Currently `ge::Audio` (server-side) sends play/stop/volume commands, and `AudioPlayer` (player-side, wire mode) or equivalent direct-mode playback handles them. Neither layer responds to app lifecycle events. The engine should intercept `SDL_EVENT_DID_ENTER_BACKGROUND` / `SDL_EVENT_DID_ENTER_FOREGROUND` and pause/resume audio automatically. In wire mode this means the player pauses its `AudioPlayer`; in direct mode the session or audio subsystem does it directly.
     origin: manual (user-reported from yourworld)
     discovered: 2026-04-12
+    achieved: 2026-05-24
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified
