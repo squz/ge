@@ -22,7 +22,17 @@
 
 set -uo pipefail
 
-REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+# REPO_ROOT must resolve to the CONSUMING project's root (where the
+# game's Gemfile, Matchfile, and ios/CMakeLists.txt live), not to ge's
+# own root (which is the submodule). When ge is consumed as a submodule
+# (the normal case), `git rev-parse --show-superproject-working-tree`
+# returns the parent project's working tree. When ge is run from its
+# own repo (e.g. for testing the ship scripts standalone), that command
+# returns empty and we fall back to ge's own toplevel.
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ]; then
+    REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+fi
 
 lane="${SHIP_LANE:-alpha}"
 version="${SHIP_VERSION:-}"
