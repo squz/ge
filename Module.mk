@@ -1194,6 +1194,7 @@ ge/SHIP_PATH = /usr/bin:/bin:/usr/sbin:/sbin:$(PATH)
 .PHONY: ship-preflight
 ship-preflight:
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/preflight.sh \
 	    --lane $(if $(LANE),$(LANE),alpha) \
 	    $(if $(VERSION),--version $(VERSION),)
@@ -1215,6 +1216,7 @@ ship-worktree:
 ship-alpha:
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane alpha
 
 # ── ship-beta ──────────────────────────────────────────────────────────────
@@ -1227,6 +1229,7 @@ ship-beta:
 	    echo "Usage: make ship-beta VERSION=0.31.0"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane beta --version $(VERSION)
 
 # ── ship-release ───────────────────────────────────────────────────────────
@@ -1243,6 +1246,7 @@ ship-release:
 	    echo "  make ship-release VERSION=$(VERSION) CONFIRM=1"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
 	SHIP_SCHEME=$(SHIP_SCHEME) \
+	APP_ID=$(APP_ID) \
 	    $(ge)/tools/ship/release.sh --lane release --version $(VERSION) --confirm
 
 # ── ship-clean ─────────────────────────────────────────────────────────────

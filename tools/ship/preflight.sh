@@ -92,6 +92,7 @@ required_vars=(
     APP_STORE_CONNECT_API_KEY_KEY_PATH
     MATCH_PASSWORD
     SHIP_SCHEME
+    APP_ID
 )
 for var in "${required_vars[@]}"; do
     if [ -z "${!var:-}" ]; then
@@ -144,11 +145,16 @@ else
   "in_house": false
 }
 JSON
+    # `match` needs --app_identifier to know what cert to verify; without
+    # it, the readonly check fails silently against an empty Appfile.
+    # Consuming game's Makefile exports APP_ID (e.g. com.squz.multimaze)
+    # before invoking ship-preflight; we just forward it.
     if ! (cd "${REPO_ROOT}" && bundle exec fastlane match appstore --readonly \
+          --app_identifier "${APP_ID}" \
           --api_key_path "${api_key_json}" 2>&1); then
-        fail "fastlane match appstore --readonly failed — run 'bundle exec fastlane sync_certs --api_key_path \"${api_key_json}\"' to diagnose"
+        fail "fastlane match appstore --readonly --app_identifier ${APP_ID} failed — run 'bundle exec fastlane sync_certs --app_identifier ${APP_ID} --api_key_path \"${api_key_json}\"' to diagnose"
     else
-        echo "  [PASS] fastlane match --readonly succeeded"
+        echo "  [PASS] fastlane match --readonly succeeded for ${APP_ID}"
     fi
 fi
 
