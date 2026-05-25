@@ -2370,7 +2370,8 @@ targets:
     achieved: 2026-05-24
   T71:
     name: ge ships prebuilt vendor static libs (iOS arm64) + lifted public headers so consumer CI skips ge's submodules
-    status: converging
+    status: achieved
+    achieved: 2026-05-25
     value: 0.0
     cost: 0.0
     acceptance:

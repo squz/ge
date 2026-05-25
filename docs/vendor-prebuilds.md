@@ -93,19 +93,33 @@ teach Module.mk's Android branch to link the prebuilts.
 
 ## CI savings
 
-Measured (multimaze2 `ios-testflight.yml` per-run):
+Measured on `multimaze2` `ios-testflight.yml`, macos-15 runner:
 
-|                      | Before | After |
-|----------------------|--------|-------|
-| Checkout             | ~80 s  | ~15 s |
-| Compile vendor       | ~60 s  | 0 s   |
-| Compile ge + app     | ~30 s  | ~30 s |
-| **Total wall time**  | ~4 min | ~90 s |
-| **Estimated cost**   | ~$0.50 | ~$0.18 |
+| Step | Pre-T71 ([26387615058](https://github.com/squz/multimaze2/actions/runs/26387615058)) | Post-T71 ([26401589693](https://github.com/squz/multimaze2/actions/runs/26401589693), `dry_run=true`) | Δ |
+|---|---|---|---|
+| Init submodules | 97 s (recursive) | 8 s (top-level only) | **−89 s** |
+| Run ship-alpha | 122 s (incl. pilot upload) | 136 s (no pilot — dry-run) | +14 s |
+| Other steps | ~14 s | ~18 s | +4 s |
+| **Total wall time** | **233 s (3:53)** | **166 s (2:46)** | **−67 s (−29%)** |
+| **Estimated cost** | ~$0.50 | ~$0.36 | |
 
-(Compile-vendor figures are wall time of vendor source compile steps
-from a representative pre-T71 run vs. a post-T71 run; checkout savings
-come from skipping submodule recursion.)
+Where the savings came from (and didn't):
+
+- **Submodule init: 12× faster** (97 s → 8 s). This is the structural
+  win. Consumer no longer pulls ~150 MB of nested vendor repos; just ge
+  itself + the prebuilt .a files via LFS smudge inside ge's clone.
+- **`ship-alpha` got slightly slower**, not faster. Expected
+  vendor-compile savings (~60 s) didn't show up in the measurement.
+  Plausible reasons: LFS smudge during the submodule clone eats some
+  of it; runner-to-runner variance; the `gym` archive pass spends most
+  of its time on linker + signing + IPA packaging rather than compile.
+  Worth a second measurement run to confirm — but the overall −29%
+  total is real.
+
+The pre-T71 run included the TestFlight upload step (`pilot`); the
+post-T71 run set `dry_run=true` to skip it without consuming a
+TestFlight build slot (see `SHIP_DRY_RUN=1` env-var hook in
+`tools/ship/release.sh`).
 
 ## Things this does *not* do
 
