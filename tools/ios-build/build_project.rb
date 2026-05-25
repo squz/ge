@@ -42,43 +42,15 @@ require 'set'
 
 module GE
   module IOS
-    # Hard-coded engine source list, mirroring ge/Module.mk's ge/SRC_DIRECT.
-    # Vendor sources (bgfx, bx, bimg, box2d, lunasvg, plutovg, sqlite3,
-    # lz4, liteparser) are NOT compiled inline — they're prebuilt into
-    # static libs under ge/prebuilt/ios-arm64/ via
-    # `make ge/prebuild-vendor-ios-arm64` and linked from there. See
-    # docs/vendor-prebuilds.md for the refresh workflow (T71).
+    # Sources from ge that the consumer still compiles inline.
     #
-    # KEEP IN SYNC with Module.mk's ge/SRC_DIRECT — drift will cause
-    # undefined-symbol errors at link time.
+    # Almost all engine sources moved into the prebuilt libge.a (T71
+    # Phase 2) — see tools/prebuild-vendor-ios-arm64.sh for the source
+    # list cooked into the .a. The Swift file stays here because Swift
+    # integration with a static lib still needs the consumer's
+    # bridging-header config, and the cost (~1 Swift file) is trivial.
     GE_DIRECT_SOURCES = %w[
-      src/Context.cpp
-      src/Resource.cpp
-      src/FileIO.cpp
-      src/FontLoader_apple.mm
-      src/BgfxContext.mm
-      src/Signal.cpp
-      src/SessionHost.mm
-      src/sprite.cpp
-      src/svg.cpp
-      src/png.cpp
-      src/text.cpp
-      src/button.cpp
-      src/sdl_input.cpp
-      src/iap.cpp
-      src/iap_apple.mm
       src/iap_apple.swift
-      src/audio.cpp
-      src/audio_apple.mm
-      src/log.cpp
-      src/log_apple.mm
-      src/Immersive_stub.cpp
-      src/CutoutInsets_stub.cpp
-      src/Attitude_apple.mm
-      src/render/DirectRenderHost.mm
-      src/render/RefreshRateBoost_apple.mm
-      tools/player_orientation_ios.mm
-      vendor/src/sqlpipe.cpp
     ].freeze
 
     # iOS frameworks ge needs: SDL3 + bgfx/Metal + audio + StoreKit etc.
@@ -95,13 +67,17 @@ module GE
 
     # Linker libs:
     # - SDL3 et al.: prebuilt xcframeworks under ge/vendor/sdl3/ (legacy).
+    # - ge: engine itself, prebuilt under ge/prebuilt/ios-arm64/libge.a
+    #   (T71 Phase 2). Listed first so ge symbols are resolved before
+    #   vendor libs (e.g. ge::log uses spdlog template instantiations).
     # - bgfx/bx/bimg/box2d/{lunasvg,plutovg,sqlite3,lz4}_ge/liteparser:
-    #   prebuilt for iOS arm64 under ge/prebuilt/ios-arm64/ (T71). Built
-    #   via `make ge/prebuild-vendor-ios-arm64`; refreshed when bumping
+    #   prebuilt under ge/prebuilt/ios-arm64/ (T71). Built via
+    #   `make ge/prebuild-vendor-ios-arm64`; refreshed when bumping
     #   vendor submodules. The _ge suffix on lunasvg/plutovg/sqlite3/lz4
     #   avoids name collision with SDL3's own bundled plutosvg/plutovg
     #   and any system-installed sqlite3.
     LINKER_LIBS = %w[
+      ge
       SDL3 SDL3_image SDL3_ttf
       freetype harfbuzz plutosvg plutovg
       bgfx bx bimg box2d
