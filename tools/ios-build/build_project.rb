@@ -42,11 +42,15 @@ require 'set'
 
 module GE
   module IOS
-    # Hard-coded engine source list, mirroring ge/Module.mk's ge/SRC_DIRECT
-    # plus the vendor C/C++ sources that libge.a normally bundles. KEEP IN
-    # SYNC with Module.mk — drift will cause undefined-symbol errors at
-    # link time. (TODO T35 follow-up: extract to a shared data file
-    # consumed by both Module.mk and this Ruby builder.)
+    # Hard-coded engine source list, mirroring ge/Module.mk's ge/SRC_DIRECT.
+    # Vendor sources (bgfx, bx, bimg, box2d, lunasvg, plutovg, sqlite3,
+    # lz4, liteparser) are NOT compiled inline — they're prebuilt into
+    # static libs under ge/prebuilt/ios-arm64/ via
+    # `make ge/prebuild-vendor-ios-arm64` and linked from there. See
+    # docs/vendor-prebuilds.md for the refresh workflow (T71).
+    #
+    # KEEP IN SYNC with Module.mk's ge/SRC_DIRECT — drift will cause
+    # undefined-symbol errors at link time.
     GE_DIRECT_SOURCES = %w[
       src/Context.cpp
       src/Resource.cpp
@@ -74,26 +78,7 @@ module GE
       src/render/DirectRenderHost.mm
       src/render/RefreshRateBoost_apple.mm
       tools/player_orientation_ios.mm
-      vendor/src/sqlite3.c
       vendor/src/sqlpipe.cpp
-      vendor/src/lz4.c
-      vendor/github.com/sqliteai/liteparser/src/arena.c
-      vendor/github.com/sqliteai/liteparser/src/liteparser.c
-      vendor/github.com/sqliteai/liteparser/src/lp_tokenize.c
-      vendor/github.com/sqliteai/liteparser/src/lp_unparse.c
-      vendor/github.com/sqliteai/liteparser/src/parse.c
-    ].freeze
-
-    # Vendor library globs — compiled as part of the app target (no
-    # separate static libs; the CMakeLists.txt.in template did the same).
-    BOX2D_SRC_GLOB   = 'vendor/github.com/erincatto/box2d/src/*.c'.freeze
-    LUNASVG_SRC_GLOB = 'vendor/github.com/sammycage/lunasvg/source/*.cpp'.freeze
-    PLUTOVG_SRC_GLOB = 'vendor/github.com/sammycage/lunasvg/plutovg/source/*.c'.freeze
-    BGFX_AMALGAMATED = 'vendor/github.com/bkaradzic/bgfx/src/amalgamated.cpp'.freeze
-    BX_AMALGAMATED   = 'vendor/github.com/bkaradzic/bx/src/amalgamated.cpp'.freeze
-    BIMG_SOURCES     = [
-      'vendor/github.com/bkaradzic/bimg/src/image.cpp',
-      'vendor/github.com/bkaradzic/bimg/src/image_gnf.cpp',
     ].freeze
 
     # iOS frameworks ge needs: SDL3 + bgfx/Metal + audio + StoreKit etc.
@@ -108,12 +93,19 @@ module GE
       VideoToolbox Security OpenGLES ImageIO CoreText StoreKit
     ].freeze
 
-    # Linker libs (in addition to the vendor sources we compile inline):
-    # the prebuilt SDL3 + freetype + harfbuzz xcframeworks shipped under
-    # ge/vendor/sdl3/.
+    # Linker libs:
+    # - SDL3 et al.: prebuilt xcframeworks under ge/vendor/sdl3/ (legacy).
+    # - bgfx/bx/bimg/box2d/{lunasvg,plutovg,sqlite3,lz4}_ge/liteparser:
+    #   prebuilt for iOS arm64 under ge/prebuilt/ios-arm64/ (T71). Built
+    #   via `make ge/prebuild-vendor-ios-arm64`; refreshed when bumping
+    #   vendor submodules. The _ge suffix on lunasvg/plutovg/sqlite3/lz4
+    #   avoids name collision with SDL3's own bundled plutosvg/plutovg
+    #   and any system-installed sqlite3.
     LINKER_LIBS = %w[
       SDL3 SDL3_image SDL3_ttf
       freetype harfbuzz plutosvg plutovg
+      bgfx bx bimg box2d
+      lunasvg_ge plutovg_ge sqlite3_ge lz4_ge liteparser
     ].freeze
 
     class ProjectBuilder
@@ -253,8 +245,14 @@ module GE
             *@extra_defines,
           ].join(' '),
 
-          # SDL3 prebuilt libs — different paths for device vs simulator.
-          'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]' => File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64'),
+          # Library search paths:
+          # - SDL3 prebuilt xcframeworks (device vs simulator slices).
+          # - Vendor prebuilt static libs from T71's prebuild step
+          #   (`make ge/prebuild-vendor-ios-arm64`), iphoneos only.
+          'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]' => [
+            File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64'),
+            File.join(relative_to_ios(@ge_root), 'prebuilt/ios-arm64'),
+          ].map { |p| "\"$(SRCROOT)/#{p}\"" }.join(' '),
           'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]' => File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64-simulator'),
 
           # Misc Xcode hygiene
@@ -277,29 +275,27 @@ module GE
           File.join(proj_rel, 'include'),
           File.join(ge_rel, 'include'),
           File.join(ge_rel, 'vendor/include'),
+          # Non-prebuilt, non-submodule deps (header-only or always
+          # consumed inline by engine sources).
           File.join(ge_rel, 'vendor/github.com/gabime/spdlog/include'),
           File.join(ge_rel, 'vendor/github.com/chriskohlhoff/asio/include'),
           File.join(ge_rel, 'vendor/github.com/libsdl-org/SDL/include'),
           File.join(ge_rel, 'vendor/github.com/libsdl-org/SDL_ttf/external/freetype/include'),
           File.join(ge_rel, 'vendor/sdl3/include'),
-          File.join(ge_rel, 'vendor/github.com/sqliteai/liteparser/src'),
-          File.join(ge_rel, 'vendor/github.com/sammycage/lunasvg/include'),
-          File.join(ge_rel, 'vendor/github.com/sammycage/lunasvg/plutovg/include'),
-          File.join(ge_rel, 'vendor/github.com/erincatto/box2d/include'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bx/include'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bx/include/compat/ios'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bimg/include'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bgfx/include'),
-          # Private deps (for the vendor amalgamated sources we compile inline)
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bx/3rdparty'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bimg/3rdparty'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bimg/3rdparty/astc-encoder/include'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bgfx/3rdparty'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bgfx/3rdparty/khronos'),
-          File.join(ge_rel, 'vendor/github.com/bkaradzic/bgfx/src'),
-          File.join(ge_rel, 'vendor/github.com/sammycage/lunasvg/source'),
-          File.join(ge_rel, 'vendor/github.com/sammycage/lunasvg/plutovg/source'),
-          File.join(ge_rel, 'vendor/github.com/erincatto/box2d/src'),
+          # Vendor prebuilts (T71): public headers lifted from each
+          # vendor submodule into ge/headers/<vendor>/include/. Same
+          # consumer #include paths as before — consumers see
+          # `<bgfx/bgfx.h>`, `<bx/bx.h>`, etc. unchanged. The lifted
+          # tree means consumer CI doesn't need to recurse-init ge's
+          # submodules to compile.
+          File.join(ge_rel, 'headers/liteparser/include'),
+          File.join(ge_rel, 'headers/lunasvg/include'),
+          File.join(ge_rel, 'headers/plutovg/include'),
+          File.join(ge_rel, 'headers/box2d/include'),
+          File.join(ge_rel, 'headers/bx/include'),
+          File.join(ge_rel, 'headers/bx/include/compat/ios'),
+          File.join(ge_rel, 'headers/bimg/include'),
+          File.join(ge_rel, 'headers/bgfx/include'),
         ].map { |p| "\"$(SRCROOT)/#{p}\"" }
       end
 
@@ -311,20 +307,13 @@ module GE
           add_source_file(path, vendor: false)
         end
 
-        # ge engine sources.
+        # ge engine sources. (Vendor libs — bgfx, bx, bimg, box2d,
+        # lunasvg, plutovg, sqlite3, lz4, liteparser — are NOT compiled
+        # inline; they're prebuilt static libs under
+        # ge/prebuilt/ios-arm64/ and linked via LINKER_LIBS. See T71.)
         GE_DIRECT_SOURCES.each do |rel|
           add_source_file(File.join(@ge_root, rel), vendor: false)
         end
-
-        # Vendor C/C++ sources compiled inline.
-        vendor_sources = []
-        vendor_sources << File.join(@ge_root, BX_AMALGAMATED)
-        vendor_sources << File.join(@ge_root, BGFX_AMALGAMATED)
-        vendor_sources.concat(BIMG_SOURCES.map { |s| File.join(@ge_root, s) })
-        vendor_sources.concat(Dir.glob(File.join(@ge_root, BOX2D_SRC_GLOB)))
-        vendor_sources.concat(Dir.glob(File.join(@ge_root, LUNASVG_SRC_GLOB)))
-        vendor_sources.concat(Dir.glob(File.join(@ge_root, PLUTOVG_SRC_GLOB)))
-        vendor_sources.each { |p| add_source_file(p, vendor: true) }
       end
 
       # xcodeproj's `add_file_references(refs, compiler_flags)` takes a
@@ -341,10 +330,10 @@ module GE
         build_file.settings = { 'COMPILER_FLAGS' => flags } unless flags.empty?
       end
 
-      def compiler_flags_for(path, vendor:)
-        # bgfx's amalgamated.cpp needs ObjC++ on Apple for the Metal backend.
-        return '-ObjC++ -Wno-everything' if path.end_with?('bgfx/src/amalgamated.cpp')
-        # Silence vendor-code warnings — they're not ours to fix.
+      def compiler_flags_for(_path, vendor:)
+        # Silence vendor-code warnings — they're not ours to fix. Today
+        # only sqlpipe.cpp (vendor/src/sqlpipe.cpp) passes vendor: true;
+        # other vendor C/C++ libs are linked from ge/prebuilt/ios-arm64/.
         return '-Wno-everything' if vendor
         ''
       end

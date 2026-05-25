@@ -2368,6 +2368,43 @@ targets:
     origin: manual (user-reported from yourworld)
     discovered: 2026-04-12
     achieved: 2026-05-24
+  T71:
+    name: ge ships prebuilt vendor static libs (iOS arm64) + lifted public headers so consumer CI skips ge's submodules
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`ge/prebuilt/ios-arm64/lib<vendor>.a` exists for each vendor lib (bgfx, bx, bimg, box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge, liteparser), committed via Git LFS'
+    - '`ge/headers/<vendor>/include/...` contains the public-header subset of each vendor submodule, committed as regular git files'
+    - '`make ge/prebuild-vendor-ios-arm64` cross-compiles all vendor libs from the initialized submodules to `prebuilt/ios-arm64/`'
+    - '`make ge/lift-headers` rsyncs each vendor submodule''s `/include/` (and equivalent) into `headers/<vendor>/include/`'
+    - '`ge/tools/ios-build/build_project.rb` updated: header search paths use `ge/headers/<vendor>/include/`, link line uses `-L ge/prebuilt/ios-arm64 -l<vendor>` for each prebuilt; vendor source compilation removed from `add_sources!`'
+    - 'multimaze2''s GHA workflow checkout is `actions/checkout` with `submodules: true` (NOT recursive); ge''s own submodules are never initialized in CI'
+    - 'Per-run GHA cost drops measurably: checkout ~80s → ~15s; compile ~90s → ~30s; total run ~4min → ~90s'
+    - 'Documentation: `docs/vendor-prebuilds.md` explains the refresh workflow (bump submodule, run prebuild + lift, commit) and the rationale (no CI-side submodule recursion)'
+    - Marcelo's local laptop is the only place the prebuild runs; ge has no CI workflow that produces prebuilts (deferred to a future target)
+    context: |-
+      **Reshaped 2026-05-25, second iteration.** Original framing was "fast submodule init via --reference / shallow / partial clone". User pushed back: submodules' value (pinned upstream versions, clean bump mechanics) is worth preserving. Better architecture: cook vendor libs into static .a files once per upstream bump (locally, with full recursive submodules), commit the .a's via LFS, lift public headers into a separate `headers/` tree. Consumer CI then only needs ge — not ge's submodules.
+
+      Scope decided this session (2026-05-25):
+      - **Phase 1 only**: vendor libs prebuilt + headers lifted. ge's own .cpp/.mm files still compiled inline by consumer (~30s, vs ~90s today which includes vendor). ge iteration friction unchanged (bump submodule SHA + push). Defer Phase 2 ("libge.a also prebuilt") until ge-side iteration on Marcelo's laptop becomes painful.
+      - **iOS arm64 only first**. Android + desktop continue using recursive submodules. When Android CI lands (T46 / future), extend the pattern.
+
+      Two new paths in ge:
+      - `ge/headers/<vendor>/include/` — committed plain files, ~20 MB total across all vendors (just public headers, not 3rdparty private). Source for both ge's own compilation and consumer's xcodeproj.
+      - `ge/prebuilt/ios-arm64/lib<vendor>.a` — committed via LFS (~40 MB total). Built locally via `make ge/prebuild-vendor-ios-arm64`.
+
+      Submodule paths (`ge/vendor/github.com/<vendor>/`) remain — they're the source-of-truth for re-cooking prebuilts. CI just doesn't initialize them. Devs who edit ge or want to verify the prebuilds can `git submodule update --init --recursive` to materialize them.
+
+      Net impact (estimated, to verify):
+      - multimaze2 GHA per-run: ~$0.50 → ~$0.18 (60% reduction)
+      - Checkout: ~80s → ~15s (no submodule recursion)
+      - Compile: ~90s → ~30s (no vendor source)
+      - Disk on dev machines: smaller .git/modules; smaller working tree if submodules left uninitialised.
+
+      Supersedes [[t35-prebuilt-libs-design]] memory note (which proposed the same architecture but was set aside in favour of the in-project xcodeproj-gem builder under T35). T35 retired achieving the CMake-drop goal; T71 now adds the prebuilt-libs layer on top.
+    origin: manual
+    discovered: 2026-05-25
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified

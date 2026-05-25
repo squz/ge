@@ -769,6 +769,23 @@ ge/storekit-init:
 	fi
 
 # ────────────────────────────────────────────────
+# Vendor prebuild / header lift (iOS arm64)
+# ────────────────────────────────────────────────
+#
+# Used to refresh ge/prebuilt/ios-arm64/lib*.a + ge/headers/<vendor>/include/
+# after bumping a vendor submodule SHA. Consumer apps' iOS builds link the
+# prebuilt static libs and read the lifted headers, avoiding recursive
+# submodule init on CI. See docs/vendor-prebuilds.md.
+
+.PHONY: ge/prebuild-vendor-ios-arm64
+ge/prebuild-vendor-ios-arm64:
+	$(ge)/tools/prebuild-vendor-ios-arm64.sh
+
+.PHONY: ge/lift-headers
+ge/lift-headers:
+	$(ge)/tools/lift-headers.sh
+
+# ────────────────────────────────────────────────
 # Generic targets (use CLEAN, COMPILE_DB_DEPS)
 # ────────────────────────────────────────────────
 
