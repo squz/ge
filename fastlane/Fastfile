@@ -71,6 +71,10 @@ platform :ios do
 
   desc "Build the IPA via gym, using the resolved match certs."
   lane :build_ipa do |opts|
+    # On CI: create a temporary keychain so match installs certs there
+    # and codesign can use them without prompting for the OS login
+    # keychain password (which CI runners can't answer). No-op locally.
+    setup_ci if ENV['CI']
     sync_certs(
       type:           opts[:type] || "appstore",
       app_identifier: opts[:app_identifier] || ENV.fetch("APP_ID"),
