@@ -275,12 +275,15 @@ module GE
           File.join(proj_rel, 'include'),
           File.join(ge_rel, 'include'),
           File.join(ge_rel, 'vendor/include'),
-          # Non-prebuilt, non-submodule deps (header-only or always
-          # consumed inline by engine sources).
-          File.join(ge_rel, 'vendor/github.com/gabime/spdlog/include'),
-          File.join(ge_rel, 'vendor/github.com/chriskohlhoff/asio/include'),
-          File.join(ge_rel, 'vendor/github.com/libsdl-org/SDL/include'),
-          File.join(ge_rel, 'vendor/github.com/libsdl-org/SDL_ttf/external/freetype/include'),
+          # Header-only deps + SDL3 stack — lifted from their submodules
+          # into ge/headers/ so consumer CI doesn't need recursive
+          # submodule init (T71 follow-up; original T71 missed these).
+          # `vendor/sdl3/include` still on the path because it holds the
+          # checked-in SDL3_image / SDL3_ttf header subdirs (siblings to
+          # the prebuilt static libs under vendor/sdl3/lib/).
+          File.join(ge_rel, 'headers/spdlog/include'),
+          File.join(ge_rel, 'headers/asio/include'),
+          File.join(ge_rel, 'headers/sdl3/include'),
           File.join(ge_rel, 'vendor/sdl3/include'),
           # Vendor prebuilts (T71): public headers lifted from each
           # vendor submodule into ge/headers/<vendor>/include/. Same

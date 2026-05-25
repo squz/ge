@@ -154,6 +154,12 @@ if [ "${lane}" = "alpha" ]; then
             type:"appstore"
     )
 
+    if [ "${SHIP_DRY_RUN:-}" = "1" ]; then
+        echo "ship/release: SHIP_DRY_RUN=1 — skipping TestFlight upload."
+        echo "ship/release: alpha dry-run done — build ${build_number} (${head_sha}) built but NOT uploaded"
+        exit 0
+    fi
+
     echo "ship/release: uploading to TestFlight (internal)..."
     local_ipa="$(ls "${ipa_dir}"/*.ipa 2>/dev/null | head -1)"
     (
