@@ -1,26 +1,31 @@
-# Vendor prebuilds (iOS arm64)
+# Prebuilds (iOS arm64)
 
-ge ships prebuilt static libs and lifted public headers for nine vendor
-dependencies so consumer apps' iOS CI doesn't need to recursively
-initialize ge's submodules. This cuts a typical multimaze2-class CI run
-from ~4 min to ~90 s.
+ge ships prebuilt static libs and lifted public headers for nine
+vendor dependencies **plus libge itself** so consumer apps' iOS CI
+doesn't need to recursively initialize ge's submodules and doesn't
+need to recompile ge from sources.
 
 The artefacts:
 
-- **`ge/prebuilt/ios-arm64/lib<vendor>.a`** — nine static libs (bgfx,
+- **`ge/prebuilt/ios-arm64/lib<name>.a`** — ten static libs (bgfx,
   bx, bimg, box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
-  liteparser), tracked via Git LFS. ~4.4 MB total.
-- **`ge/headers/<vendor>/include/`** — lifted public-header subset of
-  each vendor submodule, committed as regular git files. ~1.7 MB total.
+  liteparser, **ge**), tracked via Git LFS. ~13 MB total.
+- **`ge/headers/<dep>/include/`** — lifted public-header subset of
+  each header-providing submodule (bgfx, bx, bimg, box2d, lunasvg,
+  plutovg, liteparser, sdl3 — SDL3 core + freetype, spdlog, asio),
+  committed as regular git files. ~14 MB total.
 
 The `_ge` suffix on lunasvg, plutovg, sqlite3, lz4 avoids name clashes
 with SDL3's bundled plutosvg/plutovg and any system-installed sqlite3.
 
 The Apple iOS xcodeproj generator
 (`ge/tools/ios-build/build_project.rb`) wires both into the project it
-emits — header search paths point at `ge/headers/<vendor>/include/`,
-the linker pulls `-l<vendor>` out of `ge/prebuilt/ios-arm64/`. Vendor
-source files are no longer added to the xcodeproj's compile phase.
+emits — header search paths point at `ge/headers/<dep>/include/`, the
+linker pulls `-l<lib>` out of `ge/prebuilt/ios-arm64/`. The consumer's
+xcodeproj compiles only the game's own sources plus
+`src/iap_apple.swift` (the Swift StoreKit-2 bridge — kept inline
+because Swift integration with a static lib still needs the
+consumer's bridging-header config).
 
 ## Why this exists
 
@@ -93,55 +98,60 @@ teach Module.mk's Android branch to link the prebuilts.
 
 ## CI savings
 
-Measured (multimaze2 `ios-testflight.yml` per-run):
+Measured on `multimaze2` `ios-testflight.yml`, macos-15 runner.
 
-|                      | Before | After |
-|----------------------|--------|-------|
-| Checkout             | ~80 s  | ~15 s |
-| Compile vendor       | ~60 s  | 0 s   |
-| Compile ge + app     | ~30 s  | ~30 s |
-| **Total wall time**  | ~4 min | ~90 s |
-| **Estimated cost**   | ~$0.50 | ~$0.18 |
+| Step | Pre-T71 ([26387615058](https://github.com/squz/multimaze2/actions/runs/26387615058)) | After vendor lift only ([26401589693](https://github.com/squz/multimaze2/actions/runs/26401589693)) | After +libge | Δ vs pre-T71 |
+|---|---|---|---|---|
+| Init submodules | 97 s (recursive) | 8 s (top-level only) | 8 s | **−89 s** |
+| ship-alpha `gym` | 92 s | 127 s | TBD | TBD |
+| ship-alpha `pilot` | 22 s | 0 s (dry-run) | 0 s (dry-run) | −22 s |
+| Other | ~22 s | ~31 s | TBD | TBD |
+| **Total** | **233 s (3:53)** | **166 s (2:46)** | TBD | TBD |
 
-(Compile-vendor figures are wall time of vendor source compile steps
-from a representative pre-T71 run vs. a post-T71 run; checkout savings
-come from skipping submodule recursion.)
+(The libge-prebuilt measurement is pending the post-merge CI run on this branch.)
+
+The structural win is the submodule-init step: **12× faster** (97 s → 8 s),
+no longer pulling ~150 MB of nested vendor repos. Whether vendor compile
+savings + libge prebuild more than make up for the +35 s `gym` regression
+seen between the first two measurements remains to be measured.
 
 ## Things this does *not* do
 
-- **No prebuilt libge.a**. Engine sources (`ge/src/*.cpp`,
-  `ge/src/*.mm`, plus `vendor/src/sqlpipe.cpp`) are still compiled
-  inline by the consumer's iOS build. Bumping ge itself remains a fast
-  iteration loop — bump the submodule SHA in the consumer, no further
-  refresh step needed.
 - **No CI-side prebuild job**. The prebuild runs only on Marcelo's
   laptop. A future target may add a GHA workflow that produces and
-  commits prebuilts when a vendor submodule SHA changes; for now,
-  manual.
+  commits prebuilts when a vendor submodule SHA changes or ge sources
+  are edited; for now, manual.
 - **No Android / macOS / simulator slices**. iOS arm64 device only.
+- **No prebuilt Swift bridge**. `src/iap_apple.swift` still compiles
+  in the consumer's xcodeproj because the bridging-header config is a
+  per-target Xcode setting. Trivial cost (one Swift file, ~2 s).
 
 ## Layout
 
 ```
 ge/
-├── prebuilt/ios-arm64/
-│   ├── libbgfx.a           1.1 MB    (LFS)
-│   ├── libbx.a             268 KB    (LFS)
-│   ├── libbimg.a           111 KB    (LFS)
-│   ├── libbox2d.a          490 KB    (LFS)
-│   ├── liblunasvg_ge.a     392 KB    (LFS)
-│   ├── libplutovg_ge.a     302 KB    (LFS)
-│   ├── libsqlite3_ge.a     1.5 MB    (LFS)
-│   ├── liblz4_ge.a         76 KB     (LFS)
-│   └── libliteparser.a     297 KB    (LFS)
-├── headers/
-│   ├── bgfx/include/bgfx/…           regular
-│   ├── bx/include/{bx,compat,tinystl}/… regular
-│   ├── bimg/include/bimg/…           regular
-│   ├── box2d/include/box2d/…         regular
-│   ├── lunasvg/include/lunasvg.h     regular
-│   ├── plutovg/include/plutovg.h     regular
-│   └── liteparser/include/{arena,liteparser,liteparser_internal,parse}.h
+├── prebuilt/ios-arm64/                       (all .a files via LFS)
+│   ├── libge.a             8.9 MB
+│   ├── libbgfx.a           1.1 MB
+│   ├── libsqlite3_ge.a     1.5 MB
+│   ├── libbx.a             268 KB
+│   ├── libbimg.a           111 KB
+│   ├── libbox2d.a          490 KB
+│   ├── liblunasvg_ge.a     392 KB
+│   ├── libplutovg_ge.a     302 KB
+│   ├── libliteparser.a     297 KB
+│   └── liblz4_ge.a         76 KB
+├── headers/                                  (all plain files)
+│   ├── bgfx/include/bgfx/…
+│   ├── bx/include/{bx,compat,tinystl}/…
+│   ├── bimg/include/bimg/…
+│   ├── box2d/include/box2d/…
+│   ├── lunasvg/include/lunasvg.h
+│   ├── plutovg/include/plutovg.h
+│   ├── liteparser/include/{arena,liteparser,parse}.h
+│   ├── sdl3/include/{SDL3,freetype,ft2build.h,…}
+│   ├── spdlog/include/spdlog/…
+│   └── asio/include/asio/…
 └── tools/
     ├── prebuild-vendor-ios-arm64.sh
     └── lift-headers.sh
