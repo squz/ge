@@ -207,7 +207,12 @@ module GE
           'CURRENT_PROJECT_VERSION' => @build_number,
           'IPHONEOS_DEPLOYMENT_TARGET' => @deployment_target,
           'TARGETED_DEVICE_FAMILY' => @device_family,
-          'SUPPORTED_PLATFORMS' => 'iphoneos iphonesimulator',
+          # Device-only. The simulator path requires a matching simulator
+          # runtime which isn't always installed on CI macOS runners, and
+          # App Store IPAs don't include simulator slices anyway. Local
+          # dev that needs the simulator can override via Xcode UI or
+          # consumer-side `extra_settings` once that surface lands.
+          'SUPPORTED_PLATFORMS' => 'iphoneos',
 
           # Squz signing — Manual + match-installed profile + Apple
           # Distribution: Squz Pty Ltd. See [[squz-cert-policy]].
