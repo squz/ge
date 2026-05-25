@@ -100,20 +100,33 @@ teach Module.mk's Android branch to link the prebuilts.
 
 Measured on `multimaze2` `ios-testflight.yml`, macos-15 runner.
 
-| Step | Pre-T71 ([26387615058](https://github.com/squz/multimaze2/actions/runs/26387615058)) | After vendor lift only ([26401589693](https://github.com/squz/multimaze2/actions/runs/26401589693)) | After +libge | Δ vs pre-T71 |
-|---|---|---|---|---|
-| Init submodules | 97 s (recursive) | 8 s (top-level only) | 8 s | **−89 s** |
-| ship-alpha `gym` | 92 s | 127 s | TBD | TBD |
-| ship-alpha `pilot` | 22 s | 0 s (dry-run) | 0 s (dry-run) | −22 s |
-| Other | ~22 s | ~31 s | TBD | TBD |
-| **Total** | **233 s (3:53)** | **166 s (2:46)** | TBD | TBD |
+| Step | Pre-T71 ([26387615058](https://github.com/squz/multimaze2/actions/runs/26387615058)) | Phase 1: vendor lift ([26401589693](https://github.com/squz/multimaze2/actions/runs/26401589693)) | Phase 2: +libge ([26419057104](https://github.com/squz/multimaze2/actions/runs/26419057104)) |
+|---|---|---|---|
+| Init submodules | 97 s (recursive) | 8 s (top-level only) | 8 s |
+| ship-alpha `match` | 2 s | 3 s | 3 s |
+| ship-alpha `gym` | 92 s | 127 s | **61 s** |
+| ship-alpha `pilot` | 22 s | 0 s (dry-run) | 0 s (dry-run) |
+| Other | ~20 s | ~28 s | ~17 s |
+| **Total** | **233 s (3:53)** | 166 s (2:46) | **89 s (1:29)** |
 
-(The libge-prebuilt measurement is pending the post-merge CI run on this branch.)
+Δ vs pre-T71: **−144 s, −62%**. Per-run cost ~$0.50 → ~$0.19.
 
-The structural win is the submodule-init step: **12× faster** (97 s → 8 s),
-no longer pulling ~150 MB of nested vendor repos. Whether vendor compile
-savings + libge prebuild more than make up for the +35 s `gym` regression
-seen between the first two measurements remains to be measured.
+Two structural wins:
+
+1. **Submodule init: 12× faster** (97 s → 8 s). Consumer no longer
+   pulls ~150 MB of nested vendor repos; just ge itself + ge's
+   prebuilt .a files via LFS smudge.
+2. **`gym` 33% faster than pre-T71** (92 s → 61 s) once libge is also
+   prebuilt. Phase 1 alone (vendor prebuilts only) had `gym` going the
+   wrong way (+35 s); the libge prebuild swamps that and then some.
+   The original +35 s in Phase 1 was probably just runner variance
+   (compile-time variation between runs on the macos-15 image), not
+   structural — it disappeared cleanly in Phase 2.
+
+The pre-T71 baseline included the TestFlight upload step (`pilot`);
+Phase 1 and Phase 2 measurements set `dry_run=true` to skip it
+without consuming TestFlight build slots
+(`SHIP_DRY_RUN=1` env-var hook in `tools/ship/release.sh`).
 
 ## Things this does *not* do
 
