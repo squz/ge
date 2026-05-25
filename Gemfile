@@ -14,3 +14,8 @@ gem "fastlane", "~> 2.234"
 
 # match's encryption layer needs a recent OpenSSL on macOS Tahoe.
 gem "openssl", ">= 3.0"
+
+# xcodeproj — used by ge/tools/ios/build_project.rb to generate iOS
+# consumer apps' .xcodeproj programmatically (replaces CMake's
+# Xcode generator for the iOS app build path). T35.
+gem "xcodeproj", "~> 1.27"
