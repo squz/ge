@@ -319,30 +319,89 @@ module GE
 
       # ── resources ───────────────────────────────────────────────────────
 
+      # Bundles consumer-declared resources into the app, preserving each
+      # resource's project-relative path inside the .app/ bundle. A consumer
+      # declaration of "data/menu" lands at ".app/data/menu/...", matching
+      # how ge::resource("data/menu/x.png") resolves at runtime.
+      #
+      # Mechanics: Xcode's standard "Copy Bundle Resources" phase copies
+      # each file keyed by basename — so a single phase can't preserve
+      # subpaths. Instead, this method walks each resource directory and
+      # creates one PBXCopyFilesBuildPhase per unique relative parent
+      # directory, with dst_subfolder_spec = 7 (Resources, which on iOS
+      # resolves to the .app bundle root) and dst_path = <rel parent>.
+      # Top-level files (those whose parent is the project root) keep
+      # going through the regular Resources phase.
+      #
+      # This mirrors what CMake's MACOSX_PACKAGE_LOCATION property did in
+      # the pre-T35 build, so consumers migrating from CMake see identical
+      # bundle layout from identical declarations. T72 retired this
+      # contract after the basename-flattening regression broke
+      # multimaze2's TestFlight 3.0.0 ship.
       def add_resources!
         # Info.plist is referenced via INFOPLIST_FILE setting, NOT as a
         # resource. Skip it here.
 
         # Assets.xcassets (app-icon catalog from `make ge/app-icons`).
+        # Stays in the regular Resources phase — Xcode treats .xcassets
+        # specially (asset-catalog compilation), and the bundle output
+        # path is determined by the catalog itself.
         if File.exist?(@assets_xcassets)
           ref = file_ref_for(@assets_xcassets)
           @app_target.add_resources([ref])
         end
 
         # Game resources — each entry is a path relative to project root.
-        # Files become single PBXFileReferences; directories are recursed
-        # and added as folder references (preserves bundle subdir layout).
         @resources.each do |rel|
           abs = File.expand_path(rel, @project_root)
           if File.directory?(abs)
-            ref = folder_ref_for(abs)
-            @app_target.add_resources([ref])
+            add_resource_directory!(abs)
           elsif File.file?(abs)
-            ref = file_ref_for(abs)
-            @app_target.add_resources([ref])
+            add_resource_file!(abs)
           else
             warn "resource not found: #{abs}"
           end
+        end
+      end
+
+      # Walks abs_dir recursively and places each file at its
+      # project-relative path in the bundle.
+      def add_resource_directory!(abs_dir)
+        Pathname.new(abs_dir).find do |path|
+          next if path.directory?
+          add_resource_file!(path.to_s)
+        end
+      end
+
+      # Adds a single file at its project-relative path. Files at the
+      # project root go through the standard Resources phase; files
+      # nested under one or more directories go through a per-directory
+      # Copy Files phase with dst_path matching the relative parent.
+      def add_resource_file!(abs_path)
+        rel = Pathname.new(File.expand_path(abs_path))
+          .relative_path_from(Pathname.new(@project_root))
+          .to_s
+        rel_parent = File.dirname(rel)
+        file_ref = file_ref_for(abs_path)
+        if rel_parent == '.' || rel_parent.empty?
+          @app_target.add_resources([file_ref])
+        else
+          phase = copy_files_phase_for(rel_parent)
+          phase.add_file_reference(file_ref, true)
+        end
+      end
+
+      # Lazily creates (and memoises) one Copy Files build phase per
+      # unique destination subpath. dst_subfolder_spec '7' = Resources;
+      # on iOS that resolves to the .app bundle root, so dst_path is
+      # interpreted relative to .app/.
+      def copy_files_phase_for(dst_path)
+        @copy_files_phases ||= {}
+        @copy_files_phases[dst_path] ||= begin
+          phase = @app_target.new_copy_files_build_phase("Copy Resources (#{dst_path})")
+          phase.dst_path = dst_path
+          phase.dst_subfolder_spec = '7'
+          phase
         end
       end
 
@@ -387,15 +446,6 @@ module GE
         ref = @project.main_group.new_reference(rel)
         ref.source_tree = 'SOURCE_ROOT'
         ref.path = rel
-        ref
-      end
-
-      def folder_ref_for(abs_path)
-        rel = relative_to_ios(abs_path)
-        ref = @project.main_group.new_file(rel)
-        ref.source_tree = 'SOURCE_ROOT'
-        ref.path = rel
-        ref.last_known_file_type = 'folder'
         ref
       end
     end

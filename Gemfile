@@ -19,3 +19,8 @@ gem "openssl", ">= 3.0"
 # consumer apps' .xcodeproj programmatically (replaces CMake's
 # Xcode generator for the iOS app build path). T35.
 gem "xcodeproj", "~> 1.27"
+
+# minitest — regression coverage for build_project.rb's resource
+# bundling (T72). Ruby 4.x no longer ships minitest in stdlib; pin
+# the same version range fastlane already pulls in transitively.
+gem "minitest", "~> 5.0"

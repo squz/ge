@@ -2371,7 +2371,6 @@ targets:
   T71:
     name: ge ships prebuilt vendor static libs (iOS arm64) + lifted public headers so consumer CI skips ge's submodules
     status: achieved
-    achieved: 2026-05-25
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2406,6 +2405,47 @@ targets:
       Supersedes [[t35-prebuilt-libs-design]] memory note (which proposed the same architecture but was set aside in favour of the in-project xcodeproj-gem builder under T35). T35 retired achieving the CMake-drop goal; T71 now adds the prebuilt-libs layer on top.
     origin: manual
     discovered: 2026-05-25
+    achieved: 2026-05-25
+  T72:
+    name: iOS xcodeproj builder bundles resource directories at their full relative path, not basename
+    status: achieved
+    achieved: 2026-05-26
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`GE::IOS::ProjectBuilder` (ge/tools/ios-build/build_project.rb) bundles a declared resource directory so its full project-relative path is preserved in the app bundle. A consumer listing `data/menu` gets `.app/data/menu/...`, and `shaders/bgfx/metal` gets `.app/shaders/bgfx/metal/...` — matching how `ge::resource("data/menu/x.png")` resolves at runtime (path unchanged, relative to bundle root on iOS).'
+    - This restores parity with the pre-T35/T69 CMake build, which placed each resource via `MACOSX_PACKAGE_LOCATION "Resources/${REL_DIR}"` (full relative dir preserved). A consumer migrating from CMake keeps its existing granular resource declarations and the bundle layout is identical.
+    - The misleading comment in build_project.rb's add_resources! ("directories are recursed and added as folder references (preserves bundle subdir layout)") either becomes TRUE (the code now preserves the subdir layout including the parent prefix) or is corrected to state the actual behaviour precisely.
+    - 'A regression guard exists: a test (or documented manual check) asserts that a declared `a/b/c` resource dir lands at `.app/a/b/c/` in a generated project, so the basename-flattening regression can''t silently return.'
+    - tiltbuggy (or whichever ge sample consumes the iOS builder) is re-verified to launch past first frame on a device with assets resolving — confirming no consumer regressed by the change.
+    context: |-
+      **Severity: ship-blocking bug, not a breaking change.** Surfaced by multimaze2 on the t71-phase2-bump-ge branch — the iOS app installs then exits before its first frame because every `data/...` and `shaders/...` asset 404s (no shader program → ge::run tears down the session immediately). Device log shows e.g.:
+
+      ```
+      [ge][error] Failed to open file: .../MultiMaze.app.ipa.app/shaders/bgfx/metal/vs_sprite.bin (No such file or directory)
+      [ge][error] Failed to open shader: .../shaders/bgfx/metal/vs_sprite.bin
+      [ge][warning] SDL_LoadWAV('.../data/audio/marble-hit-0.wav') failed: No such file or directory
+      [ge][critical] registerSvgFontFace('Krungthep') failed for .../data/fonts/Krungthep.ttf
+      ```
+
+      **Root cause.** `folder_ref_for(abs_path)` creates an Xcode folder reference. Xcode folder references copy the directory into the bundle keyed by the directory's **basename**, not its full project-relative path. So a `data/menu` declaration produces `.app/menu/` (the `data/` prefix dropped); `shaders/bgfx/metal` produces `.app/metal/`. But `ge::resource` resolves asset paths verbatim relative to the bundle root, i.e. it looks for `.app/data/menu/...` and `.app/shaders/bgfx/metal/...`. Mismatch → every asset missing.
+
+      **Why it's a bug, not a deliberate breaking change:**
+      1. It contradicts the builder's own documented contract ("preserves bundle subdir layout").
+      2. The CMake→gem migration (commits ecf5294, dcb3e20) was behaviour-preserving in intent — it left the consumer's granular resource declarations (`data/menu`, `data/fonts`, `shaders/bgfx/metal`) unchanged, but they now silently mis-bundle. Same valid inputs, broken output, zero diagnostic.
+      3. The migration's own commit (dcb3e20 \"ship 3.0.0 to TestFlight\") shipped a binary with the flattened bundle — meaning the TestFlight 3.0.0 artifact is almost certainly DOA (exits before first frame on any device). Fixing this un-breaks the next ship.
+
+      **Consumer-side workaround already applied** in multimaze2's ios/project.rb: reference the top-level `data` and `shaders` dirs (whose basenames ARE `data` / `shaders`), so the full subtree lands correctly. That unblocks multimaze2 now and stays forward-compatible once ge preserves full paths. But the regression should be fixed in ge so the next consumer migrating from CMake doesn't ship a launch-broken binary.
+
+      **Fix sketch.** In build_project.rb's resource handling, place each directory's contents at its full relative path — either by constructing the intermediate group/folder structure so the bundle copy phase preserves `data/menu`, or by emitting per-file references with an explicit destination subpath mirroring CMake's `Resources/${REL_DIR}`. Add a regression check on the generated pbxproj.
+    tags:
+    - ios
+    - build
+    - regression
+    - ship-blocking
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-05-26
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified
