@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Pre-commit hook: catch stale prebuilt/ios-arm64/ artefacts before they
+# escape to a push. Activated by `git config core.hooksPath scripts/hooks`
+# (per global CLAUDE.md's post-clone hooks rule).
+#
+# Triggers verifier only when staged changes affect inputs to the
+# prebuilts; otherwise stays silent.
+#
+# Bypass for an unrelated change:  git commit --no-verify
+#
+# Copyright 2026 Marcelo Cantos
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+# What might affect the prebuilts? Source compiled into libge, lifted
+# headers consumed by vendor compiles, the prebuild/lift scripts
+# themselves, and the submodule pointers (.gitmodules + the gitlink
+# tree entries under vendor/github.com/, but we check the gitmodules
+# file as a coarse proxy + the manifest itself catches gitlink drift).
+RELEVANT_PATTERNS=(
+  '^src/'
+  '^include/'
+  '^vendor/src/'
+  '^vendor/include/'
+  '^headers/'
+  '^tools/player_orientation_ios\.mm'
+  '^tools/prebuild-vendor-ios-arm64\.sh'
+  '^tools/lift-headers\.sh'
+  '^tools/write-manifest\.py'
+  '^tools/verify-prebuilds\.py'
+  '^\.gitmodules$'
+  '^prebuilt/'
+)
+
+# Staged-but-unpushed paths.
+mapfile -t staged < <(git diff --cached --name-only)
+
+# Also include any vendor/github.com/* gitlink updates (submodule SHA
+# bumps don't always touch .gitmodules — only the gitlink in tree).
+for path in "${staged[@]}"; do
+  if [[ "$path" == vendor/github.com/* ]] && \
+     [[ "$(git ls-files --stage -- "$path" 2>/dev/null | awk '{print $1}')" == "160000" ]]; then
+    RELEVANT_PATTERNS+=('^'"$(printf '%s' "$path" | sed 's/[.\\\\\\/]/\\\\&/g')"'$')
+  fi
+done
+
+# Does any staged file match a relevant pattern?
+relevant=false
+for path in "${staged[@]}"; do
+  for pat in "${RELEVANT_PATTERNS[@]}"; do
+    if [[ "$path" =~ $pat ]]; then
+      relevant=true
+      break 2
+    fi
+  done
+done
+
+if ! $relevant; then
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec python3 "$REPO_ROOT/tools/verify-prebuilds.py"
