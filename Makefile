@@ -13,7 +13,7 @@ SAMPLE ?= sample/tiltbuggy
 
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
-.PHONY: all check matrix-test check-list unit-test init clean ged run bullseye
+.PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test
 
 all check matrix-test check-list unit-test clean run:
 	$(MAKE) -C $(SAMPLE) $@
@@ -36,7 +36,7 @@ cell.%:
 # Standing invariants for /cv. Exit 0 means all green; non-zero means a
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
-bullseye:
+bullseye: ruby-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
@@ -46,3 +46,9 @@ bullseye:
 	    echo "ℹ untracked files (not a violation):"; \
 	    echo "$$untracked" | sed 's/^/    /'; \
 	  fi
+
+# Ruby-side regression tests for ge tooling (build_project.rb etc.).
+# Fast — runs in well under a second; safe to wire into `bullseye` so
+# every /cv invocation guards against regressions.
+ruby-test:
+	@bundle exec ruby tools/ios-build/test_build_project.rb

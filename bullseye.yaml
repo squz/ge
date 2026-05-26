@@ -2408,7 +2408,8 @@ targets:
     achieved: 2026-05-25
   T72:
     name: iOS xcodeproj builder bundles resource directories at their full relative path, not basename
-    status: identified
+    status: achieved
+    achieved: 2026-05-26
     value: 0.0
     cost: 0.0
     acceptance:
