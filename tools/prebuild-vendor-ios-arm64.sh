@@ -25,6 +25,11 @@ cd "$GE_ROOT"
 
 OUT_DIR="prebuilt/ios-arm64"
 OBJ_DIR="build/prebuilt/ios-arm64"
+# Wipe stale .d files so write-manifest.py only sees deps from this run.
+# Object files are overwritten in place; depfiles aren't, so a stale one
+# from a previous run (e.g. after dropping a source) would otherwise
+# poison the manifest.
+rm -rf "$OBJ_DIR"
 mkdir -p "$OUT_DIR" "$OBJ_DIR"
 
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -65,27 +70,35 @@ for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR"; do
   fi
 done
 
+# Every compile emits a .d depfile next to the .o. write-manifest.py
+# aggregates these into prebuilt/ios-arm64/manifest.json so
+# verify-prebuilds.py can detect stale prebuilts without recompiling.
+DEPFLAGS=(-MMD -MP)
+
 # ─── build helpers ────────────────────────────────────────────────────────
 
 # compile_c <out.o> <src.c> [extra flags...]
 compile_c() {
   local out="$1" src="$2"; shift 2
   mkdir -p "$(dirname "$out")"
-  "$CC" "${COMMON_FLAGS[@]}" "${C_STD[@]}" "$@" -c "$src" -o "$out"
+  "$CC" "${COMMON_FLAGS[@]}" "${C_STD[@]}" "${DEPFLAGS[@]}" -MF "$out.d" \
+    "$@" -c "$src" -o "$out"
 }
 
 # compile_cxx <out.o> <src.cpp> [extra flags...] — uses C++20 + lib-specific flags.
 compile_cxx() {
   local out="$1" src="$2"; shift 2
   mkdir -p "$(dirname "$out")"
-  "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "$@" -c "$src" -o "$out"
+  "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$out.d" \
+    "$@" -c "$src" -o "$out"
 }
 
 # compile_cxx17 <out.o> <src.cpp> [extra flags...]
 compile_cxx17() {
   local out="$1" src="$2"; shift 2
   mkdir -p "$(dirname "$out")"
-  "$CXX" "${COMMON_FLAGS[@]}" "${CXX17_STD[@]}" "$@" -c "$src" -o "$out"
+  "$CXX" "${COMMON_FLAGS[@]}" "${CXX17_STD[@]}" "${DEPFLAGS[@]}" -MF "$out.d" \
+    "$@" -c "$src" -o "$out"
 }
 
 # archive <out.a> <obj1> <obj2>...
@@ -120,7 +133,7 @@ archive "$OUT_DIR/libbimg.a" "${BIMG_OBJS[@]}"
 echo "── bgfx (amalgamated, ObjC++ for Metal) ──"
 BGFX_OBJ="$OBJ_DIR/bgfx/amalgamated.o"
 mkdir -p "$(dirname "$BGFX_OBJ")"
-"$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" -ObjC++ \
+"$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$BGFX_OBJ.d" -ObjC++ \
   -I"$BGFX_DIR/include" -I"$BGFX_DIR/3rdparty" -I"$BGFX_DIR/3rdparty/khronos" -I"$BGFX_DIR/src" \
   -I"$BX_DIR/include" -I"$BX_DIR/include/compat/ios" \
   -I"$BIMG_DIR/include" \
@@ -270,12 +283,12 @@ for src in "${GE_SOURCES[@]}"; do
   mkdir -p "$(dirname "$obj")"
   case "$ext" in
     cpp|mm)
-      "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" \
+      "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \
         "${GE_INCLUDES[@]}" "${GE_DEFINES[@]}" \
         -c "$src" -o "$obj"
       ;;
     c)
-      "$CC" "${COMMON_FLAGS[@]}" "${C_STD[@]}" \
+      "$CC" "${COMMON_FLAGS[@]}" "${C_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \
         "${GE_INCLUDES[@]}" "${GE_DEFINES[@]}" \
         -c "$src" -o "$obj"
       ;;
@@ -287,6 +300,11 @@ for src in "${GE_SOURCES[@]}"; do
   GE_OBJS+=("$obj")
 done
 archive "$OUT_DIR/libge.a" "${GE_OBJS[@]}"
+
+# ─── manifest (for staleness detection by verify-prebuilds.py) ────────────
+echo ""
+echo "── manifest ──"
+python3 tools/write-manifest.py
 
 # ─── summary ──────────────────────────────────────────────────────────────
 echo ""

@@ -1,0 +1,48 @@
+# Verify that prebuilt/ios-arm64/ artefacts match the source tree.
+#
+# Runs on Linux (1× minute multiplier), no Xcode, no submodule init,
+# no LFS download. Just hashes committed files and compares to the
+# manifest. ~10–15 s per run.
+#
+# Failure means: someone changed a source/header/script/submodule SHA
+# without rerunning `make ge/prebuild-vendor-ios-arm64`
+# (and/or `make ge/lift-headers`). Consumers that link the prebuilts
+# would silently run stale code.
+#
+# Pairs with `scripts/hooks/pre-commit` for dev-laptop early warning.
+# Don't merge a PR that fails this gate.
+
+name: Verify prebuilts
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'vendor/src/**'
+      - 'vendor/include/**'
+      - 'vendor/github.com/**'
+      - 'headers/**'
+      - 'prebuilt/**'
+      - 'tools/player_orientation_ios.mm'
+      - 'tools/prebuild-vendor-ios-arm64.sh'
+      - 'tools/lift-headers.sh'
+      - 'tools/write-manifest.py'
+      - 'tools/verify-prebuilds.py'
+      - '.gitmodules'
+  push:
+    branches: [master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (no submodules, no LFS download)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Verify prebuilt manifest
+        run: python3 tools/verify-prebuilds.py
