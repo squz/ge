@@ -49,13 +49,15 @@ GE_SRC_COMMON := \
 # Same logical role on each platform; just different implementations.
 # T38: SokolContext.mm (Apple Metal) + SokolContext_android.cpp (Android
 # GLES3) replace the old BgfxContext.mm unified .mm.
-# T74: iap_apple_local.swift compiled into Apple targets so the
-# SKTestSession-backed LocalBridge symbol is available; iap.cpp's
-# dispatcher decides at runtime whether to use it.
+# T74: iap_apple_local.swift is intentionally NOT in this list — the
+# prebuild shell pipeline doesn't compile Swift, and the iOS xcodeproj-
+# gem builder lists Swift sources in tools/ios-build/build_project.rb's
+# GE_DIRECT_SOURCES separately. The LocalBridge runtime-fallback in
+# iap_apple.mm tolerates the class being absent (logs + uses production
+# bridge); ge::iap's T74 stub-mode fallback means no live calls.
 GE_SRC_APPLE := \
 	src/FontLoader_apple.mm \
 	src/iap_apple.mm \
-	src/iap_apple_local.swift \
 	src/audio_apple.mm \
 	src/log_apple.mm \
 	src/Attitude_apple.mm \

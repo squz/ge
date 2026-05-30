@@ -153,8 +153,9 @@ LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
 LITEPARSER_DIR="$VENDOR/sqliteai/liteparser/src"
 
-# Sanity check — submodules must be initialised.
-for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR"; do
+# Sanity check — submodules must be initialised. T38: bx/bimg/bgfx
+# no longer required (ge uses sokol_gfx, vendored as a single header).
+for d in "$BOX2D_DIR" "$LUNASVG_DIR"; do
   if [[ ! -f "$d/.git" && ! -d "$d/.git" ]]; then
     echo "error: $d is not initialised. Run: git submodule update --init --recursive" >&2
     exit 1
