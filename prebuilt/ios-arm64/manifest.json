@@ -9,7 +9,7 @@
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
     "tools/prebuild.sh": "3d7d5302adc900891ee8430d296b67e46e91a99fc724259980b3a9f5e29a025b",
-    "tools/verify-prebuilds.py": "255f877b2d4948a49db7ea085a2de4653b81088ff17468c8e162593e5667936c",
+    "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
     "tools/write-manifest.py": "e800a85a92a11733d2665b551d7be91b5a748b0abac8186dac0ff85450784232"
   },
   "submodule_shas": {

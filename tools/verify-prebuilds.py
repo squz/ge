@@ -39,7 +39,12 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Allow tests to point the verifier at a temp-dir fake repo via env var.
+# Falls back to the script's parent's parent (the ge repo root) for
+# normal invocation.
+REPO_ROOT = Path(
+    os.environ.get("GE_REPO_ROOT") or Path(__file__).resolve().parent.parent
+).resolve()
 SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 
 
@@ -108,8 +113,15 @@ def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]
             errors.append(f"script changed: {rel}")
 
     # 2) submodule SHAs — from `git submodule status`, no init needed.
+    #
+    # Two-way check (🎯T78): the manifest must reference every submodule
+    # currently in the tree AND every submodule it references must still
+    # exist. Without the converse check, a PR could add a new submodule
+    # (e.g. swapping bgfx for sokol) and forget to refresh the manifest;
+    # the verifier would silently pass on a stale build state.
     actual_shas = load_submodule_status()
-    for rel, expected in manifest.get("submodule_shas", {}).items():
+    manifest_shas = manifest.get("submodule_shas", {})
+    for rel, expected in manifest_shas.items():
         actual = actual_shas.get(rel)
         if actual is None:
             errors.append(f"submodule not configured: {rel}")
@@ -119,9 +131,18 @@ def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]
                 f"    expected {expected[:12]}\n"
                 f"    actual   {actual[:12]}"
             )
+    for rel in actual_shas:
+        if rel not in manifest_shas:
+            errors.append(f"submodule not in manifest: {rel}")
 
     # 3) prebuilt .a files — skip if still LFS pointers (CI cheap path).
-    for rel, expected in manifest.get("prebuilts", {}).items():
+    #
+    # Two-way check (🎯T78): the manifest must reference every .a in
+    # prebuilt/<platform>/. A new .a appearing without a manifest refresh
+    # means the build was rerun in a way that produced new artefacts but
+    # the hashes weren't re-recorded — stale state by another name.
+    manifest_prebuilts = manifest.get("prebuilts", {})
+    for rel, expected in manifest_prebuilts.items():
         p = REPO_ROOT / rel
         if not p.exists():
             errors.append(f"missing prebuilt: {rel}")
@@ -132,6 +153,11 @@ def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]
         actual = sha256_file(p)
         if actual != expected:
             errors.append(f"prebuilt changed: {rel}")
+    platform_dir = manifest_path.parent
+    for a in sorted(platform_dir.glob("*.a")):
+        rel = a.relative_to(REPO_ROOT).as_posix()
+        if rel not in manifest_prebuilts:
+            errors.append(f"prebuilt not in manifest: {rel}")
 
     # 4) inputs.
     for rel, expected in manifest.get("inputs", {}).items():
