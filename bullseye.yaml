@@ -1052,7 +1052,8 @@ targets:
     discovered: 2026-05-04
   T39:
     name: Vertex colours render correctly under bgfx Vulkan on the Android emulator
-    status: identified
+    status: achieved
+    achieved: 2026-05-30
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1080,6 +1081,8 @@ targets:
       - A workaround in tiltbuggy's renderer (swap the bytes in pushRect's rgb() helper conditionally on Vulkan-on-Android-emulator) is NOT the right fix; the engine should hand bgfx correctly-ordered vertex data and bgfx should map correctly to whichever swap chain it gets.
 
       Priority: low. Real devices fall back to GLES on Android emulator avoidance; this only bites local emu testing. Worth fixing because emu is an important workflow for matrix CI runs and contributors without a physical device, but no production user is affected.
+
+      Fix (2026-05-30): the real cause is upstream of the vertex-format hypothesis. bgfx defaults `formatColor` to BGRA8, requesting a `VK_FORMAT_B8G8R8A8_UNORM` swap chain; Vulkan correctly stores the shader's RGBA output in memory order `[B,G,R,A]` per the format spec. On real Vulkan devices the display compositor honours the format tag and renders correctly. The Pixel 9 Pro XL emulator's host-translation layer (Apple-Silicon macOS) evidently reads those bytes as RGBA, producing the clean two-channel R/B swap with G invariant that the symptom shows. Switching to RGBA8 on the emulator path makes the in-memory layout `[R,G,B,A]` so the host reads colours correctly regardless of which format it thinks it has. Implemented as a one-liner in `src/BgfxContext.mm`'s Android branch: `if (isEmulator) init.resolution.formatColor = bgfx::TextureFormat::RGBA8;` — scope-limited because the non-emulator Android branch picks OpenGLES anyway (Adreno/Mali Vulkan stall). Manual emulator verification pending the next emulator boot; re-open if the colours still swap.
     tags:
     - rendering
     - bgfx

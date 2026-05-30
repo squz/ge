@@ -159,6 +159,33 @@ BgfxContext::BgfxContext(const BgfxConfig& config)
     init.type = isEmulator ? bgfx::RendererType::Vulkan
                            : bgfx::RendererType::OpenGLES;
 
+    // 🎯T39: force RGBA8 swap-chain on the Android-emulator Vulkan path.
+    //
+    // bgfx defaults `formatColor` to BGRA8, which makes it request a
+    // VK_FORMAT_B8G8R8A8_UNORM swap-chain image. Vulkan stores the
+    // shader's RGBA output in memory order [B,G,R,A] per the format
+    // spec — correct on real devices, where the display compositor
+    // honors the format tag.
+    //
+    // The Pixel 9 Pro XL Android emulator's host-translation layer
+    // (running on Apple-Silicon macOS) evidently reads those bytes as
+    // RGBA — producing a clean two-channel R/B swap with G invariant
+    // (0xAA6644 brown → 0x4466AA blue). Switching to RGBA8 makes the
+    // in-memory layout [R,G,B,A] and the host reads the right colour
+    // regardless of which format it thinks it has.
+    //
+    // Scope: emulator-only Vulkan path. Real Android devices fall
+    // through to OpenGLES above (Adreno/Mali Vulkan stall, see
+    // docs/papers/adreno-830-bgfx-vulkan-crash.md). Apple Metal and
+    // desktop Metal are unaffected — different platform branch.
+    //
+    // If a future emulator only advertises BGRA8 surface formats,
+    // bgfx::init will fail loudly and the override needs revisiting.
+    // No silent fallback — failing fast surfaces the constraint.
+    if (isEmulator) {
+        init.resolution.formatColor = bgfx::TextureFormat::RGBA8;
+    }
+
     const char* title = (config.title && *config.title) ? config.title : "ge";
     // Android: ask for a fullscreen surface. Passing non-fullscreen
     // config dimensions here would make SDL pin the underlying
