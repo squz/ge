@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Write prebuilt/ios-arm64/manifest.json from depfiles emitted by the
+"""Write prebuilt/<platform>/manifest.json from depfiles emitted by the
 prebuild script.
 
-Called at the end of `tools/prebuild-vendor-ios-arm64.sh`. Aggregates
+Called at the end of `tools/prebuild-vendor-<platform>.sh`. Aggregates
 the `.d` files clang wrote next to each `.o`, filters paths to the ge
 repo root (drops system headers + paths inside submodules), hashes each
 input, and writes a JSON manifest committed alongside the prebuilt .a
 files.
+
+Usage:
+    python3 tools/write-manifest.py --platform ios-arm64
+    python3 tools/write-manifest.py --platform android-arm64
+
+Default platform is `ios-arm64` for backward compatibility with the
+original T71 script.
 
 The manifest's purpose is to let `tools/verify-prebuilds.py` (on dev
 laptops via pre-commit hook + in CI on Linux runners) detect when the
@@ -23,6 +30,7 @@ SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -33,15 +41,16 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEPFILE_GLOB = REPO_ROOT / "build/prebuilt/ios-arm64"
-MANIFEST_PATH = REPO_ROOT / "prebuilt/ios-arm64/manifest.json"
 
-SCRIPTS_TO_HASH = [
-    "tools/prebuild-vendor-ios-arm64.sh",
+SCRIPTS_TO_HASH_COMMON = [
     "tools/lift-headers.sh",
     "tools/write-manifest.py",
     "tools/verify-prebuilds.py",
 ]
+PLATFORM_PREBUILD_SCRIPT = {
+    "ios-arm64":     "tools/prebuild-vendor-ios-arm64.sh",
+    "android-arm64": "tools/prebuild-vendor-android-arm64.sh",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -84,11 +93,11 @@ def parse_depfile(path: Path) -> list[str]:
     return deps
 
 
-def aggregate_depfile_paths() -> set[Path]:
-    """Walk all .d files under build/prebuilt/ios-arm64/, parse, return
+def aggregate_depfile_paths(depfile_root: Path) -> set[Path]:
+    """Walk all .d files under build/prebuilt/<platform>/, parse, return
     the union of dependency paths as absolute paths."""
     paths: set[Path] = set()
-    for d in DEPFILE_GLOB.rglob("*.d"):
+    for d in depfile_root.rglob("*.d"):
         for tok in parse_depfile(d):
             paths.add(Path(tok).resolve())
     return paths
@@ -119,9 +128,9 @@ def get_submodule_info() -> tuple[dict[str, str], list[str]]:
     return shas, paths
 
 
-def get_toolchain() -> dict[str, str]:
-    """Capture xcode/SDK/clang versions for diagnostic clarity. Not used
-    as a fail-stop in the verifier; just recorded."""
+def get_toolchain_ios() -> dict[str, str]:
+    """iOS xcode/SDK/clang versions for diagnostic clarity. Not a
+    fail-stop in the verifier; just recorded."""
     def run(cmd: list[str]) -> str:
         try:
             return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
@@ -129,7 +138,6 @@ def get_toolchain() -> dict[str, str]:
             return "<unavailable>"
 
     clang_full = run(["xcrun", "--sdk", "iphoneos", "clang", "--version"])
-    # Pull just the first line ("Apple clang version XYZ").
     clang_line = clang_full.split("\n", 1)[0] if clang_full else "<unavailable>"
     return {
         "clang": clang_line,
@@ -138,11 +146,58 @@ def get_toolchain() -> dict[str, str]:
     }
 
 
+def get_toolchain_android() -> dict[str, str]:
+    """Android NDK clang version + NDK path. Reads $ANDROID_NDK_HOME or
+    auto-detects under ~/Library/Android/sdk/ndk/."""
+    def run(cmd: list[str]) -> str:
+        try:
+            return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+        except Exception:
+            return "<unavailable>"
+
+    ndk = os.environ.get("ANDROID_NDK_HOME", "")
+    if not ndk:
+        ndk_dir = Path.home() / "Library/Android/sdk/ndk"
+        if ndk_dir.is_dir():
+            cands = sorted(ndk_dir.iterdir())
+            if cands:
+                ndk = str(cands[-1])
+    if not ndk or not Path(ndk).is_dir():
+        return {"clang": "<unavailable>", "ndk_path": "<unavailable>"}
+
+    # Find the host triple (darwin-x86_64 / linux-x86_64).
+    host_dir = Path(ndk) / "toolchains/llvm/prebuilt"
+    if host_dir.is_dir():
+        hosts = list(host_dir.iterdir())
+        if hosts:
+            clang = hosts[0] / "bin/clang"
+            full = run([str(clang), "--version"])
+            clang_line = full.split("\n", 1)[0] if full else "<unavailable>"
+            return {"clang": clang_line, "ndk_path": ndk}
+    return {"clang": "<unavailable>", "ndk_path": ndk}
+
+
 def main() -> int:
-    if not DEPFILE_GLOB.exists():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument(
+        "--platform",
+        default="ios-arm64",
+        choices=sorted(PLATFORM_PREBUILD_SCRIPT.keys()),
+        help="Platform directory under prebuilt/ to manifest (default: ios-arm64).",
+    )
+    args = parser.parse_args()
+    platform = args.platform
+
+    depfile_root = REPO_ROOT / f"build/prebuilt/{platform}"
+    prebuilt_dir = REPO_ROOT / f"prebuilt/{platform}"
+    manifest_path = prebuilt_dir / "manifest.json"
+
+    if not depfile_root.exists():
+        prebuild_script = PLATFORM_PREBUILD_SCRIPT[platform]
+        target = prebuild_script.removeprefix("tools/").removesuffix(".sh")
         print(
-            f"error: {DEPFILE_GLOB} doesn't exist. Run "
-            "`make ge/prebuild-vendor-ios-arm64` first.",
+            f"error: {depfile_root} doesn't exist. Run "
+            f"`make ge/{target}` first.",
             file=sys.stderr,
         )
         return 1
@@ -153,15 +208,13 @@ def main() -> int:
     inputs: dict[str, str] = {}
     skipped_system = 0
     skipped_submodule = 0
-    for abs_p in sorted(aggregate_depfile_paths()):
+    for abs_p in sorted(aggregate_depfile_paths(depfile_root)):
         try:
             rel = abs_p.relative_to(REPO_ROOT).as_posix()
         except ValueError:
-            # Outside the repo (toolchain headers, system frameworks). Skip.
             skipped_system += 1
             continue
         if is_submodule_path(rel, submodule_paths):
-            # Tracked by submodule SHA instead.
             skipped_submodule += 1
             continue
         if not abs_p.exists():
@@ -169,42 +222,41 @@ def main() -> int:
             continue
         inputs[rel] = sha256_file(abs_p)
 
-    # Hash the controlling scripts.
+    # Hash the controlling scripts: common ones + this platform's prebuild
+    # script. Other platforms' prebuild scripts are NOT included — a
+    # change in tools/prebuild-vendor-ios-arm64.sh shouldn't invalidate
+    # the android-arm64 manifest and vice versa.
     scripts: dict[str, str] = {}
-    for script_rel in SCRIPTS_TO_HASH:
+    scripts_to_hash = SCRIPTS_TO_HASH_COMMON + [PLATFORM_PREBUILD_SCRIPT[platform]]
+    for script_rel in scripts_to_hash:
         script_path = REPO_ROOT / script_rel
         if script_path.exists():
             scripts[script_rel] = sha256_file(script_path)
 
-    # Hash the prebuilt .a files themselves — so the manifest also detects
-    # someone editing a .a directly without rerunning the prebuild script
-    # (or losing/replacing a .a). LFS-tracked content is read as the
-    # actual binary, not the pointer, since this script runs on the
-    # developer's laptop where smudge has materialised the files.
+    # Hash the prebuilt .a files themselves.
     prebuilts: dict[str, str] = {}
-    prebuilt_dir = REPO_ROOT / "prebuilt/ios-arm64"
     for a in sorted(prebuilt_dir.glob("*.a")):
         prebuilts[a.relative_to(REPO_ROOT).as_posix()] = sha256_file(a)
 
+    toolchain = get_toolchain_ios() if platform == "ios-arm64" else get_toolchain_android()
+
     manifest = {
-        "version": 1,
-        "toolchain": get_toolchain(),
+        "version": 2,
+        "platform": platform,
+        "toolchain": toolchain,
         "scripts": dict(sorted(scripts.items())),
         "submodule_shas": dict(sorted(submodule_shas.items())),
         "prebuilts": dict(sorted(prebuilts.items())),
         "inputs": dict(sorted(inputs.items())),
     }
 
-    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(MANIFEST_PATH, "w") as f:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
 
-    print(f"wrote {MANIFEST_PATH.relative_to(REPO_ROOT)}")
-    print(
-        f"  toolchain: {manifest['toolchain']['clang']}, "
-        f"SDK {manifest['toolchain']['iphoneos_sdk_version']}"
-    )
+    print(f"wrote {manifest_path.relative_to(REPO_ROOT)}")
+    print(f"  toolchain: {toolchain.get('clang', '<unavailable>')}")
     print(f"  scripts:        {len(scripts):4d}")
     print(f"  submodules:     {len(submodule_shas):4d}")
     print(f"  prebuilts:      {len(prebuilts):4d}")

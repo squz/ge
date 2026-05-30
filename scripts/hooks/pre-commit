@@ -26,6 +26,7 @@ RELEVANT_PATTERNS=(
   '^headers/'
   '^tools/player_orientation_ios\.mm'
   '^tools/prebuild-vendor-ios-arm64\.sh'
+  '^tools/prebuild-vendor-android-arm64\.sh'
   '^tools/lift-headers\.sh'
   '^tools/write-manifest\.py'
   '^tools/verify-prebuilds\.py'

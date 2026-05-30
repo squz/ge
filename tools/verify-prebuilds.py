@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Verify prebuilt/ios-arm64/manifest.json matches the working tree.
+"""Verify prebuilt/<platform>/manifest.json files match the working tree.
+
+By default checks every manifest under prebuilt/*/manifest.json. Pass
+`--platform ios-arm64` (or `android-arm64`) to scope the check to one
+platform.
 
 Exit 0 if all input hashes, prebuilt .a hashes, script hashes, and
 submodule SHAs match the manifest. Exit 1 with a per-file diagnostic
-otherwise — pointing the developer at `make ge/prebuild-vendor-ios-arm64`
+otherwise — pointing the developer at `make ge/prebuild-vendor-<platform>`
 and/or `make ge/lift-headers`.
 
 Used by:
@@ -25,6 +29,7 @@ SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -35,7 +40,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_PATH = REPO_ROOT / "prebuilt/ios-arm64/manifest.json"
+SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 
 
 def sha256_file(path: Path) -> str:
@@ -76,28 +81,21 @@ def load_submodule_status() -> dict[str, str]:
     return shas
 
 
-def main() -> int:
-    if not MANIFEST_PATH.exists():
-        print(
-            f"error: {MANIFEST_PATH.relative_to(REPO_ROOT)} missing. "
-            "Run `make ge/prebuild-vendor-ios-arm64` to generate it.",
-            file=sys.stderr,
-        )
-        return 1
-
-    with open(MANIFEST_PATH) as f:
-        manifest = json.load(f)
-
-    if manifest.get("version") != 1:
-        print(
-            f"error: manifest version {manifest.get('version')} not supported "
-            "by this verifier (expected 1)",
-            file=sys.stderr,
-        )
-        return 1
-
+def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]]:
+    """Verify a single platform's manifest. Returns (errors, skipped_lfs,
+    counts)."""
     errors: list[str] = []
     skipped_lfs = 0
+
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+
+    if manifest.get("version") not in SUPPORTED_MANIFEST_VERSIONS:
+        errors.append(
+            f"unsupported manifest version {manifest.get('version')}"
+            f" (verifier accepts {sorted(SUPPORTED_MANIFEST_VERSIONS)})"
+        )
+        return errors, skipped_lfs, {}
 
     # 1) scripts — controlling shell + python scripts.
     for rel, expected in manifest.get("scripts", {}).items():
@@ -135,8 +133,7 @@ def main() -> int:
         if actual != expected:
             errors.append(f"prebuilt changed: {rel}")
 
-    # 4) inputs — every source / header file the compile saw, filtered
-    # to repo-root non-submodule paths.
+    # 4) inputs.
     for rel, expected in manifest.get("inputs", {}).items():
         p = REPO_ROOT / rel
         if not p.exists():
@@ -146,17 +143,69 @@ def main() -> int:
         if actual != expected:
             errors.append(f"input changed: {rel}")
 
-    if errors:
+    counts = {
+        "scripts":   len(manifest.get("scripts", {})),
+        "submods":   len(manifest.get("submodule_shas", {})),
+        "prebuilts": len(manifest.get("prebuilts", {})),
+        "inputs":    len(manifest.get("inputs", {})),
+    }
+    return errors, skipped_lfs, counts
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument(
+        "--platform",
+        default=None,
+        help="Scope check to one platform directory (e.g. ios-arm64, "
+             "android-arm64). Default: every prebuilt/*/manifest.json.",
+    )
+    args = parser.parse_args()
+
+    if args.platform:
+        manifests = [REPO_ROOT / f"prebuilt/{args.platform}/manifest.json"]
+    else:
+        manifests = sorted((REPO_ROOT / "prebuilt").glob("*/manifest.json"))
+
+    if not manifests:
+        print(
+            "error: no prebuilt/*/manifest.json found. "
+            "Run `make ge/prebuild-vendor-ios-arm64` (and/or "
+            "`make ge/prebuild-vendor-android-arm64`) to generate them.",
+            file=sys.stderr,
+        )
+        return 1
+
+    all_errors: list[tuple[str, str]] = []
+    total_skipped_lfs = 0
+    total_counts = {"scripts": 0, "submods": 0, "prebuilts": 0, "inputs": 0}
+    platforms_checked: list[str] = []
+
+    for manifest_path in manifests:
+        platform = manifest_path.parent.name
+        if not manifest_path.exists():
+            all_errors.append((platform, f"manifest missing: {manifest_path.relative_to(REPO_ROOT)}"))
+            continue
+        errors, skipped_lfs, counts = verify_manifest(manifest_path)
+        platforms_checked.append(platform)
+        total_skipped_lfs += skipped_lfs
+        for k, v in counts.items():
+            total_counts[k] += v
+        for e in errors:
+            all_errors.append((platform, e))
+
+    if all_errors:
         print("ERROR: prebuilt artefacts are stale.", file=sys.stderr)
         print("", file=sys.stderr)
-        for e in errors[:40]:
-            print(f"  {e}", file=sys.stderr)
-        if len(errors) > 40:
-            print(f"  ... and {len(errors) - 40} more", file=sys.stderr)
+        for platform, e in all_errors[:40]:
+            print(f"  [{platform}] {e}", file=sys.stderr)
+        if len(all_errors) > 40:
+            print(f"  ... and {len(all_errors) - 40} more", file=sys.stderr)
         print("", file=sys.stderr)
-        print("Fix on a Mac with iOS SDK:", file=sys.stderr)
+        print("Fix on a Mac with iOS SDK and Android NDK:", file=sys.stderr)
         print("  git submodule update --init --recursive", file=sys.stderr)
         print("  make ge/prebuild-vendor-ios-arm64", file=sys.stderr)
+        print("  make ge/prebuild-vendor-android-arm64", file=sys.stderr)
         print("  make ge/lift-headers     # if headers/ subtree drifted", file=sys.stderr)
         print("  git add prebuilt/ headers/ vendor/github.com/", file=sys.stderr)
         print("  git commit --amend --no-edit", file=sys.stderr)
@@ -164,14 +213,14 @@ def main() -> int:
         print("To bypass for an unrelated commit:  git commit --no-verify", file=sys.stderr)
         return 1
 
-    n_scripts = len(manifest.get("scripts", {}))
-    n_submods = len(manifest.get("submodule_shas", {}))
-    n_prebuilt = len(manifest.get("prebuilts", {}))
-    n_inputs = len(manifest.get("inputs", {}))
+    plats = ", ".join(platforms_checked)
     print(
-        f"prebuilts ok: {n_scripts} scripts, {n_submods} submodules, "
-        f"{n_prebuilt} prebuilts, {n_inputs} inputs"
-        + (f" ({skipped_lfs} prebuilt LFS pointers skipped)" if skipped_lfs else "")
+        f"prebuilts ok ({plats}): "
+        f"{total_counts['scripts']} scripts, "
+        f"{total_counts['submods']} submodules, "
+        f"{total_counts['prebuilts']} prebuilts, "
+        f"{total_counts['inputs']} inputs"
+        + (f" ({total_skipped_lfs} prebuilt LFS pointers skipped)" if total_skipped_lfs else "")
     )
     return 0
 
