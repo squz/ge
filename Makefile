@@ -20,7 +20,8 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
-        prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
+        prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
+        ge/lift-headers depgraph clean-depgraph
 
 all check matrix-test check-list unit-test clean run:
 	$(MAKE) -C $(SAMPLE) $@
@@ -82,3 +83,32 @@ prebuild-android-arm64:
 	tools/prebuild.sh android-arm64
 
 prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
+
+# ── ge-maintenance rules (not for consuming apps) ──────────────────
+#
+# These live here because they touch ge's own source tree — consumers
+# would gain nothing by running them. The `ge/%` pattern delegator
+# above is hit only for targets not matched explicitly here, so these
+# explicit definitions take precedence.
+
+# Refresh headers/<vendor>/include/ trees from submodule sources. Pairs
+# with the prebuild scripts: when vendor submodule SHAs change, lift +
+# rebuild both run.
+ge/lift-headers:
+	tools/lift-headers.sh
+
+# Visualise ge's internal module dependency graph (engine source files →
+# headers). Useful when refactoring ge; consumers want their own graph,
+# not this one.
+DEPGRAPH_DEPS := $(wildcard src/*.cpp src/**/*.cpp src/*.mm src/**/*.mm include/ge/*.h) tools/depgraph.py
+
+depgraph: deps.svg
+
+deps.svg: $(DEPGRAPH_DEPS)
+	python3 tools/depgraph.py --format svg --output deps
+
+deps.dot: $(DEPGRAPH_DEPS)
+	python3 tools/depgraph.py --format dot --output deps
+
+clean-depgraph:
+	rm -f deps.dot deps.svg deps.png

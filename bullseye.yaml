@@ -2453,7 +2453,7 @@ targets:
     achieved: 2026-05-26
   T73:
     name: ge has zero CMake source compilation; all platforms reference prebuilt static libs only
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2469,6 +2469,7 @@ targets:
     context: 'Filed after T39 verification surfaced source-list drift between Module.mk and the top-level CMakeLists.txt. Both list ge sources separately; T39 verification failed initially because RefreshRateBoost_android.cpp existed in tree but was missing from the Android branch of CMakeLists.txt. Goal: Android keeps CMake because Gradle externalNativeBuild structurally requires CMake or ndk-build, but uses it as a thin link manifest pointing at prebuilt .a files only. Same model T71 introduced for iOS arm64 device, now extended to Android arm64 and iOS arm64 simulator. Sequencing: Phase 1 Android prebuilds plus consumer cutover plus delete CMakeLists.txt Android branch, verify on Pixel 9 Pro XL emulator. Phase 2 iOS dev sim cutover via build_project.rb plus iOS arm64 sim prebuilds plus delete sample iOS CMakeLists and tools ios-template. Phase 3 delete tools ios CMakeLists.txt and top-level CMakeLists.txt. Why: drift bug class, plus prebuilds slash consumer CI time as T71 showed for iOS. Out of scope: Module.mk desktop builds, existing iOS arm64 device prebuild script.'
     origin: manual
     discovered: 2026-05-30
+    achieved: 2026-05-30
   T73.1:
     name: 'Android arm64 prebuilts + consumer cutover: zero ge source compiles inside the Android build'
     status: achieved
@@ -2502,6 +2503,20 @@ targets:
     - tools/ios-template/CMakeLists.txt.in is deleted.
     - Existing consumers like multimaze2 with hand-written ios/project.rb continue to work via backwards-compatible ProjectBuilder.new API.
     context: Phase 2 of T73. After T73.1 retired the Android side, iOS dev simulator is the next CMake-heavy lane.
+    origin: manual
+    discovered: 2026-05-30
+    achieved: 2026-05-30
+  T73.3:
+    name: Delete legacy player iOS CMakeLists.txt + retire dormant ge/player-ios* make rules
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - tools/ios/CMakeLists.txt is deleted from the tree.
+    - .github/workflows/release-player-ios.yml is deleted (the workflow only built via the deleted CMakeLists.txt).
+    - Module.mk's ge/player-ios, ge/player-ios-archive, ge/player-ios-testflight, ge/player-ios-device, ge/player-android, ge/player-android-release rules are removed. agents-guide.md no longer recommends them.
+    - tools/android/* gradle wrapper + tools/android/app/src/main/cpp/CMakeLists.txt remain in tree as reference until T34 lands; they're not wired to any active make target so they don't violate the no-CMake-source-compilation goal in practice.
+    context: Phase 3 of T73. The legacy ge player iOS path was TODO Dawn->bgfx broken; T34 plans to rewrite the player as a regular ge app (no bespoke per-platform entry points), at which point tools/ios/main.mm + tools/android/* fully go away. T73.3 removes the CMake driver and the dead make rules now so the CMake retreat is complete.
     origin: manual
     discovered: 2026-05-30
     achieved: 2026-05-30

@@ -99,9 +99,9 @@ make ge/android             # builds android/app/build/.../app-debug.apk
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.example.myapp/.MainActivity
 
-# Player for iOS / Android
-make ge/player-ios          # builds ge's standalone player (not the app)
-make ge/player-android
+# (The brokered ge player iOS/Android make targets were retired in
+#  🎯T73.3; the player is dormant pending 🎯T34's rewrite of it as a
+#  regular ge app.)
 
 # Tests
 make unit-test              # ge unit tests (doctest)
