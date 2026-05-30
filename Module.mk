@@ -321,6 +321,14 @@ APP_OBJ     ?= $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(APP_SRC))
 # string on the home screen while keeping a lowercase binary name.
 APP_DISPLAY_NAME ?= $(APP_NAME)
 
+# Stripped form of APP_DISPLAY_NAME (no spaces). Used as the Xcode
+# target / scheme / xcodeproj file basename — mirrors init-ios.sh's
+# APP_BIN_NAME computation so the Module.mk iOS rules can address the
+# right .xcodeproj without re-running the init script.
+NULL  :=
+SPACE := $(NULL) $(NULL)
+APP_BIN_NAME = $(subst $(SPACE),,$(APP_DISPLAY_NAME))
+
 # Extra static libs/objects the app needs beyond the ge engine (e.g. ship a
 # specialized third-party library). Defaults to Box2D since many ge apps use
 # it and its link cost is negligible for those that don't.
@@ -649,26 +657,22 @@ $(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(ge/BGFX_LIBS) $(APP_LIBS)
 
 # ── Consuming app's iOS build ──────────────────────────────────────
 
-# Generate the Xcode project (if not already generated) and build the .app
-# into ios/build/xcode/Debug-iphonesimulator/ (or the device equivalent).
-# Expects ios/CMakeLists.txt to exist — run `make ge/ios-init` first.
+# Generate the Xcode project via build_project.rb (the xcodeproj-gem
+# builder — 🎯T73.2; replaces CMake) and build .app into
+# ios/build/Build/Products/Debug-iphonesimulator/.
 #
-# We depend on $(APP_SHADERS) and $(ge/RENDER_SHADERS) so they exist on disk
-# when CMake's file(GLOB ...) for the bundle Resources runs.
+# Expects ios/project.rb to exist — run `make ge/ios-init` first.
 .PHONY: ge/ios
 ge/ios: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
-	cd ios && cmake -G Xcode -B build/xcode \
-	    -DCMAKE_SYSTEM_NAME=iOS \
-	    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-	    -DCMAKE_OSX_SYSROOT=iphonesimulator \
-	    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
-	    -project build/xcode/$(APP_DISPLAY_NAME).xcodeproj -scheme $(APP_DISPLAY_NAME) \
+	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
 	    -configuration Debug -destination "generic/platform=iOS Simulator" \
+	    -derivedDataPath build \
 	    build
 
 # ── Consuming app's Android build ──────────────────────────────────
@@ -777,17 +781,9 @@ ge/storekit-init:
 # prebuilt static libs and read the lifted headers, avoiding recursive
 # submodule init on CI. See docs/vendor-prebuilds.md.
 
-.PHONY: ge/prebuild-vendor-ios-arm64
-ge/prebuild-vendor-ios-arm64:
-	$(ge)/tools/prebuild-vendor-ios-arm64.sh
-
-# 🎯T73.1: Android arm64 counterpart. Outputs prebuilt/android-arm64/lib*.a
-# that consumer apps' Android CMakeLists declares as STATIC IMPORTED via
-# the hand-maintained cmake/android-arm64.cmake snippet. No ge source
-# compiles inside the consumer build.
-.PHONY: ge/prebuild-vendor-android-arm64
-ge/prebuild-vendor-android-arm64:
-	$(ge)/tools/prebuild-vendor-android-arm64.sh
+# Prebuild rules (`prebuild`, `prebuild-ios-arm64`, etc.) live in ge's
+# top-level Makefile — they're ge-developer-only and benefit from the
+# parallel-by-default MAKEFLAGS there. Run them from the ge repo root.
 
 .PHONY: ge/lift-headers
 ge/lift-headers:
@@ -902,20 +898,18 @@ ge/ios-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
-	cd ios && cmake -G Xcode -B build/xcode \
-	    -DCMAKE_SYSTEM_NAME=iOS \
-	    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-	    -DCMAKE_OSX_SYSROOT=iphonesimulator \
-	    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
-	    -project build/xcode/$(APP_DISPLAY_NAME).xcodeproj -scheme $(APP_DISPLAY_NAME) \
+	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
 	    -configuration Release -destination "generic/platform=iOS Simulator" \
+	    -derivedDataPath build \
 	    build
 
 # ── iOS physical-device release build ─────────────────────────────────
 # `make ge/ios-device-release` builds the consuming app's iOS .app targeting
-# iphoneos (physical device) with Release configuration.
-# Requires ios/CMakeLists.txt to set DEVELOPMENT_TEAM (see ge/ios-init).
+# iphoneos (physical device) with Release configuration. Uses the same
+# build_project.rb-generated xcodeproj as the sim lanes — no separate
+# build-tree path (🎯T73.2).
 
 .PHONY: ge/ios-device-release
 ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
@@ -923,14 +917,11 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
-	cd ios && cmake -G Xcode -B build/xcode-device \
-	    -DCMAKE_SYSTEM_NAME=iOS \
-	    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-	    -DCMAKE_OSX_SYSROOT=iphoneos \
-	    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+	bundle exec ruby ios/project.rb
 	cd ios && xcodebuild \
-	    -project build/xcode-device/$(APP_DISPLAY_NAME).xcodeproj -scheme $(APP_DISPLAY_NAME) \
+	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
 	    -configuration Release -destination "generic/platform=iOS" \
+	    -derivedDataPath build-device \
 	    -allowProvisioningUpdates \
 	    build
 
