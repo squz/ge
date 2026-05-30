@@ -91,7 +91,11 @@ Sprite uploadPixels(const SvgPixels& pixels) {
     };
     desc.label = "ge.svg.sprite";
     Sprite out;
-    out.tex    = sg_make_image(&desc);
+    out.tex = sg_make_image(&desc);
+    sg_view_desc vd{};
+    vd.texture.image = out.tex;
+    vd.label = "ge.svg.sprite.view";
+    out.view = sg_make_view(&vd);
     out.width  = pixels.width;
     out.height = pixels.height;
     return out;

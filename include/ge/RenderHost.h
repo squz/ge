@@ -60,13 +60,14 @@ public:
     // Bracket the per-frame rendering phase. The engine submits draw calls
     // between begin and end. ServerWireBridge uses begin to bind its
     // capture framebuffer and end to trigger the encode/transmit pipeline.
-    // DirectRenderHost: both are essentially noops — bgfx draws straight
-    // to the swap chain.
+    // DirectRenderHost: begin opens a sokol swapchain pass (clear + drawable
+    // acquire), end commits it.
     //
-    // bgfxFrameNumber is the value returned by bgfx::frame() so the host
-    // can correlate readbacks (ServerWireBridge needs this).
+    // frameNumber is an opaque counter the engine increments each frame;
+    // hosts that need to correlate async readbacks (ServerWireBridge in
+    // the bgfx implementation) consume it.
     virtual void beginFrame() = 0;
-    virtual void endFrame(uint32_t bgfxFrameNumber) = 0;
+    virtual void endFrame(uint32_t frameNumber) = 0;
 
     // True when the render subsystem has signaled shutdown (window close,
     // wire closed, SIGINT, etc.).

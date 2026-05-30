@@ -16,7 +16,6 @@
 #include "Immersive.h"
 #include "render/DirectRenderHost.h"
 
-#include <bgfx/bgfx.h>
 #include <SDL3/SDL.h>
 #include <ge/log.h>
 #include <spdlog/spdlog.h>
@@ -82,8 +81,12 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
 
         host.beginFrame();
         if (rc.onRender) rc.onRender(host.context());
-        uint32_t frameNum = bgfx::frame();
-        host.endFrame(frameNum);
+        // Self-incrementing frame counter (T38: bgfx::frame() removed; sokol
+        // commits inside SokolContext::endFrame and has no equivalent return).
+        // ServerWireBridge used the bgfx frame number to correlate async
+        // readbacks; not needed for the direct-render path.
+        static uint32_t frameNum = 0;
+        host.endFrame(++frameNum);
     }
 
     if (rc.onShutdown) rc.onShutdown();

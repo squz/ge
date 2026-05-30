@@ -5,7 +5,7 @@
 
 #include <ge/Resource.h>
 
-#include <bgfx/bgfx.h>
+#include "sokol_gfx.h"
 #include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_pixels.h>
 #include <SDL3/SDL_surface.h>
@@ -63,24 +63,35 @@ Sprite imageFromSurface(SDL_Surface* surface) {
 
     const int w = rgba->w;
     const int h = rgba->h;
-    const uint32_t dataSize = static_cast<uint32_t>(w) *
-                              static_cast<uint32_t>(h) * 4u;
-    const bgfx::Memory* mem = bgfx::copy(rgba->pixels, dataSize);
+    const size_t dataSize = static_cast<size_t>(w) *
+                            static_cast<size_t>(h) * 4u;
 
+    sg_image_desc desc{};
+    desc.width        = w;
+    desc.height       = h;
+    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    desc.data.mip_levels[0] = (sg_range){
+        .ptr  = rgba->pixels,
+        .size = dataSize,
+    };
+    desc.label = "ge.image.sprite";
+
+    Sprite out;
+    out.tex = sg_make_image(&desc);
+
+    sg_view_desc vd{};
+    vd.texture.image = out.tex;
+    vd.label = "ge.image.sprite.view";
+    out.view = sg_make_view(&vd);
+
+    // sg_make_image consumes the initial-data bytes synchronously, so the
+    // surface is safe to free now.
     if (ownedRgba) {
         SDL_DestroySurface(rgba);
     } else {
         SDL_DestroySurface(surface);
     }
 
-    Sprite out;
-    out.tex = bgfx::createTexture2D(
-        static_cast<uint16_t>(w),
-        static_cast<uint16_t>(h),
-        false, 1,
-        bgfx::TextureFormat::RGBA8,
-        BGFX_TEXTURE_NONE,
-        mem);
     out.width  = w;
     out.height = h;
     return out;

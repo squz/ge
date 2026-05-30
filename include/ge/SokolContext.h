@@ -43,6 +43,15 @@ public:
     void beginFrame(const float clearColor[4] = nullptr);
     void endFrame();
 
+    // App-lifecycle hooks. On Apple these are no-ops — the CAMetalLayer
+    // survives backgrounding and rendering resumes without a swap-chain
+    // rebuild. On Android the EGL surface is destroyed on background
+    // and recreated on foreground; the implementation pauses frame
+    // submission between the two events and re-binds the GL context on
+    // resume. Wire from SDL_EVENT_DID_ENTER_{BACKGROUND,FOREGROUND}.
+    void onBackground();
+    void onForeground();
+
 private:
     struct M;
     std::unique_ptr<M> m;

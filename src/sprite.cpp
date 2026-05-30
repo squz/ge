@@ -12,7 +12,7 @@
 #include <ge/sprite.h>
 
 #include "sokol_gfx.h"
-#include "../build/shaders/ge_sprite.h"  // sokol-shdc generated
+#include "ge_sprite.h"  // sokol-shdc generated; -I via Module.mk
 
 #include <spdlog/spdlog.h>
 

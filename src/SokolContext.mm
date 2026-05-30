@@ -1,7 +1,7 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// T38 spike: sokol_gfx Metal backend on macOS via SDL3.
+// T38 spike: sokol_gfx Metal backend on macOS + iOS via SDL3.
 
 #include <ge/SokolContext.h>
 #include <ge/Signal.h>
@@ -20,7 +20,7 @@
 
 #include <TargetConditionals.h>
 #if !TARGET_OS_OSX
-#  error "SokolContext spike: macOS only for now"
+#import <UIKit/UIKit.h>
 #endif
 
 namespace ge {
@@ -80,9 +80,15 @@ SokolContext::SokolContext(const SokolConfig& config)
     }
 
     const char* title = (config.title && *config.title) ? config.title : "ge";
-    m->window = SDL_CreateWindow(title,
-        config.width, config.height,
-        SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#if TARGET_OS_OSX
+    const Uint64 windowFlags =
+        SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#else
+    // iOS windows are always fullscreen; SDL_WINDOW_RESIZABLE doesn't apply.
+    // SDL_WINDOW_HIGH_PIXEL_DENSITY is the default on iOS.
+    const Uint64 windowFlags = SDL_WINDOW_METAL;
+#endif
+    m->window = SDL_CreateWindow(title, config.width, config.height, windowFlags);
     if (!m->window) {
         SPDLOG_ERROR("SDL_CreateWindow failed: {}", SDL_GetError());
         return;
@@ -95,6 +101,32 @@ SokolContext::SokolContext(const SokolConfig& config)
     m->layer.device = m->device;
     m->layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     m->layer.framebufferOnly = YES;
+
+#if !TARGET_OS_OSX
+    // Paint the Metal layer and every UIView/UIWindow above it opaque
+    // black. During the iOS orientation-change animation the system
+    // snapshots the view hierarchy and cross-fades — if any parent
+    // view's backgroundColor is nil/undefined it shows as a pink
+    // flash. Walk up the hierarchy setting black on everything.
+    {
+        CGFloat black[] = {0.f, 0.f, 0.f, 1.f};
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGColorRef blackCG = CGColorCreate(cs, black);
+        m->layer.backgroundColor = blackCG;
+        m->layer.opaque = YES;
+        CGColorRelease(blackCG);
+        CGColorSpaceRelease(cs);
+        UIView* uiView = (__bridge UIView*)m->metalView;
+        for (UIView* v = uiView; v != nil; v = v.superview) {
+            v.backgroundColor = [UIColor blackColor];
+            v.opaque = YES;
+        }
+        UIWindow* uiWindow = uiView.window;
+        if (uiWindow) {
+            uiWindow.backgroundColor = [UIColor blackColor];
+        }
+    }
+#endif
 
     // Pick up the real pixel dimensions; Retina blows up the requested
     // 820×1180 to the actual backbuffer size.
@@ -196,5 +228,12 @@ void SokolContext::endFrame() {
     m->currentDrawable = nil;
     m->currentCmdBuf   = nil;
 }
+
+// Apple lifecycle: the CAMetalLayer survives backgrounding and rendering
+// resumes without a swap-chain rebuild, so these are intentional no-ops.
+// The Android branch (SokolContext_android.cpp) needs real implementations
+// because the SurfaceView's ANativeWindow is destroyed on background.
+void SokolContext::onBackground() {}
+void SokolContext::onForeground() {}
 
 } // namespace ge

@@ -61,20 +61,16 @@ android {
     }
 }
 
-// Sync game data + compiled shaders into APK assets before building.
-// The host-side build compiles shaders into per-profile dirs:
-//   build/shaders/        — Metal bytecode (macOS / iOS)
-//   build/shaders-spirv/  — SPIR-V (Android Vulkan backend, used on emulator)
-//   build/shaders-gles/   — OpenGL ES 3.1 (Android GLES backend, real devices)
-// The APK ships BOTH Android variants; engine helper ge::shaderDir()
-// picks the right path at runtime based on the bgfx renderer that
-// BgfxContext.mm selected for this device.
+// Sync game data into APK assets before building.
+//
+// T38 (sokol_gfx migration): shaders are no longer shipped as runtime
+// assets. sokol-shdc generates one C header per shader program, which
+// the renderer #includes at compile time (the CMake step in
+// app/src/main/cpp/CMakeLists.txt invokes sokol-shdc and emits headers
+// under <project>/build/shaders/). No bgfx-era SPIR-V or GLES bytecode
+// blobs to copy.
 tasks.register('syncAssets', Sync) {
-    from("${rootDir}/../data")                   { into('data') }
-    from("${rootDir}/../build/shaders-spirv")    { into('build/shaders-spirv') }
-    from("${rootDir}/../build/ge/shaders-spirv") { into('build/ge/shaders-spirv') }
-    from("${rootDir}/../build/shaders-gles")     { into('build/shaders-gles') }
-    from("${rootDir}/../build/ge/shaders-gles")  { into('build/ge/shaders-gles') }
+    from("${rootDir}/../data") { into('data') }
     into('src/main/assets')
 }
 preBuild.dependsOn('syncAssets')

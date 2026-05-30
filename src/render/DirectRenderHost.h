@@ -3,13 +3,13 @@
 //
 // DirectRenderHost — RenderHost for in-process windowed rendering.
 //
-// Owns the SDL window, the bgfx swap-chain target, and the local input
-// loop (SDL events + ⌥-mouse → synthetic accelerometer). Used by
-// distribution / standalone builds; no ged, no wire.
+// Owns the SDL window, the sokol swap-chain target (via SokolContext), and
+// the local input loop (SDL events + ⌥-mouse → synthetic accelerometer).
+// Used by distribution / standalone builds; no ged, no wire.
 #pragma once
 
-#include <ge/BgfxContext.h>
 #include <ge/RenderHost.h>
+#include <ge/SokolContext.h>
 
 #include <memory>
 
@@ -35,7 +35,7 @@ public:
     void setEventHandler(std::function<void(const SDL_Event&)>) override;
     void pumpEvents() override;
     void beginFrame() override;
-    void endFrame(uint32_t bgfxFrameNumber) override;
+    void endFrame(uint32_t frameNumber) override;
     bool shouldQuit() const override;
 
     // Wire 🎯T44 / 🎯T45 callbacks. Called once after the game's factory
@@ -46,7 +46,6 @@ public:
     void setMemoryWarningHandler(std::function<void(MemoryPressureLevel)>);
 
 private:
-    void submitCompose(float tx, float ty);
     la::float2 updateParallax();
 
     struct Impl;

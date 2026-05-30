@@ -53,34 +53,22 @@ ge/INCLUDES = \
 	-I$(ge)/vendor/github.com/sammycage/lunasvg/include \
 	-I/opt/homebrew/opt/freetype/include/freetype2 \
 	-DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
-	-DLUNASVG_BUILD_STATIC
+	-DLUNASVG_BUILD_STATIC \
+	-I$(ge)/vendor/github.com/floooh/sokol
 
-# bgfx + bx + bimg (vendored, compiled from source)
-ge/BX_DIR = $(ge)/vendor/github.com/bkaradzic/bx
-ge/BIMG_DIR = $(ge)/vendor/github.com/bkaradzic/bimg
-ge/BGFX_DIR = $(ge)/vendor/github.com/bkaradzic/bgfx
-
-ge/BX_INCLUDES = -I$(ge/BX_DIR)/include -I$(ge/BX_DIR)/include/compat/osx
-ge/BIMG_INCLUDES = -I$(ge/BIMG_DIR)/include
-ge/BGFX_INCLUDES = -I$(ge/BGFX_DIR)/include
-
-ge/BGFX_ALL_INCLUDES = $(ge/BGFX_INCLUDES) $(ge/BX_INCLUDES) $(ge/BIMG_INCLUDES)
-ge/BGFX_CXXFLAGS = -std=c++20 -O2 $(ge/BGFX_ALL_INCLUDES) -DBX_CONFIG_DEBUG=0 -DBGFX_CONFIG_RENDERER_METAL=1
-
-# bx: platform abstraction (amalgamated minus crtnone.cpp — handled by #ifdef internally)
-ge/BX_OBJ = $(BUILD_DIR)/ge/vendor/bx.o
-ge/BX_LIB = $(BUILD_DIR)/libbx.a
-
-# bimg: image processing (image.cpp + image_gnf.cpp — decode/encode not needed for bgfx runtime)
-ge/BIMG_SRC = $(ge/BIMG_DIR)/src/image.cpp $(ge/BIMG_DIR)/src/image_gnf.cpp
-ge/BIMG_OBJ = $(patsubst $(ge/BIMG_DIR)/src/%.cpp,$(BUILD_DIR)/ge/vendor/bimg_%.o,$(ge/BIMG_SRC))
-ge/BIMG_LIB = $(BUILD_DIR)/libbimg.a
-
-# bgfx: rendering
-ge/BGFX_OBJ = $(BUILD_DIR)/ge/vendor/bgfx.o
-ge/BGFX_LIB = $(BUILD_DIR)/libbgfx.a
-
-ge/BGFX_LIBS = $(ge/BGFX_LIB) $(ge/BIMG_LIB) $(ge/BX_LIB)
+# sokol_gfx (vendored single-header — no separate compile step;
+# SokolContext.mm / SokolContext_android.cpp do the SOKOL_IMPL include).
+# T38: bgfx/bx/bimg vendor compile retired. Empty shims kept so any
+# external Makefile that still references $(ge/BGFX_LIBS) etc. expands
+# to nothing rather than failing.
+ge/BGFX_ALL_INCLUDES =
+ge/BGFX_LIBS =
+ge/BX_OBJ =
+ge/BX_LIB =
+ge/BIMG_OBJ =
+ge/BIMG_LIB =
+ge/BGFX_OBJ =
+ge/BGFX_LIB =
 
 # SDL3 libraries (static, vendored)
 ge/SDL3_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libSDL3.a
@@ -115,7 +103,10 @@ include $(ge)/tools/ge-sources.mk
 ge/SRC_DIRECT   := $(addprefix $(ge)/,$(GE_SRC_DIRECT_APPLE_DESKTOP))
 ge/SRC_BROKERED := $(addprefix $(ge)/,$(GE_SRC_BROKERED))
 
-ge/SRC = $(ge/SRC_DIRECT) $(ge/SRC_BROKERED)
+# T38: brokered streaming sources still reference bgfx and are not being
+# ported in this phase. Direct-only build for libge.a until the bridge
+# subsystem is ported.
+ge/SRC = $(ge/SRC_DIRECT)
 
 ge/OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(filter $(ge)/src/%.cpp,$(ge/SRC))) \
          $(patsubst $(ge)/src/%.mm,$(BUILD_DIR)/ge/src/%.o,$(filter $(ge)/src/%.mm,$(ge/SRC))) \
@@ -130,44 +121,39 @@ ge/PLAYER = bin/player
 # Small helper CLIs, built on demand.
 ge/IMGDIFF = bin/imgdiff
 
-# bgfx shader compiler (vendored binaries for common hosts).
-# Parent lists desired `.bin` outputs (e.g. `$(BUILD_DIR)/shaders/foo_vs.bin`);
-# Module.mk's pattern rules compile them from matching `.sc` sources.
-ge/SHADERC_HOST := $(shell uname -s | tr A-Z a-z)-$(shell uname -m | sed 's/aarch64/arm64/')
-ge/SHADERC = $(ge)/bin/$(ge/SHADERC_HOST)/shaderc
+# sokol-shdc shader cross-compiler (vendored binary; macOS-arm64 host only
+# for now — Linux/Windows hosts would point at a different bin/<host>/ dir).
+# Parent lists desired `.h` outputs (e.g. `$(BUILD_DIR)/shaders/simple.h`);
+# Module.mk's pattern rules generate them from matching `.glsl` sources.
+ge/SOKOL_SHDC = $(ge)/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc
 
-# bgfx shader include directory (bgfx_shader.sh lives here).
-ge/SHADERC_BGFX_INCLUDE = $(ge/BGFX_DIR)/src
+# Target shader languages emitted into each generated header. sokol-shdc
+# bakes all listed backends into one sokol_shader_desc — at runtime
+# sokol_gfx picks the right one based on sg_query_backend(). The set is
+# the union of every backend SokolContext.mm / SokolContext_android.cpp
+# can pick: Metal on macOS + iOS, GLES3 (GLSL 300 es) on Android GLES.
+ge/SOKOL_SHDC_LANGS ?= metal_macos:metal_ios:glsl300es
 
-# Target GPU profile (Metal on Apple platforms — the only renderer enabled).
-ge/SHADERC_PROFILE ?= metal
-ge/SHADERC_PLATFORM ?= osx
-
-# Parent defines its shader source directory (default `shaders`) and varying def.
+# Parent defines its shader source directory (default `shaders`).
 ge/SHADER_DIR ?= shaders
-ge/SHADERC_VARYINGDEF ?= $(ge/SHADER_DIR)/varying.def.sc
 
-# ge's own internal render shaders (compose pass for viewport tilt).
-# Consumers depend on $(ge/RENDER_SHADERS) so the binaries exist on
-# disk at runtime. DirectRenderHost loads them from "build/ge/shaders/".
+# ge's own internal render shaders. Consumers depend on $(ge/RENDER_SHADERS)
+# so the headers exist on disk at compile time — the sprite/render code
+# `#include`s them out of build/ge/shaders/.
+# T38: ge_compose.* dropped (compose pass stripped from DirectRenderHost).
+# Only ge_sprite.h remains — generated from ge_sprite.glsl.
 ge/RENDER_SHADER_DIR = $(ge)/src/render/shaders
 ge/RENDER_SHADERS = \
-	$(BUILD_DIR)/ge/shaders/ge_compose_vs.bin \
-	$(BUILD_DIR)/ge/shaders/ge_compose_fs.bin \
-	$(BUILD_DIR)/ge/shaders/ge_sprite_vs.bin \
-	$(BUILD_DIR)/ge/shaders/ge_sprite_fs.bin
+	$(BUILD_DIR)/ge/shaders/ge_sprite.h
 
-# Android shader variants. The APK ships BOTH so the runtime can pick
-# based on the bgfx backend BgfxContext.mm chose for this device:
-#   * shaders-spirv/ — for the Vulkan backend (Apple-Silicon emulator).
-#   * shaders-gles/  — for the OpenGL ES backend (real Adreno/Mali devices).
-# Consumed by the Gradle syncAssets task; both deposited into the APK
-# under assets/build/shaders-{spirv,gles}/ and assets/build/ge/shaders-{spirv,gles}/.
-# Engine helper ge::shaderDir() returns the right suffix at runtime.
-ge/APP_SHADERS_SPIRV    = $(patsubst $(BUILD_DIR)/$(ge/SHADER_DIR)/%.bin,$(BUILD_DIR)/$(ge/SHADER_DIR)-spirv/%.bin,$(APP_SHADERS))
-ge/RENDER_SHADERS_SPIRV = $(patsubst $(BUILD_DIR)/ge/shaders/%.bin,$(BUILD_DIR)/ge/shaders-spirv/%.bin,$(ge/RENDER_SHADERS))
-ge/APP_SHADERS_GLES     = $(patsubst $(BUILD_DIR)/$(ge/SHADER_DIR)/%.bin,$(BUILD_DIR)/$(ge/SHADER_DIR)-gles/%.bin,$(APP_SHADERS))
-ge/RENDER_SHADERS_GLES  = $(patsubst $(BUILD_DIR)/ge/shaders/%.bin,$(BUILD_DIR)/ge/shaders-gles/%.bin,$(ge/RENDER_SHADERS))
+# Android shader variants — no longer separated (sokol-shdc bakes all
+# backends into one header per shader). Kept as aliases of the base set
+# so existing references in this Makefile and consumer Makefiles continue
+# to expand to the same target list.
+ge/APP_SHADERS_SPIRV    = $(APP_SHADERS)
+ge/RENDER_SHADERS_SPIRV = $(ge/RENDER_SHADERS)
+ge/APP_SHADERS_GLES     = $(APP_SHADERS)
+ge/RENDER_SHADERS_GLES  = $(ge/RENDER_SHADERS)
 
 # Texture encoder (used by precompute tools, NOT part of libge.a)
 ge/TEXTURE_ENCODER_SRC = $(ge)/src/TextureEncoder.cpp
@@ -271,7 +257,7 @@ COMPILE_DB_DEPS = $(ge/SRC) $(ge/TEST_SRC) $(ge)/Module.mk $(APP_SRC) Makefile
 # Engine-managed base flags. Apps that want to extend CXXFLAGS keep these by
 # default (via `CXXFLAGS ?=` below) or reference $(ge/CXXFLAGS_BASE) explicitly
 # when constructing their own.
-ge/CXXFLAGS_BASE = -std=c++20 -O2 -g $(ge/INCLUDES) $(ge/BGFX_ALL_INCLUDES) -DBX_CONFIG_DEBUG=0
+ge/CXXFLAGS_BASE = -std=c++20 -O2 -g -DGE_DIRECT_ONLY $(ge/INCLUDES) -I$(BUILD_DIR)/ge/shaders -I$(BUILD_DIR)/$(ge/SHADER_DIR)
 
 CXXFLAGS   ?= $(ge/CXXFLAGS_BASE) -Isrc
 SDL_CFLAGS ?= -I$(ge)/vendor/sdl3/include
@@ -396,139 +382,23 @@ $(BUILD_DIR)/ge/vendor/plutovg/%.o: $(ge/PLUTOVG_DIR)/source/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(ge/PLUTOVG_CFLAGS) -MMD -MP -c $< -o $@
 
-# bx (amalgamated build)
-$(ge/BX_OBJ): $(ge/BX_DIR)/src/amalgamated.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) $(ge/BGFX_CXXFLAGS) -I$(ge/BX_DIR)/3rdparty -MMD -MP -c $< -o $@
+# T38: bgfx / bx / bimg vendor build rules removed. The sokol_gfx single-header
+# is dropped in at #include time by SokolContext.mm (Apple) and
+# SokolContext_android.cpp (Android) via SOKOL_IMPL — no separate static
+# library to build. Include path lives in ge/INCLUDES; vendored at
+# vendor/github.com/floooh/sokol/{sokol_gfx,sokol_log}.h.
 
-$(ge/BX_LIB): $(ge/BX_OBJ)
+# sokol-shdc shader compilation. Parent lists desired `.h` outputs (e.g.
+# in APP_SHADERS) and makes its app depend on them. Pattern rules below
+# emit a single header per .glsl with embedded bytecode for every backend
+# in $(ge/SOKOL_SHDC_LANGS).
+$(BUILD_DIR)/$(ge/SHADER_DIR)/%.h: $(ge/SHADER_DIR)/%.glsl $(ge/SOKOL_SHDC)
 	@mkdir -p $(dir $@)
-	libtool -static -o $@ $^
+	$(ge/SOKOL_SHDC) -i $< -o $@ -l $(ge/SOKOL_SHDC_LANGS) -f sokol
 
-# bimg (amalgamated build — needs bx + bimg internal headers)
-$(BUILD_DIR)/ge/vendor/bimg_%.o: $(ge/BIMG_DIR)/src/%.cpp
+$(BUILD_DIR)/ge/shaders/%.h: $(ge/RENDER_SHADER_DIR)/%.glsl $(ge/SOKOL_SHDC)
 	@mkdir -p $(dir $@)
-	$(CXX) $(ge/BGFX_CXXFLAGS) -DBIMG_CONFIG_DECODE_ENABLE=0 -I$(ge/BIMG_DIR)/3rdparty -I$(ge/BIMG_DIR)/3rdparty/astc-encoder/include -MMD -MP -c $< -o $@
-
-$(ge/BIMG_LIB): $(ge/BIMG_OBJ)
-	@mkdir -p $(dir $@)
-	libtool -static -o $@ $^
-
-# bgfx (amalgamated build — Metal renderer needs ObjC++ for MTLCopyAllDevicesWithObserver)
-$(ge/BGFX_OBJ): $(ge/BGFX_DIR)/src/amalgamated.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) -ObjC++ $(ge/BGFX_CXXFLAGS) -I$(ge/BGFX_DIR)/3rdparty -I$(ge/BGFX_DIR)/3rdparty/khronos -I$(ge/BGFX_DIR)/src -MMD -MP -c $< -o $@
-
-$(ge/BGFX_LIB): $(ge/BGFX_OBJ)
-	@mkdir -p $(dir $@)
-	libtool -static -o $@ $^
-
-# bgfx shader compilation. Parent just lists the `.bin` targets (e.g. in
-# a SHADERS variable) and makes its app depend on them. These pattern
-# rules do the rest.
-#
-# Convention: files named `*_vs.sc` are vertex shaders, `*_fs.sc` fragment,
-# `*_cs.sc` compute. Outputs mirror the source path under $(BUILD_DIR).
-#
-# Override `ge/SHADER_DIR` (default: `shaders`) or `ge/SHADERC_VARYINGDEF`
-# (default: `$(ge/SHADER_DIR)/varying.def.sc`) if your layout differs.
-$(BUILD_DIR)/$(ge/SHADER_DIR)/%_vs.bin: $(ge/SHADER_DIR)/%_vs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform $(ge/SHADERC_PLATFORM) -p $(ge/SHADERC_PROFILE) \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/$(ge/SHADER_DIR)/%_fs.bin: $(ge/SHADER_DIR)/%_fs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform $(ge/SHADERC_PLATFORM) -p $(ge/SHADERC_PROFILE) \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/$(ge/SHADER_DIR)/%_cs.bin: $(ge/SHADER_DIR)/%_cs.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type compute \
-	    --platform $(ge/SHADERC_PLATFORM) -p $(ge/SHADERC_PROFILE) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-# Engine-internal render shaders (compose pass for viewport tilt).
-$(BUILD_DIR)/ge/shaders/%_vs.bin: $(ge/RENDER_SHADER_DIR)/%_vs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform $(ge/SHADERC_PLATFORM) -p $(ge/SHADERC_PROFILE) \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
-
-$(BUILD_DIR)/ge/shaders/%_fs.bin: $(ge/RENDER_SHADER_DIR)/%_fs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform $(ge/SHADERC_PLATFORM) -p $(ge/SHADERC_PROFILE) \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
-
-# SPIR-V variants — for the Android Vulkan backend (Apple-Silicon AVD).
-# Output lives in $(BUILD_DIR)/shaders-spirv/ and $(BUILD_DIR)/ge/shaders-spirv/.
-# Bypasses the glsl-optimizer (known vec4-constructor bug in 300_es that
-# sets the w component to -Infinity).
-$(BUILD_DIR)/$(ge/SHADER_DIR)-spirv/%_vs.bin: $(ge/SHADER_DIR)/%_vs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform android -p spirv \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/$(ge/SHADER_DIR)-spirv/%_fs.bin: $(ge/SHADER_DIR)/%_fs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform android -p spirv \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/ge/shaders-spirv/%_vs.bin: $(ge/RENDER_SHADER_DIR)/%_vs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform android -p spirv \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
-
-$(BUILD_DIR)/ge/shaders-spirv/%_fs.bin: $(ge/RENDER_SHADER_DIR)/%_fs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform android -p spirv \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
-
-# OpenGL ES 3.1 variants — for the Android GLES backend (real Adreno/Mali).
-# Output lives in $(BUILD_DIR)/shaders-gles/ and $(BUILD_DIR)/ge/shaders-gles/.
-# Profile is 310_es (not 300_es) to dodge the glsl-optimizer vec4 bug.
-$(BUILD_DIR)/$(ge/SHADER_DIR)-gles/%_vs.bin: $(ge/SHADER_DIR)/%_vs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform android -p 310_es \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/$(ge/SHADER_DIR)-gles/%_fs.bin: $(ge/SHADER_DIR)/%_fs.sc $(ge/SHADERC_VARYINGDEF) $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform android -p 310_es \
-	    --varyingdef $(ge/SHADERC_VARYINGDEF) \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/SHADER_DIR)
-
-$(BUILD_DIR)/ge/shaders-gles/%_vs.bin: $(ge/RENDER_SHADER_DIR)/%_vs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type vertex \
-	    --platform android -p 310_es \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
-
-$(BUILD_DIR)/ge/shaders-gles/%_fs.bin: $(ge/RENDER_SHADER_DIR)/%_fs.sc $(ge/RENDER_SHADER_DIR)/varying.def.sc $(ge/SHADERC)
-	@mkdir -p $(dir $@)
-	$(ge/SHADERC) -f $< -o $@ --type fragment \
-	    --platform android -p 310_es \
-	    --varyingdef $(ge/RENDER_SHADER_DIR)/varying.def.sc \
-	    -i $(ge/SHADERC_BGFX_INCLUDE) -i $(ge/RENDER_SHADER_DIR)
+	$(ge/SOKOL_SHDC) -i $< -o $@ -l $(ge/SOKOL_SHDC_LANGS) -f sokol
 
 # Desktop player binary (symmetry with ge/ios and ge/android).
 .PHONY: ge/player

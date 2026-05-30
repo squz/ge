@@ -3,7 +3,7 @@
 
 #include <ge/text.h>
 
-#include <bgfx/bgfx.h>
+#include "sokol_gfx.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <spdlog/spdlog.h>
@@ -151,17 +151,24 @@ Sprite rasterizeText(const std::string& text,
     auto pixels = rasterizeTextToPixels(text, font, sizePt, color);
     if (pixels.isNull()) return Sprite{};
 
-    const bgfx::Memory* mem = bgfx::copy(
-        pixels.rgba.data(),
-        static_cast<uint32_t>(pixels.rgba.size()));
+    sg_image_desc desc{};
+    desc.width        = pixels.width;
+    desc.height       = pixels.height;
+    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    desc.data.mip_levels[0] = (sg_range){
+        .ptr  = pixels.rgba.data(),
+        .size = pixels.rgba.size(),
+    };
+    desc.label = "ge.text.sprite";
+
     Sprite out;
-    out.tex = bgfx::createTexture2D(
-        static_cast<uint16_t>(pixels.width),
-        static_cast<uint16_t>(pixels.height),
-        false, 1,
-        bgfx::TextureFormat::RGBA8,
-        BGFX_TEXTURE_NONE,
-        mem);
+    out.tex = sg_make_image(&desc);
+
+    sg_view_desc vd{};
+    vd.texture.image = out.tex;
+    vd.label = "ge.text.sprite.view";
+    out.view = sg_make_view(&vd);
+
     out.width  = pixels.width;
     out.height = pixels.height;
     return out;
