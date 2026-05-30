@@ -73,14 +73,15 @@ file(GLOB_RECURSE APP_SOURCES
 add_library(main SHARED ${APP_SOURCES})
 add_dependencies(main app_shaders)
 
-# Project root on the include path so `#include "build/shaders/simple.h"`
-# (or the shorter `#include "shaders/simple.h"` if the renderer prefers
-# adding `build/` to its own search) resolves to the generated header.
+# Include paths mirror Module.mk's desktop CXXFLAGS_BASE so the same
+# `#include "simple.h"` (renderer-side sokol-shdc-generated header)
+# resolves on Android without consumer code changes.
 target_include_directories(main PRIVATE
     "${PROJECT_ROOT}"
     "${PROJECT_ROOT}/src"
     "${PROJECT_ROOT}/include"
     "${PROJECT_ROOT}/build"
+    "${PROJECT_ROOT}/build/shaders"
 )
 
 target_link_libraries(main PRIVATE ge)

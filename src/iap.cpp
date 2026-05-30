@@ -98,6 +98,11 @@ struct StubStore : Store {
 std::unique_ptr<Store> makePlatformStore() { return nullptr; }
 #endif
 
+#if !defined(__APPLE__)
+// 🎯T74: only iOS has a meaningful storekit-bundled check.
+bool storekitConfigBundled() { return false; }
+#endif
+
 } // namespace detail
 
 namespace {
@@ -121,11 +126,38 @@ Store& store() {
 #if defined(__ANDROID__)
             mode = "platform";
 #elif defined(__APPLE__) && (TARGET_OS_IPHONE || TARGET_OS_TV || TARGET_OS_WATCH)
-            mode = "platform";
+            // 🎯T74: prefer local mode when a StoreKit.storekit is bundled
+            // with the iOS app — lets devs test the real StoreKit code path
+            // on devices without a cached sandbox Apple account. Production
+            // builds (which can't ship .storekit through App Store Connect)
+            // fall through to "platform" automatically.
+            // 🎯T74: treat the presence of a bundled StoreKit.storekit as
+            // "this is a dev/test build" and route to stub. The intended
+            // long-term behaviour is to route those to "local" mode
+            // (SKTestSession-backed real StoreKit calls) — but SKTestSession
+            // doesn't reliably intercept from a non-XCTest app process today,
+            // so the inner production bridge still triggers a sandbox sign-in
+            // modal at launch on devices without a cached sandbox Apple
+            // account. Stub mode skips StoreKit entirely → no modal, no IAP
+            // (BUY-PRO button visible, tapping it no-ops). Production builds
+            // (which can't ship .storekit through App Store Connect) fall
+            // through to "platform" automatically.
+            const bool sk = detail::storekitConfigBundled();
+            mode = sk ? "stub" : "platform";
+            SPDLOG_INFO("ge::iap: T74 auto-mode iOS storekitConfigBundled={} mode={}", sk, mode);
 #else
             mode = "stub";
 #endif
+            // Propagate the auto-picked mode to platform impls that re-read
+            // the env var on construction (iap_apple.mm checks getenv to
+            // choose between GEStoreKit2BridgeImpl and the Local variant).
+            // overwrite=1 because the env var is unset when launched outside
+            // Xcode (e.g., via spyder deploy); only Xcode-scheme launches set
+            // it explicitly, and even then they win because they preempt this
+            // default-only branch via the envMode check above.
+            ::setenv("GE_IAP_MODE", mode.c_str(), 1);
         }
+        SPDLOG_INFO("ge::iap: mode resolved to '{}'", mode);
 
         if (mode == "stub") {
             instance = std::make_unique<StubStore>();
