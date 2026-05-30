@@ -20,6 +20,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
+        python-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         ge/lift-headers depgraph clean-depgraph
 
@@ -44,7 +45,7 @@ cell.%:
 # Standing invariants for /cv. Exit 0 means all green; non-zero means a
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
-bullseye: ruby-test
+bullseye: ruby-test python-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
@@ -60,6 +61,12 @@ bullseye: ruby-test
 # every /cv invocation guards against regressions.
 ruby-test:
 	@bundle exec ruby tools/ios-build/test_build_project.rb
+
+# Python-side regression tests — currently the prebuilt-staleness
+# verifier (🎯T78). Runs in ~1s; wired into `bullseye` for the same
+# reason as ruby-test.
+python-test:
+	@python3 tools/test_verify_prebuilds.py
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #
