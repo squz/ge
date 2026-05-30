@@ -289,9 +289,8 @@ ge/TEST_SRC = \
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
-CLEAN = bin build deps.dot deps.svg deps.png $(ge)/ged/web
+CLEAN = bin build $(ge)/ged/web
 COMPILE_DB_DEPS = $(ge/SRC) $(ge/TEST_SRC) $(ge)/Module.mk $(APP_SRC) Makefile
-ge/DEPGRAPH_DEPS = $(ge/SRC) $(wildcard $(ge)/include/ge/*.h) $(ge)/tools/depgraph.py
 
 # ────────────────────────────────────────────────
 # Default compile/link flags (app-overridable)
@@ -646,9 +645,8 @@ $(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(ge/BGFX_LIBS) $(APP_LIBS)
 #     project (the `ios/` or `android/` directory produced by ge/ios-init /
 #     ge/android-init). These are the usual entry points for app authors.
 #
-#   ge/player-ios, ge/player-android — build the brokered ge *player* binary
-#     for iOS / Android. Used for remote-rendering (ged + server) setups, and
-#     by matrix-test.sh's player cells. Independent of the consuming app.
+#   (The legacy ge/player-ios* and ge/player-android* rules were retired
+#    in 🎯T73.3; the brokered player is dormant pending 🎯T34.)
 #
 #   ge/ios-init, ge/android-init — generate the app-side ios/ or android/
 #     scaffolding from ge/tools/{ios,android}-template. Parent passes APP_ID
@@ -687,49 +685,14 @@ ge/android: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_
 	@echo "APK: android/app/build/outputs/apk/debug/app-debug.apk"
 
 # ── ge player for iOS / Android ────────────────────────────────────
-
-# Generate the Xcode project for the ge player binary (tools/ios/).
-.PHONY: ge/player-ios
-ge/player-ios:
-	cd $(ge)/tools/ios && cmake -G Xcode -B build/xcode \
-	    -DCMAKE_SYSTEM_NAME=iOS \
-	    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-	    -DCMAKE_OSX_SYSROOT=iphoneos \
-	    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
-	@echo "Open $(ge)/tools/ios/build/xcode/Player.xcodeproj in Xcode"
-
-# ge player iOS archive (generate project + xcodebuild archive)
-.PHONY: ge/player-ios-archive
-ge/player-ios-archive: ge/player-ios
-	cd $(ge)/tools/ios && xcodebuild \
-	    -project build/xcode/Player.xcodeproj \
-	    -scheme Player \
-	    -destination "generic/platform=iOS" \
-	    -archivePath build/Player.xcarchive \
-	    -allowProvisioningUpdates \
-	    archive
-
-# ge player TestFlight upload (archive + export/upload to App Store Connect)
-.PHONY: ge/player-ios-testflight
-ge/player-ios-testflight: ge/player-ios-archive
-	cd $(ge)/tools/ios && xcodebuild -exportArchive \
-	    -archivePath build/Player.xcarchive \
-	    -exportOptionsPlist ExportOptions.plist \
-	    -exportPath build/export \
-	    -allowProvisioningUpdates
-	@echo "Uploaded to App Store Connect — check TestFlight in https://appstoreconnect.apple.com"
-
-# ge player Android debug APK
-.PHONY: ge/player-android
-ge/player-android:
-	cd $(ge)/tools/android && ./gradlew assembleDebug
-	@echo "APK: $(ge)/tools/android/app/build/outputs/apk/debug/app-debug.apk"
-
-# ge player Android release AAB for Play Store upload
-.PHONY: ge/player-android-release
-ge/player-android-release:
-	cd $(ge)/tools/android && ./gradlew bundleRelease
-	@echo "AAB: $(ge)/tools/android/app/build/outputs/bundle/release/app-release.aab"
+#
+# The brokered ge player (tools/ios + tools/android) is dormant pending
+# 🎯T34, which rewrites it as a regular ge app (no bespoke per-platform
+# entry points). All build rules were removed in 🎯T73.3 along with
+# the iOS CMakeLists.txt that drove them. Android's gradle wrapper +
+# tools/android/app/src/main/cpp/CMakeLists.txt remain in tree as
+# reference until T34 lands; they currently produce a TODO-Dawn-broken
+# build and aren't wired to any make target.
 
 # ── Mobile project scaffolding (consuming app) ─────────────────────
 
@@ -781,13 +744,9 @@ ge/storekit-init:
 # prebuilt static libs and read the lifted headers, avoiding recursive
 # submodule init on CI. See docs/vendor-prebuilds.md.
 
-# Prebuild rules (`prebuild`, `prebuild-ios-arm64`, etc.) live in ge's
-# top-level Makefile — they're ge-developer-only and benefit from the
-# parallel-by-default MAKEFLAGS there. Run them from the ge repo root.
-
-.PHONY: ge/lift-headers
-ge/lift-headers:
-	$(ge)/tools/lift-headers.sh
+# ge-maintenance rules — `prebuild*`, `ge/lift-headers`, `depgraph` — live
+# in ge's top-level Makefile, not here. They operate on ge's own tree and
+# aren't useful to consuming apps. Run them from the ge repo root.
 
 # ────────────────────────────────────────────────
 # Generic targets (use CLEAN, COMPILE_DB_DEPS)
@@ -796,22 +755,6 @@ ge/lift-headers:
 .PHONY: clean
 clean:
 	rm -rf $(CLEAN)
-
-# ────────────────────────────────────────────────
-# Dependency graph (parent can extend ge/DEPGRAPH_DEPS)
-# ────────────────────────────────────────────────
-
-.PHONY: depgraph clean-depgraph
-depgraph: deps.svg
-
-deps.svg: $(ge/DEPGRAPH_DEPS)
-	python3 $(ge)/tools/depgraph.py --format svg --output deps
-
-deps.dot: $(ge/DEPGRAPH_DEPS)
-	python3 $(ge)/tools/depgraph.py --format dot --output deps
-
-clean-depgraph:
-	rm -f deps.dot deps.svg deps.png
 
 # Generate compile_commands.json for IDE support (clangd, VS Code).
 # compiledb captures all sub-make commands,
@@ -925,16 +868,8 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    -allowProvisioningUpdates \
 	    build
 
-# ge player iOS physical-device build.
-# ge/player-ios generates the Xcode project with iphoneos sysroot.
-# This target builds a Debug .app from that project targeting a physical device.
-.PHONY: ge/player-ios-device
-ge/player-ios-device: ge/player-ios
-	cd $(ge)/tools/ios && xcodebuild \
-	    -project build/xcode/Player.xcodeproj -scheme Player \
-	    -configuration Debug -destination "generic/platform=iOS" \
-	    -allowProvisioningUpdates \
-	    build
+# (ge player iOS physical-device build target retired in 🎯T73.3 — see
+# the player section above.)
 
 # ── Android release build ──────────────────────────────────────────────
 # `make ge/android-release` builds the consuming app's Android APK with
