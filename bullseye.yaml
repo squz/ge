@@ -2563,6 +2563,56 @@ targets:
     - sdl3
     origin: manual
     discovered: 2026-05-30
+  T76:
+    name: sprite_test/png_test pass against T38 SpriteVertex layout
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - make unit-test on the T38 sokol_gfx branch passes all sprite_test.cpp + png_test.cpp cases
+    - SpriteBatchTestAccess::quads(batch).size() reports the correct number of queued quads after addSprite/clear
+    - vertex-layout assertions (v[i].u/v/abgr/z) match what ge::SpriteBatch::addSprite actually writes into the Quad's verts[6]
+    context: 'Surfaced 2026-05-30 while porting multimaze2 onto PR #113 (squz/ge#113, the bgfx → sokol_gfx migration). multimaze2''s build is clean and bin/multimaze + bin/render_test all green, but make unit-test (which links ge''s TEST_OBJ) reports 9 failures, all in ge/src/sprite_test.cpp + ge/src/png_test.cpp. The vertex-attribute test expectations (line 86, 97-103, 113, 122) and the quads-size accessor (line 51, 61, 131) look like they were written against an earlier SpriteVertex layout (per-component float colour) and weren''t updated when the new packed-abgr layout landed. png_test:133/142''s `isNull()` checks likely fall out of the same SpriteBatchTestAccess infra. Pre-existing in the PR — not introduced by the multimaze2 consumer port (filed via the multimaze2-audit pattern in mm2''s CLAUDE.md).'
+    tags:
+    - multimaze-audit
+    - tests
+    - T38
+    origin: multimaze2-audit
+    discovered: 2026-05-30
+  T77:
+    name: iOS arm64 prebuilt libge.a regenerated against sokol_gfx
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge/prebuilt/ios-arm64/libge.a contains zero bgfx symbol references (`nm | grep bgfx | wc -l` == 0)
+    - ge/prebuilt/ios-arm64/manifest.json's submodule_shas no longer lists bkaradzic/bgfx, bkaradzic/bx, bkaradzic/bimg
+    - 'ge/prebuilt/ios-arm64/libbgfx.a, libbx.a, libbimg.a are removed (already removed in PR #113 root tree but the manifest+libge.a refresh wasn''t run)'
+    - Consumer apps' `xcodebuild -destination 'generic/platform=iOS'` link step succeeds against ge's prebuilt bundle
+    context: 'Found 2026-05-30 while porting multimaze2 onto PR #113. PR #113 dropped libbgfx/libbx/libbimg from ge/prebuilt/android-arm64/ and regenerated that manifest, but the iOS-arm64 prebuilt was NOT refreshed — libge.a still contains 53 bgfx symbol references and the manifest still lists the bgfx submodule SHAs. Consumer iOS builds fail at link time with `library ''bgfx'' not found` (the consumer''s xcodeproj still tries `-lbgfx -lbx -lbimg`; even after we patch build_project.rb to drop those, the prebuilt libge.a''s own bgfx references would still bite). Fix: re-run `tools/prebuild.sh` (or whatever the iOS-arm64 prebuild driver is on the T38 branch) against the sokol tree. Tracks with [[T75]] (Android 16KB-aligned libs) and PR #113''s "scope explicitly NOT in this PR" list.'
+    tags:
+    - multimaze-audit
+    - prebuilds
+    - T38
+    origin: multimaze2-audit
+    discovered: 2026-05-30
+  T78:
+    name: Prebuilt-staleness verifier catches T38-class prebuilt skew
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'The verifier in tools/verify-prebuilds.py (introduced by #108) fails CI when a prebuilt manifest''s submodule_shas reference a submodule that no longer exists in .gitmodules (e.g. bkaradzic/bgfx after PR #113 removed those submodules) OR when a prebuilt static lib was deleted but the manifest still claims its SHAs'
+    - 'The pre-commit / CI hook would have prevented PR #113 (commit a144f1b) from landing without also regenerating prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/{libge.a,manifest.json}'
+    - 'Running the verifier today (against ge master post-PR #113) reports the bgfx/bx/bimg ghost SHAs in all three manifests'
+    context: 'Surfaced 2026-05-30 by the multimaze2 audit. PR #113 (T38 sokol migration) deleted prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/lib{bgfx,bx,bimg}.a but did NOT regenerate libge.a in any of those trees and did NOT update the manifests — all three still list `vendor/github.com/bkaradzic/{bgfx,bx,bimg}` under submodule_shas and the libge.a binaries still carry bgfx symbols. The PR''s commit message acknowledged this ("iOS + Android device builds ... are the next iteration") but the PR description''s "Verified" table claimed mobile success, and the prebuilt-staleness verifier (94a54b4, PR #108) did not block the merge. T77 covers regenerating the artifacts themselves; this target covers the meta-issue — closing the verifier gap so the next T38-class migration can''t ship with this same skew. Blocks any future migration that deletes submodules without regenerating prebuilts.'
+    tags:
+    - multimaze-audit
+    - ci
+    - prebuilds
+    origin: multimaze2-audit
+    discovered: 2026-05-30
+    achieved: 2026-05-30
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified
