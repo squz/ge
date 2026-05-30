@@ -1,43 +1,43 @@
 # Android distribution build for __APP_NAME__ — standalone, no ged / player.
 #
 # Builds the game as a self-contained Android APK that renders directly via
-# bgfx/Vulkan. Consumes the ge engine at __GE_REL__ (from this CMakeLists)
-# through the single documented integration path: add_subdirectory(ge) +
-# target_link_libraries(main PRIVATE ge).
+# bgfx/Vulkan. Consumes the ge engine via prebuilt static libs under
+# ge/prebuilt/android-arm64/. Zero ge source files compile here (T73.1).
+#
+# Gradle's externalNativeBuild only supports CMake or ndk-build, so a
+# CMakeLists.txt is structurally required at this site. Its job is link
+# manifest only: include ge's Android link snippet, declare the app
+# library, link.
+
 cmake_minimum_required(VERSION 3.22)
 project(__CMAKE_PROJECT__ LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 
-# Resolve GE_ROOT to an absolute path (CMAKE_CURRENT_SOURCE_DIR is cpp/,
-# five levels deep inside the app).
-get_filename_component(ANDROID_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../.. REALPATH)
-get_filename_component(PROJECT_ROOT ${ANDROID_DIR}/.. REALPATH)
-get_filename_component(GE_ROOT ${ANDROID_DIR}/__GE_REL__ REALPATH)
+# Resolve roots. CMAKE_CURRENT_SOURCE_DIR is .../app/src/main/cpp/ — five
+# levels deep inside the consumer's project.
+get_filename_component(ANDROID_DIR   "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." REALPATH)
+get_filename_component(PROJECT_ROOT  "${ANDROID_DIR}/.."                       REALPATH)
+get_filename_component(GE_ROOT       "${ANDROID_DIR}/__GE_REL__"               REALPATH)
 
-# Direct rendering mode: the app owns the frame loop; ge provides bgfx
-# init, DirectRenderHost, SDL3, box2d, sqlite/sqlpipe, liteparser, and the
-# Android system libs transitively.
-set(GE_DIRECT ON CACHE BOOL "" FORCE)
-add_subdirectory(${GE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/ge)
+# Pull in ge's prebuilt static libs + SDL3 + Android system libs. After
+# this include, `ge` is a STATIC IMPORTED target that already declares
+# its include directories, compile defs, and inter-lib link deps.
+include("${GE_ROOT}/cmake/android-arm64.cmake")
 
-# App sources (C++ and .mm) under the sample's src/.
+# App sources (C++ and .mm) under the project's src/.
 file(GLOB_RECURSE APP_SOURCES
     CONFIGURE_DEPENDS
-    ${PROJECT_ROOT}/src/*.cpp
-    ${PROJECT_ROOT}/src/*.mm
+    "${PROJECT_ROOT}/src/*.cpp"
+    "${PROJECT_ROOT}/src/*.mm"
 )
 
 add_library(main SHARED ${APP_SOURCES})
 
-target_compile_definitions(main PRIVATE
-    GE_ANDROID
-    GE_DIRECT_ONLY
-    BX_CONFIG_DEBUG=0
-)
+target_compile_definitions(main PRIVATE BX_CONFIG_DEBUG=0)
 
 target_include_directories(main PRIVATE
-    ${PROJECT_ROOT}/src
-    ${PROJECT_ROOT}/include
+    "${PROJECT_ROOT}/src"
+    "${PROJECT_ROOT}/include"
 )
 
 target_link_libraries(main PRIVATE ge)

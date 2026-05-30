@@ -1053,7 +1053,6 @@ targets:
   T39:
     name: Vertex colours render correctly under bgfx Vulkan on the Android emulator
     status: achieved
-    achieved: 2026-05-30
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1093,6 +1092,7 @@ targets:
     - low-priority
     origin: forked-from 🎯T37 showcase pass on Pixel 9 Pro XL emulator
     discovered: 2026-05-06
+    achieved: 2026-05-30
   T4:
     name: playerLoop takes a config struct with named fields
     status: achieved
@@ -2414,7 +2414,6 @@ targets:
   T72:
     name: iOS xcodeproj builder bundles resource directories at their full relative path, not basename
     status: achieved
-    achieved: 2026-05-26
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2451,6 +2450,87 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-05-26
+    achieved: 2026-05-26
+  T73:
+    name: ge has zero CMake source compilation; all platforms reference prebuilt static libs only
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Top-level CMakeLists.txt is deleted.
+    - Android consumer CMakeLists contain only STATIC IMPORTED declarations pointing at prebuilt .a files; zero ge source compiles inside the Android build.
+    - iOS dev simulator builds no longer use CMake; sample iOS CMakeLists and tools ios-template CMakeLists.txt.in are deleted.
+    - tools/ios/CMakeLists.txt is deleted.
+    - tools/prebuild-vendor-android-arm64.sh exists and produces prebuilt/android-arm64/ static libs.
+    - tools/write-manifest.py and tools/verify-prebuilds.py generalise to multiple platform directories.
+    - Pre-commit hook and verify-prebuilds workflow cover Android prebuilts.
+    - Tiltbuggy on Pixel 9 Pro XL emulator builds and launches via prebuilt path with bit-exact colours.
+    - Module.mk becomes the single authoritative ge source manifest.
+    context: 'Filed after T39 verification surfaced source-list drift between Module.mk and the top-level CMakeLists.txt. Both list ge sources separately; T39 verification failed initially because RefreshRateBoost_android.cpp existed in tree but was missing from the Android branch of CMakeLists.txt. Goal: Android keeps CMake because Gradle externalNativeBuild structurally requires CMake or ndk-build, but uses it as a thin link manifest pointing at prebuilt .a files only. Same model T71 introduced for iOS arm64 device, now extended to Android arm64 and iOS arm64 simulator. Sequencing: Phase 1 Android prebuilds plus consumer cutover plus delete CMakeLists.txt Android branch, verify on Pixel 9 Pro XL emulator. Phase 2 iOS dev sim cutover via build_project.rb plus iOS arm64 sim prebuilds plus delete sample iOS CMakeLists and tools ios-template. Phase 3 delete tools ios CMakeLists.txt and top-level CMakeLists.txt. Why: drift bug class, plus prebuilds slash consumer CI time as T71 showed for iOS. Out of scope: Module.mk desktop builds, existing iOS arm64 device prebuild script.'
+    origin: manual
+    discovered: 2026-05-30
+  T73.1:
+    name: 'Android arm64 prebuilts + consumer cutover: zero ge source compiles inside the Android build'
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - tools/prebuild-vendor-android-arm64.sh exists and produces prebuilt/android-arm64/ with libbgfx.a, libbx.a, libbimg.a, libbox2d.a, liblunasvg_ge.a, libplutovg_ge.a, libsqlite3_ge.a, liblz4_ge.a, libliteparser.a, libge.a plus manifest.json.
+    - tools/write-manifest.py and tools/verify-prebuilds.py accept a platform argument and operate on prebuilt/<platform>/ for both ios-arm64 and android-arm64.
+    - Pre-commit hook covers Android prebuilds analogously to iOS. verify-prebuilds.yml workflow verifies both platforms.
+    - sample/tiltbuggy/android/app/src/main/cpp/CMakeLists.txt declares each ge .a as STATIC IMPORTED via add_library and set_target_properties; no add_subdirectory(ge); zero ge sources compile in the Android build.
+    - tools/android-template/app/src/main/cpp/CMakeLists.txt.in mirrors the new pattern so future consumer scaffolds pick it up.
+    - The top-level CMakeLists.txt's Android branch is gone (whether or not the file itself remains for the iOS sim path).
+    - Tiltbuggy builds via make ge/android and the resulting APK launches on the Pixel 9 Pro XL emulator with the same bit-exact colours as v0.34.0 (brown 170,102,68 from 0xAA6644; yellow 255,204,51 from 0xFFCC33).
+    context: 'Phase 1 of T73. Foundation piece: produce Android arm64 prebuilts, generalise the manifest/verify infrastructure, cut the sample consumer over, and verify on an emulator. Out of scope: iOS dev sim cutover, top-level CMakeLists deletion (lives in T73.2 and T73.3).'
+    depends_on:
+    - T73
+    origin: manual
+    discovered: 2026-05-30
+    achieved: 2026-05-30
+  T74:
+    name: tiltbuggy uses StoreKit LocalStore for IAP so iOS launches don't prompt for sandbox sign-in
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - sample/tiltbuggy/ios/StoreKit.storekit exists (copied from ge/ios/StoreKit.storekit via make ge/storekit-init) and lists com.squz.tiltbuggy.pro (NonConsumable) plus com.squz.tiltbuggy.powerboost10 (Consumable) matching tiltbuggy setCatalogue
+    - sample/tiltbuggy/ios/CMakeLists.txt adds StoreKit.storekit to bundle resources and links StoreKitTest.framework as Optional
+    - GE_IAP_MODE=local is set in the iOS scheme launch environment so the LocalStore bridge activates without per-developer setup
+    - Launching TiltBuggy iOS on a device with no cached sandbox Apple account renders the first frame without a Sign in to Apple Account modal
+    - iap::buy(pro) and iap::restore() still exercise the real StoreKit signature-verification path against the local .storekit products
+    - main.cpp IAP catalogue + restore call is restored (currently commented out as a temp verification hack from 2026-05-30)
+    depends_on:
+    - T65.4
+    tags:
+    - iap
+    - storekit
+    - tiltbuggy
+    - ios
+    - consumer-wiring
+    origin: manual
+    discovered: 2026-05-30
+  T75:
+    name: ge Android builds produce 16 KB page-aligned shared libraries, so Google Play accepts submissions
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - All vendored prebuilt .so files used by ge Android builds (libSDL3.so, libSDL3_image.so, libSDL3_ttf.so, libc++_shared.so, plus any other static-rebuild dependencies) ship with 16 KB-aligned LOAD segments, verifiable via readelf -lW <lib>.so showing AlignSize 0x4000 (16384) on every PT_LOAD segment
+    - ge's own libmain.so (engine + consumer app via cmake/NDK) is built with -Wl,-z,max-page-size=16384 so its LOAD segments are 16 KB-aligned
+    - Launching any ge consumer (tiltbuggy first, then multimaze2 and other squz Android apps) on an Android 16 device shows no 'Android app compatibility — ELF alignment check failed' system dialog
+    - Google Play Console pre-launch / submission alignment check passes for at least one ge consumer's release APK/AAB
+    - Documented in CLAUDE.md (under the Android section) that the 16 KB page-size requirement is part of every ge Android build's contract
+    tags:
+    - android
+    - store-submission
+    - alignment
+    - 16kb-page-size
+    - ship-blocker
+    - ndk
+    - sdl3
+    origin: manual
+    discovered: 2026-05-30
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified

@@ -781,6 +781,14 @@ ge/storekit-init:
 ge/prebuild-vendor-ios-arm64:
 	$(ge)/tools/prebuild-vendor-ios-arm64.sh
 
+# 🎯T73.1: Android arm64 counterpart. Outputs prebuilt/android-arm64/lib*.a
+# that consumer apps' Android CMakeLists declares as STATIC IMPORTED via
+# the hand-maintained cmake/android-arm64.cmake snippet. No ge source
+# compiles inside the consumer build.
+.PHONY: ge/prebuild-vendor-android-arm64
+ge/prebuild-vendor-android-arm64:
+	$(ge)/tools/prebuild-vendor-android-arm64.sh
+
 .PHONY: ge/lift-headers
 ge/lift-headers:
 	$(ge)/tools/lift-headers.sh
