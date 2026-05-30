@@ -208,7 +208,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
         ${CMAKE_CURRENT_SOURCE_DIR}/src/CutoutInsets_android.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Attitude_android.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/iap_android.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/log_android.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/log_android.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/render/RefreshRateBoost_android.cpp)
 else()
     list(APPEND GE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Immersive_stub.cpp
