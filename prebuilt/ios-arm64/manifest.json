@@ -26,16 +26,16 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbgfx.a": "7394bbcbf4bf93e38205658845e9b3119b67939c1ba4e8e2f979058048abbb20",
-    "prebuilt/ios-arm64/libbimg.a": "774c3f62078363b3b565559fa201975884555a709dbaf4de621ecb868a7723b2",
-    "prebuilt/ios-arm64/libbox2d.a": "3ca64aec0a20f0d8fbbab66b6917fe1b7282452f18189f0e4e666047516af6a1",
-    "prebuilt/ios-arm64/libbx.a": "f6b52dfd8e41cbdf10094f4b79ec614958ec9f16d304df194db0696ccc081405",
-    "prebuilt/ios-arm64/libge.a": "fc40c380ce689ac58ddf36c4b39bf3c0eeb7ff435173c4f5d94b3412628a5511",
-    "prebuilt/ios-arm64/libliteparser.a": "f9816c4dd7cd1360cc1f3b2e8c842c1247d6eb38c44806d567497f699d34cb37",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "3c1820bec49692aeb96f4dcbcc981519db0b5ab3e6092228969100915aa1c292",
-    "prebuilt/ios-arm64/liblz4_ge.a": "f78e29c57e0def36b6a1039b43ba1954843b230bc70b278459b948371bd9de78",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "b787522bfb456cf8759559abd98391bedad0044fcd3feb49dee1bc2c5f4327bd",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "aed8da86fdf6878bcb606e43c6a94a243a7dd6ac2b4ba87c62d78f9a4f5b8404"
+    "prebuilt/ios-arm64/libbgfx.a": "3fdc418cf314dc5962c9091ab4e13431ac4c750883ef995cbca60de5d3239f35",
+    "prebuilt/ios-arm64/libbimg.a": "660ba190a21d8f1cbc6a967a698607f4030141d523cbb2858c23d4b1a09bf0ba",
+    "prebuilt/ios-arm64/libbox2d.a": "92ba442abe61e1b1a2f12d5c006586c8657673ac8cd84256d4267843ec86ee8e",
+    "prebuilt/ios-arm64/libbx.a": "79732e370bd699b91d49d5427bc413819c5eb0966a27efe1cb0672d7db7a5569",
+    "prebuilt/ios-arm64/libge.a": "ca0c25d25b922ac641ed77206a1c5fc7b47a302620f6f0d6a5e76d3b6681ea43",
+    "prebuilt/ios-arm64/libliteparser.a": "01bb4b263db45c7fa9c1ae08dcca044a5d498e1a1207c810189ae8079362915d",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "4715fdd0040fe10208915a82b2bd4f431849a332a1b9535e7e08925647852b0e",
+    "prebuilt/ios-arm64/liblz4_ge.a": "5fa0dda6fd07dfdd9ea277ec98bb71888e3f7c07200a87cdab0753a041243ab9",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "63d6909e1786db47876fbdc9ff0157c0ed82ee5f335541b9f61706661ea004a1",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "521aa1b87441f6bcabb01b1093847fb8b10ea0b360d8f142ada8dfba3038de79"
   },
   "inputs": {
     "headers/bgfx/include/bgfx/bgfx.h": "810d9bb4e0521659c98c05a80606e86ef248ea38982a87b1233850e9e43f2097",
@@ -200,7 +200,7 @@
     "include/ge/text.h": "3a915fca2a5de2c26e23f7c7b01eefe59c110edfc35e02d2cd84ac47c72859f1",
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",
     "src/Attitude_apple.mm": "4e999fe76f1828978d2037d40d62e4111c117d281d4bcf43fea139501cde86ec",
-    "src/BgfxContext.mm": "c0a8a49f2e1b587f2caa46a4d7f3d671f473ab554b47b62755e92dd019cd8170",
+    "src/BgfxContext.mm": "a7ce9997f3fc34d031974fd35d6b195517670367d871183f1eb5a49e5459f702",
     "src/Context.cpp": "a7eab5f783f3b3358fa8438d3b9da308788c4e34d435fdb243c3b96e6dfab2e2",
     "src/CutoutInsets.h": "e061fbc98eb548d634a715527794fde532a66cc4e0d929bc4ad01ff7ba52bf4c",
     "src/CutoutInsets_stub.cpp": "1b6160f61d47ee419e28deb79e1a785087635624cff438da1b0fbeff624529ff",
