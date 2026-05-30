@@ -74,17 +74,7 @@ case "$PLATFORM" in
     BGFX_DEFINES=(-DBGFX_CONFIG_RENDERER_METAL=1)
     BX_COMPAT_DIR=ios
     GE_PLATFORM_DEFINE=-DGE_IOS
-    GE_PLATFORM_SOURCES=(
-      src/FontLoader_apple.mm
-      src/iap_apple.mm
-      src/audio_apple.mm
-      src/log_apple.mm
-      src/Immersive_stub.cpp
-      src/CutoutInsets_stub.cpp
-      src/Attitude_apple.mm
-      src/render/RefreshRateBoost_apple.mm
-      tools/player_orientation_ios.mm
-    )
+    GE_MANIFEST_TARGET=print-direct-ios
     ;;
   android-arm64)
     # Locate NDK: explicit env var, else highest installed.
@@ -121,17 +111,7 @@ case "$PLATFORM" in
     )
     BX_COMPAT_DIR=linux
     GE_PLATFORM_DEFINE=-DGE_ANDROID
-    GE_PLATFORM_SOURCES=(
-      src/FontLoader_android.cpp
-      src/SdlContext_android.cpp
-      src/Immersive_android.cpp
-      src/CutoutInsets_android.cpp
-      src/Attitude_android.cpp
-      src/iap_android.cpp
-      src/log_android.cpp
-      src/render/RefreshRateBoost_android.cpp
-      tools/player_orientation_stub.cpp
-    )
+    GE_MANIFEST_TARGET=print-direct-android
     SDL_STUB_NEEDED=true
     ;;
   *)
@@ -354,27 +334,14 @@ GE_DEFINES=(
   "${BGFX_DEFINES[@]}"
 )
 
-# Cross-platform ge sources — same on every platform.
-GE_COMMON_SOURCES=(
-  src/Context.cpp
-  src/Resource.cpp
-  src/FileIO.cpp
-  src/Signal.cpp
-  src/sprite.cpp
-  src/svg.cpp
-  src/png.cpp
-  src/text.cpp
-  src/button.cpp
-  src/sdl_input.cpp
-  src/iap.cpp
-  src/log.cpp
-  src/audio.cpp
-  src/BgfxContext.mm
-  src/SessionHost.mm
-  src/render/DirectRenderHost.mm
-  vendor/src/sqlpipe.cpp
-)
-GE_SOURCES=("${GE_COMMON_SOURCES[@]}" "${GE_PLATFORM_SOURCES[@]}")
+# ge source list — extracted from the canonical manifest at
+# tools/ge-sources.mk so this script and Module.mk stay in sync.
+# GE_MANIFEST_TARGET was selected per-platform above.
+mapfile -t GE_SOURCES < <(make -s -f tools/ge-sources.mk "$GE_MANIFEST_TARGET")
+if [[ ${#GE_SOURCES[@]} -eq 0 ]]; then
+  echo "error: tools/ge-sources.mk produced no sources for $GE_MANIFEST_TARGET" >&2
+  exit 1
+fi
 
 GE_OBJS=()
 for src in "${GE_SOURCES[@]}"; do

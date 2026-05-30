@@ -103,45 +103,17 @@ ge/FRAMEWORKS = \
     -framework UniformTypeIdentifiers -framework CoreGraphics \
     -framework VideoToolbox -framework CoreMotion -framework StoreKit
 
-# Core engine sources — always needed. Split into "direct-only" (runs on
-# any platform / modality) and "brokered" (only the server-side of the
-# ged-paired modality) so mobile distribution builds can omit the latter.
-ge/SRC_DIRECT = \
-	$(ge)/src/Context.cpp \
-	$(ge)/src/Resource.cpp \
-	$(ge)/src/FileIO.cpp \
-	$(ge)/src/manifest.cpp \
-	$(ge)/src/FontLoader_apple.mm \
-	$(ge)/src/BgfxContext.mm \
-	$(ge)/src/Signal.cpp \
-	$(ge)/src/SessionHost.mm \
-	$(ge)/src/Immersive_stub.cpp \
-	$(ge)/src/CutoutInsets_stub.cpp \
-	$(ge)/src/Attitude_apple.mm \
-	$(ge)/src/sprite.cpp \
-	$(ge)/src/svg.cpp \
-	$(ge)/src/png.cpp \
-	$(ge)/src/text.cpp \
-	$(ge)/src/iap.cpp \
-	$(ge)/src/iap_apple.mm \
-	$(ge)/src/log.cpp \
-	$(ge)/src/audio.cpp \
-	$(ge)/src/audio_apple.mm \
-	$(ge)/src/button.cpp \
-	$(ge)/src/long_press.cpp \
-	$(ge)/src/sdl_input.cpp \
-	$(ge)/src/render/DirectRenderHost.mm \
-	$(ge)/src/render/RefreshRateBoost_apple.mm \
-	$(ge)/tools/player_orientation_stub.cpp
+# Core engine sources — pulled from the canonical manifest at
+# tools/ge-sources.mk so Module.mk and tools/prebuild.sh stay in sync.
+# Module.mk targets a macOS desktop / Apple consumer, hence the
+# DIRECT_APPLE_DESKTOP rollup; the BROKERED suffix layers on the
+# wire/networking sources when a consumer builds in non-direct mode.
+include $(ge)/tools/ge-sources.mk
 
-ge/SRC_BROKERED = \
-	$(ge)/src/bridge/SessionHost_brokered.mm \
-	$(ge)/src/render/PlayerRender.cpp \
-	$(ge)/src/bridge/ServerWireBridge.mm \
-	$(ge)/src/bridge/PlayerWireBridge.cpp \
-	$(ge)/src/bridge/WebSocketClient.cpp \
-	$(ge)/src/bridge/VideoEncoder_apple.mm \
-	$(ge)/src/bridge/VideoDecoder_apple.mm
+# Prefix every relative path with $(ge)/ so existing $(ge/SRC_*) consumers
+# keep working without each having to learn the new file's path style.
+ge/SRC_DIRECT   := $(addprefix $(ge)/,$(GE_SRC_DIRECT_APPLE_DESKTOP))
+ge/SRC_BROKERED := $(addprefix $(ge)/,$(GE_SRC_BROKERED))
 
 ge/SRC = $(ge/SRC_DIRECT) $(ge/SRC_BROKERED)
 
