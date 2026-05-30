@@ -2488,6 +2488,23 @@ targets:
     origin: manual
     discovered: 2026-05-30
     achieved: 2026-05-30
+  T73.2:
+    name: iOS arm64 simulator prebuilts + dev-sim cutover from CMake to xcodeproj-gem
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - tools/prebuild-vendor-ios-arm64-simulator.sh exists and produces prebuilt/ios-arm64-simulator/ with the same set of static libs as the device prebuild plus manifest.json.
+    - 'tools/ios-build/build_project.rb accepts optional simulator: and configuration: kwargs, backwards-compatible.'
+    - tools/ios-template/project.rb.in replaces CMakeLists.txt.in as the scaffold. init-ios.sh writes ios/project.rb plus Info.plist instead of CMakeLists.txt.
+    - Module.mk's ge/ios, ge/ios-release, ge/ios-device-release rules invoke bundle exec ruby ios/project.rb without cmake.
+    - Tiltbuggy builds via make ge/ios and launches on an iOS Simulator with matching colours.
+    - tools/ios-template/CMakeLists.txt.in is deleted.
+    - Existing consumers like multimaze2 with hand-written ios/project.rb continue to work via backwards-compatible ProjectBuilder.new API.
+    context: Phase 2 of T73. After T73.1 retired the Android side, iOS dev simulator is the next CMake-heavy lane.
+    origin: manual
+    discovered: 2026-05-30
+    achieved: 2026-05-30
   T74:
     name: tiltbuggy uses StoreKit LocalStore for IAP so iOS launches don't prompt for sandbox sign-in
     status: identified
