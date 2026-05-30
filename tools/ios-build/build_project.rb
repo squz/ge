@@ -483,8 +483,8 @@ module GE
         shdc_path = File.join(ge_rel, 'vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc')
         ge_shader_src_dir = File.join(ge_rel, 'src/render/shaders')
         ge_shader_out_dir = File.join(ge_rel, 'build/ge/shaders')
-        app_shader_src_dir = File.join(proj_rel, '../shaders')   # consumer's shaders/ dir
-        app_shader_out_dir = File.join(proj_rel, '../build/shaders')
+        app_shader_src_dir = File.join(proj_rel, 'shaders')        # consumer's shaders/ dir
+        app_shader_out_dir = File.join(proj_rel, 'build/shaders')  # matches Module.mk + header_search_paths
 
         script = <<~SH
           set -euo pipefail
