@@ -2,18 +2,18 @@
 """Write prebuilt/<platform>/manifest.json from depfiles emitted by the
 prebuild script.
 
-Called at the end of `tools/prebuild-vendor-<platform>.sh`. Aggregates
-the `.d` files clang wrote next to each `.o`, filters paths to the ge
-repo root (drops system headers + paths inside submodules), hashes each
-input, and writes a JSON manifest committed alongside the prebuilt .a
-files.
+Called at the end of `tools/prebuild.sh <platform>`. Aggregates the `.d`
+files clang wrote next to each `.o`, filters paths to the ge repo root
+(drops system headers + paths inside submodules), hashes each input,
+and writes a JSON manifest committed alongside the prebuilt .a files.
 
 Usage:
     python3 tools/write-manifest.py --platform ios-arm64
+    python3 tools/write-manifest.py --platform ios-arm64-simulator
     python3 tools/write-manifest.py --platform android-arm64
 
 Default platform is `ios-arm64` for backward compatibility with the
-original T71 script.
+original T71 caller.
 
 The manifest's purpose is to let `tools/verify-prebuilds.py` (on dev
 laptops via pre-commit hook + in CI on Linux runners) detect when the
@@ -46,11 +46,9 @@ SCRIPTS_TO_HASH_COMMON = [
     "tools/lift-headers.sh",
     "tools/write-manifest.py",
     "tools/verify-prebuilds.py",
+    "tools/prebuild.sh",
 ]
-PLATFORM_PREBUILD_SCRIPT = {
-    "ios-arm64":     "tools/prebuild-vendor-ios-arm64.sh",
-    "android-arm64": "tools/prebuild-vendor-android-arm64.sh",
-}
+SUPPORTED_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
 
 
 def sha256_file(path: Path) -> str:
@@ -182,7 +180,7 @@ def main() -> int:
     parser.add_argument(
         "--platform",
         default="ios-arm64",
-        choices=sorted(PLATFORM_PREBUILD_SCRIPT.keys()),
+        choices=SUPPORTED_PLATFORMS,
         help="Platform directory under prebuilt/ to manifest (default: ios-arm64).",
     )
     args = parser.parse_args()
@@ -193,11 +191,9 @@ def main() -> int:
     manifest_path = prebuilt_dir / "manifest.json"
 
     if not depfile_root.exists():
-        prebuild_script = PLATFORM_PREBUILD_SCRIPT[platform]
-        target = prebuild_script.removeprefix("tools/").removesuffix(".sh")
         print(
             f"error: {depfile_root} doesn't exist. Run "
-            f"`make ge/{target}` first.",
+            f"`make prebuild-{platform}` first.",
             file=sys.stderr,
         )
         return 1
@@ -222,13 +218,12 @@ def main() -> int:
             continue
         inputs[rel] = sha256_file(abs_p)
 
-    # Hash the controlling scripts: common ones + this platform's prebuild
-    # script. Other platforms' prebuild scripts are NOT included — a
-    # change in tools/prebuild-vendor-ios-arm64.sh shouldn't invalidate
-    # the android-arm64 manifest and vice versa.
+    # Hash the controlling scripts. After tools/prebuild.sh consolidation
+    # there is a single unified script driving every platform — a change
+    # to it invalidates every platform's manifest, which is the right
+    # behaviour given the case-statement inside.
     scripts: dict[str, str] = {}
-    scripts_to_hash = SCRIPTS_TO_HASH_COMMON + [PLATFORM_PREBUILD_SCRIPT[platform]]
-    for script_rel in scripts_to_hash:
+    for script_rel in SCRIPTS_TO_HASH_COMMON:
         script_path = REPO_ROOT / script_rel
         if script_path.exists():
             scripts[script_rel] = sha256_file(script_path)

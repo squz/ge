@@ -104,7 +104,14 @@ module GE
         signing_profile: nil,
         deployment_target: '16.3',
         device_family: '1,2', # 1=iPhone, 2=iPad
-        extra_defines: []
+        extra_defines: [],
+        # When true, the generated xcodeproj supports both iphoneos and
+        # iphonesimulator destinations — LIBRARY_SEARCH_PATHS picks the
+        # right prebuilt subdir per SDK, and code-sign settings relax
+        # for sim builds (no provisioning profile needed). Default false
+        # for backwards compatibility with existing distribution
+        # consumers (e.g. multimaze2's release pipeline) (🎯T73.2).
+        simulator: false
       )
         @app_name = app_name
         @bundle_id = bundle_id
@@ -116,6 +123,7 @@ module GE
         @deployment_target = deployment_target
         @device_family = device_family
         @extra_defines = extra_defines
+        @simulator = simulator
 
         # Path defaults — assume the consumer's invocation is from the
         # repo root (e.g. `bundle exec ruby ios/project.rb` from the
@@ -175,19 +183,25 @@ module GE
           'CURRENT_PROJECT_VERSION' => @build_number,
           'IPHONEOS_DEPLOYMENT_TARGET' => @deployment_target,
           'TARGETED_DEVICE_FAMILY' => @device_family,
-          # Device-only. The simulator path requires a matching simulator
-          # runtime which isn't always installed on CI macOS runners, and
-          # App Store IPAs don't include simulator slices anyway. Local
-          # dev that needs the simulator can override via Xcode UI or
-          # consumer-side `extra_settings` once that surface lands.
-          'SUPPORTED_PLATFORMS' => 'iphoneos',
+          # SUPPORTED_PLATFORMS: distribution defaults to iphoneos only
+          # (App Store IPAs don't include simulator slices); dev mode
+          # (simulator: true) supports both so the same xcodeproj drives
+          # device and sim builds without regenerating.
+          'SUPPORTED_PLATFORMS' => @simulator ? 'iphoneos iphonesimulator' : 'iphoneos',
 
           # Squz signing — Manual + match-installed profile + Apple
           # Distribution: Squz Pty Ltd. See [[squz-cert-policy]].
+          # Simulator builds don't enforce signing, but Xcode still
+          # respects these settings when targeting iphoneos.
           'CODE_SIGN_STYLE' => 'Manual',
           'DEVELOPMENT_TEAM' => @team_id,
           'CODE_SIGN_IDENTITY' => 'Apple Distribution',
           'PROVISIONING_PROFILE_SPECIFIER' => @signing_profile,
+          # Simulator code-sign settings: no profile required. Xcode
+          # accepts `--` (any identity) for sim and skips entitlements.
+          'CODE_SIGN_IDENTITY[sdk=iphonesimulator*]' => '-',
+          'CODE_SIGN_STYLE[sdk=iphonesimulator*]' => 'Automatic',
+          'PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]' => '',
 
           # Languages
           'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
@@ -221,15 +235,25 @@ module GE
             *@extra_defines,
           ].join(' '),
 
-          # Library search paths:
-          # - SDL3 prebuilt xcframeworks (device vs simulator slices).
-          # - Vendor prebuilt static libs from T71's prebuild step
-          #   (`make ge/prebuild-vendor-ios-arm64`), iphoneos only.
+          # Library search paths — SDL3 prebuilt + ge/vendor prebuilt
+          # static libs per SDK slice. Both SDK variants pick from the
+          # parallel directory tree produced by `make prebuild`
+          # (🎯T73.1 / 🎯T73.2).
           'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]' => [
             File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64'),
             File.join(relative_to_ios(@ge_root), 'prebuilt/ios-arm64'),
           ].map { |p| "\"$(SRCROOT)/#{p}\"" }.join(' '),
-          'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]' => File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64-simulator'),
+          'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]' => [
+            File.join(relative_to_ios(@ge_root), 'vendor/sdl3/lib/ios-arm64-simulator'),
+            File.join(relative_to_ios(@ge_root), 'prebuilt/ios-arm64-simulator'),
+          ].map { |p| "\"$(SRCROOT)/#{p}\"" }.join(' '),
+
+          # iOS Simulator on Apple Silicon defaults to dual-arch
+          # (arm64 + x86_64); ge's sim prebuilts ship arm64 only, so
+          # exclude x86_64 here. macOS dev box → arm64 sim arch matches
+          # everywhere. Re-enable x86_64 only if ge ever ships a fat sim
+          # prebuilt for Intel macOS hosts.
+          'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64',
 
           # Misc Xcode hygiene
           'ASSETCATALOG_COMPILER_APPICON_NAME' => 'AppIcon',

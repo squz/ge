@@ -8,9 +8,9 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild-vendor-ios-arm64.sh": "16a963888995c8720ec5dacd69904c6967fe70c11da9f064bb6c4e87db5bfffd",
-    "tools/verify-prebuilds.py": "84e459fb1853abbf93aac26af395a921f50bfb4d204a7d0dc5569636b1b2ce1e",
-    "tools/write-manifest.py": "426ba068fbeb6f72c4f8af2ef4d21a8adb4e8a94f55566791b475529664b6838"
+    "tools/prebuild.sh": "c890a6eab52e4e9b8a9a2e4ef8afe4ef7b3059e3699f50b7e7fcb63ad275d881",
+    "tools/verify-prebuilds.py": "255f877b2d4948a49db7ea085a2de4653b81088ff17468c8e162593e5667936c",
+    "tools/write-manifest.py": "e800a85a92a11733d2665b551d7be91b5a748b0abac8186dac0ff85450784232"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
@@ -27,16 +27,16 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbgfx.a": "3fdc418cf314dc5962c9091ab4e13431ac4c750883ef995cbca60de5d3239f35",
-    "prebuilt/ios-arm64/libbimg.a": "660ba190a21d8f1cbc6a967a698607f4030141d523cbb2858c23d4b1a09bf0ba",
-    "prebuilt/ios-arm64/libbox2d.a": "92ba442abe61e1b1a2f12d5c006586c8657673ac8cd84256d4267843ec86ee8e",
-    "prebuilt/ios-arm64/libbx.a": "79732e370bd699b91d49d5427bc413819c5eb0966a27efe1cb0672d7db7a5569",
-    "prebuilt/ios-arm64/libge.a": "ca0c25d25b922ac641ed77206a1c5fc7b47a302620f6f0d6a5e76d3b6681ea43",
-    "prebuilt/ios-arm64/libliteparser.a": "01bb4b263db45c7fa9c1ae08dcca044a5d498e1a1207c810189ae8079362915d",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "4715fdd0040fe10208915a82b2bd4f431849a332a1b9535e7e08925647852b0e",
-    "prebuilt/ios-arm64/liblz4_ge.a": "5fa0dda6fd07dfdd9ea277ec98bb71888e3f7c07200a87cdab0753a041243ab9",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "63d6909e1786db47876fbdc9ff0157c0ed82ee5f335541b9f61706661ea004a1",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "521aa1b87441f6bcabb01b1093847fb8b10ea0b360d8f142ada8dfba3038de79"
+    "prebuilt/ios-arm64/libbgfx.a": "dbd376e94eebdf69acde1d0656f151d56c823743c80da081c4d8a19b972c4f15",
+    "prebuilt/ios-arm64/libbimg.a": "95c985d9e79e815d7edc471c0855c4ad096579d081a05846533c352ae72c9b5c",
+    "prebuilt/ios-arm64/libbox2d.a": "ec39f5f6199ba3e0f35a4cb7bca32228e07baee7013061a9f30c76f141e1e66e",
+    "prebuilt/ios-arm64/libbx.a": "6e526baf18e4f23e74c7929b23204d70c093b049f7f616b1a90cb66d21a317ed",
+    "prebuilt/ios-arm64/libge.a": "768596dabc33477500b1b3cbb3b5c34c5ecc1e8491cd168d39899eaaceb383d4",
+    "prebuilt/ios-arm64/libliteparser.a": "01dd9350d7dc23dcb04f52a1038bc7faab3fcd11d622dabaa29b695d425d0f60",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "cf0e1f023c9f0f74e4bccd4b3ccc651c0440af55cd6c5eadf2af4c32824ff05f",
+    "prebuilt/ios-arm64/liblz4_ge.a": "50b9c244651bdf2a104ea8eface8b1b03d5a505c7a31b38cefcb36cd6e089575",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "da4f4fa367f5443d404e3aec475a5180ec3f36bfe36013e5bd90a405be51af88",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "69b59dab3af92bed38c3b4142bbb7e8f381161a1bee87e3cb1ff1395759c6edd"
   },
   "inputs": {
     "headers/bgfx/include/bgfx/bgfx.h": "810d9bb4e0521659c98c05a80606e86ef248ea38982a87b1233850e9e43f2097",

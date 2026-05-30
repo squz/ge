@@ -131,4 +131,5 @@ int main(int argc, char* argv[]) {
         .disableScreenSaver = true,
         .immersive = true,
     });
+    return 0;
 }

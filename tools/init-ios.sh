@@ -8,9 +8,10 @@
 # Example:
 #   ge/tools/init-ios.sh com.squz.mygame "My Game" SWA3H3N7TW
 #
-# Creates $APP_DIR/ios/ with CMakeLists.txt and Info.plist, where $APP_DIR
-# is the current working directory (the consuming app's root). Generate the
-# Xcode project and build with: make ge/ios
+# Creates $APP_DIR/ios/ with project.rb (xcodeproj-gem builder driver,
+# 🎯T73.2 — replaces the old CMakeLists.txt path) and Info.plist, where
+# $APP_DIR is the current working directory (the consuming app's root).
+# Generate the Xcode project and build with: make ge/ios
 
 set -euo pipefail
 
@@ -26,8 +27,9 @@ BUNDLE_ID="$1"
 APP_NAME="$2"
 DEVELOPMENT_TEAM="${3:-}"
 
-# CMake project name: app name with spaces stripped.
-CMAKE_PROJECT="$(echo "$APP_NAME" | tr -d ' ')"
+# Target / binary name: app name with spaces stripped (mirrors the
+# build_project.rb `app_name` kwarg used as the xcodeproj target name).
+APP_BIN_NAME="$(echo "$APP_NAME" | tr -d ' ')"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATE_DIR="$SCRIPT_DIR/ios-template"
@@ -48,7 +50,7 @@ fi
 echo "Generating iOS project:"
 echo "  Bundle ID: $BUNDLE_ID"
 echo "  App name:  $APP_NAME"
-echo "  Target:    $CMAKE_PROJECT"
+echo "  Target:    $APP_BIN_NAME"
 echo "  Output:    $OUT_DIR"
 echo "  ge:        $GE_REL (from ios/)"
 echo
@@ -58,14 +60,14 @@ mkdir -p "$OUT_DIR"
 subst() {
     sed -e "s|__BUNDLE_ID__|$BUNDLE_ID|g" \
         -e "s|__APP_NAME__|$APP_NAME|g" \
-        -e "s|__CMAKE_PROJECT__|$CMAKE_PROJECT|g" \
+        -e "s|__APP_BIN_NAME__|$APP_BIN_NAME|g" \
         -e "s|__DEVELOPMENT_TEAM__|$DEVELOPMENT_TEAM|g" \
         -e "s|__GE_REL__|$GE_REL|g" \
         "$1"
 }
 
-subst "$TEMPLATE_DIR/CMakeLists.txt.in" > "$OUT_DIR/CMakeLists.txt"
-subst "$TEMPLATE_DIR/Info.plist.in"     > "$OUT_DIR/Info.plist"
+subst "$TEMPLATE_DIR/project.rb.in" > "$OUT_DIR/project.rb"
+subst "$TEMPLATE_DIR/Info.plist.in" > "$OUT_DIR/Info.plist"
 
 echo "Done. Generate and build with:"
 echo "  make ge/ios"

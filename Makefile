@@ -11,9 +11,16 @@
 
 SAMPLE ?= sample/tiltbuggy
 
+# Default to parallel build for any meta-target that has multiple
+# independent dependencies (prebuild, for one). Module.mk sets the same
+# flag for consumer-side builds; setting it here covers ge-developer
+# targets in this file.
+MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
-.PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test
+.PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
+        prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
 
 all check matrix-test check-list unit-test clean run:
 	$(MAKE) -C $(SAMPLE) $@
@@ -52,3 +59,26 @@ bullseye: ruby-test
 # every /cv invocation guards against regressions.
 ruby-test:
 	@bundle exec ruby tools/ios-build/test_build_project.rb
+
+# ── Prebuilt static libs (🎯T73) ───────────────────────────────────
+#
+# Each per-platform rule shells out to tools/prebuild.sh <platform>. The
+# meta-target `prebuild` runs all three as plain Make dependencies, so
+# the MAKEFLAGS -j set above fans them out in parallel — three concurrent
+# clang processes on a multi-core dev box.
+#
+# Per-platform prereqs:
+#   ios-arm64 / ios-arm64-simulator  → Xcode + iphoneos/iphonesimulator SDKs
+#   android-arm64                    → Android NDK (auto-detected from
+#                                       ANDROID_NDK_HOME or ~/Library/Android/sdk/ndk/)
+
+prebuild-ios-arm64:
+	tools/prebuild.sh ios-arm64
+
+prebuild-ios-arm64-simulator:
+	tools/prebuild.sh ios-arm64-simulator
+
+prebuild-android-arm64:
+	tools/prebuild.sh android-arm64
+
+prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64

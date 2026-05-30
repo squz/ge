@@ -5,9 +5,8 @@
 # manifest. ~10–15 s per run.
 #
 # Failure means: someone changed a source/header/script/submodule SHA
-# without rerunning `make ge/prebuild-vendor-ios-arm64`
-# (and/or `make ge/lift-headers`). Consumers that link the prebuilts
-# would silently run stale code.
+# without rerunning `make prebuild` (and/or `make ge/lift-headers`).
+# Consumers that link the prebuilts would silently run stale code.
 #
 # Pairs with `scripts/hooks/pre-commit` for dev-laptop early warning.
 # Don't merge a PR that fails this gate.
@@ -25,8 +24,7 @@ on:
       - 'headers/**'
       - 'prebuilt/**'
       - 'tools/player_orientation_ios.mm'
-      - 'tools/prebuild-vendor-ios-arm64.sh'
-      - 'tools/prebuild-vendor-android-arm64.sh'
+      - 'tools/prebuild.sh'
       - 'tools/lift-headers.sh'
       - 'tools/write-manifest.py'
       - 'tools/verify-prebuilds.py'

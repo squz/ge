@@ -1,88 +1,168 @@
 #!/usr/bin/env bash
-# Prebuild Android arm64 static libs → ge/prebuilt/android-arm64/.
+# Prebuild static libs for one of ge's supported platforms.
 #
-# Counterpart to tools/prebuild-vendor-ios-arm64.sh. Run from the ge repo
-# root. Requires the Android NDK installed (ANDROID_NDK_HOME or
-# auto-detected under ~/Library/Android/sdk/ndk/). Outputs ten static libs:
-#   bgfx, bx, bimg, box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
-#   liteparser, **ge** (engine itself).
+# Usage:
+#   tools/prebuild.sh <platform>
 #
-# The .a files are committed to ge/prebuilt/android-arm64/ via Git LFS.
-# Consumer apps' Android CMakeLists declares each as STATIC IMPORTED and
-# links them into the app's libmain.so — no ge source compiles in the
-# consumer build (T73.1).
+# Where <platform> is one of:
+#   ios-arm64             — iOS arm64 device (iphoneos SDK, Metal backend)
+#   ios-arm64-simulator   — iOS arm64 simulator (iphonesimulator SDK)
+#   android-arm64         — Android arm64 (NDK clang, Vulkan + GLES backends)
 #
-# The consumer-side IMPORTED declarations live in a hand-maintained CMake
-# snippet at ge/cmake/android-arm64.cmake — this script only produces the
-# .a files. The CMake snippet is short, stable, and reviewable; auto-
-# generating it would re-introduce exactly the source-list drift class
-# T73 set out to retire.
+# Outputs ten static libs (bgfx, bx, bimg, box2d, lunasvg_ge, plutovg_ge,
+# sqlite3_ge, lz4_ge, liteparser, ge) into prebuilt/<platform>/, plus a
+# manifest.json for staleness detection.
 #
-# SDL3 + SDL3_image + SDL3_ttf are NOT prebuilt by this script — they
-# still come from add_subdirectory of the SDL submodules in the consumer
-# CMakeLists. That's a separate prebuild scope (future T73 phase).
+# Per-platform differences are confined to the case statement at the top
+# (toolchain, flags, output dir, bgfx defines, ge source list). The compile
+# body below is identical across platforms — same vendor lib calls, same
+# manifest writer.
 #
-# Refresh workflow: bump submodule SHAs or edit ge sources, re-run this
-# script + tools/lift-headers.sh, commit.
+# Refresh workflow: bump a vendor submodule SHA or edit a ge source, re-run
+# this script for each affected platform + tools/lift-headers.sh, commit.
+# See docs/vendor-prebuilds.md.
 #
 # Copyright 2026 Marcelo Cantos
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <platform>"           >&2
+  echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+  exit 1
+fi
+PLATFORM="$1"
+
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
-# ─── locate NDK ───────────────────────────────────────────────────────────
-# Order: explicit env var, then the highest-version installed NDK under
-# ~/Library/Android/sdk/ndk/. Fail loudly if neither finds one.
-if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
-  NDK="$ANDROID_NDK_HOME"
-elif [[ -d "$HOME/Library/Android/sdk/ndk" ]]; then
-  NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/*/ 2>/dev/null | sort -V | tail -1)"
-  NDK="${NDK%/}"
-fi
-if [[ -z "${NDK:-}" || ! -d "$NDK" ]]; then
-  echo "error: Android NDK not found. Set ANDROID_NDK_HOME or install one under ~/Library/Android/sdk/ndk/." >&2
-  exit 1
-fi
-echo "── using NDK: $NDK ──"
-
-# Detect host triple under prebuilt/. Apple Silicon ships as darwin-x86_64
-# (Rosetta), Linux as linux-x86_64.
-NDK_HOST="$(ls "$NDK/toolchains/llvm/prebuilt" 2>/dev/null | head -1)"
-if [[ -z "$NDK_HOST" ]]; then
-  echo "error: no llvm host triple under $NDK/toolchains/llvm/prebuilt." >&2
-  exit 1
-fi
-NDK_BIN="$NDK/toolchains/llvm/prebuilt/$NDK_HOST/bin"
-NDK_SYSROOT="$NDK/toolchains/llvm/prebuilt/$NDK_HOST/sysroot"
-
-# Target: arm64-v8a, minimum API 26 (matches consumer build).
-TARGET_TRIPLE="aarch64-none-linux-android26"
-CC="$NDK_BIN/clang"
-CXX="$NDK_BIN/clang++"
-AR="$NDK_BIN/llvm-ar"
-
-OUT_DIR="prebuilt/android-arm64"
-OBJ_DIR="build/prebuilt/android-arm64"
+OUT_DIR="prebuilt/$PLATFORM"
+OBJ_DIR="build/prebuilt/$PLATFORM"
+# Wipe stale .d files so write-manifest.py only sees deps from this run.
 rm -rf "$OBJ_DIR"
 mkdir -p "$OUT_DIR" "$OBJ_DIR"
 
-COMMON_FLAGS=(
-  --target="$TARGET_TRIPLE"
-  --sysroot="$NDK_SYSROOT"
-  -O2
-  -fvisibility=hidden
-  -fPIC
-  -fno-color-diagnostics
-  -DANDROID
-  -D__ANDROID__
-)
+# ─── platform-specific setup ──────────────────────────────────────────────
+# Everything that differs across platforms lives here. The compile body
+# below uses these variables and doesn't branch further.
+COMMON_FLAGS=(-O2 -fvisibility=hidden -fno-color-diagnostics)
+BGFX_AS_OBJC=false
+BGFX_DEFINES=()
+BX_COMPAT_DIR=
+GE_PLATFORM_DEFINE=
+GE_PLATFORM_SOURCES=()
+SDL_STUB_NEEDED=false   # Android needs a stub SDL_revision.h; Apple gets real one from headers/sdl3.
+
+case "$PLATFORM" in
+  ios-arm64|ios-arm64-simulator)
+    if [[ "$PLATFORM" == "ios-arm64" ]]; then
+      SDK=iphoneos
+      COMMON_FLAGS+=(-arch arm64 -miphoneos-version-min=16.3)
+    else
+      SDK=iphonesimulator
+      # Apple Silicon sim ABI: arm64 host but -simulator triple variant.
+      COMMON_FLAGS+=(-target arm64-apple-ios16.3-simulator)
+    fi
+    SDK_PATH="$(xcrun --sdk "$SDK" --show-sdk-path)"
+    CC="$(xcrun --sdk "$SDK" -f clang)"
+    CXX="$(xcrun --sdk "$SDK" -f clang++)"
+    AR="$(xcrun --sdk "$SDK" -f libtool)"
+    AR_FLAGS=(-static -o)
+    COMMON_FLAGS+=(-isysroot "$SDK_PATH")
+    BGFX_AS_OBJC=true   # Metal backend needs ObjC++ for the amalgamated unit.
+    BGFX_DEFINES=(-DBGFX_CONFIG_RENDERER_METAL=1)
+    BX_COMPAT_DIR=ios
+    GE_PLATFORM_DEFINE=-DGE_IOS
+    GE_PLATFORM_SOURCES=(
+      src/FontLoader_apple.mm
+      src/iap_apple.mm
+      src/audio_apple.mm
+      src/log_apple.mm
+      src/Immersive_stub.cpp
+      src/CutoutInsets_stub.cpp
+      src/Attitude_apple.mm
+      src/render/RefreshRateBoost_apple.mm
+      tools/player_orientation_ios.mm
+    )
+    ;;
+  android-arm64)
+    # Locate NDK: explicit env var, else highest installed.
+    if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+      NDK="$ANDROID_NDK_HOME"
+    elif [[ -d "$HOME/Library/Android/sdk/ndk" ]]; then
+      NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/*/ 2>/dev/null | sort -V | tail -1)"
+      NDK="${NDK%/}"
+    fi
+    if [[ -z "${NDK:-}" || ! -d "$NDK" ]]; then
+      echo "error: Android NDK not found. Set ANDROID_NDK_HOME or install one under ~/Library/Android/sdk/ndk/." >&2
+      exit 1
+    fi
+    NDK_HOST="$(ls "$NDK/toolchains/llvm/prebuilt" 2>/dev/null | head -1)"
+    if [[ -z "$NDK_HOST" ]]; then
+      echo "error: no llvm host triple under $NDK/toolchains/llvm/prebuilt." >&2
+      exit 1
+    fi
+    NDK_BIN="$NDK/toolchains/llvm/prebuilt/$NDK_HOST/bin"
+    NDK_SYSROOT="$NDK/toolchains/llvm/prebuilt/$NDK_HOST/sysroot"
+    CC="$NDK_BIN/clang"
+    CXX="$NDK_BIN/clang++"
+    AR="$NDK_BIN/llvm-ar"
+    AR_FLAGS=(rcs)
+    COMMON_FLAGS+=(
+      --target=aarch64-none-linux-android26
+      --sysroot="$NDK_SYSROOT"
+      -fPIC -DANDROID -D__ANDROID__
+    )
+    BGFX_DEFINES=(
+      -DBGFX_CONFIG_MULTITHREADED=0
+      -DBGFX_CONFIG_RENDERER_VULKAN=1
+      -DBGFX_CONFIG_RENDERER_OPENGLES=31
+    )
+    BX_COMPAT_DIR=linux
+    GE_PLATFORM_DEFINE=-DGE_ANDROID
+    GE_PLATFORM_SOURCES=(
+      src/FontLoader_android.cpp
+      src/SdlContext_android.cpp
+      src/Immersive_android.cpp
+      src/CutoutInsets_android.cpp
+      src/Attitude_android.cpp
+      src/iap_android.cpp
+      src/log_android.cpp
+      src/render/RefreshRateBoost_android.cpp
+      tools/player_orientation_stub.cpp
+    )
+    SDL_STUB_NEEDED=true
+    ;;
+  *)
+    echo "error: unsupported platform '$PLATFORM'" >&2
+    echo "  supported: ios-arm64 ios-arm64-simulator android-arm64" >&2
+    exit 1
+    ;;
+esac
+
+echo "── platform: $PLATFORM ──"
+echo "   CC:  $CC"
+echo "   AR:  $AR"
+
+# Android needs a stub SDL_revision.h (the real one is generated by SDL's
+# CMake build at consumer-side configure time). On Apple the real header
+# lives in headers/sdl3/include and gets picked up by GE_INCLUDES below.
+SDL_STUB_INC=
+if $SDL_STUB_NEEDED; then
+  SDL_STUB_INC="$OBJ_DIR/sdl3-stub"
+  mkdir -p "$SDL_STUB_INC/SDL3"
+  cat >"$SDL_STUB_INC/SDL3/SDL_revision.h" <<'EOF'
+/* Stub SDL_revision.h for ge prebuild. Consumer's SDL build generates a
+ * real one with version metadata; ge never reads this constant. */
+#define SDL_REVISION "prebuilt-stub"
+EOF
+fi
 
 C_STD=(-std=c11)
 CXX_STD=(-std=c++20)
 CXX17_STD=(-std=c++17)
+DEPFLAGS=(-MMD -MP)
 
 VENDOR="vendor/github.com"
 BX_DIR="$VENDOR/bkaradzic/bx"
@@ -92,33 +172,14 @@ BOX2D_DIR="$VENDOR/erincatto/box2d"
 LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
 LITEPARSER_DIR="$VENDOR/sqliteai/liteparser/src"
-SDL_DIR="$VENDOR/libsdl-org/SDL"
-SDL_IMAGE_DIR="$VENDOR/libsdl-org/SDL_image"
-SDL_TTF_DIR="$VENDOR/libsdl-org/SDL_ttf"
 
 # Sanity check — submodules must be initialised.
-for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR" "$SDL_DIR"; do
+for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR"; do
   if [[ ! -f "$d/.git" && ! -d "$d/.git" ]]; then
     echo "error: $d is not initialised. Run: git submodule update --init --recursive" >&2
     exit 1
   fi
 done
-
-DEPFLAGS=(-MMD -MP)
-
-# SDL3 headers — consumer's add_subdirectory(SDL) generates a
-# SDL_revision.h in its build tree at runtime, but for ge compilation we
-# need the headers as-checked-in plus a minimal revision stub. The bare
-# include path is enough for ge's call sites; SDL itself ships
-# include-revision/SDL3/SDL_revision.h via its CMake.
-SDL_REVISION_STUB_DIR="$OBJ_DIR/sdl3-stub/SDL3"
-mkdir -p "$SDL_REVISION_STUB_DIR"
-cat >"$SDL_REVISION_STUB_DIR/SDL_revision.h" <<'EOF'
-/* Stub SDL_revision.h for ge prebuild. Consumer's SDL build generates a
- * real one with version metadata; ge never reads this constant. */
-#define SDL_REVISION "prebuilt-stub"
-EOF
-SDL_STUB_INC="$OBJ_DIR/sdl3-stub"
 
 # ─── build helpers ────────────────────────────────────────────────────────
 
@@ -146,14 +207,14 @@ compile_cxx17() {
 archive() {
   local out="$1"; shift
   rm -f "$out"
-  "$AR" rcs "$out" "$@"
+  "$AR" "${AR_FLAGS[@]}" "$out" "$@"
 }
 
-# ─── bx (Android uses include/compat/linux per CMakeLists pattern) ────────
+# ─── bx ───────────────────────────────────────────────────────────────────
 echo "── bx (amalgamated) ──"
 BX_OBJ="$OBJ_DIR/bx/amalgamated.o"
 compile_cxx "$BX_OBJ" "$BX_DIR/src/amalgamated.cpp" \
-  -I"$BX_DIR/include" -I"$BX_DIR/include/compat/linux" -I"$BX_DIR/3rdparty" \
+  -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR" -I"$BX_DIR/3rdparty" \
   -DBX_CONFIG_DEBUG=0
 archive "$OUT_DIR/libbx.a" "$BX_OBJ"
 
@@ -164,24 +225,28 @@ for src in "$BIMG_DIR/src/image.cpp" "$BIMG_DIR/src/image_gnf.cpp"; do
   obj="$OBJ_DIR/bimg/$(basename "${src%.cpp}").o"
   compile_cxx "$obj" "$src" \
     -I"$BIMG_DIR/include" -I"$BIMG_DIR/3rdparty" -I"$BIMG_DIR/3rdparty/astc-encoder/include" \
-    -I"$BX_DIR/include" \
+    -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR" \
     -DBX_CONFIG_DEBUG=0 -DBIMG_CONFIG_DECODE_ENABLE=0
   BIMG_OBJS+=("$obj")
 done
 archive "$OUT_DIR/libbimg.a" "${BIMG_OBJS[@]}"
 
-# ─── bgfx (Vulkan + GLES 3.1 backends, single-threaded; not ObjC++) ──────
-# Matches the Android branch of top-level CMakeLists.txt before deletion.
-echo "── bgfx (amalgamated, Vulkan+GLES, single-threaded) ──"
+# ─── bgfx (amalgamated) ───────────────────────────────────────────────────
+echo "── bgfx (amalgamated) ──"
 BGFX_OBJ="$OBJ_DIR/bgfx/amalgamated.o"
-compile_cxx "$BGFX_OBJ" "$BGFX_DIR/src/amalgamated.cpp" \
-  -I"$BGFX_DIR/include" -I"$BGFX_DIR/3rdparty" -I"$BGFX_DIR/3rdparty/khronos" -I"$BGFX_DIR/src" \
-  -I"$BX_DIR/include" \
-  -I"$BIMG_DIR/include" \
-  -DBX_CONFIG_DEBUG=0 \
-  -DBGFX_CONFIG_MULTITHREADED=0 \
-  -DBGFX_CONFIG_RENDERER_VULKAN=1 \
-  -DBGFX_CONFIG_RENDERER_OPENGLES=31
+mkdir -p "$(dirname "$BGFX_OBJ")"
+BGFX_CFLAGS=(
+  "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$BGFX_OBJ.d"
+  -I"$BGFX_DIR/include" -I"$BGFX_DIR/3rdparty" -I"$BGFX_DIR/3rdparty/khronos" -I"$BGFX_DIR/src"
+  -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR"
+  -I"$BIMG_DIR/include"
+  -DBX_CONFIG_DEBUG=0
+  "${BGFX_DEFINES[@]}"
+)
+if $BGFX_AS_OBJC; then
+  BGFX_CFLAGS+=(-ObjC++)
+fi
+"$CXX" "${BGFX_CFLAGS[@]}" -c "$BGFX_DIR/src/amalgamated.cpp" -o "$BGFX_OBJ"
 archive "$OUT_DIR/libbgfx.a" "$BGFX_OBJ"
 
 # ─── box2d ────────────────────────────────────────────────────────────────
@@ -249,16 +314,8 @@ LZ4_OBJ="$OBJ_DIR/lz4/lz4.o"
 compile_c "$LZ4_OBJ" "vendor/src/lz4.c" -I vendor/include -Wno-everything
 archive "$OUT_DIR/liblz4_ge.a" "$LZ4_OBJ"
 
-# ─── libge (engine itself, Android variant) ───────────────────────────────
-# Source list mirrors top-level CMakeLists.txt's Android branch:
-#   - Common GE_CORE_SOURCES (cross-platform parts).
-#   - Android-specific platform glue (FontLoader_android, SdlContext_android,
-#     Immersive_android, CutoutInsets_android, Attitude_android, iap_android,
-#     log_android, RefreshRateBoost_android).
-#   - GE_DIRECT_RENDER_SOURCES (BgfxContext.mm, SessionHost.mm,
-#     DirectRenderHost.mm — .mm compiled as plain C++ on Android).
-#   - tools/player_orientation_stub.cpp (no iOS swizzle on Android).
-echo "── ge (Android arm64) ──"
+# ─── libge (engine itself) ────────────────────────────────────────────────
+echo "── ge ──"
 
 # Header search paths match the iOS xcodeproj-gem path
 # (tools/ios-build/build_project.rb#header_search_paths) post-T71 header
@@ -266,7 +323,6 @@ echo "── ge (Android arm64) ──"
 GE_INCLUDES=(
   -I include
   -I vendor/include
-  -I "$SDL_STUB_INC"
   -I headers/spdlog/include
   -I headers/asio/include
   -I headers/sdl3/include
@@ -276,29 +332,30 @@ GE_INCLUDES=(
   -I headers/plutovg/include
   -I headers/box2d/include
   -I headers/bx/include
-  -I headers/bx/include/compat/linux
+  -I "headers/bx/include/compat/$BX_COMPAT_DIR"
   -I headers/bimg/include
   -I headers/bgfx/include
 )
+if [[ -n "$SDL_STUB_INC" ]]; then
+  GE_INCLUDES+=(-I "$SDL_STUB_INC")
+fi
 
 GE_DEFINES=(
   -DASIO_STANDALONE
-  -DGE_ANDROID
-  -DGE_DIRECT
+  "$GE_PLATFORM_DEFINE"
   -DGE_DIRECT_ONLY
   -DSQLITE_ENABLE_SESSION
   -DSQLITE_ENABLE_PREUPDATE_HOOK
   -DSQLITE_ENABLE_DESERIALIZE
   -DBX_CONFIG_DEBUG=0
   -DBIMG_CONFIG_DECODE_ENABLE=0
-  -DBGFX_CONFIG_MULTITHREADED=0
-  -DBGFX_CONFIG_RENDERER_VULKAN=1
-  -DBGFX_CONFIG_RENDERER_OPENGLES=31
   -DLUNASVG_BUILD_STATIC
   -DPLUTOVG_BUILD_STATIC
+  "${BGFX_DEFINES[@]}"
 )
 
-GE_SOURCES=(
+# Cross-platform ge sources — same on every platform.
+GE_COMMON_SOURCES=(
   src/Context.cpp
   src/Resource.cpp
   src/FileIO.cpp
@@ -312,20 +369,12 @@ GE_SOURCES=(
   src/iap.cpp
   src/log.cpp
   src/audio.cpp
-  src/FontLoader_android.cpp
-  src/SdlContext_android.cpp
-  src/Immersive_android.cpp
-  src/CutoutInsets_android.cpp
-  src/Attitude_android.cpp
-  src/iap_android.cpp
-  src/log_android.cpp
-  src/render/RefreshRateBoost_android.cpp
   src/BgfxContext.mm
   src/SessionHost.mm
   src/render/DirectRenderHost.mm
-  tools/player_orientation_stub.cpp
   vendor/src/sqlpipe.cpp
 )
+GE_SOURCES=("${GE_COMMON_SOURCES[@]}" "${GE_PLATFORM_SOURCES[@]}")
 
 GE_OBJS=()
 for src in "${GE_SOURCES[@]}"; do
@@ -335,10 +384,11 @@ for src in "${GE_SOURCES[@]}"; do
   mkdir -p "$(dirname "$obj")"
   case "$ext" in
     cpp|mm)
-      # .mm on Android is plain C++ (no ObjC runtime). clang treats unknown
-      # extensions as C++; force it via -x for the .mm case.
+      # On Apple .mm is ObjC++; on Android (no ObjC) treat .mm as plain C++.
       lang_flag=()
-      [[ "$ext" == "mm" ]] && lang_flag=(-x c++)
+      if [[ "$ext" == "mm" && "$PLATFORM" == "android-arm64" ]]; then
+        lang_flag=(-x c++)
+      fi
       "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \
         "${lang_flag[@]}" "${GE_INCLUDES[@]}" "${GE_DEFINES[@]}" \
         -c "$src" -o "$obj"
@@ -360,12 +410,11 @@ archive "$OUT_DIR/libge.a" "${GE_OBJS[@]}"
 # ─── manifest ─────────────────────────────────────────────────────────────
 echo ""
 echo "── manifest ──"
-python3 tools/write-manifest.py --platform android-arm64
+python3 tools/write-manifest.py --platform "$PLATFORM"
 
 # ─── summary ──────────────────────────────────────────────────────────────
 echo ""
-echo "── prebuilt Android arm64 vendor libs ──"
+echo "── prebuilt $PLATFORM vendor libs ──"
 ls -lh "$OUT_DIR"/*.a | awk '{printf "  %-30s %s\n", $NF, $5}'
-
 echo ""
 echo "Total: $(du -sh "$OUT_DIR" | cut -f1)"

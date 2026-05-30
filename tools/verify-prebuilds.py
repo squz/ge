@@ -7,8 +7,8 @@ platform.
 
 Exit 0 if all input hashes, prebuilt .a hashes, script hashes, and
 submodule SHAs match the manifest. Exit 1 with a per-file diagnostic
-otherwise — pointing the developer at `make ge/prebuild-vendor-<platform>`
-and/or `make ge/lift-headers`.
+otherwise — pointing the developer at `make prebuild` (or a single
+platform, e.g. `make prebuild-ios-arm64`) and/or `make ge/lift-headers`.
 
 Used by:
 - `scripts/hooks/pre-commit` — local fast check before push.
@@ -170,8 +170,7 @@ def main() -> int:
     if not manifests:
         print(
             "error: no prebuilt/*/manifest.json found. "
-            "Run `make ge/prebuild-vendor-ios-arm64` (and/or "
-            "`make ge/prebuild-vendor-android-arm64`) to generate them.",
+            "Run `make prebuild` to generate them.",
             file=sys.stderr,
         )
         return 1
@@ -204,9 +203,8 @@ def main() -> int:
         print("", file=sys.stderr)
         print("Fix on a Mac with iOS SDK and Android NDK:", file=sys.stderr)
         print("  git submodule update --init --recursive", file=sys.stderr)
-        print("  make ge/prebuild-vendor-ios-arm64", file=sys.stderr)
-        print("  make ge/prebuild-vendor-android-arm64", file=sys.stderr)
-        print("  make ge/lift-headers     # if headers/ subtree drifted", file=sys.stderr)
+        print("  make prebuild  # fans out to all platforms in parallel", file=sys.stderr)
+        print("  make ge/lift-headers  # if headers/ subtree drifted", file=sys.stderr)
         print("  git add prebuilt/ headers/ vendor/github.com/", file=sys.stderr)
         print("  git commit --amend --no-edit", file=sys.stderr)
         print("", file=sys.stderr)
