@@ -8,7 +8,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "c890a6eab52e4e9b8a9a2e4ef8afe4ef7b3059e3699f50b7e7fcb63ad275d881",
+    "tools/prebuild.sh": "3d7d5302adc900891ee8430d296b67e46e91a99fc724259980b3a9f5e29a025b",
     "tools/verify-prebuilds.py": "255f877b2d4948a49db7ea085a2de4653b81088ff17468c8e162593e5667936c",
     "tools/write-manifest.py": "e800a85a92a11733d2665b551d7be91b5a748b0abac8186dac0ff85450784232"
   },
@@ -27,16 +27,16 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbgfx.a": "dbd376e94eebdf69acde1d0656f151d56c823743c80da081c4d8a19b972c4f15",
-    "prebuilt/ios-arm64/libbimg.a": "95c985d9e79e815d7edc471c0855c4ad096579d081a05846533c352ae72c9b5c",
-    "prebuilt/ios-arm64/libbox2d.a": "ec39f5f6199ba3e0f35a4cb7bca32228e07baee7013061a9f30c76f141e1e66e",
-    "prebuilt/ios-arm64/libbx.a": "6e526baf18e4f23e74c7929b23204d70c093b049f7f616b1a90cb66d21a317ed",
-    "prebuilt/ios-arm64/libge.a": "768596dabc33477500b1b3cbb3b5c34c5ecc1e8491cd168d39899eaaceb383d4",
-    "prebuilt/ios-arm64/libliteparser.a": "01dd9350d7dc23dcb04f52a1038bc7faab3fcd11d622dabaa29b695d425d0f60",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "cf0e1f023c9f0f74e4bccd4b3ccc651c0440af55cd6c5eadf2af4c32824ff05f",
-    "prebuilt/ios-arm64/liblz4_ge.a": "50b9c244651bdf2a104ea8eface8b1b03d5a505c7a31b38cefcb36cd6e089575",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "da4f4fa367f5443d404e3aec475a5180ec3f36bfe36013e5bd90a405be51af88",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "69b59dab3af92bed38c3b4142bbb7e8f381161a1bee87e3cb1ff1395759c6edd"
+    "prebuilt/ios-arm64/libbgfx.a": "ae969c7b8f143cf0fe43f1a3791e7f2339908422ec004e43e61c85b0d27f4a8a",
+    "prebuilt/ios-arm64/libbimg.a": "7bde84406b962d03b3e9f5491c68a7eef4f795ba9c9ad27c958d9644284bb676",
+    "prebuilt/ios-arm64/libbox2d.a": "57f7dd2cca3f544b788881ecea3738d42f9d9b2907ee7253ad071db42eaa41ae",
+    "prebuilt/ios-arm64/libbx.a": "bb8b44590670a5f27dbddaf0ca866d569f70d11990e7953d087846d590542af2",
+    "prebuilt/ios-arm64/libge.a": "6ea1ad7ad586179918b85c1087a7c297e931fc94698f7e9b4e6734b7d0b147b8",
+    "prebuilt/ios-arm64/libliteparser.a": "b736486fcddc6d8f4a54031add3d23a6e5e3e082304665a2b696f7175597e5ce",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "0248fdfd78d59f098219fefa62ccd25114fba884f6ecb6a2a1ffc741e27ecd04",
+    "prebuilt/ios-arm64/liblz4_ge.a": "78e7dca10c0679389e837461c06ba4aa2952dfea71c02fe994cd267ffc6cb3c9",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "9c65b8a016093b8d6bfa870e5589c09eb9032b6f9cff8be88624474cec92fa13",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "5c4be46b40061099988618d9d204daeea52f151899f6ee3d1602b184e4f547d8"
   },
   "inputs": {
     "headers/bgfx/include/bgfx/bgfx.h": "810d9bb4e0521659c98c05a80606e86ef248ea38982a87b1233850e9e43f2097",
@@ -194,6 +194,8 @@
     "include/ge/button.h": "20077fc58a590161b3e879ed3cbd6e793ebf59e8ca5b34500a9b3d67ac60e60d",
     "include/ge/iap.h": "5db130e8acb1c630dc3f323abfe47ce5aeeca1c5cf66d83a3b670b3fcc6eca08",
     "include/ge/log.h": "0499bcb19f22909b42df0e663eeb2e3cc24b31a0bdbabd3cb29abd9496c27988",
+    "include/ge/long_press.h": "74738b0415cdff6174bfdb4e95bce63cc706988e4c741ff1a389a63741673812",
+    "include/ge/manifest.h": "ff4ab54fc9a52c0452093e9bba35a2fc3ff582832ffa2d8f204a429408f059c1",
     "include/ge/png.h": "d896e91457e15a638bcc9de40f997a8c9c1b11878de1a9d25d76efe4b56f88ad",
     "include/ge/sdl_input.h": "41bcf1de03c9d109b783363c97af83e63a6df7a7fc767a76b5096ca712397178",
     "include/ge/sprite.h": "2bff1e2cdbc9156b31f96971a1cc88129965f17a45de19ba79d8fdacd423a551",
@@ -221,6 +223,8 @@
     "src/iap_internal.h": "d6eaa40b02c2507eae84804652f511d6140a54fc8ba657957e6187c06900af0c",
     "src/log.cpp": "9ba05bf084e48665d118ec05517a854cfa70a356f58430c1515b4deef1c38b69",
     "src/log_apple.mm": "540ddaccfb4c5721b66e8cd6d897732d5159f8c8b02df734d59e05017dc48c15",
+    "src/long_press.cpp": "9150fcffd627d1b20c74fe691a92ab6b73df688a453d1fc856ce09110d36502f",
+    "src/manifest.cpp": "02620d490465b09d869e441c9bda26ff0403e999093e15399dc3072366408a04",
     "src/png.cpp": "82785593ed98d612020e2a63a1d98184a5e991d8d72e574385faf41d304fc21a",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "75bb5d6f455c7325c6503349113567c0c7881227baeddbb31391048694d2aa63",
