@@ -2667,6 +2667,22 @@ targets:
     - ergonomics
     origin: manual
     discovered: 2026-05-31
+  T81:
+    name: DirectRenderHost::uiSafeInsetsInPts() converts pixels→pt on Android
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - On Android, `SDL_GetWindowSafeArea` returns inset values in raw pixels (because the SDL3 Android backend has `pixelDensity = 1.0` and exposes the surface in raw pixels — DirectRenderHost's own pixelsPerPt computation already accounts for this). `uiSafeInsetsInPts` must divide each inset by pixelsPerPt on Android, the same way `drawSafeInsetsInPts` does at line 466.
+    - Consumer apps with chrome bars positioned at `uiSafeRectInPts().y` show the bar near the top edge of the screen (offset only by the actual status bar height + camera cutout, ≈ 30-40 pt on modern Android), not 3× that distance.
+    - 'Verify on S24 (Android 15) and Pixel Tablet (Android 16): multimaze2 chrome bar shifts from ≈90 pt down (current) to ≈30 pt down (correct).'
+    context: 'Surfaced 2026-05-31 while running the multimaze2 T17 / sokol_gfx port on the test-device matrix. The chrome bar on S24 and Pixel Tablet sits roughly 3× too far down the screen — visible black band above the chrome before the bar starts. Diagnosis: in `ge/src/render/DirectRenderHost.mm::uiSafeInsetsInPts()`, SDL_GetWindowSafeArea returns the safe-area inset values in raw pixel units on Android (consistent with the rest of the SDL3-Android boundary, see the comment in the same file at the `setPixelsPerPt` site: "On Android SDL exposes the surface in raw pixels (pixelDensity=1.0) and the density bucket lives in displayContentScale"). The function treats them as pt and stores them on Context via setUiSafeInsets — Context::uiSafeRectInPts then over-insets by ~ppt times the actual pt value. The sister `drawSafeInsetsInPts()` already handles this correctly at line 466 by dividing the JNI cutout pixels by ppt. The fix is the same conditional `#ifdef __ANDROID__ → divide by ppt` pattern on the uiSafe path. iOS is unaffected because SDL3-iOS keeps SDL_GetWindowSize in points (pixelDensity = UIKit nativeScale, content scale = 1.0).'
+    tags:
+    - multimaze-audit
+    - android
+    - T60-followup
+    origin: multimaze2-audit
+    discovered: 2026-05-31
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified

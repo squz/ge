@@ -28,7 +28,7 @@
   },
   "prebuilts": {
     "prebuilt/android-arm64/libbox2d.a": "4bbd9060d5a383870ffa67814546fccefe8d9316c07c1aae5cb54ec8ba8b4314",
-    "prebuilt/android-arm64/libge.a": "dc9d67558a2600b8430cd9c1ea01fd5e060173c9780f9a553886c78959ddb8a0",
+    "prebuilt/android-arm64/libge.a": "419dc4154854e6c3ced0c72516fd8c8e53777bdd1de8595e12e33eeb03dab13b",
     "prebuilt/android-arm64/libliteparser.a": "be32b2f24bd9db6b9416197d713bcf64d659e7818ba59b392854155c1a15c9b9",
     "prebuilt/android-arm64/liblunasvg_ge.a": "8829ecd8516ec11f1c780bd489060406fe851d719d3d9b9c7aa8817a3c7aeefd",
     "prebuilt/android-arm64/liblz4_ge.a": "38b9b734ea6551735e1b1ff3da2e0abb204f17c497d8fa917dc2690cd595845f",
@@ -203,7 +203,7 @@
     "src/png.cpp": "ca11dcf761f88dc40d974f445b095b9b58de7c9fc50653b028d28b1fdb3f39a2",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "96b1f9da508a497d95e202f60041d2455af859be808c68f0f19327421a585d1e",
-    "src/render/DirectRenderHost.mm": "a3aa4db2ab7dec3ecce29058a6f3cb6e537e8b01544c6a83ce5a0a3e025957fd",
+    "src/render/DirectRenderHost.mm": "eeddb2b6fe17d4ca9a045e1fa2a031c5120c6ecea272ea8f92211e3732828a11",
     "src/render/RefreshRateBoost_android.cpp": "13e32e196be65c90f9cc9438f0d63d570560fa59f6d09b3d2e908fcf59ce029f",
     "src/sdl_input.cpp": "de6f95eed5bf0698cf62901f78bbf50d3e9c11819ad6834b02ebbb4efaeaaa57",
     "src/sprite.cpp": "cf314f0a1a8c9614f9c894734d44754c58e033e5dce3f737c34106cf2d2f0463",

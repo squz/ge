@@ -400,9 +400,15 @@ SafeAreaInsets DirectRenderHost::uiSafeInsetsInPts() const {
     // (cutouts + home indicator). Either way, this is what we want
     // for uiSafeRectInPts: the strictest "place interactive UI here" zone.
     //
-    // SDL_GetWindowSafeArea and SDL_GetWindowSize both return point-space
-    // values (OS-logical coords), so the insets this function computes are
-    // already in pt — no pixel-density multiplication needed. (🎯T60)
+    // Unit asymmetry between platforms (🎯T81):
+    //   iOS: SDL_GetWindowSafeArea + SDL_GetWindowSize return point-space
+    //        values (OS-logical coords), so the raw deltas are pt.
+    //   Android: the SDL3 backend has pixelDensity=1.0 and exposes the
+    //        surface in raw pixels (density bucket lives in
+    //        displayContentScale instead — same convention that forces
+    //        ppt = SDL_GetWindowDisplayScale in setPixelsPerPt above).
+    //        We must divide each inset by ppt to land in pt.
+    // drawSafeInsetsInPts() handles the same asymmetry below.
     SafeAreaInsets out{};
     if (!i_->sokolCtx) return out;
     SDL_Window* win = i_->sokolCtx->window();
@@ -412,17 +418,21 @@ SafeAreaInsets DirectRenderHost::uiSafeInsetsInPts() const {
     int winW = 0, winH = 0;
     SDL_GetWindowSize(win, &winW, &winH);
     if (winW <= 0 || winH <= 0) return out;
-    // SDL window coords are in points. Insets = the distance from each
-    // edge to the safe rect edge, in pt. Screen is y-down (SDL convention),
-    // so the OS-supplied "top" inset goes into the smaller-y edge
-    // field (y0), and "bottom" into the larger-y edge field (y1).
+    // Insets = the distance from each edge to the safe rect edge.
+    // Screen is y-down (SDL convention), so the OS-supplied "top" inset
+    // goes into the smaller-y edge field (y0), "bottom" into y1.
     auto ptInset = [](int v) {
         return v <= 0 ? 0.0f : std::ceil(float(v));
     };
-    out.x0 = ptInset(safe.x);               // left in y-down, pt
-    out.x1 = ptInset(winW - safe.x - safe.w); // right, pt
-    out.y0 = ptInset(safe.y);               // top in y-down, pt
-    out.y1 = ptInset(winH - safe.y - safe.h); // bottom, pt
+    out.x0 = ptInset(safe.x);                 // left in y-down
+    out.x1 = ptInset(winW - safe.x - safe.w); // right
+    out.y0 = ptInset(safe.y);                 // top
+    out.y1 = ptInset(winH - safe.y - safe.h); // bottom
+#if defined(__ANDROID__)
+    const float ppt = (SDL_GetWindowDisplayScale(win) > 0.0f)
+                      ? SDL_GetWindowDisplayScale(win) : 1.0f;
+    out = {out.y0 / ppt, out.y1 / ppt, out.x0 / ppt, out.x1 / ppt};
+#endif
 
 #if defined(__APPLE__) && TARGET_OS_IOS
     // iOS's SDL_GetWindowSafeArea reports only the static-chrome insets
