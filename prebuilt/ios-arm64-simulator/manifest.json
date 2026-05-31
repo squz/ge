@@ -7,7 +7,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "738f0f08d207f6cb40eb21ae8aaae609f5445cdf90be8ff902730afd2bfd8fcd",
+    "tools/prebuild.sh": "ebd2ff0b3b99c2ee1638ff33f7a841d459491e8be7c0ba4b61cfca40638c8e38",
     "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "66a2a22bedf8666970e7f807f34d64662d7ce04b7d603900bc43bc132926fde4",
-    "prebuilt/ios-arm64-simulator/libge.a": "10505cef0448fa04ace3ed0459004cf8f7a83892364538fe7e55e58dc14a59f7",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "801a8b2e5927e44cfa9f5da1af10ce52a324e5dca7e2c9258cc7c814e10e771f",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "a0cf1fc1b6e44c2440165e9ecfc899e59f702009a7c4b6d016f45a17a05e1fb4",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "a0b9aadff175b13c410a41ed1262c14a504e6d6d31858c3bd217ab88e09a2b81",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "c09568ba8bc52e525607f0bf301e8925780da248e5e80ee0e8828b6f3ab8a303",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "1d382878d1386b114e7f67d8a89c0df97a4ab3fcd29eb506cf7617cf54bd544e"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "4e938b4961e699bc2c198ae5c7692061154d16b6f9513c8d5cfe6897257771d9",
+    "prebuilt/ios-arm64-simulator/libge.a": "40f244c9b86f398815064606b0e51df6b32186646f11192fda4465bb27e7b224",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "752264e6fe74c0bb7ac4b2826fb5b498b29557f9dc248cfea3a3547afa2eda3e",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "21ccb8ac24239ed4dcce4ad4125d1ac5ef026204e121d63fe443383cbce156fe",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "1d8fc2ade55b6ef8dac357361923e0bd1fbb50307401b7a490c463cce92fb228",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "d1f13759d122540a50bae3e69ef67fb85a9d0b5b44c94f82659cb8e7b13c71e8",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "b7f000ba94721ef0c22034bef633cadb78cddc06afab1f4f44c8b2db2b1ccc13"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
