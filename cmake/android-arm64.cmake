@@ -44,6 +44,27 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         "(CMAKE_SYSTEM_NAME is '${CMAKE_SYSTEM_NAME}')")
 endif()
 
+# ── 16 KB page alignment (🎯T75) ────────────────────────────────────
+#
+# Google Play rejects submissions whose shared libraries are not 16 KB
+# page-aligned (Android 15+ devices ship 16 KB pages; Android 16 hard-
+# blocks installs of 4 KB-aligned apps). NDK r28+ links .so files with
+# 16 KB-aligned PT_LOAD segments by default, but NDK r27 and earlier
+# (and any build that pins an older NDK) default to 4 KB — and the
+# consumer's Gradle build, not ge's prebuild.sh, chooses the NDK that
+# links the final .so. Make the contract explicit and NDK-version-
+# independent here.
+#
+# This line sits before both the consumer's `add_library(main SHARED …)`
+# (which runs in the same directory scope, since include() does not open
+# a new scope) and the SDL `add_subdirectory()` calls below (which copy
+# this scope's CMAKE_SHARED_LINKER_FLAGS at entry). So every shared
+# object in the build — libmain.so, libSDL3.so, libSDL3_image.so,
+# libSDL3_ttf.so, and their transitive deps — links 16 KB-aligned.
+#
+# Verify:  llvm-readelf -lW <lib>.so  → every PT_LOAD shows Align 0x4000.
+string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+
 set(GE_PREBUILT_DIR "${GE_ROOT}/prebuilt/android-arm64")
 set(GE_VENDOR "${GE_ROOT}/vendor")
 set(GE_HEADERS "${GE_ROOT}/headers")

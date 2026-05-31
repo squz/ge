@@ -2544,7 +2544,7 @@ targets:
     discovered: 2026-05-30
   T75:
     name: ge Android builds produce 16 KB page-aligned shared libraries, so Google Play accepts submissions
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2563,6 +2563,7 @@ targets:
     - sdl3
     origin: manual
     discovered: 2026-05-30
+    achieved: 2026-05-31
   T76:
     name: sprite_test/png_test pass against T38 SpriteVertex layout
     status: identified
@@ -2613,6 +2614,17 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-05-30
     achieved: 2026-05-30
+  T8:
+    name: Distribution iOS builds support accelerometer simulation in the simulator
+    status: identified
+    value: 3.0
+    cost: 5.0
+    acceptance:
+    - ⌥+WASD tilts the simulated device's accelerometer in distribution/release iOS Simulator builds (not just Debug builds)
+    - Test on a Release-configuration iOS Simulator build of any ge-based app
+    context: iOS Simulator's accelerometer emulation (⌥+WASD keyboard shortcut) only works in Debug-configuration builds by default. Distribution/Release builds disable it, which makes it impossible to test tilt-based input on the simulator without a physical device. Likely caused by an Info.plist key, build flag, or entitlement that's stripped in Release configurations. Investigate and document the fix in ge so all consumer apps benefit.
+    origin: manual
+    discovered: 2026-04-15
   T80:
     name: ge coordinate types are unit-tagged via a generic Unit&lt;T, Dim&gt; wrapper
     status: identified
@@ -2683,17 +2695,6 @@ targets:
     - T60-followup
     origin: multimaze2-audit
     discovered: 2026-05-31
-  T8:
-    name: Distribution iOS builds support accelerometer simulation in the simulator
-    status: identified
-    value: 3.0
-    cost: 5.0
-    acceptance:
-    - ⌥+WASD tilts the simulated device's accelerometer in distribution/release iOS Simulator builds (not just Debug builds)
-    - Test on a Release-configuration iOS Simulator build of any ge-based app
-    context: iOS Simulator's accelerometer emulation (⌥+WASD keyboard shortcut) only works in Debug-configuration builds by default. Distribution/Release builds disable it, which makes it impossible to test tilt-based input on the simulator without a physical device. Likely caused by an Info.plist key, build flag, or entitlement that's stripped in Release configurations. Investigate and document the fix in ge so all consumer apps benefit.
-    origin: manual
-    discovered: 2026-04-15
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
