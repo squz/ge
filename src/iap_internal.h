@@ -38,4 +38,11 @@ struct Store {
 // at runtime — the dispatcher then falls back to StubStore.
 std::unique_ptr<Store> makePlatformStore();
 
+// 🎯T74: true on iOS when StoreKit.storekit is present in the app bundle
+// (consumer dropped one in via `make ge/storekit-init` + Xcode resource
+// wiring). Lets ge::iap auto-default to "local" mode on dev builds so
+// devices without a cached sandbox Apple account don't hit a password
+// prompt on every launch. Always false on non-iOS platforms.
+bool storekitConfigBundled();
+
 } // namespace ge::iap::detail

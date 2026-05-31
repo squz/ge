@@ -18,11 +18,13 @@
 # its include-time composition (see the conversion line below).
 
 # ── platform-agnostic core ─────────────────────────────────────────
-# These compile on every platform. No bgfx-init, no SDL window — just
+# These compile on every platform. No window/render-API init — just
 # resource/file I/O, sprite/svg/text/png helpers, button + sdl_input,
 # IAP / log / audio (cross-platform) entry points, the build manifest
-# reader (🎯T64.5), the long-press detector (🎯T65.6), bgfx context
-# setup, session host, the direct-render host, and sqlpipe.
+# reader (🎯T64.5), the long-press detector (🎯T65.6), session host,
+# the direct-render host, and sqlpipe. T38: sokol context setup lives
+# in per-platform glue (SokolContext.mm on Apple, SokolContext_android.cpp
+# on Android) — no single cross-platform file.
 GE_SRC_COMMON := \
 	src/Context.cpp \
 	src/Resource.cpp \
@@ -39,19 +41,27 @@ GE_SRC_COMMON := \
 	src/long_press.cpp \
 	src/sdl_input.cpp \
 	src/manifest.cpp \
-	src/BgfxContext.mm \
 	src/SessionHost.mm \
 	src/render/DirectRenderHost.mm \
 	vendor/src/sqlpipe.cpp
 
 # ── per-platform glue ──────────────────────────────────────────────
 # Same logical role on each platform; just different implementations.
+# T38: SokolContext.mm (Apple Metal) + SokolContext_android.cpp (Android
+# GLES3) replace the old BgfxContext.mm unified .mm.
+# T74: iap_apple_local.swift is intentionally NOT in this list — the
+# prebuild shell pipeline doesn't compile Swift, and the iOS xcodeproj-
+# gem builder lists Swift sources in tools/ios-build/build_project.rb's
+# GE_DIRECT_SOURCES separately. The LocalBridge runtime-fallback in
+# iap_apple.mm tolerates the class being absent (logs + uses production
+# bridge); ge::iap's T74 stub-mode fallback means no live calls.
 GE_SRC_APPLE := \
 	src/FontLoader_apple.mm \
 	src/iap_apple.mm \
 	src/audio_apple.mm \
 	src/log_apple.mm \
 	src/Attitude_apple.mm \
+	src/SokolContext.mm \
 	src/render/RefreshRateBoost_apple.mm
 
 GE_SRC_ANDROID := \
@@ -62,6 +72,7 @@ GE_SRC_ANDROID := \
 	src/Attitude_android.cpp \
 	src/iap_android.cpp \
 	src/log_android.cpp \
+	src/SokolContext_android.cpp \
 	src/render/RefreshRateBoost_android.cpp
 
 # ── desktop / no-mobile stubs ──────────────────────────────────────

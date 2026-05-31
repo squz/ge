@@ -70,17 +70,19 @@ module GE
     # - ge: engine itself, prebuilt under ge/prebuilt/ios-arm64/libge.a
     #   (T71 Phase 2). Listed first so ge symbols are resolved before
     #   vendor libs (e.g. ge::log uses spdlog template instantiations).
-    # - bgfx/bx/bimg/box2d/{lunasvg,plutovg,sqlite3,lz4}_ge/liteparser:
+    # - box2d/{lunasvg,plutovg,sqlite3,lz4}_ge/liteparser:
     #   prebuilt under ge/prebuilt/ios-arm64/ (T71). Built via
-    #   `make ge/prebuild-vendor-ios-arm64`; refreshed when bumping
-    #   vendor submodules. The _ge suffix on lunasvg/plutovg/sqlite3/lz4
-    #   avoids name collision with SDL3's own bundled plutosvg/plutovg
-    #   and any system-installed sqlite3.
+    #   `make prebuild`; refreshed when bumping vendor submodules. The _ge
+    #   suffix on lunasvg/plutovg/sqlite3/lz4 avoids name collision with
+    #   SDL3's own bundled plutosvg/plutovg and any system-installed sqlite3.
+    # - T38: bgfx/bx/bimg removed (engine migrated to sokol_gfx; the
+    #   single-header sokol_gfx.h is included at SOKOL_IMPL time inside
+    #   libge.a so no separate prebuilt static lib).
     LINKER_LIBS = %w[
       ge
       SDL3 SDL3_image SDL3_ttf
       freetype harfbuzz plutosvg plutovg
-      bgfx bx bimg box2d
+      box2d
       lunasvg_ge plutovg_ge sqlite3_ge lz4_ge liteparser
     ].freeze
 
@@ -146,6 +148,7 @@ module GE
 
         add_app_target!
         add_build_configurations!
+        add_shader_codegen_phase!
         add_sources!
         add_resources!
         add_frameworks!
@@ -286,19 +289,23 @@ module GE
           File.join(ge_rel, 'headers/sdl3/include'),
           File.join(ge_rel, 'vendor/sdl3/include'),
           # Vendor prebuilts (T71): public headers lifted from each
-          # vendor submodule into ge/headers/<vendor>/include/. Same
-          # consumer #include paths as before — consumers see
-          # `<bgfx/bgfx.h>`, `<bx/bx.h>`, etc. unchanged. The lifted
-          # tree means consumer CI doesn't need to recurse-init ge's
-          # submodules to compile.
+          # vendor submodule into ge/headers/<vendor>/include/. The
+          # lifted tree means consumer CI doesn't need to recurse-init
+          # ge's submodules to compile.
+          # T38: bx/bimg/bgfx header paths dropped (sokol_gfx is the
+          # rendering backend now; vendor/github.com/floooh/sokol is on
+          # the path below as a single-header drop-in).
           File.join(ge_rel, 'headers/liteparser/include'),
           File.join(ge_rel, 'headers/lunasvg/include'),
           File.join(ge_rel, 'headers/plutovg/include'),
           File.join(ge_rel, 'headers/box2d/include'),
-          File.join(ge_rel, 'headers/bx/include'),
-          File.join(ge_rel, 'headers/bx/include/compat/ios'),
-          File.join(ge_rel, 'headers/bimg/include'),
-          File.join(ge_rel, 'headers/bgfx/include'),
+          # T38: sokol_gfx.h + sokol-shdc-generated ge_sprite.h + the
+          # consumer's own sokol-shdc-generated app shader headers.
+          # Both shader output dirs are populated by the Compile Sokol
+          # Shaders build phase (see add_shader_codegen_phase!).
+          File.join(ge_rel, 'vendor/github.com/floooh/sokol'),
+          File.join(ge_rel, 'build/ge/shaders'),
+          File.join(proj_rel, 'build/shaders'),
         ].map { |p| "\"$(SRCROOT)/#{p}\"" }
       end
 
@@ -453,6 +460,80 @@ module GE
           existing = config.build_settings['OTHER_LDFLAGS'] || ''
           config.build_settings['OTHER_LDFLAGS'] = (existing.split + flags).join(' ')
         end
+      end
+
+      # ── shader codegen (T38) ───────────────────────────────────────────
+      #
+      # sokol-shdc invocation: takes annotated GLSL (.glsl with @vs/@fs/
+      # @program blocks) and emits one C header per program with embedded
+      # MSL+GLSL bytecode for every backend listed in `-l`. The header
+      # gets #included by ge::sprite / consumer renderers via the
+      # build/{ge,}/shaders include paths added in header_search_paths.
+      #
+      # We add this as a script build phase that runs BEFORE Compile
+      # Sources so the headers exist when src/sprite.cpp + consumer's
+      # Renderer.cpp compile.
+      #
+      # ge's own internal shaders (only ge_sprite.h post-T38) get codegen'd
+      # into build/ge/shaders/. The consumer's shaders (e.g. tiltbuggy's
+      # simple.glsl) get codegen'd into build/shaders/.
+      def add_shader_codegen_phase!
+        ge_rel = relative_to_ios(@ge_root)
+        proj_rel = relative_to_ios(@project_root)
+        shdc_path = File.join(ge_rel, 'vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc')
+        ge_shader_src_dir = File.join(ge_rel, 'src/render/shaders')
+        ge_shader_out_dir = File.join(ge_rel, 'build/ge/shaders')
+        app_shader_src_dir = File.join(proj_rel, 'shaders')        # consumer's shaders/ dir
+        app_shader_out_dir = File.join(proj_rel, 'build/shaders')  # matches Module.mk + header_search_paths
+
+        script = <<~SH
+          set -euo pipefail
+          SHDC="${SRCROOT}/#{shdc_path}"
+          if [ ! -x "$SHDC" ]; then
+            echo "error: sokol-shdc not found or not executable at $SHDC" >&2
+            echo "  run: git submodule update --init vendor/github.com/floooh/sokol-tools-bin" >&2
+            exit 1
+          fi
+          LANGS="metal_macos:metal_ios:glsl300es"
+
+          # ge engine shaders → build/ge/shaders/
+          GE_SRC="${SRCROOT}/#{ge_shader_src_dir}"
+          GE_OUT="${SRCROOT}/#{ge_shader_out_dir}"
+          mkdir -p "$GE_OUT"
+          for glsl in "$GE_SRC"/*.glsl; do
+            [ -e "$glsl" ] || continue
+            name="$(basename "$glsl" .glsl)"
+            out="$GE_OUT/$name.h"
+            if [ ! -e "$out" ] || [ "$glsl" -nt "$out" ]; then
+              echo "sokol-shdc: $name (ge)"
+              "$SHDC" -i "$glsl" -o "$out" -l "$LANGS" -f sokol
+            fi
+          done
+
+          # Consumer app shaders → build/shaders/
+          APP_SRC="${SRCROOT}/#{app_shader_src_dir}"
+          APP_OUT="${SRCROOT}/#{app_shader_out_dir}"
+          if [ -d "$APP_SRC" ]; then
+            mkdir -p "$APP_OUT"
+            for glsl in "$APP_SRC"/*.glsl; do
+              [ -e "$glsl" ] || continue
+              name="$(basename "$glsl" .glsl)"
+              out="$APP_OUT/$name.h"
+              if [ ! -e "$out" ] || [ "$glsl" -nt "$out" ]; then
+                echo "sokol-shdc: $name (app)"
+                "$SHDC" -i "$glsl" -o "$out" -l "$LANGS" -f sokol
+              fi
+            done
+          fi
+        SH
+
+        phase = @app_target.new_shell_script_build_phase('Compile Sokol Shaders')
+        phase.shell_script = script
+        phase.shell_path = '/bin/bash'
+        # Move it to be the first phase so generated headers exist before
+        # Compile Sources runs.
+        @app_target.build_phases.delete(phase)
+        @app_target.build_phases.unshift(phase)
       end
 
       # ── path helpers ────────────────────────────────────────────────────

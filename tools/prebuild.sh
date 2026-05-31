@@ -153,8 +153,9 @@ LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
 LITEPARSER_DIR="$VENDOR/sqliteai/liteparser/src"
 
-# Sanity check — submodules must be initialised.
-for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR"; do
+# Sanity check — submodules must be initialised. T38: bx/bimg/bgfx
+# no longer required (ge uses sokol_gfx, vendored as a single header).
+for d in "$BOX2D_DIR" "$LUNASVG_DIR"; do
   if [[ ! -f "$d/.git" && ! -d "$d/.git" ]]; then
     echo "error: $d is not initialised. Run: git submodule update --init --recursive" >&2
     exit 1
@@ -190,44 +191,11 @@ archive() {
   "$AR" "${AR_FLAGS[@]}" "$out" "$@"
 }
 
-# ─── bx ───────────────────────────────────────────────────────────────────
-echo "── bx (amalgamated) ──"
-BX_OBJ="$OBJ_DIR/bx/amalgamated.o"
-compile_cxx "$BX_OBJ" "$BX_DIR/src/amalgamated.cpp" \
-  -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR" -I"$BX_DIR/3rdparty" \
-  -DBX_CONFIG_DEBUG=0
-archive "$OUT_DIR/libbx.a" "$BX_OBJ"
-
-# ─── bimg ─────────────────────────────────────────────────────────────────
-echo "── bimg ──"
-BIMG_OBJS=()
-for src in "$BIMG_DIR/src/image.cpp" "$BIMG_DIR/src/image_gnf.cpp"; do
-  obj="$OBJ_DIR/bimg/$(basename "${src%.cpp}").o"
-  compile_cxx "$obj" "$src" \
-    -I"$BIMG_DIR/include" -I"$BIMG_DIR/3rdparty" -I"$BIMG_DIR/3rdparty/astc-encoder/include" \
-    -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR" \
-    -DBX_CONFIG_DEBUG=0 -DBIMG_CONFIG_DECODE_ENABLE=0
-  BIMG_OBJS+=("$obj")
-done
-archive "$OUT_DIR/libbimg.a" "${BIMG_OBJS[@]}"
-
-# ─── bgfx (amalgamated) ───────────────────────────────────────────────────
-echo "── bgfx (amalgamated) ──"
-BGFX_OBJ="$OBJ_DIR/bgfx/amalgamated.o"
-mkdir -p "$(dirname "$BGFX_OBJ")"
-BGFX_CFLAGS=(
-  "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$BGFX_OBJ.d"
-  -I"$BGFX_DIR/include" -I"$BGFX_DIR/3rdparty" -I"$BGFX_DIR/3rdparty/khronos" -I"$BGFX_DIR/src"
-  -I"$BX_DIR/include" -I"$BX_DIR/include/compat/$BX_COMPAT_DIR"
-  -I"$BIMG_DIR/include"
-  -DBX_CONFIG_DEBUG=0
-  "${BGFX_DEFINES[@]}"
-)
-if $BGFX_AS_OBJC; then
-  BGFX_CFLAGS+=(-ObjC++)
-fi
-"$CXX" "${BGFX_CFLAGS[@]}" -c "$BGFX_DIR/src/amalgamated.cpp" -o "$BGFX_OBJ"
-archive "$OUT_DIR/libbgfx.a" "$BGFX_OBJ"
+# T38: bgfx / bx / bimg vendor builds retired. ge now uses sokol_gfx
+# (vendored single-header at vendor/github.com/floooh/sokol/sokol_gfx.h),
+# included via SOKOL_IMPL by src/SokolContext.mm on Apple and
+# src/SokolContext_android.cpp on Android — no separate static library
+# to produce or archive.
 
 # ─── box2d ────────────────────────────────────────────────────────────────
 echo "── box2d ──"
@@ -303,6 +271,7 @@ echo "── ge ──"
 GE_INCLUDES=(
   -I include
   -I vendor/include
+  -I vendor/github.com/floooh/sokol
   -I headers/spdlog/include
   -I headers/asio/include
   -I headers/sdl3/include
@@ -311,11 +280,16 @@ GE_INCLUDES=(
   -I headers/lunasvg/include
   -I headers/plutovg/include
   -I headers/box2d/include
-  -I headers/bx/include
-  -I "headers/bx/include/compat/$BX_COMPAT_DIR"
-  -I headers/bimg/include
-  -I headers/bgfx/include
 )
+
+# T38: generate ge_sprite.h via sokol-shdc so src/sprite.cpp can #include it.
+GE_SHADER_OUT_DIR="$OBJ_DIR/ge-shaders"
+mkdir -p "$GE_SHADER_OUT_DIR"
+SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
+"$SOKOL_SHDC" -i src/render/shaders/ge_sprite.glsl \
+              -o "$GE_SHADER_OUT_DIR/ge_sprite.h" \
+              -l metal_macos:metal_ios:glsl300es -f sokol
+GE_INCLUDES+=(-I "$GE_SHADER_OUT_DIR")
 if [[ -n "$SDL_STUB_INC" ]]; then
   GE_INCLUDES+=(-I "$SDL_STUB_INC")
 fi
@@ -327,11 +301,8 @@ GE_DEFINES=(
   -DSQLITE_ENABLE_SESSION
   -DSQLITE_ENABLE_PREUPDATE_HOOK
   -DSQLITE_ENABLE_DESERIALIZE
-  -DBX_CONFIG_DEBUG=0
-  -DBIMG_CONFIG_DECODE_ENABLE=0
   -DLUNASVG_BUILD_STATIC
   -DPLUTOVG_BUILD_STATIC
-  "${BGFX_DEFINES[@]}"
 )
 
 # ge source list — extracted from the canonical manifest at

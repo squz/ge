@@ -1,6 +1,6 @@
 #include <ge/Resource.h>
 #include <SDL3/SDL.h>
-#include <bgfx/bgfx.h>
+#include "sokol_gfx.h"
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -40,9 +40,9 @@ std::string resource(const std::string& relativePath) {
 namespace {
 const char* shaderProfileSuffix() {
 #if defined(__ANDROID__)
-    switch (bgfx::getRendererType()) {
-    case bgfx::RendererType::Vulkan:   return "-spirv";
-    case bgfx::RendererType::OpenGLES: return "-gles";
+    switch (sg_query_backend()) {
+    case SG_BACKEND_VULKAN: return "-spirv";
+    case SG_BACKEND_GLES3:  return "-gles";
     default: break;  // shouldn't happen on Android
     }
     return "-gles";   // safer fallback (no SPIR-V mismatch)

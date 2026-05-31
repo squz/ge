@@ -10,10 +10,9 @@
 #     target_link_libraries(main PRIVATE ge)
 #
 # What this file does:
-#   - Declares ge + the first-party vendor static libs (bgfx, bx, bimg,
-#     box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge, liteparser) as
-#     STATIC IMPORTED, pointing at the prebuilts under
-#     ${GE_ROOT}/prebuilt/android-arm64/.
+#   - Declares ge + the first-party vendor static libs (box2d, lunasvg_ge,
+#     plutovg_ge, sqlite3_ge, lz4_ge, liteparser) as STATIC IMPORTED,
+#     pointing at the prebuilts under ${GE_ROOT}/prebuilt/android-arm64/.
 #   - Adds SDL3 + SDL3_image + SDL3_ttf via add_subdirectory of their
 #     submodules. SDL ships its own CMakeLists.txt, which is the only
 #     reason CMake stays in ge's Android build at all.
@@ -21,6 +20,12 @@
 #     against the same header surface as the iOS prebuilt path.
 #   - Wires the ge → vendor link edges so consumer-side
 #     target_link_libraries(main PRIVATE ge) pulls in everything ge needs.
+#
+# T38 (sokol_gfx migration): bgfx / bx / bimg are no longer prebuilt or
+# linked. ge migrated to sokol_gfx — a single-header library compiled
+# inside libge.a itself via src/SokolContext_android.cpp. Consumer apps
+# that only `target_link_libraries(main PRIVATE ge)` need no source
+# changes; the link edges below already cover the new world.
 #
 # What this file does NOT do:
 #   - Generate anything. This file is hand-edited; the prebuild script
@@ -47,7 +52,7 @@ set(GE_HEADERS "${GE_ROOT}/headers")
 
 foreach(_lib IN ITEMS
         ge
-        bgfx bx bimg box2d
+        box2d
         lunasvg_ge plutovg_ge
         sqlite3_ge lz4_ge liteparser)
     add_library(${_lib} STATIC IMPORTED GLOBAL)
@@ -97,9 +102,10 @@ target_include_directories(ge INTERFACE
     "${GE_HEADERS}/lunasvg/include"
     "${GE_HEADERS}/plutovg/include"
     "${GE_HEADERS}/box2d/include"
-    "${GE_HEADERS}/bx/include"
-    "${GE_HEADERS}/bimg/include"
-    "${GE_HEADERS}/bgfx/include"
+    # T38: sokol_gfx single-header. Consumer code that includes
+    # `sokol_gfx.h` (e.g. their own renderer next to libge.a) needs
+    # this on the include path.
+    "${GE_VENDOR}/github.com/floooh/sokol"
 )
 
 # SQLite defines must be visible to consumers (Tweak.h uses SQLite).
@@ -116,7 +122,6 @@ target_compile_definitions(ge INTERFACE
 # PRIVATE ge)` pulls in this list in order, so symbols flow:
 #   ge → vendor → SDL → Android system.
 target_link_libraries(ge INTERFACE
-    bgfx bimg bx
     sqlite3_ge liteparser lz4_ge
     box2d
     lunasvg_ge plutovg_ge

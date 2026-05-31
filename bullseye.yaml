@@ -2613,6 +2613,60 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-05-30
     achieved: 2026-05-30
+  T80:
+    name: ge coordinate types are unit-tagged via a generic Unit&lt;T, Dim&gt; wrapper
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - include/ge/unit.h exists with template Unit<T, Dim>, pointer-semantics access, same-dim arithmetic operators, .to<Dst>(factor) conversion, and .map(fn) escape hatch
+    - include/ge/dim.h defines Dim as type-encoded exponents (Pt, Px, World, optionally Clip) with dim_mul_t / dim_div_t composition helpers; mixing dims at compile time produces a readable static_assert message, not raw Dim<a,b,c> gibberish
+    - Pt and Px are modelled as independent dims with no compile-time scaling relationship; pt↔px conversion takes a runtime Unit<float, PxPerPt> factor (sourced from ge::Context::pxPerPt()) — there is NO API path that converts pt to px without supplying that factor at the call site
+    - ge::Context returns typed coordinate values (PtRect / PxRect / Pt / Px scalars) at every accessor that previously returned bare ge::Rect or float for coordinate data; ge::Context::pxPerPt() returns a typed Unit<float, PxPerPt>
+    - ge::Rect remains as the underlying T (geometry math stays unit-agnostic); higher levels wrap it in Unit<Rect, D>
+    - Sprite / SpriteBatch / ge::frame / ge::ortho remain matrix-domain (no Unit propagation past matrix construction)
+    - 'Unit tests cover: same-dim addition compiles; cross-dim addition fails to compile with a readable diagnostic; Pt * Unit<float, PxPerPt> yields Unit<..., Px>; Px / Px yields Dimensionless without implicit conversion to raw float; .to<Dst>(factor) round-trips for the common (Pt, Px) pair across a range of runtime factors including non-integer values (e.g. 2.625 for Pixel 9 Pro XL)'
+    - Both known mixed-units bugs (mm2 TopBar chromeScale, tiltbuggy proButtonRect) are gone — either fixed in this PR or already-fixed sites are re-expressed using the new types as a regression test
+    - Build-time delta measured and acceptable (≤5% on ge unit-test build) — recorded in the PR body
+    context: |-
+      Two recent bugs (mm2 TopBar `chromeScale`, tiltbuggy `proButtonRect`) shipped the same shape: a multiplier carrying `pixelsPerPt` got mixed into a coordinate already expressed in points, producing geometry that was Npx-too-big on @Nx devices. Both bugs slipped despite ge's naming convention (`fullRectInPts`, `pixelsPerPt`) because `ge::Rect` and bare `float` carry no unit information at the type level — the compiler has nothing to enforce.
+
+      Naming, comments, and review demonstrably don't prevent this bug class. Types do. The right shape (after design discussion) is a generic phantom wrapper:
+
+        template <typename T, class D> class Unit { T t_; /* pointer semantics + same-dim arithmetic */ };
+
+      with a small dimensional algebra so derived dims (`Px/Pt`) fall out compositionally:
+
+        template <int Pt, int Px, int World> struct Dim { ... };
+        // dim_mul_t, dim_div_t via template-level integer arithmetic on exponents.
+
+      CRITICAL DESIGN NOTE — pt and px are independent dimensions, not the same dimension at different scales. The pt↔px conversion factor (`pixelsPerPt`) is a *runtime* property of the device, not a compile-time constant: 1.0 on desktop, 2.0 on iPad @2x, 3.0 on iPhone @3x, fractional values on Android (e.g. 2.625 on Pixel 9 Pro XL). Modelling pt and px as one dim with a static scaling factor would be wrong on two axes:
+        1. The factor isn't known until window/display creation — must travel as a runtime value, typed `Unit<float, PxPerPt>`.
+        2. Code that operates entirely in one space (pure pt-space layout, pure px-space framebuffer math) should not pay any conversion cost or implicit-conversion risk; making them independent dims forces every cross-space hop to be visible at the call site.
+      Treating them as independent dims with explicit runtime-factor conversion (`r.to<Px>(ctx.pxPerPt())`) is the correct shape. The algebra also blocks anyone from later "simplifying" by collapsing them — a meaningful design constraint, not an oversight.
+
+      Design summary:
+      - Pointer semantics (`->` for methods, `*` for raw value) — handles forwarding without per-method lift boilerplate.
+      - Same-dim arithmetic (`+`, `-`, `*scalar`, `==`) defined directly on Unit, preserving the dim.
+      - Cross-dim multiplication composes dims: `Unit<T, D1> * Unit<U, D2> -> Unit<..., D1*D2>`.
+      - Cross-unit conversion via `r.to<Dst>(factor)` where factor has dim `Dst/D` and is supplied at runtime — visible at the call site, which is the part that prevents the bug as much as the type safety itself.
+      - `.map(fn)` escape hatch for unit-preserving transforms not covered by operators.
+      - No implicit Dimensionless ↔ raw T conversion (explicit `*x` to escape the wrapper — closes the silent-drop hole).
+
+      Scope:
+      - Wrap ge::Rect, vec2, and bare floats that travel through coordinate-space at the API surface.
+      - Context returns typed values (PtRect / PxRect, Pt / Px scalars), plus `pxPerPt()` returning `Unit<float, PxPerPt>` so conversions are sourced from one canonical accessor.
+      - Sprite/SpriteBatch/frame/ortho stay matrix-domain (untyped); the unit info is baked into the matrix coefficients and not propagated.
+      - ~50–100 LOC for the algebra + ~100 LOC operator coverage in ge; mechanical `Rect` → `PtRect` renames across ge headers + 2 consumers (mm2, tiltbuggy); 5–15 explicit conversion call sites get explicit `.to<>()`.
+      - Total estimate: 1–3 days focused work + 1–2 days polish (error-message hygiene via static_assert messages + requires-clauses, build-time measurement).
+
+      Deferred from the T38 migration PR because too much change in one go. File and pick up after T38 lands.
+    tags:
+    - engine
+    - types
+    - ergonomics
+    origin: manual
+    discovered: 2026-05-31
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
     status: identified

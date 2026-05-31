@@ -1,13 +1,15 @@
 # Android distribution build for __APP_NAME__ — standalone, no ged / player.
 #
 # Builds the game as a self-contained Android APK that renders directly via
-# bgfx/Vulkan. Consumes the ge engine via prebuilt static libs under
-# ge/prebuilt/android-arm64/. Zero ge source files compile here (T73.1).
+# sokol_gfx / OpenGL ES 3 (T38). Consumes the ge engine via prebuilt static
+# libs under ge/prebuilt/android-arm64/. Zero ge source files compile here
+# (T73.1) — libge.a already contains the sokol_gfx implementation
+# (src/SokolContext_android.cpp does the SOKOL_IMPL include inside libge.a).
 #
 # Gradle's externalNativeBuild only supports CMake or ndk-build, so a
 # CMakeLists.txt is structurally required at this site. Its job is link
-# manifest only: include ge's Android link snippet, declare the app
-# library, link.
+# manifest only: include ge's Android link snippet, generate the app's
+# sokol-shdc shader headers, declare the app library, link.
 
 cmake_minimum_required(VERSION 3.22)
 project(__CMAKE_PROJECT__ LANGUAGES C CXX)
@@ -21,8 +23,45 @@ get_filename_component(GE_ROOT       "${ANDROID_DIR}/__GE_REL__"               R
 
 # Pull in ge's prebuilt static libs + SDL3 + Android system libs. After
 # this include, `ge` is a STATIC IMPORTED target that already declares
-# its include directories, compile defs, and inter-lib link deps.
+# its include directories (incl. sokol_gfx.h), compile defs, and
+# inter-lib link deps.
 include("${GE_ROOT}/cmake/android-arm64.cmake")
+
+# ── sokol-shdc shader generation ─────────────────────────────────────
+#
+# Glob every <name>.glsl under the project's shaders/ dir and produce
+# a matching <name>.h under build/shaders/ in the project root. Mirrors
+# the Make-side rule (Module.mk's `$(BUILD_DIR)/$(ge/SHADER_DIR)/%.h`)
+# so consumer C++ sees the same `#include "shaders/simple.h"` path
+# regardless of which build path produced the header.
+#
+# sokol-shdc is a macOS-arm64 binary; this only runs on macOS hosts. The
+# Android build itself is host-tooling-agnostic (Gradle invokes CMake
+# under the NDK), so requiring a macOS host for the shader step is
+# consistent with the rest of ge's developer workflow.
+set(SOKOL_SHDC "${GE_ROOT}/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc")
+# Backends baked into each generated header. Android picks glsl300es at
+# runtime via sg_query_backend(); the metal_* slots are inert here but
+# keeping them matches the desktop/iOS headers byte-for-byte and avoids
+# header-content drift between platforms.
+set(SOKOL_SHDC_LANGS "metal_macos:metal_ios:glsl300es")
+
+file(GLOB APP_SHADERS_GLSL CONFIGURE_DEPENDS "${PROJECT_ROOT}/shaders/*.glsl")
+set(APP_SHADER_HEADERS)
+foreach(glsl IN LISTS APP_SHADERS_GLSL)
+    get_filename_component(name "${glsl}" NAME_WE)
+    set(out "${PROJECT_ROOT}/build/shaders/${name}.h")
+    add_custom_command(
+        OUTPUT  "${out}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_ROOT}/build/shaders"
+        COMMAND "${SOKOL_SHDC}" -i "${glsl}" -o "${out}" -l "${SOKOL_SHDC_LANGS}" -f sokol
+        DEPENDS "${glsl}" "${SOKOL_SHDC}"
+        COMMENT "sokol-shdc ${name}.glsl -> build/shaders/${name}.h"
+        VERBATIM
+    )
+    list(APPEND APP_SHADER_HEADERS "${out}")
+endforeach()
+add_custom_target(app_shaders DEPENDS ${APP_SHADER_HEADERS})
 
 # App sources (C++ and .mm) under the project's src/.
 file(GLOB_RECURSE APP_SOURCES
@@ -32,12 +71,17 @@ file(GLOB_RECURSE APP_SOURCES
 )
 
 add_library(main SHARED ${APP_SOURCES})
+add_dependencies(main app_shaders)
 
-target_compile_definitions(main PRIVATE BX_CONFIG_DEBUG=0)
-
+# Include paths mirror Module.mk's desktop CXXFLAGS_BASE so the same
+# `#include "simple.h"` (renderer-side sokol-shdc-generated header)
+# resolves on Android without consumer code changes.
 target_include_directories(main PRIVATE
+    "${PROJECT_ROOT}"
     "${PROJECT_ROOT}/src"
     "${PROJECT_ROOT}/include"
+    "${PROJECT_ROOT}/build"
+    "${PROJECT_ROOT}/build/shaders"
 )
 
 target_link_libraries(main PRIVATE ge)

@@ -456,6 +456,13 @@ std::unique_ptr<Store> makePlatformStore() {
     return std::make_unique<AppleStore>();
 }
 
+// 🎯T74: true when the consuming app bundles a StoreKit.storekit. Used
+// by the dispatcher in iap.cpp to auto-default to "local" mode on dev
+// builds.
+bool storekitConfigBundled() {
+    return [[NSBundle mainBundle] pathForResource:@"StoreKit" ofType:@"storekit"] != nil;
+}
+
 } // namespace ge::iap::detail
 
 #elif defined(__APPLE__)
@@ -471,6 +478,7 @@ std::unique_ptr<Store> makePlatformStore() {
 
 namespace ge::iap::detail {
 std::unique_ptr<Store> makePlatformStore() { return nullptr; }
+bool storekitConfigBundled() { return false; }
 } // namespace ge::iap::detail
 
 #endif // __APPLE__ && (TARGET_OS_IPHONE || ...)

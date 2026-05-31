@@ -1,22 +1,34 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
+//
+// T38 spike: sokol_gfx port of the tiltbuggy renderer.
+//
+// One sokol pipeline (vertex layout pos3 + color4-unorm) drives the solid-
+// color mesh pass (playfield rect + surface rects + buggy chassis). The SVG
+// sprites (pond, title, buyPro) go through ge::Sprite::draw with an MVP
+// composed from the orthographic projection × per-sprite frame() matrix.
 
 #include "Renderer.h"
 #include "Scene.h"
 
 #include <ge/FileIO.h>
+#include <ge/Linalg.h>
 #include <ge/iap.h>
 #include <ge/sprite.h>
 #include <ge/svg.h>
 #include <ge/transform.h>
 
-#include <bgfx/bgfx.h>
-#include <bx/math.h>
+#include "sokol_gfx.h"
+
+// sokol-shdc bakes the vertex+fragment shader bytecode for every backend
+// into one header. The factory `simple_shader_desc(sg_query_backend())`
+// returns an `sg_shader_desc` pointing at the right variant for the
+// active backend; the consts `ATTR_simple_*`, `UB_vs_params`, and the
+// `vs_params_t` struct are also defined there.
+#include "simple.h"  // sokol-shdc generated; -I via Module.mk
 
 #include <cmath>
-#include <cstdio>
 #include <cstring>
-#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -117,36 +129,14 @@ namespace tiltbuggy {
 namespace {
 
 struct PosColorVertex {
-    float x, y, z;
+    float    x, y, z;
     uint32_t abgr;
 };
 
-bgfx::VertexLayout makeLayout() {
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Color0,   4, bgfx::AttribType::Uint8, true)
-        .end();
-    return layout;
-}
-
-// Read a compiled shader .bin file into bgfx memory. Uses ge::openFile so
-// the lookup goes through SDL_IOStream, which transparently handles APK
-// asset reads on Android, iOS bundle resources, and plain filesystem on
-// desktop.
-bgfx::ShaderHandle loadShader(const char* shaderDir, const char* name) {
-    char path[512];
-    std::snprintf(path, sizeof(path), "%s/%s.bin", shaderDir, name);
-    auto stream = ge::openFile(path, /*binary=*/true);
-    if (!stream || !*stream) return BGFX_INVALID_HANDLE;
-    std::vector<uint8_t> data((std::istreambuf_iterator<char>(*stream)),
-                              std::istreambuf_iterator<char>());
-    if (data.empty()) return BGFX_INVALID_HANDLE;
-    const bgfx::Memory* mem = bgfx::alloc(static_cast<uint32_t>(data.size() + 1));
-    std::memcpy(mem->data, data.data(), data.size());
-    mem->data[data.size()] = '\0';
-    return bgfx::createShader(mem);
-}
+// Stream vertex buffer sized for the renderer's per-frame mesh load.
+// tiltbuggy emits ≤ 6 verts × (background + few surfaces + buggy) — far
+// under 4096, but the headroom keeps future surface-density bumps cheap.
+constexpr int kStreamBufferBytes = 4096 * int(sizeof(PosColorVertex));
 
 // Append two triangles forming an axis-aligned rect (world space).
 void pushRect(std::vector<PosColorVertex>& verts, ge::Rect r, uint32_t abgr) {
@@ -185,81 +175,122 @@ void pushRotatedRect(std::vector<PosColorVertex>& verts,
     verts.push_back(v[0]); verts.push_back(v[2]); verts.push_back(v[3]);
 }
 
-// Pack 0xRRGGBB into bgfx ABGR (alpha=0xFF).
+// Pack 0xRRGGBB into ABGR (alpha=0xFF) for SG_VERTEXFORMAT_UBYTE4N.
 constexpr uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) {
     return 0xFF000000u | (b << 16) | (g << 8) | r;
+}
+
+// Hand-rolled orthographic projection matching the Metal/Vulkan NDC convention
+// sokol expects: x,y in [-1,+1], z in [0,1] (NOT GL's [-1,+1] homogeneous-depth
+// convention). Column-major linalg::float4x4 layout to match `ge::frame`.
+//
+// Maps (l..r, b..t, near..far) → ([-1,+1], [-1,+1], [0,1]).
+ge::la::float4x4 orthoMetal(float l, float r, float b, float t, float zn, float zf) {
+    const float rl = 1.f / (r - l);
+    const float tb = 1.f / (t - b);
+    const float fn = 1.f / (zf - zn);
+    return ge::la::float4x4{
+        { 2.f * rl,         0.f,              0.f,         0.f },
+        { 0.f,               2.f * tb,        0.f,         0.f },
+        { 0.f,               0.f,             -1.f * fn,   0.f },
+        { -(r + l) * rl,    -(t + b) * tb,    -zn * fn,    1.f },
+    };
 }
 
 } // namespace
 
 // BUY PRO button screen rect in pt. Lives at the top-left corner of the
 // UI safe rect so it never sits under the camera notch / Dynamic Island.
-// Size scales with pixelsPerPt so the tap target stays at ~85 × 27 pt
-// (above Apple HIG's 44 pt minimum) on every device class.
+// Units must match the pt-space hit-test in main.cpp's onEvent and the
+// pt-denominated pxToWorldX/Y math in Renderer's draw path.
 ge::Rect proButtonRect(const ge::Context& c) {
     const auto safe = c.uiSafeRectInPts();
-    const float pad = 16.f * c.pixelsPerPt();
-    const float bw  = 85.f * 3.0f * c.pixelsPerPt();
-    const float bh  = 27.f * 3.0f * c.pixelsPerPt();
+    const float pad = 16.f;
+    const float bw  = 85.f * 3.0f;
+    const float bh  = 27.f * 3.0f;
     return {safe.x + pad, safe.y + pad, bw, bh};
 }
 
 struct Renderer::Impl {
-    bgfx::VertexLayout  layout;
-    bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
-    ge::Sprite          pond;
-    ge::Sprite          title;
-    ge::Sprite          buyPro;
+    sg_shader   shader   = {};
+    sg_pipeline pipeline = {};
+    sg_buffer   stream   = {};   // SG_USAGE_STREAM per-frame vertex buffer
+    bool        ready    = false;
+    ge::Sprite  pond;
+    ge::Sprite  title;
+    ge::Sprite  buyPro;
 };
 
 Renderer::Renderer() : i_(std::make_unique<Impl>()) {}
+
 Renderer::~Renderer() {
-    if (bgfx::isValid(i_->program))   bgfx::destroy(i_->program);
-    if (bgfx::isValid(i_->pond.tex))  bgfx::destroy(i_->pond.tex);
-    if (bgfx::isValid(i_->title.tex)) bgfx::destroy(i_->title.tex);
-    if (bgfx::isValid(i_->buyPro.tex)) bgfx::destroy(i_->buyPro.tex);
+    if (i_->pipeline.id != SG_INVALID_ID) sg_destroy_pipeline(i_->pipeline);
+    if (i_->stream.id   != SG_INVALID_ID) sg_destroy_buffer(i_->stream);
+    if (i_->shader.id   != SG_INVALID_ID) sg_destroy_shader(i_->shader);
+
+    auto destroySprite = [](ge::Sprite& s) {
+        if (s.tex.id  != SG_INVALID_ID) sg_destroy_image(s.tex);
+        if (s.view.id != SG_INVALID_ID) sg_destroy_view(s.view);
+    };
+    destroySprite(i_->pond);
+    destroySprite(i_->title);
+    destroySprite(i_->buyPro);
 }
 
-void Renderer::init(const char* shaderDir) {
-    i_->layout = makeLayout();
+void Renderer::init(const char* /*shaderDir*/) {
+    // SVG rasterization is platform-agnostic and can run before sokol is
+    // ready — uploadPixels inside svg.cpp does `sg_make_image` which needs
+    // sg_isvalid(). ge::run sets up sokol before invoking the factory, so
+    // by the time init() runs here, sokol is live.
+    i_->pond   = ge::rasterizeSvg(kIcyPondSvg, 384, 256);
+    i_->title  = ge::rasterizeSvg(kTitleSvg,   768, 128);
+    i_->buyPro = ge::rasterizeSvg(kBuyProSvg,  256, 80);
 
-    bgfx::ShaderHandle vs = loadShader(shaderDir, "simple_vs");
-    bgfx::ShaderHandle fs = loadShader(shaderDir, "simple_fs");
-    i_->program = bgfx::createProgram(vs, fs, /*destroyShaders=*/true);
-
-    // Rasterize the icy-pond SVG to a bgfx texture sized at 384×256 pixels
-    // (matching the SVG viewBox and the ice patch's 1.5:1 world aspect).
-    i_->pond = ge::rasterizeSvg(kIcyPondSvg, 384, 256);
-
-    // Rasterize the "TILT BUGGY" title SVG. 768x128 = 6:1 aspect; we'll
-    // place it in a similarly proportioned world rect above the pond.
-    i_->title = ge::rasterizeSvg(kTitleSvg, 768, 128);
-
-    // Rasterize the BUY PRO button (256x80). Drawn only when the pro
-    // entitlement isn't owned; tap triggers ge::iap::buy("pro") in
-    // main.cpp's onEvent.
-    i_->buyPro = ge::rasterizeSvg(kBuyProSvg, 256, 80);
+    // Pipeline / stream buffer construction is deferred to first draw —
+    // sg_isvalid() guard there keeps headless-test / pre-context-init
+    // paths safe. Equivalent to src/sprite.cpp's ensureState pattern.
 }
 
 void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
                          float /*tiltX*/, float /*tiltY*/) {
-    // The host's composite pass applies viewport tilt (when synthesized
-    // tilt is non-zero). The game just renders a flat top-down view.
+    if (!sg_isvalid()) return;
+
+    // Lazy pipeline + stream buffer init (mirrors src/sprite.cpp's
+    // ensureState). One-shot per renderer instance.
+    if (!i_->ready) {
+        i_->shader = sg_make_shader(simple_shader_desc(sg_query_backend()));
+
+        sg_pipeline_desc pd{};
+        pd.shader = i_->shader;
+        pd.layout.attrs[ATTR_simple_a_position].format = SG_VERTEXFORMAT_FLOAT3;
+        pd.layout.attrs[ATTR_simple_a_color0].format   = SG_VERTEXFORMAT_UBYTE4N;
+        pd.primitive_type           = SG_PRIMITIVETYPE_TRIANGLES;
+        pd.index_type               = SG_INDEXTYPE_NONE;
+        pd.cull_mode                = SG_CULLMODE_NONE;
+        pd.colors[0].blend.enabled  = false;  // solid mesh, no alpha
+        pd.label                    = "tiltbuggy.simple.pipeline";
+        i_->pipeline = sg_make_pipeline(&pd);
+
+        sg_buffer_desc bd{};
+        bd.size                  = kStreamBufferBytes;
+        bd.usage.vertex_buffer   = true;
+        bd.usage.stream_update   = true;
+        bd.label                 = "tiltbuggy.simple.stream";
+        i_->stream = sg_make_buffer(&bd);
+
+        i_->ready = true;
+    }
+
+    // The host's beginFrame/endFrame handles viewport + clear (sokol has
+    // no per-view-state equivalent of bgfx::setViewRect / setViewClear).
+    // The host's composite pass applies viewport tilt; this renderer just
+    // draws a flat top-down view.
+
     auto surf = c.fullRectInPts();
-    bgfx::setViewRect(0, 0, 0,
-                      static_cast<uint16_t>(surf.w * c.pixelsPerPt()),
-                      static_cast<uint16_t>(surf.h * c.pixelsPerPt()));
-    // Black outside the playfield so device chrome bleeds onto a clean
-    // background rather than stale bgfx backbuffer. The safe rect just
-    // tells us where to put the brown maze; effects that want to reach
-    // into chrome (glows, particles) are still free to draw there.
-    bgfx::setViewClear(0,
-        BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
-        0x000000ff, 1.0f, 0);
 
     // Orthographic projection: fit [-he,+he] in the shorter axis of
     // the FULL surface, so world-space coords map uniformly across the
-    // whole bgfx backbuffer (including chrome).
+    // whole backbuffer (including chrome).
     const float he     = scene.halfExtent();
     const float aspect = static_cast<float>(surf.w) / static_cast<float>(surf.h);
     float orthoW, orthoH;
@@ -271,16 +302,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         orthoH = he / aspect;
     }
 
-    float proj[16];
-    bx::mtxOrtho(proj,
+    const ge::la::float4x4 proj = orthoMetal(
         -orthoW, orthoW,
         -orthoH, orthoH,
-        -1.0f, 1.0f, 0.0f,
-        bgfx::getCaps()->homogeneousDepth);
-
-    float view[16];
-    bx::mtxIdentity(view);
-    bgfx::setViewTransform(0, view, proj);
+        -1.0f, 1.0f);
 
     std::vector<PosColorVertex> verts;
     verts.reserve(6 * (2 + scene.surfaces().size()));
@@ -331,19 +356,31 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         pose.angle,
         buggyColor);
 
-    // --- Submit ---
-    const uint32_t numVerts = static_cast<uint32_t>(verts.size());
-    bgfx::TransientVertexBuffer tvb;
-    bgfx::allocTransientVertexBuffer(&tvb, numVerts, i_->layout);
-    std::memcpy(tvb.data, verts.data(), numVerts * sizeof(PosColorVertex));
+    // --- Submit the solid-color mesh ---
+    // sokol pattern: append into the stream buffer, bind, set uniforms, draw.
+    // No per-frame buffer alloc (the stream is reused; sg_append_buffer
+    // returns the byte offset of this slice).
+    const int vertCount = static_cast<int>(verts.size());
+    if (vertCount > 0) {
+        sg_apply_pipeline(i_->pipeline);
 
-    float identity[16];
-    bx::mtxIdentity(identity);
-    bgfx::setTransform(identity);
+        sg_range vr{ .ptr = verts.data(), .size = size_t(vertCount) * sizeof(PosColorVertex) };
+        const int offset = sg_append_buffer(i_->stream, &vr);
 
-    bgfx::setVertexBuffer(0, &tvb, 0, numVerts);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::submit(0, i_->program);
+        sg_bindings b{};
+        b.vertex_buffers[0]        = i_->stream;
+        b.vertex_buffer_offsets[0] = offset;
+        sg_apply_bindings(&b);
+
+        // Identity model matrix — vertices already in world space — so the
+        // MVP collapses to just the projection.
+        vs_params_t vsp;
+        std::memcpy(vsp.u_modelViewProj, &proj[0][0], sizeof(vsp.u_modelViewProj));
+        sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
+        sg_apply_uniforms(UB_vs_params, &up);
+
+        sg_draw(0, vertCount, 1);
+    }
 
     // Ice-sprite pass — drawn after the color batch so the pond sits on top
     // of the dirt/background. Each ice surface gets a copy of the same
@@ -364,32 +401,30 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
             // y-up: rect.y is the bottom edge in scene's y-up world. To put the
             // sprite top-down upright on screen, frame() needs y at the TOP
             // (larger world y) and h NEGATIVE (basis points toward smaller y).
-            const auto m = ge::frame(ge::Rect{
+            const auto model = ge::frame(ge::Rect{
                 s.rect.x - pw,
                 s.rect.y + s.rect.h + ph,        // top in y-up = bottom + height
                 s.rect.w + 2.f * pw,
                 -(s.rect.h + 2.f * ph),           // negative for y-up
             });
-            bgfx::setTransform(&m[0][0]);
-            i_->pond.draw(0);
+            i_->pond.draw(ge::la::mul(proj, model));
         }
     }
 
     // Title — sits above the pond, between iceT (0.375) and the top of the
     // playfield (halfExtent ~ 0.625). 6:1 aspect to match the SVG viewBox.
     if (!i_->title.isNull()) {
-        const float he = scene.halfExtent();
-        const float titleTop    = he - 0.04f * he;     // small margin from the top wall
-        const float titleHeight = 0.18f * he;
-        const float titleWidth  = titleHeight * 6.0f;  // 6:1 aspect
-        const auto m = ge::frame(ge::Rect{
+        const float titleHe     = scene.halfExtent();
+        const float titleTop    = titleHe - 0.04f * titleHe;  // small margin from top wall
+        const float titleHeight = 0.18f * titleHe;
+        const float titleWidth  = titleHeight * 6.0f;          // 6:1 aspect
+        const auto model = ge::frame(ge::Rect{
             -titleWidth * 0.5f,
             titleTop,                                 // y = top in y-up
             titleWidth,
             -titleHeight,                             // h NEGATIVE for y-up
         });
-        bgfx::setTransform(&m[0][0]);
-        i_->title.draw(0);
+        i_->title.draw(ge::la::mul(proj, model));
     }
 
     // BUY PRO button — only when pro isn't owned. Positioned in screen-
@@ -404,9 +439,8 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         const float wT =   orthoH - btn.y                  * pxToWorldY;  // y=top in y-up
         const float wW =                btn.w              * pxToWorldX;
         const float wH =                btn.h              * pxToWorldY;
-        const auto m = ge::frame(ge::Rect{wL, wT, wW, -wH});
-        bgfx::setTransform(&m[0][0]);
-        i_->buyPro.draw(0);
+        const auto model = ge::frame(ge::Rect{wL, wT, wW, -wH});
+        i_->buyPro.draw(ge::la::mul(proj, model));
     }
 }
 

@@ -155,4 +155,135 @@ class BuildProjectTest < Minitest::Test
     assert_includes files, 'atlas.png'
     assert_includes files, 'quadrants.png'
   end
+
+  # ── 🎯T79: sokol-shdc shader-codegen script phase ────────────────────
+  #
+  # The shader codegen runs as a shell-script build phase that fires
+  # BEFORE Compile Sources. It invokes vendor/.../sokol-shdc on every
+  # .glsl in ge's src/render/shaders/ + the consumer's shaders/ dir,
+  # producing .h headers under build/{ge,}/shaders/.
+  #
+  # A bug in this phase (wrong relative path, missing call, wrong shell)
+  # makes EVERY iOS consumer build fail at compile time with
+  # "sokol_gfx.h not found" or "<shader>.h not found". The previous
+  # version of these tests asserted on xcodeproj structure but not the
+  # script content, so the path off-by-one in the initial T79 fix
+  # ("proj_rel/../shaders" instead of "proj_rel/shaders") passed all
+  # tests and would have shipped broken if not caught by review.
+
+  def shader_codegen_phase(project)
+    target = project.targets.first
+    target.shell_script_build_phases.find { |p| p.name == 'Compile Sokol Shaders' }
+  end
+
+  # The phase exists and fires before Compile Sources (otherwise the
+  # generated headers don't exist when src/sprite.cpp tries to #include
+  # them).
+  def test_shader_codegen_phase_present_and_first
+    project = build(resources: [])
+    phase = shader_codegen_phase(project)
+    refute_nil phase, "expected a 'Compile Sokol Shaders' script build phase"
+
+    target = project.targets.first
+    sources_phase = target.source_build_phase
+    refute_nil sources_phase, "expected a Compile Sources phase"
+
+    shader_idx  = target.build_phases.index(phase)
+    sources_idx = target.build_phases.index(sources_phase)
+    assert shader_idx < sources_idx,
+      "shader codegen must run BEFORE Compile Sources, " \
+      "got shader at index #{shader_idx}, sources at #{sources_idx}"
+  end
+
+  # Script content sanity. Catches the relative-path family of bugs:
+  # consumer shaders must resolve to ../shaders/ relative to ios/
+  # (matching the documented convention where ios/ sits one level
+  # inside project_root), NOT ../../shaders/ or similar.
+  def test_shader_codegen_paths_match_layout_convention
+    project = build(resources: [])
+    phase = shader_codegen_phase(project)
+    script = phase.shell_script
+
+    # ge engine shaders: resolved relative to ge_root.
+    # @ge_root sits at <tmp>/ge; @ios_dir at <tmp>/ios; so ge_rel is
+    # "../ge" and we expect "../ge/src/render/shaders" in the script.
+    assert_match %r{\$\{SRCROOT\}/\.\./ge/src/render/shaders\b}, script,
+      "ge engine shader source path should be ../ge/src/render/shaders, " \
+      "got script:\n#{script}"
+    assert_match %r{\$\{SRCROOT\}/\.\./ge/build/ge/shaders\b}, script,
+      "ge engine shader output path should be ../ge/build/ge/shaders"
+
+    # Consumer app shaders: resolved relative to project_root, which by
+    # convention is one level above ios_dir. So the path from ios/ is
+    # exactly "../shaders" (NOT "../../shaders" — the off-by-one bug).
+    assert_match %r{\$\{SRCROOT\}/\.\./shaders\b}, script,
+      "consumer shader source path should be ../shaders, got script:\n#{script}"
+    refute_match %r{\$\{SRCROOT\}/\.\./\.\./shaders\b}, script,
+      "consumer shader source path must NOT have an extra ../ " \
+      "(symptom of computing proj_rel from the wrong base)"
+    assert_match %r{\$\{SRCROOT\}/\.\./build/shaders\b}, script,
+      "consumer shader output path should be ../build/shaders"
+    refute_match %r{\$\{SRCROOT\}/\.\./\.\./build/shaders\b}, script,
+      "consumer shader output path must NOT have an extra ../"
+  end
+
+  # The script must invoke sokol-shdc, pass it a -l language set that
+  # covers every backend SokolContext targets (Metal on macOS + iOS,
+  # GLES3 on Android), and emit the sokol-format header.
+  def test_shader_codegen_invokes_sokol_shdc_with_correct_backends
+    project = build(resources: [])
+    script = shader_codegen_phase(project).shell_script
+
+    assert_match %r{sokol-tools-bin/bin/osx_arm64/sokol-shdc}, script,
+      "must reference the vendored sokol-shdc binary path"
+    assert_match %r{metal_macos:metal_ios:glsl300es}, script,
+      "must emit headers for Metal (macOS+iOS) and GLES3 (Android)"
+    assert_match %r{-f sokol\b}, script,
+      "must use the sokol header format (-f sokol)"
+  end
+
+  # The header-search-paths must let the C++ #include the generated
+  # shader headers without a relative prefix — i.e. both the ge engine
+  # shader output dir AND the consumer app shader output dir must be on
+  # the include path. Symmetrical to the script paths above.
+  # Xcodeproj stores build_settings as either a string or array of
+  # strings depending on the setting. Normalise to a single string for
+  # regex matching.
+  def setting_str(config, key)
+    v = config.build_settings[key]
+    return '' if v.nil?
+    v.is_a?(Array) ? v.join(' ') : v
+  end
+
+  def test_header_search_paths_include_generated_shader_dirs
+    project = build(resources: [])
+    target = project.targets.first
+    paths = setting_str(target.build_configurations.first, 'HEADER_SEARCH_PATHS')
+    refute_empty paths, "expected HEADER_SEARCH_PATHS to be set"
+
+    assert_match %r{\$\(SRCROOT\)/\.\./ge/build/ge/shaders}, paths,
+      "ge engine shader output dir must be on the include path"
+    assert_match %r{\$\(SRCROOT\)/\.\./build/shaders}, paths,
+      "consumer app shader output dir must be on the include path"
+    assert_match %r{\$\(SRCROOT\)/\.\./ge/vendor/github\.com/floooh/sokol}, paths,
+      "sokol_gfx.h vendor dir must be on the include path"
+  end
+
+  # bgfx/bx/bimg are gone post-T38; the generated xcodeproj must not
+  # link them or put their headers on the include path.
+  def test_no_bgfx_in_linker_or_includes
+    project = build(resources: [])
+    target = project.targets.first
+    config = target.build_configurations.first
+
+    ldflags = setting_str(config, 'OTHER_LDFLAGS')
+    refute_match(/\-lbgfx\b/, ldflags, "bgfx should not be linked post-T38")
+    refute_match(/\-lbx\b/,   ldflags, "bx should not be linked post-T38")
+    refute_match(/\-lbimg\b/, ldflags, "bimg should not be linked post-T38")
+
+    paths = setting_str(config, 'HEADER_SEARCH_PATHS')
+    refute_match(%r{headers/bgfx/include}, paths, "bgfx headers should not be on the include path")
+    refute_match(%r{headers/bx/include},   paths, "bx headers should not be on the include path")
+    refute_match(%r{headers/bimg/include}, paths, "bimg headers should not be on the include path")
+  end
 end

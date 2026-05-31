@@ -5,7 +5,7 @@
 
 #include <ge/FontLoader.h>
 
-#include <bgfx/bgfx.h>
+#include "sokol_gfx.h"
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
@@ -81,17 +81,21 @@ SvgPixels bitmapToPixels(const lunasvg::Bitmap& bm) {
 
 Sprite uploadPixels(const SvgPixels& pixels) {
     if (pixels.isNull()) return Sprite{};
-    const bgfx::Memory* mem = bgfx::copy(
-        pixels.rgba.data(),
-        static_cast<uint32_t>(pixels.rgba.size()));
+    sg_image_desc desc{};
+    desc.width  = pixels.width;
+    desc.height = pixels.height;
+    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    desc.data.mip_levels[0] = (sg_range){
+        .ptr  = pixels.rgba.data(),
+        .size = pixels.rgba.size(),
+    };
+    desc.label = "ge.svg.sprite";
     Sprite out;
-    out.tex = bgfx::createTexture2D(
-        static_cast<uint16_t>(pixels.width),
-        static_cast<uint16_t>(pixels.height),
-        false, 1,
-        bgfx::TextureFormat::RGBA8,
-        BGFX_TEXTURE_NONE,
-        mem);
+    out.tex = sg_make_image(&desc);
+    sg_view_desc vd{};
+    vd.texture.image = out.tex;
+    vd.label = "ge.svg.sprite.view";
+    out.view = sg_make_view(&vd);
     out.width  = pixels.width;
     out.height = pixels.height;
     return out;

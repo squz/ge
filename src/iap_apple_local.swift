@@ -80,7 +80,7 @@ public final class GEStoreKit2LocalBridgeImpl: NSObject, GEStoreKit2Bridge {
             return
         }
         do {
-            let s = try SKTestSession(configurationFileURL: url)
+            let s = try SKTestSession(contentsOf: url)
             s.resetToDefaultState()
             s.disableDialogs = true   // Suppress purchase confirmation dialogs in tests
             s.clearTransactions()
@@ -106,9 +106,12 @@ public final class GEStoreKit2LocalBridgeImpl: NSObject, GEStoreKit2Bridge {
     @objc public func restore()                            { inner.restore() }
 }
 
-// Minimal os_log wrapper so we avoid importing os.log's full surface.
-// os_log_t_warn maps to OS_LOG_TYPE_DEFAULT (same as spdlog warn).
+// Minimal os.log wrapper using the unified Logger API (iOS 14+, the same
+// platform-version floor as SKTestSession). T74: replaces the legacy
+// OSLog + os_log macro which doesn't expose cleanly through Swift's
+// import-as-macro pipeline.
+import os
 private func os_log_t_warn(_ subsystem: String, _ message: String) {
-    let log = OSLog(subsystem: subsystem, category: "local")
-    os_log("%{public}@", log: log, type: .default, message)
+    let logger = Logger(subsystem: subsystem, category: "local")
+    logger.notice("\(message, privacy: .public)")
 }

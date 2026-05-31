@@ -11,7 +11,7 @@ APP_NAME    := tiltbuggy
 APP_DISPLAY_NAME := TiltBuggy
 APP_ID      := com.squz.tiltbuggy
 APP_SRC     := src/main.cpp src/Scene.cpp src/Renderer.cpp
-APP_SHADERS := build/shaders/simple_vs.bin build/shaders/simple_fs.bin
+APP_SHADERS := build/shaders/simple.h
 
 -include $(ge)/Module.mk
 $(ge)/Module.mk:

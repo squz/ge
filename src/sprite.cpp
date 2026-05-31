@@ -1,84 +1,121 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
+//
+// T38 spike: sokol_gfx port of ge::Sprite + ge::SpriteBatch.
+//
+// One global pipeline (created lazily), one sampler, and one
+// SG_USAGE_STREAM vertex buffer fed via sg_append_buffer. sokol's
+// "one update per frame, many appends per frame" model maps cleanly
+// onto how SpriteBatch sliced its bgfx::TransientVertexBuffer
+// allocations.
 
 #include <ge/sprite.h>
 
-#include <ge/FileIO.h>
-#include <ge/Resource.h>
+#include "sokol_gfx.h"
+#include "ge_sprite.h"  // sokol-shdc generated; -I via Module.mk
 
-#include <bgfx/bgfx.h>
 #include <spdlog/spdlog.h>
 
-#include <cstdint>
 #include <cstring>
-#include <iterator>
-#include <vector>
 
 namespace ge {
 
 namespace {
 
+// Stream vertex buffer sized for ~5500 sprite quads per frame. The
+// active scenes in tiltbuggy / multimaze2 are well under 100 quads;
+// this leaves room for future titles without re-tuning.
+constexpr int kStreamBufferBytes = 256 * 1024;
+
 struct State {
-    bgfx::ProgramHandle program     = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle sampler     = BGFX_INVALID_HANDLE;
-    bgfx::VertexLayout  layout;
-    bool                layoutReady = false;
+    sg_pipeline pipeline = {};
+    sg_sampler  sampler  = {};
+    sg_buffer   stream   = {};
+    bool        ready    = false;
 };
-
-constexpr uint64_t kDefaultBlend =
-    BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
-    BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
-
-bgfx::ShaderHandle loadShader(const std::string& path) {
-    auto stream = openFile(path, /*binary=*/true);
-    if (!stream || !*stream) return BGFX_INVALID_HANDLE;
-    std::vector<uint8_t> data((std::istreambuf_iterator<char>(*stream)),
-                              std::istreambuf_iterator<char>());
-    if (data.empty()) return BGFX_INVALID_HANDLE;
-    const bgfx::Memory* mem = bgfx::alloc(static_cast<uint32_t>(data.size() + 1));
-    std::memcpy(mem->data, data.data(), data.size());
-    mem->data[data.size()] = '\0';
-    return bgfx::createShader(mem);
-}
 
 State& globalState() {
     static State s;
     return s;
 }
 
-bool ensureProgram() {
+bool ensureState() {
     auto& s = globalState();
-    if (bgfx::isValid(s.program)) return true;
+    if (s.ready) return true;
+    if (!sg_isvalid()) return false;
 
-    const std::string shaderDir = renderShaderDir();
-    bgfx::ShaderHandle vs = loadShader(resource(shaderDir + "/ge_sprite_vs.bin"));
-    bgfx::ShaderHandle fs = loadShader(resource(shaderDir + "/ge_sprite_fs.bin"));
-    if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
-        spdlog::error("ge::sprite: failed to load sprite shaders from {}", shaderDir);
-        if (bgfx::isValid(vs)) bgfx::destroy(vs);
-        if (bgfx::isValid(fs)) bgfx::destroy(fs);
-        return false;
-    }
-    s.program = bgfx::createProgram(vs, fs, /*destroyShaders=*/true);
-    if (!bgfx::isValid(s.sampler)) {
-        s.sampler = bgfx::createUniform("s_tex", bgfx::UniformType::Sampler);
-    }
-    if (!s.layoutReady) {
-        s.layout.begin()
-            .add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
-            .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-            .add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8,
-                 /*normalized=*/true)
-            .end();
-        s.layoutReady = true;
-    }
+    s.stream = sg_make_buffer((sg_buffer_desc){
+        .size  = kStreamBufferBytes,
+        .usage = (sg_buffer_usage){
+            .vertex_buffer = true,
+            .stream_update = true,
+        },
+        .label = "ge.sprite.stream",
+    });
+
+    s.sampler = sg_make_sampler((sg_sampler_desc){
+        .min_filter = SG_FILTER_LINEAR,
+        .mag_filter = SG_FILTER_LINEAR,
+        .wrap_u     = SG_WRAP_CLAMP_TO_EDGE,
+        .wrap_v     = SG_WRAP_CLAMP_TO_EDGE,
+        .label      = "ge.sprite.sampler",
+    });
+
+    sg_pipeline_desc pd{};
+    pd.shader = sg_make_shader(sprite_shader_desc(sg_query_backend()));
+    pd.layout.attrs[ATTR_sprite_a_position].format  = SG_VERTEXFORMAT_FLOAT3;
+    pd.layout.attrs[ATTR_sprite_a_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    pd.layout.attrs[ATTR_sprite_a_color0].format    = SG_VERTEXFORMAT_UBYTE4N;
+    pd.primitive_type  = SG_PRIMITIVETYPE_TRIANGLES;
+    pd.index_type      = SG_INDEXTYPE_NONE;
+    pd.cull_mode       = SG_CULLMODE_NONE;
+    pd.colors[0].blend = (sg_blend_state){
+        .enabled          = true,
+        .src_factor_rgb   = SG_BLENDFACTOR_ONE,
+        .dst_factor_rgb   = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+        .src_factor_alpha = SG_BLENDFACTOR_ONE,
+        .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+    };
+    pd.label = "ge.sprite.pipeline";
+    s.pipeline = sg_make_pipeline(&pd);
+
+    s.ready = true;
     return true;
 }
 
-// Apply an la::float4x4 (column-major) to a 2D point with z=0, w=1.
 inline la::float2 applyMatrix(const la::float4x4& m, float x, float y) {
     const auto v = la::mul(m, la::float4{x, y, 0.f, 1.f});
     return {v.x, v.y};
+}
+
+void drawRun(sg_view view, const SpriteVertex* verts, int count,
+             const la::float4x4& mvp) {
+    if (!ensureState()) return;
+    auto& s = globalState();
+
+    const int bytes = int(count * sizeof(SpriteVertex));
+    sg_range r{ .ptr = verts, .size = size_t(bytes) };
+    const int offset = sg_append_buffer(s.stream, &r);
+    if (sg_query_buffer_overflow(s.stream)) {
+        SPDLOG_WARN("ge::sprite: stream buffer overflow ({} bytes)", bytes);
+        return;
+    }
+
+    sg_apply_pipeline(s.pipeline);
+
+    sg_bindings b{};
+    b.vertex_buffers[0]        = s.stream;
+    b.vertex_buffer_offsets[0] = offset;
+    b.views[VIEW_s_tex]        = view;
+    b.samplers[SMP_s_smp]      = s.sampler;
+    sg_apply_bindings(&b);
+
+    vs_params_t vsp;
+    std::memcpy(vsp.u_modelViewProj, &mvp[0][0], sizeof(vsp.u_modelViewProj));
+    sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
+    sg_apply_uniforms(UB_vs_params, &up);
+
+    sg_draw(0, count, 1);
 }
 
 } // namespace
@@ -87,66 +124,41 @@ inline la::float2 applyMatrix(const la::float4x4& m, float x, float y) {
 // Sprite
 // ────────────────────────────────────────────────
 
-void Sprite::draw(bgfx::ViewId view) const {
+void Sprite::draw(const la::float4x4& mvp) const {
     if (isNull()) return;
-    if (!ensureProgram()) return;
-    auto& s = globalState();
-
-    // Unit-square model space, image fills (0..1)² with v=0 at source top.
     constexpr uint32_t kWhite = 0xFFFFFFFFu;
     const SpriteVertex verts[6] = {
-        {0.f, 0.f, 0.f, 0.f, 0.f, kWhite},  // tl
-        {1.f, 0.f, 0.f, 1.f, 0.f, kWhite},  // tr
-        {1.f, 1.f, 0.f, 1.f, 1.f, kWhite},  // br
-        {0.f, 0.f, 0.f, 0.f, 0.f, kWhite},  // tl
-        {1.f, 1.f, 0.f, 1.f, 1.f, kWhite},  // br
-        {0.f, 1.f, 0.f, 0.f, 1.f, kWhite},  // bl
+        {0.f, 0.f, 0.f, 0.f, 0.f, kWhite},
+        {1.f, 0.f, 0.f, 1.f, 0.f, kWhite},
+        {1.f, 1.f, 0.f, 1.f, 1.f, kWhite},
+        {0.f, 0.f, 0.f, 0.f, 0.f, kWhite},
+        {1.f, 1.f, 0.f, 1.f, 1.f, kWhite},
+        {0.f, 1.f, 0.f, 0.f, 1.f, kWhite},
     };
-
-    bgfx::TransientVertexBuffer tvb;
-    bgfx::allocTransientVertexBuffer(&tvb, 6, s.layout);
-    std::memcpy(tvb.data, verts, sizeof(verts));
-    bgfx::setVertexBuffer(0, &tvb);
-    bgfx::setTexture(0, s.sampler, tex);
-    bgfx::setState(kDefaultBlend);
-    bgfx::submit(view, s.program);
+    drawRun(view, verts, 6, mvp);
 }
 
 // ────────────────────────────────────────────────
 // SpriteBatch
 // ────────────────────────────────────────────────
 
-SpriteBatch::SpriteBatch() : blendState_(kDefaultBlend) {}
+SpriteBatch::SpriteBatch() = default;
 SpriteBatch::~SpriteBatch() = default;
 
-void SpriteBatch::clear() {
-    quads_.clear();
-    blendState_ = kDefaultBlend;
-}
-
-void SpriteBatch::setBlendState(uint64_t state) {
-    blendState_ = state;
-}
-
-bool SpriteBatch::ensureState() {
-    return ensureProgram();
-}
+void SpriteBatch::clear() { quads_.clear(); }
 
 void SpriteBatch::addSprite(const la::float4x4& m,
-                            const Sprite& sprite,
-                            uint32_t color) {
+                            const Sprite&       sprite,
+                            uint32_t            color) {
     addSprite(m, sprite, Rect{0.f, 0.f, 1.f, 1.f}, color);
 }
 
 void SpriteBatch::addSprite(const la::float4x4& m,
-                            const Sprite& sprite,
-                            Rect uvSubRect,
-                            uint32_t color) {
+                            const Sprite&       sprite,
+                            Rect                uvSubRect,
+                            uint32_t            color) {
     if (sprite.isNull()) return;
 
-    // Apply m to the four unit-square corners. Vertex positions are
-    // baked into the world frame on the CPU; the shader's u_modelViewProj
-    // contributes only the view + projection.
     const auto p00 = applyMatrix(m, 0.f, 0.f);
     const auto p10 = applyMatrix(m, 1.f, 0.f);
     const auto p11 = applyMatrix(m, 1.f, 1.f);
@@ -158,7 +170,8 @@ void SpriteBatch::addSprite(const la::float4x4& m,
     const float uvB = uvSubRect.y + uvSubRect.h;
 
     Quad q;
-    q.tex = sprite.tex;
+    q.tex  = sprite.tex;
+    q.view = sprite.view;
     q.verts[0] = {p00.x, p00.y, 0.f, uvL, uvT, color};
     q.verts[1] = {p10.x, p10.y, 0.f, uvR, uvT, color};
     q.verts[2] = {p11.x, p11.y, 0.f, uvR, uvB, color};
@@ -168,39 +181,27 @@ void SpriteBatch::addSprite(const la::float4x4& m,
     quads_.push_back(q);
 }
 
-void SpriteBatch::submit(bgfx::ViewId view) {
+void SpriteBatch::submit(const la::float4x4& worldToClip) {
     if (quads_.empty()) return;
-    if (!ensureProgram()) return;
-
-    auto& s = globalState();
+    if (!ensureState()) return;
 
     std::size_t i = 0;
     while (i < quads_.size()) {
-        bgfx::TextureHandle curTex = quads_[i].tex;
+        sg_view curView = quads_[i].view;
         std::size_t j = i + 1;
-        while (j < quads_.size() && quads_[j].tex.idx == curTex.idx) {
+        while (j < quads_.size() && quads_[j].view.id == curView.id) {
             ++j;
         }
         const std::size_t count = j - i;
-
-        bgfx::TransientVertexBuffer tvb;
-        bgfx::allocTransientVertexBuffer(&tvb,
-            static_cast<uint32_t>(count * 6), s.layout);
+        const int verts = int(count * 6);
+        std::vector<SpriteVertex> packed(verts);
         for (std::size_t k = 0; k < count; ++k) {
-            std::memcpy(tvb.data + k * 6 * sizeof(SpriteVertex),
-                        quads_[i + k].verts,
+            std::memcpy(&packed[k * 6], quads_[i + k].verts,
                         6 * sizeof(SpriteVertex));
         }
-
-        bgfx::setVertexBuffer(0, &tvb);
-        bgfx::setTexture(0, s.sampler, curTex);
-        bgfx::setState(blendState_);
-        bgfx::submit(view, s.program);
-
+        drawRun(curView, packed.data(), verts, worldToClip);
         i = j;
     }
-
-    blendState_ = kDefaultBlend;
 }
 
 } // namespace ge

@@ -34,3 +34,6 @@
 [submodule "vendor/github.com/sammycage/lunasvg"]
 	path = vendor/github.com/sammycage/lunasvg
 	url = https://github.com/sammycage/lunasvg.git
+[submodule "vendor/github.com/floooh/sokol-tools-bin"]
+	path = vendor/github.com/floooh/sokol-tools-bin
+	url = https://github.com/floooh/sokol-tools-bin.git
