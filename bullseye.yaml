@@ -2768,6 +2768,46 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-05-31
     achieved: 2026-05-31
+  T85:
+    name: build_project.rb wires iOS LocalStore IAP mode (no App Store login on sim/dev)
+    status: set_aside
+    value: 0.0
+    cost: 0.0
+    set_aside_reason: 'Deferred 2026-05-31: SKTestSession-based local IAP crashes at launch in a plain app process — StoreKitTest transitively requires XCTest (`dyld: Library not loaded: @rpath/XCTest.framework`), which doesn''t load outside an XCTest host. This is the exact non-viability T74 flagged; even the Developer-frameworks runpath didn''t resolve it. Superseded for sim/dev by stub mode (🎯T86). Revisit only if a viable XCTest/StoreKitTest host path for a non-test app process emerges.'
+    acceptance:
+    - build_project.rb, when ios/StoreKit.storekit is present, compiles src/iap_apple_local.swift, bundles StoreKit.storekit into Copy Bundle Resources, and weak-links StoreKitTest.framework (Optional) — automating CLAUDE.md T65.4 manual Xcode steps for gem-builder consumers.
+    - tiltbuggy launched on the iOS Simulator runs IAP in local mode (SKTestSession against the bundled .storekit) with NO App Store login dialogue; products()/buy()/owned() work against the fake products.
+    - If SKTestSession does not reliably intercept on the simulator (T74 caveat), the outcome is documented and the consumer falls back cleanly rather than crashing.
+    - CLAUDE.md T65.4 updated to reflect build_project.rb now wires local mode automatically.
+    context: 'Surfaced 2026-05-31 switching tiltbuggy to local IAP to stop the App Store login dialogue on the sim. UPDATE 2026-05-31: attempted the full wiring (build_project.rb bundles .storekit + weak-links StoreKitTest + compiles iap_apple_local.swift + adds $(PLATFORM_DIR)/Developer Library/Frameworks to FRAMEWORK_SEARCH_PATHS and LD_RUNPATH_SEARCH_PATHS). Result: the app crashes at launch with `dyld: Library not loaded: @rpath/XCTest.framework/XCTest, Referenced from: .../StoreKitTest.framework/StoreKitTest`. StoreKitTest transitively depends on XCTest — a test-host framework that does not load in a plain (non-XCTest) app process — which is exactly the failure mode T74 warned about (''SKTestSession doesn''t reliably intercept from non-XCTest app processes today''). Even adding the Developer runpath did not resolve XCTest in the app process. CONCLUSION: SKTestSession-based local IAP is not viable in a normal ge app process on the simulator with the current approach. Deferred in favour of stub mode (🎯T86) for sim/dev. Revisit only if a viable path to host XCTest/StoreKitTest in a non-test app process is found (e.g. a dedicated XCTest runner host, or Apple making StoreKitTest XCTest-independent). build_project.rb emits no xcscheme and simctl ignores scheme env, so GE_IAP_MODE can''t be injected per-launch; the launch-independent lever remains iap.cpp auto-mode on bundled .storekit. User chose local over stub on 2026-05-31, then (after seeing the XCTest crash) directed: file the target, go stub for now.'
+    tags:
+    - ios
+    - iap
+    - simulator
+    - build-tooling
+    - T74-followup
+    origin: manual
+    discovered: 2026-05-31
+  T86:
+    name: ge consumer simulator builds default IAP to stub (no App Store login dialogue)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'build_project.rb, on simulator builds (simulator: true), bundles ios/StoreKit.storekit into the app when present — its presence makes ge::iap auto-mode resolve to stub (no StoreKit calls, no login).'
+    - 'Distribution/device builds (simulator: false) do NOT bundle the .storekit and stay on the real platform StoreKit backend.'
+    - tiltbuggy launched on the iOS Simulator logs `ge::iap ... mode=stub` (or 'mode resolved to stub'), shows NO App Store login dialogue, renders, and does not crash.
+    - owned()/buy() work against StubStore's in-memory entitlements (testing::setOwned drives state).
+    context: 'Split out from 🎯T85 on 2026-05-31 after local (SKTestSession) mode proved non-viable in a plain app process (XCTest dependency). Stub is the reliable, login-free dev path that ge''s own auto-mode already prefers when a .storekit is bundled (T74: storekitConfigBundled() ? stub : platform). The minimal change is build_project.rb bundling the .storekit on sim builds; no engine (iap.cpp) change needed. User directed ''go for stub for now'' on 2026-05-31.'
+    tags:
+    - ios
+    - iap
+    - simulator
+    - build-tooling
+    - T74-followup
+    origin: manual
+    discovered: 2026-05-31
+    achieved: 2026-05-31
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
