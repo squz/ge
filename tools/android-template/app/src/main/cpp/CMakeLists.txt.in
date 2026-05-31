@@ -43,8 +43,10 @@ set(SOKOL_SHDC "${GE_ROOT}/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm6
 # Backends baked into each generated header. Android picks glsl300es at
 # runtime via sg_query_backend(); the metal_* slots are inert here but
 # keeping them matches the desktop/iOS headers byte-for-byte and avoids
-# header-content drift between platforms.
-set(SOKOL_SHDC_LANGS "metal_macos:metal_ios:glsl300es")
+# header-content drift between platforms. metal_sim (🎯T84) is one of those
+# inert-on-Android slots; it must stay in sync with Module.mk's
+# ge/SOKOL_SHDC_LANGS so the iOS-simulator header content matches.
+set(SOKOL_SHDC_LANGS "metal_macos:metal_ios:metal_sim:glsl300es")
 
 file(GLOB APP_SHADERS_GLSL CONFIGURE_DEPENDS "${PROJECT_ROOT}/shaders/*.glsl")
 set(APP_SHADER_HEADERS)

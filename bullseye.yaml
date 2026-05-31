@@ -2715,6 +2715,59 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-05-31
     achieved: 2026-05-31
+  T83:
+    name: ge's log layer offers a TCP network sink for dev-time diagnostics that bypasses Apple unified logging and Android logcat
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::log::install() checks getenv("SPYDER_LOG_TARGET") at startup. When set to host:port, a spdlog tcp_sink is appended to the default logger so every spdlog emission is also sent over TCP.
+    - When the env var is unset or empty, no sink is installed and behaviour is unchanged.
+    - 'The sink-install code is compile-gated behind #ifndef NDEBUG (or ge''s existing debug-build macro, whichever the project already uses). Release builds compile the entire feature out — no getenv call, no symbol references — so the convention can''t accidentally leak into a TestFlight or Play Store binary.'
+    - 'Reconnect-on-error: if the listening host disconnects mid-session, the sink reconnects rather than silently going dead (spdlog 1.x tcp_sink does not do this out of the box — a thin wrapper that retries with backoff on send failure is part of the deliverable).'
+    - 'Verified on macOS desktop, iOS (Jevons or equivalent iPad/iPhone), and Android (an emulator or physical device): the app emits via SPDLOG_INFO, lines arrive at `nc -l <port>` on the host within ~100ms, no Apple-log / logcat dependency in the path.'
+    - 'agents-guide.md (or ge''s equivalent docs page) documents the convention: the env var name, the `nc -l <port>` recipe, the #ifdef guard, and the iOS/Android quirks (iOS picks env vars up from Xcode scheme or the spyder env-passthrough target; Android requires the Intent-extra → JNI shim).'
+    - Sample diff in sample/tiltbuggy (or another consumer) shows the one-line install hook and the laptop-side commands to receive the stream.
+    context: |-
+      Filed 2026-05-31 after a multi-hour iOS-logging investigation on multimaze2/Jevons that ended in the same place several previous ones have: Apple's unified-logging path is *the* recommended one but its access stack (DTX over RSD tunnel, DDI mount, Developer Mode, os_trace_relay fallback that drops third-party app emissions) has enough failure modes that consumers can't reliably depend on it as their primary dev-time diagnostic channel. NSLog isn't the escape hatch it historically was — on iOS 14+ it's reimplemented on top of os_log, inheriting the same gates.
+
+      The real bypass is the one game devs use everywhere: open a socket. spdlog ships a tcp_sink out of the box, the app send()s lines to a host:port, `nc -l <port>` on the laptop tails in real time. Zero dependency on Apple log infrastructure or adb logcat quirks. Adding this once at the ge layer means every ge-based game (multimaze2, tiltbuggy, esfera2, yourworld2) gets it.
+
+      The compile-time gate is non-negotiable. A debug-only macro means a misconfigured release build can't ship a binary that phones home to a developer's LAN IP. #ifndef NDEBUG is the standard primitive; if ge has its own GE_DEBUG/GE_DEV macro already wired into the build configs, hook into that instead so all of ge's dev-only code goes through one switch.
+
+      The runtime gate (env var) means even in a debug build, the sink only installs if explicitly told where to point — so an SDK-internal QA build won't accidentally start streaming when a dev runs it locally without a listener.
+
+      Paired with the spyder launch_app env-passthrough target — that target gives spyder a way to inject SPYDER_LOG_TARGET at deploy time without source edits. Either target can land first: ge's TCP sink works today via Xcode scheme env vars (iOS) and shell env vars (desktop) without spyder; the spyder env passthrough adds spyder-driven deploys to the list.
+    tags:
+    - logging
+    - ios
+    - android
+    - dev-experience
+    - spdlog
+    - tcp-sink
+    - dev-only
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-05-31
+  T84:
+    name: sokol_gfx works on iOS Simulator (sg_make_shader assertion)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A consumer app built with sokol_gfx + sokol-shdc generated shaders launches on the iOS Simulator without aborting in sg_make_shader / sg_make_shader.cold.6
+    - Both rendering passes that use ge::SpriteBatch and the consumer's custom pipelines (e.g. multimaze2's MarbleRenderer) work on simulator with no abort
+    - iOS Simulator destination joins the matrix as a supported make ge/ios target for iterating UI / event behaviour without a physical device round-trip
+    context: 'Found 2026-05-31 trying to use the iOS Simulator to debug a touch-routing issue on physical iOS devices that we couldn''t see logs for (spyder''s syslog backend doesn''t surface multimaze NSLog/spdlog). The app launches and ge::log routes via ge::AppleSink (we saw MM2-INIT in `xcrun simctl spawn booted log show --predicate process == MultiMaze`), but the very first SpriteBatch::submit fires an abort in sokol_gfx''s sg_make_shader. Stack: sg_make_shader.cold.6 → sg_make_shader → ge::ensureState → ge::SpriteBatch::submit → Application::renderMenu (Application.cpp:1397) → Application::render. Guessed root cause: sokol-shdc bakes metal_ios bytecode that doesn''t load on the Apple-Silicon iOS Simulator (the sim runs iOS Metal but its library binary format differs from device; sokol picks metal_ios via TARGET_OS_IOS without distinguishing TARGET_OS_SIMULATOR). Likely fix: either (1) add an iphonesimulator branch to ge''s sokol-shdc invocation that emits a metal_macos variant for sim destinations, (2) pick metal_macos at runtime via TARGET_OS_SIMULATOR in the shader_desc factory, or (3) ship a separate _sim shader header next to marble.h / ge_sprite.h that the simulator picks up. Device (iPad mini, iPhone 13) renders fine — sim-only. Without it the consumer can''t use xcrun simctl spawn for log inspection, which would be the most reliable iOS log capture path.'
+    tags:
+    - multimaze-audit
+    - ios
+    - simulator
+    - T38
+    - sokol-shdc
+    origin: multimaze2-audit
+    discovered: 2026-05-31
+    achieved: 2026-05-31
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging

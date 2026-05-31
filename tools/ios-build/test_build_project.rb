@@ -236,8 +236,8 @@ class BuildProjectTest < Minitest::Test
 
     assert_match %r{sokol-tools-bin/bin/osx_arm64/sokol-shdc}, script,
       "must reference the vendored sokol-shdc binary path"
-    assert_match %r{metal_macos:metal_ios:glsl300es}, script,
-      "must emit headers for Metal (macOS+iOS) and GLES3 (Android)"
+    assert_match %r{metal_macos:metal_ios:metal_sim:glsl300es}, script,
+      "must emit headers for Metal (macOS + iOS device + iOS simulator) and GLES3 (Android); metal_sim is required (🎯T84) or sg_make_shader aborts on the simulator"
     assert_match %r{-f sokol\b}, script,
       "must use the sokol header format (-f sokol)"
   end

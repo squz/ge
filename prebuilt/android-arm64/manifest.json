@@ -7,7 +7,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "738f0f08d207f6cb40eb21ae8aaae609f5445cdf90be8ff902730afd2bfd8fcd",
+    "tools/prebuild.sh": "ebd2ff0b3b99c2ee1638ff33f7a841d459491e8be7c0ba4b61cfca40638c8e38",
     "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
@@ -28,7 +28,7 @@
   },
   "prebuilts": {
     "prebuilt/android-arm64/libbox2d.a": "4bbd9060d5a383870ffa67814546fccefe8d9316c07c1aae5cb54ec8ba8b4314",
-    "prebuilt/android-arm64/libge.a": "419dc4154854e6c3ced0c72516fd8c8e53777bdd1de8595e12e33eeb03dab13b",
+    "prebuilt/android-arm64/libge.a": "d19b6eb78158c545888979f291a44637bf72364396885f4b462a47a6021b6f50",
     "prebuilt/android-arm64/libliteparser.a": "be32b2f24bd9db6b9416197d713bcf64d659e7818ba59b392854155c1a15c9b9",
     "prebuilt/android-arm64/liblunasvg_ge.a": "8829ecd8516ec11f1c780bd489060406fe851d719d3d9b9c7aa8817a3c7aeefd",
     "prebuilt/android-arm64/liblz4_ge.a": "38b9b734ea6551735e1b1ff3da2e0abb204f17c497d8fa917dc2690cd595845f",

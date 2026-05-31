@@ -494,7 +494,11 @@ module GE
             echo "  run: git submodule update --init vendor/github.com/floooh/sokol-tools-bin" >&2
             exit 1
           fi
-          LANGS="metal_macos:metal_ios:glsl300es"
+          # metal_sim (🎯T84): the iOS Simulator reports SG_BACKEND_METAL_SIMULATOR;
+          # without a metal_sim slot the generated shader_desc returns NULL there
+          # and sg_make_shader aborts. Keep in sync with Module.mk's
+          # ge/SOKOL_SHDC_LANGS and tools/prebuild.sh.
+          LANGS="metal_macos:metal_ios:metal_sim:glsl300es"
 
           # ge engine shaders → build/ge/shaders/
           GE_SRC="${SRCROOT}/#{ge_shader_src_dir}"

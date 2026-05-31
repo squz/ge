@@ -8,7 +8,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "738f0f08d207f6cb40eb21ae8aaae609f5445cdf90be8ff902730afd2bfd8fcd",
+    "tools/prebuild.sh": "ebd2ff0b3b99c2ee1638ff33f7a841d459491e8be7c0ba4b61cfca40638c8e38",
     "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "3a26382179d798ff8278a0ed0830830495006493643a0dff3e8490cf444e7222",
-    "prebuilt/ios-arm64/libge.a": "17010d27f82e249e799d68ae372938bb8f5bfd40522b4421dc51277af2323e2a",
-    "prebuilt/ios-arm64/libliteparser.a": "d7cdf47ab3104f7f248f09e96f7552759c445fe8574a2cef28879aee55c5e97b",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "37fad8818e829151d27e04d17d26e862f6a12cdb7c6844a8853953eab15b3820",
-    "prebuilt/ios-arm64/liblz4_ge.a": "1716060a02951573a7362b9b0c9a0f3ba2ba4ec5ba32a10a9356dd942f56cc59",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "4a2e769f4b818ee1c85552f468fcb4513157bb754f0a952165d2d5d0a74d049e",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "cb3548f220d746082c5d274fb0e7d5a79849acc01a4b930ed904cf7afc1e4267"
+    "prebuilt/ios-arm64/libbox2d.a": "6d9aa2685c77c977510aa3e401252d61604fbbb11040d37818802b21a9229be8",
+    "prebuilt/ios-arm64/libge.a": "5a2b5d9b7cb4341b1874ffab8f041c420a968c79e2ac96cddba0f2b74d07d7f3",
+    "prebuilt/ios-arm64/libliteparser.a": "005442e99bacfd6320ca9fdda84f2152b66387bf9ba66c6c27c0842b7290c532",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "164966807020defe78ce1101fed25a3b5b0f422b347f44f86d5b723e6734d62a",
+    "prebuilt/ios-arm64/liblz4_ge.a": "b1fcc4ba8bcf3e95f8786fc0f27b9a6139c27138830c979dbdbb9193f107e564",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "6db8ce3ef2948578c78e4f88cc60448978322d20b2c0e36d0d54a10ba7d5c3a0",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "929fa718debd13711cf1ae393941a49b28bf11b9db97f0559f5be5668005bcd3"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",

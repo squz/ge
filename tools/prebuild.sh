@@ -286,9 +286,12 @@ GE_INCLUDES=(
 GE_SHADER_OUT_DIR="$OBJ_DIR/ge-shaders"
 mkdir -p "$GE_SHADER_OUT_DIR"
 SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
+# metal_sim (🎯T84): the iOS Simulator reports SG_BACKEND_METAL_SIMULATOR,
+# so ge_sprite.h needs a metal_sim slot or sg_make_shader aborts there.
+# Keep this lang list in sync with Module.mk's ge/SOKOL_SHDC_LANGS.
 "$SOKOL_SHDC" -i src/render/shaders/ge_sprite.glsl \
               -o "$GE_SHADER_OUT_DIR/ge_sprite.h" \
-              -l metal_macos:metal_ios:glsl300es -f sokol
+              -l metal_macos:metal_ios:metal_sim:glsl300es -f sokol
 GE_INCLUDES+=(-I "$GE_SHADER_OUT_DIR")
 if [[ -n "$SDL_STUB_INC" ]]; then
   GE_INCLUDES+=(-I "$SDL_STUB_INC")
