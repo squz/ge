@@ -85,8 +85,14 @@ SokolContext::SokolContext(const SokolConfig& config)
         SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #else
     // iOS windows are always fullscreen; SDL_WINDOW_RESIZABLE doesn't apply.
-    // SDL_WINDOW_HIGH_PIXEL_DENSITY is the default on iOS.
-    const Uint64 windowFlags = SDL_WINDOW_METAL;
+    // SDL_WINDOW_HIGH_PIXEL_DENSITY is required (🎯T82): SDL3 does NOT default
+    // it on for iOS — it only raises the metalview's contentScaleFactor to the
+    // device nativeScale when the flag is present. Without it,
+    // SDL_GetWindowSizeInPixels returns points, not pixels, and ge::Context's
+    // divide-by-pixelsPerPt math reports a phantom ~1/3-size surface, so taps
+    // land in the upper-left third of the screen. Pre-sokol BgfxContext.mm set
+    // this flag on the same path.
+    const Uint64 windowFlags = SDL_WINDOW_METAL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #endif
     m->window = SDL_CreateWindow(title, config.width, config.height, windowFlags);
     if (!m->window) {
