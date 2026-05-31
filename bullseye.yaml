@@ -2695,6 +2695,26 @@ targets:
     - T60-followup
     origin: multimaze2-audit
     discovered: 2026-05-31
+  T82:
+    name: SokolContext.mm sets SDL_WINDOW_HIGH_PIXEL_DENSITY on iOS
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - SokolContext.mm's iOS path passes SDL_WINDOW_HIGH_PIXEL_DENSITY to SDL_CreateWindow alongside SDL_WINDOW_METAL — matching the pre-sokol BgfxContext.mm behaviour on the same platform
+    - Misleading comment 'SDL_WINDOW_HIGH_PIXEL_DENSITY is the default on iOS' is removed (SDL3 does not in fact default it on)
+    - 'On iPhone (e.g. iPhone 13, native scale 3.0): ctx.fullRectInPts() reports the device''s actual point dimensions (390 × 844 pt), not 1/3 of that (130 × 281 pt)'
+    - Consumer apps' menu buttons respond to taps on iOS device — the touch normalization SDL applies against the UIView bounds (in pt) lines up with ctx.fullRectInPts (also in pt) so taps land where they're rendered
+    - SDL_GetWindowSizeInPixels returns native pixel dimensions on iOS, not points, so the surfacePx field stored in ge::Context is in the unit the divide-by-pixelsPerPt math expects
+    context: 'Surfaced 2026-05-31 testing the multimaze2 T17 sokol port on Jevons (iPad mini) and Minicades Test iPhone (iPhone 13): the Menu screen''s pack-row buttons render correctly but are unresponsive to taps. Root cause: PR #113''s SokolContext.mm iOS path omits SDL_WINDOW_HIGH_PIXEL_DENSITY (with a comment claiming it''s the default on iOS — SDL3 does NOT default it on; only sets the metalview''s contentScaleFactor to nativeScale when the flag is present). Without it, SDL_GetWindowSizeInPixels returns the window size in POINTS (390 × 844 on iPhone 13) rather than pixels (1170 × 2532), then ge::Context divides those point values by SDL_GetWindowDisplayScale (= 3.0 nativeScale on iPhone @3x), so ctx.fullRectInPts() reports a 130 × 281 phantom surface. Touch events from SDL_EVENT_FINGER_* are normalized [0..1] then multiplied by ctx.fullRectInPts().size() in ge::input::fromSdl — yielding tap coords confined to the upper-left ~1/3 of the actual screen, well outside any visible button. The pre-sokol BgfxContext.mm correctly set HIGH_PIXEL_DENSITY on the same iOS path.'
+    tags:
+    - multimaze-audit
+    - ios
+    - T38
+    - touch
+    origin: multimaze2-audit
+    discovered: 2026-05-31
+    achieved: 2026-05-31
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
