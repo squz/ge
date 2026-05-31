@@ -201,13 +201,13 @@ ge::la::float4x4 orthoMetal(float l, float r, float b, float t, float zn, float 
 
 // BUY PRO button screen rect in pt. Lives at the top-left corner of the
 // UI safe rect so it never sits under the camera notch / Dynamic Island.
-// Size scales with pixelsPerPt so the tap target stays at ~85 × 27 pt
-// (above Apple HIG's 44 pt minimum) on every device class.
+// Units must match the pt-space hit-test in main.cpp's onEvent and the
+// pt-denominated pxToWorldX/Y math in Renderer's draw path.
 ge::Rect proButtonRect(const ge::Context& c) {
     const auto safe = c.uiSafeRectInPts();
-    const float pad = 16.f * c.pixelsPerPt();
-    const float bw  = 85.f * 3.0f * c.pixelsPerPt();
-    const float bh  = 27.f * 3.0f * c.pixelsPerPt();
+    const float pad = 16.f;
+    const float bw  = 85.f * 3.0f;
+    const float bh  = 27.f * 3.0f;
     return {safe.x + pad, safe.y + pad, bw, bh};
 }
 
