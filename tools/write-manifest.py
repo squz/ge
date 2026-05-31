@@ -200,10 +200,13 @@ def main() -> int:
 
     submodule_shas, submodule_paths = get_submodule_info()
 
-    # Aggregate depfile paths, filter to repo-internal + non-submodule.
+    # Aggregate depfile paths, filter to repo-internal + non-submodule
+    # + non-generated (anything under build/ is a build-time intermediate
+    # that won't exist on a fresh clone, so it'd fail verify-prebuilds).
     inputs: dict[str, str] = {}
     skipped_system = 0
     skipped_submodule = 0
+    skipped_generated = 0
     for abs_p in sorted(aggregate_depfile_paths(depfile_root)):
         try:
             rel = abs_p.relative_to(REPO_ROOT).as_posix()
@@ -212,6 +215,9 @@ def main() -> int:
             continue
         if is_submodule_path(rel, submodule_paths):
             skipped_submodule += 1
+            continue
+        if rel.startswith("build/"):
+            skipped_generated += 1
             continue
         if not abs_p.exists():
             print(f"warning: depfile referenced missing file: {rel}", file=sys.stderr)
@@ -256,7 +262,7 @@ def main() -> int:
     print(f"  submodules:     {len(submodule_shas):4d}")
     print(f"  prebuilts:      {len(prebuilts):4d}")
     print(f"  inputs:         {len(inputs):4d}")
-    print(f"  filtered:       {skipped_system} system, {skipped_submodule} submodule")
+    print(f"  filtered:       {skipped_system} system, {skipped_submodule} submodule, {skipped_generated} generated")
     return 0
 
 

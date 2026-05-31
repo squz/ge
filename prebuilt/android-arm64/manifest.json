@@ -9,7 +9,7 @@
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
     "tools/prebuild.sh": "738f0f08d207f6cb40eb21ae8aaae609f5445cdf90be8ff902730afd2bfd8fcd",
     "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
-    "tools/write-manifest.py": "e800a85a92a11733d2665b551d7be91b5a748b0abac8186dac0ff85450784232"
+    "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
@@ -36,7 +36,6 @@
     "prebuilt/android-arm64/libsqlite3_ge.a": "b55862ffbf6549a7fb6320a70934e05636a20bad78138286b8da2b2cad8dfe4a"
   },
   "inputs": {
-    "build/prebuilt/android-arm64/ge-shaders/ge_sprite.h": "3d40473ed37689ed79a75c85e973e3043c889ed05a5c6973e5d824e7c1c284d1",
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "headers/liteparser/include/liteparser.h": "30baf7afdff6c72d3c731811a9dc0fd8d7856278d9577a31e4ade58917cff599",
     "headers/lunasvg/include/lunasvg.h": "336af79e64ae2744736e1ca01b8b7ad967c931d240f571cb13d615aa0e01d7c6",
