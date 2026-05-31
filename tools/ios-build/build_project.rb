@@ -135,6 +135,7 @@ module GE
         @ge_root      = File.expand_path(ge_root      || File.join(@project_root, 'ge'))
         @info_plist   = info_plist      || File.join(@ios_dir, 'Info.plist')
         @assets_xcassets = assets_xcassets || File.join(@ios_dir, 'Assets.xcassets')
+        @storekit_config = File.join(@ios_dir, 'StoreKit.storekit')
 
         @game_sources_abs = game_sources.map { |p| File.expand_path(p, @project_root) }
         @resources = resources # array of relative-to-project_root paths (files or dirs)
@@ -392,6 +393,22 @@ module GE
           else
             warn "resource not found: #{abs}"
           end
+        end
+
+        # 🎯T86: on simulator (dev) builds, bundle StoreKit.storekit if the
+        # consumer has one. Its mere presence in the bundle makes ge::iap's
+        # auto-mode resolve to "stub" (T74) — in-memory entitlements, zero
+        # StoreKit calls, so no App Store login dialogue during sim
+        # iteration. Distribution/device builds (@simulator false) don't
+        # bundle it and stay on the real platform StoreKit backend.
+        #
+        # NB: this only triggers stub, which does not read the file's
+        # contents. Full LocalStore (SKTestSession against the .storekit's
+        # fake products) is deferred — see 🎯T85: StoreKitTest transitively
+        # requires XCTest, which can't load in a plain (non-XCTest) app
+        # process, so SKTestSession isn't viable here yet.
+        if @simulator && File.exist?(@storekit_config)
+          @app_target.add_resources([file_ref_for(@storekit_config)])
         end
       end
 
