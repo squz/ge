@@ -19,6 +19,7 @@
     "vendor/github.com/bkaradzic/bx": "c6131ec6761abf4b5b8e83a9fd0348023c86028e",
     "vendor/github.com/chriskohlhoff/asio": "55684d42ac00021b4c31ba8571aca414c863ead5",
     "vendor/github.com/erincatto/box2d": "8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3",
+    "vendor/github.com/floooh/sokol-tools-bin": "8ac9f1240fc72c5cf405845bb6afdf9bf3f69ea4",
     "vendor/github.com/gabime/spdlog": "472945ba489e3f5684761affc431ae532ab5ed8c",
     "vendor/github.com/libsdl-org/SDL": "a962f40bbba175e9716557a25d5d7965f134a3d3",
     "vendor/github.com/libsdl-org/SDL_ttf": "a1ce3670aec736ecbf0936c43f2f0cc53aa61e5b",

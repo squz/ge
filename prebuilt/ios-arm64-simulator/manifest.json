@@ -19,6 +19,7 @@
     "vendor/github.com/bkaradzic/bx": "c6131ec6761abf4b5b8e83a9fd0348023c86028e",
     "vendor/github.com/chriskohlhoff/asio": "55684d42ac00021b4c31ba8571aca414c863ead5",
     "vendor/github.com/erincatto/box2d": "8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3",
+    "vendor/github.com/floooh/sokol-tools-bin": "8ac9f1240fc72c5cf405845bb6afdf9bf3f69ea4",
     "vendor/github.com/gabime/spdlog": "472945ba489e3f5684761affc431ae532ab5ed8c",
     "vendor/github.com/libsdl-org/SDL": "a962f40bbba175e9716557a25d5d7965f134a3d3",
     "vendor/github.com/libsdl-org/SDL_ttf": "a1ce3670aec736ecbf0936c43f2f0cc53aa61e5b",
@@ -26,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "ade7a3ceeacf156ebb58e0014d0e08d87ebd52d587dd1d2907b858348fa26348",
-    "prebuilt/ios-arm64-simulator/libge.a": "0b2dbbcd90ba5c924a541290c28e798bc84879a6672601f17ac9f3f8f6348298",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "48d5b6e5e2a6ac55ee8e73809d0641c484e22f89f036872d0756da61a7f4a2f1",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "1b2ecb4e8fdafb5279c19fb2df465d3cadeea79b485899254a0ed54686856098",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "a99d37440ff17a0cfa31c60b5dfba13b299b7fd3cc5017d39e6b831ddb989f42",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "f27f9403046937ff6b7e25d7564bdf0bdaf8dbacbaeee6029c0f3cb442b1dd65",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "a56798f46363500edcf3f2275098d52deb0a070700429b9173f34469d7025d29"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "e3f7cf341c61db95fbf36022eeefac897c5d2f25652755e870b49876ae475ded",
+    "prebuilt/ios-arm64-simulator/libge.a": "5c2c0a493d7bb2e2734076502b62262d66d769b4727d9e7d469f224b55ab820a",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "4a201398bad1e2fa6d112229e9b4bf5b82a31a83bdf571ed79a64b648c965cea",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "567b53e177f92c89f4dc1f8926d42f2224a6a298217242c677b55f5cda2504e2",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "e6b0fb8b3ee4a7d8227cdae181de708c7739db01f8543c2d8a43772d07036365",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "d4957631bf4a9a64dbe6987c607dad6f9e4f7006916bd6e5325e1aec4ace5a1a",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "92cd5118d415c354b79daf4a832dbfcb89ca0c1e632e7d9cf1aef8c5fe852d75"
   },
   "inputs": {
     "build/prebuilt/ios-arm64-simulator/ge-shaders/ge_sprite.h": "0003f2c2734c1afca23ed9925a35523150f973bc20ddd8e854a0fcfa7e41dc31",

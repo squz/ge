@@ -20,6 +20,7 @@
     "vendor/github.com/bkaradzic/bx": "c6131ec6761abf4b5b8e83a9fd0348023c86028e",
     "vendor/github.com/chriskohlhoff/asio": "55684d42ac00021b4c31ba8571aca414c863ead5",
     "vendor/github.com/erincatto/box2d": "8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3",
+    "vendor/github.com/floooh/sokol-tools-bin": "8ac9f1240fc72c5cf405845bb6afdf9bf3f69ea4",
     "vendor/github.com/gabime/spdlog": "472945ba489e3f5684761affc431ae532ab5ed8c",
     "vendor/github.com/libsdl-org/SDL": "a962f40bbba175e9716557a25d5d7965f134a3d3",
     "vendor/github.com/libsdl-org/SDL_ttf": "a1ce3670aec736ecbf0936c43f2f0cc53aa61e5b",
@@ -27,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "331eac26717a59f3ff97b1c1408b1a22db852e20a75f0b94947b7c53af62a795",
-    "prebuilt/ios-arm64/libge.a": "89677041523c24e4d363f0b1b638fcd8ce36bfbc6cce8d7fb1e3752835bc41b7",
-    "prebuilt/ios-arm64/libliteparser.a": "ca2f0d666e21b25a144e4652860d1ccbc854bcccf837a01d987024de272d3367",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "44521f8a16201b9f141f085e347640214fb1d37e0a86ab3f292b6fff2fcb171d",
-    "prebuilt/ios-arm64/liblz4_ge.a": "b2f35b7eb4f77124aa6f7332ebc960056f34e842c5d86981b4e55d927d025964",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "037f94ded20ac5d71486d369dc07a155d3633d66e21037b5d741b379ab33e635",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "c2635e2d9db8cb26dc235696ee6b6caa349e0c2f978c7a47f6d662bdfa52cc45"
+    "prebuilt/ios-arm64/libbox2d.a": "b15828e333e1e11824ff74f38bda18ab47049ee7224a28f3572ed07b8f3d89d6",
+    "prebuilt/ios-arm64/libge.a": "3bdbd1a4e27035c1bfb070113fcfe3bbc2b9a4188d6d31a128cf143aba17d731",
+    "prebuilt/ios-arm64/libliteparser.a": "51fcb9f493ec6434a0769170eecfdc205a7fff0dc671a7ad8a08d3a86edfd6bc",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "449f975e5be1b455a45457ba9012458f0789d739d2f56958436b1a95a5fa7c2c",
+    "prebuilt/ios-arm64/liblz4_ge.a": "23fbdd180509757fb518ca813bb63e0e037edaef94a32f3ed3e6b980e9251b7a",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "9af55a8b26c6c6467e7630e210fd3790f385d3eb2189c1566750b3e9e951d17c",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "e9f743e57211441a466d6241db324545ac5ecef7d69a0acfceeb14caad9e0419"
   },
   "inputs": {
     "build/prebuilt/ios-arm64/ge-shaders/ge_sprite.h": "535e396c02ad653a70216dae6756899d43a06c0b594c9c4493aa7c42e6628b30",
