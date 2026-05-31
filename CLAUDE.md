@@ -264,6 +264,23 @@ sourceSets {
 
 **Apps that need custom Activity behavior** can subclass `ge.GeActivity` in their own `app/src/main/java/<package>/` tree, add `'src/main/java'` back to `java.srcDirs`, and point the manifest at the subclass. Zero-customization is the supported default — reach for a subclass only when the engine surface genuinely doesn't suffice.
 
+### 16 KB page alignment (🎯T75)
+
+**Every ge Android build produces 16 KB page-aligned shared libraries.** This is a hard contract, not a per-app opt-in: Google Play rejects submissions whose `.so` files are not 16 KB-aligned (Android 15+ devices ship 16 KB memory pages; Android 16 hard-blocks installs of 4 KB-aligned apps with an "ELF alignment check failed" system dialog).
+
+The contract is enforced in **one ge-owned place** — `cmake/android-arm64.cmake` appends `-Wl,-z,max-page-size=16384` to `CMAKE_SHARED_LINKER_FLAGS` before the consumer's `add_library(main SHARED …)` and before ge's SDL `add_subdirectory()` calls. Because `include()` does not open a new scope and the SDL subdirectories copy the flag at entry, **every** shared object in the build inherits it: `libmain.so`, `libSDL3.so`, `libSDL3_image.so`, `libSDL3_ttf.so`, and their transitive deps (freetype, harfbuzz, plutovg). Consumer apps need no Gradle or CMakeLists changes — bumping the ge submodule pointer is enough.
+
+**Why an explicit flag rather than relying on the NDK default:** NDK r28+ links 16 KB-aligned by default, but r27 and earlier default to 4 KB, and it is the consumer's *Gradle* build — not ge's `prebuild.sh` — that chooses the NDK linking the final `.so`. The explicit flag makes the contract NDK-version-independent. (The prebuilt `libge.a` and vendor `.a` static archives have no PT_LOAD segments, so alignment only matters at this final `.so` link.)
+
+**Verify** any built `.so`:
+
+```bash
+llvm-readelf -lW <lib>.so | grep LOAD
+# every PT_LOAD segment must show Align 0x4000 (16384)
+```
+
+`llvm-readelf` ships with the NDK (`<ndk>/toolchains/llvm/prebuilt/*/bin/`) and Homebrew LLVM.
+
 ### Developer Setup
 
 `ge/init` installs common prerequisites (Homebrew packages, Git LFS, VS Code settings, compiledb). The parent's `init` target should depend on it and expand the `ge/INIT_DONE` canned recipe at the end:
