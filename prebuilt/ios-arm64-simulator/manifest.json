@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "8636415a8e11b32599f3636580ce14474f7f6d70ee8b67ad50442260cc17159d",
-    "prebuilt/ios-arm64-simulator/libge.a": "82d2436ba072f8fd52ee5582f614237378b817a88dbfc41984755392b9a31ef5",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "2a37f91c1bfb1b282f48605fbea9a60afb7bdfb8156c384e622fac0dba5f3a13",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "fc8cf22b9065767101c563953d60f6fd2c41f0b2ad2ffa6746bf55245dd04ab1",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "c31629129dcd36f94f4d0e546f16c366d4e32ad0ccd9c9f49597a66a047a2e03",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "1ae1c7d06e6bb0a17997ba79b0ba52e768e51278df8c32adc388d29dd9c75f08",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "c808865f729cad6b3cde65b14d4611bb19063c367cabb997296ea8929d701361"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "ec3a3fb6acd536b766bb67194634dc3f08867f2be28293ca4bd87ef008141376",
+    "prebuilt/ios-arm64-simulator/libge.a": "775d1c8d0ee7008f8d98837a5e6089fd410873f2f48fbf7d9424b664b22a6d17",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "304053b500cda2c22936505968a46b742e835e269d0934458fe5435f4f41efc4",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "6d0b953b4f593adc71258bfcbca7296d4588c0ce84eaf526caca9df7e46ebdc9",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "3b0ba7b06c0f9a6cbd9e257dc2864e461291704146b0e932275a0e9f1b17c47b",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "8be0a3631a48d03c7994edae47626afcb9c96f97a5ad67f523b4577e7ee7e9ab",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "88d984583d237297deda9eecaab051bc3a633b11084dfbf2cd69c908a8a2ccbf"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -173,7 +173,7 @@
     "include/ge/manifest.h": "ff4ab54fc9a52c0452093e9bba35a2fc3ff582832ffa2d8f204a429408f059c1",
     "include/ge/png.h": "d896e91457e15a638bcc9de40f997a8c9c1b11878de1a9d25d76efe4b56f88ad",
     "include/ge/sdl_input.h": "41bcf1de03c9d109b783363c97af83e63a6df7a7fc767a76b5096ca712397178",
-    "include/ge/sprite.h": "10c701511013cd0770d0d7dce4de896193f8ee225220cf3dfd744f4e9b0b014c",
+    "include/ge/sprite.h": "cda6afa9d3ecbaf4ada8a1ed9ebfe1662eb1e8bc64662a50aacd3481eb83ed46",
     "include/ge/svg.h": "d062383cc7027490e7e867de39cd6e75d609166b46fcccc7ee1edc445eb26ebf",
     "include/ge/text.h": "3a915fca2a5de2c26e23f7c7b01eefe59c110edfc35e02d2cd84ac47c72859f1",
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",

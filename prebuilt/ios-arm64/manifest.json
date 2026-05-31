@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "87619fd0f8488cd678880dbe09d77bf87d346c81198a76c6c8ed5c2efa5d037e",
-    "prebuilt/ios-arm64/libge.a": "5eb9a38496345be99f79c481c3590e5afccd7784a50475898684785bb21e0a5b",
-    "prebuilt/ios-arm64/libliteparser.a": "cdd581e2aba9e53807ef0b6a550e2e9d6e94c066d54552d90a016529eae5c8ae",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "553ad51df6b28d054a2aba05a7495c0156e31919944bb32354e6c690228da052",
-    "prebuilt/ios-arm64/liblz4_ge.a": "bd191eadc2b3b0951c0803b03bf4b04133508f905bb5b5b2eececd18b2589369",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "326e94a1057a276f634d8a92b6ff40e2d8d0869279288018bdcfae55c8b9d4b1",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "a2db70ad2dff41d16888e316085d979ddd1ed4f06ab14eaa9414557c69904167"
+    "prebuilt/ios-arm64/libbox2d.a": "9d548c967df4417735455043c249d7d3760b71e401b701c0de2463a645a3c27e",
+    "prebuilt/ios-arm64/libge.a": "04dc080f4162b68d0618ce11c5ce79439fa9f809ad6c748a0df7eae15cd5cb93",
+    "prebuilt/ios-arm64/libliteparser.a": "884efb21f889d5f9a6c6365c19c0017cc50dd9dba55d106f57b463a1cac8cf26",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "4c4a8421177ec66a7439d8ac8a2aab3cb982592e6d2dd7a06aec02971583eac5",
+    "prebuilt/ios-arm64/liblz4_ge.a": "5d952e674de22d03692ea390454ab7eeaa1336036df24091509cc46c7214083c",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "5cf9808fa6a80624007dd87adeba3a067ca283a9d23ef13e020d2cdaab4b59ab",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "bb2f3771bdf55b360dc54d9b6a12390ff9a039a6558ffadcc030549a08d0b5bb"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -174,7 +174,7 @@
     "include/ge/manifest.h": "ff4ab54fc9a52c0452093e9bba35a2fc3ff582832ffa2d8f204a429408f059c1",
     "include/ge/png.h": "d896e91457e15a638bcc9de40f997a8c9c1b11878de1a9d25d76efe4b56f88ad",
     "include/ge/sdl_input.h": "41bcf1de03c9d109b783363c97af83e63a6df7a7fc767a76b5096ca712397178",
-    "include/ge/sprite.h": "10c701511013cd0770d0d7dce4de896193f8ee225220cf3dfd744f4e9b0b014c",
+    "include/ge/sprite.h": "cda6afa9d3ecbaf4ada8a1ed9ebfe1662eb1e8bc64662a50aacd3481eb83ed46",
     "include/ge/svg.h": "d062383cc7027490e7e867de39cd6e75d609166b46fcccc7ee1edc445eb26ebf",
     "include/ge/text.h": "3a915fca2a5de2c26e23f7c7b01eefe59c110edfc35e02d2cd84ac47c72859f1",
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",

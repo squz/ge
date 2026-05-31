@@ -68,6 +68,7 @@ public:
     };
 
 private:
+    friend struct SpriteBatchTestAccess;  // unit-test access to quads_
     std::vector<Quad> quads_;
 };
 
