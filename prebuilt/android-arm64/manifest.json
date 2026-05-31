@@ -174,7 +174,7 @@
     "include/ge/manifest.h": "ff4ab54fc9a52c0452093e9bba35a2fc3ff582832ffa2d8f204a429408f059c1",
     "include/ge/png.h": "d896e91457e15a638bcc9de40f997a8c9c1b11878de1a9d25d76efe4b56f88ad",
     "include/ge/sdl_input.h": "41bcf1de03c9d109b783363c97af83e63a6df7a7fc767a76b5096ca712397178",
-    "include/ge/sprite.h": "10c701511013cd0770d0d7dce4de896193f8ee225220cf3dfd744f4e9b0b014c",
+    "include/ge/sprite.h": "cda6afa9d3ecbaf4ada8a1ed9ebfe1662eb1e8bc64662a50aacd3481eb83ed46",
     "include/ge/svg.h": "d062383cc7027490e7e867de39cd6e75d609166b46fcccc7ee1edc445eb26ebf",
     "include/ge/text.h": "3a915fca2a5de2c26e23f7c7b01eefe59c110edfc35e02d2cd84ac47c72859f1",
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",

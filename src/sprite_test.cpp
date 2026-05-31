@@ -23,13 +23,13 @@ using ge::Sprite;
 using ge::SpriteBatch;
 using ge::SpriteBatchTestAccess;
 
-// Construct a fake Sprite with a non-null tex handle (we don't init bgfx, so
-// addSprite's null-check just sees the index).
+// Construct a fake Sprite with a non-null tex handle (we don't init sokol, so
+// addSprite's null-check just sees the non-zero image id).
 static Sprite fakeSprite(uint16_t idx, int w = 100, int h = 50) {
     Sprite s;
-    s.tex.idx = idx;
-    s.width   = w;
-    s.height  = h;
+    s.tex.id = idx;
+    s.width  = w;
+    s.height = h;
     return s;
 }
 

@@ -325,6 +325,15 @@ $(BUILD_DIR)/ge/src/%.o: $(ge)/src/%.mm
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -MMD -MP -c $< -o $@
 
+# sprite.cpp #includes the sokol-shdc-generated ge_sprite.h, so the render
+# shader headers must exist before any engine object compiles. The $(APP)
+# link rule lists $(ge/RENDER_SHADERS), but lib-only consumers (e.g. the
+# unit-test target, which builds $(ge/LIB) without $(APP)) never trigger
+# that rule and would fail a clean build with "ge_sprite.h not found".
+# Order-only so regenerating a shader doesn't force a full engine rebuild —
+# the -MMD .d files capture the real header dependency for incremental builds.
+$(ge/OBJ): | $(ge/RENDER_SHADERS)
+
 # tools/ objects (currently just player_orientation_stub.cpp — pulled into
 # libge.a so DirectRenderHost::send's playerForceOrientation() call resolves
 # without consuming desktop apps having to add the stub object themselves).
