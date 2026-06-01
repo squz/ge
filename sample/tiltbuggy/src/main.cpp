@@ -45,8 +45,8 @@ int main(int argc, char* argv[]) {
     // entirely (🎯T83), tail logs over TCP — no code change here, just
     // point the engine at a listener:
     //   Mac:      nc -l 9999
-    //   desktop:  SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
-    //   iOS sim:  SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
+    //   desktop:  LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
+    //   iOS sim:  SIMCTL_CHILD_LOG_TARGET=127.0.0.1:9999 \
     //                 xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
     //   Android:  adb shell setprop debug.ge.log_target <mac-ip>:9999
     // Debug builds only — the sink is compiled out under NDEBUG.

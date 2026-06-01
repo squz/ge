@@ -231,12 +231,12 @@ ERROR` is also streamed to a host you tail with `nc`** — no Apple-log or
 nc -l 9999
 
 # Desktop app — shell env:
-SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
+LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
 
 # iOS Simulator (sim shares host loopback):
-SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
+SIMCTL_CHILD_LOG_TARGET=127.0.0.1:9999 \
     xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
-# iOS device / Xcode: add SPYDER_LOG_TARGET=<mac-LAN-ip>:9999 to the scheme env.
+# iOS device / Xcode: add LOG_TARGET=<mac-LAN-ip>:9999 to the scheme env.
 
 # Android (apps aren't shell-launched, so env vars don't reach them — use a
 # system property instead; no Java/Intent plumbing needed):

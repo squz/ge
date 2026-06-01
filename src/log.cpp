@@ -64,14 +64,14 @@ std::string autoDetectSubsystemAndroid();
 namespace {
 
 // Resolve the dev-log target string. Primary source is the
-// SPYDER_LOG_TARGET environment variable (set via Xcode scheme on iOS,
+// LOG_TARGET environment variable (set via Xcode scheme on iOS,
 // shell env on desktop, or spyder's launch env-passthrough). Android
 // apps aren't shell-launched, so env vars don't reach them; there we
 // also accept the `debug.ge.log_target` system property, settable with
 // `adb shell setprop debug.ge.log_target <host>:<port>` — no Java /
 // Intent plumbing required.
 std::string resolveLogTarget() {
-    if (const char* env = std::getenv("SPYDER_LOG_TARGET"); env && *env)
+    if (const char* env = std::getenv("LOG_TARGET"); env && *env)
         return env;
 #if defined(__ANDROID__)
     char buf[PROP_VALUE_MAX] = {0};
@@ -218,7 +218,7 @@ void install(std::string subsystem) {
         sinks.push_back(makeAndroidSink(subsystem));
 #endif
 
-        // 🎯T83 Dev-only TCP mirror. Opt-in at runtime via SPYDER_LOG_TARGET
+        // 🎯T83 Dev-only TCP mirror. Opt-in at runtime via LOG_TARGET
         // (host:port); the whole branch is compiled out of release builds.
 #ifndef NDEBUG
         const std::string netTarget = resolveLogTarget();

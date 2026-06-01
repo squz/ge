@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "650b2b5f561419ab704663ce7fe100c4f911444d43c714470b8d315c93f98e01",
-    "prebuilt/ios-arm64-simulator/libge.a": "a46cc963a8660dc7173cb631128cf3ea64543d0622eac7915b04f8285468e64b",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "3b57a742e6d825642b5bac4124f860875e96d9ca981e189c19b6107d31e20b30",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "dccb72f8e6cb236c868e8125ac8cf5fd45c6ec82d7eca28cbddd390bca00911e",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "8aee34e40cad8d6dcaca82ff08266cde45555960fe37f1f44e2cf843965ff868",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "8f4ad7136fca96a2f88cbb0a8c472593a96cf6b9e64109c7c9f27739df8b1994",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "2c0094b6d41f998f8a390a55e48e7db59a86ced81372b64bba91cea381e571f0"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "494a3b87a06a57538525fe2c309f3b921770ec013495877949ec98660c56fd51",
+    "prebuilt/ios-arm64-simulator/libge.a": "36a28f93bd8978e7ca849aaca2deedc3b9a1d038093cf9df1f91581afba55da5",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "960841c43b67d7c98a1bc75e822ddf2d74cf99f895023805730e12e361b66f5c",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "95855a16b195b617cce6723a43a2f64d7575963c8a8e0090dc6e707192894012",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "d3ff9d95393474d1714bf553ba24960b0a0e62c09cf3e01258976cf689e1f358",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "9f0b7611f63d0e340caf57fb2bdb67ebeb4d98fed1edbadf8a76761e0f1c3653",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "5e86e8e879e737737b26124ad407cd9ce5260acc66cf66c96ebf065a628d1635"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -197,7 +197,7 @@
     "src/iap_apple.mm": "55fe711d3bbeab828f31d16dc636c3c2e5b75ebcfa4e5cb8bc24acdf5adff754",
     "src/iap_apple_bridge.h": "1cf8377048684dc735824ebf19e1a357f0a166d6380019c1e6fee7d5cb6a0ede",
     "src/iap_internal.h": "87d94f03e82157d821df52eb260daded665304fa70755ac4aa42106542e5a28f",
-    "src/log.cpp": "0465a0b1d5d39c24db9dcd08f74899a3eecf97f2f230d26ff6c387dd115929f5",
+    "src/log.cpp": "1b344b6ed391a44e06d0668169200a53d67c37cbc6dfa9c3283dc9855e29eb96",
     "src/log_apple.mm": "540ddaccfb4c5721b66e8cd6d897732d5159f8c8b02df734d59e05017dc48c15",
     "src/long_press.cpp": "9150fcffd627d1b20c74fe691a92ab6b73df688a453d1fc856ce09110d36502f",
     "src/manifest.cpp": "02620d490465b09d869e441c9bda26ff0403e999093e15399dc3072366408a04",
