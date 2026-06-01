@@ -737,7 +737,11 @@ void DirectRenderHost::beginFrame() {
         i_->synth->update();
         const Tilt t = i_->synth->current();
         if (std::sqrt(t.x * t.x + t.y * t.y) > 0.7f) {
-            presentationTilt = la::float2{t.x, t.y} * kTiltRadPerPixel;
+            // AccelSynth's tilt is raw mouse displacement from the press point;
+            // the view follows it. X maps directly (drag right → view tilts
+            // right). Y is negated because SDL mouse-y grows downward, opposite
+            // the presentation-tilt's y-up "tilt forward/back" sense.
+            presentationTilt = la::float2{t.x, -t.y} * kTiltRadPerPixel;
         }
     }
 

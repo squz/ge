@@ -104,8 +104,9 @@ constexpr la::float2 screenToContent(la::float2 screenPt,
 // screen is already physically tilted. **Do not** pass real gameplay gravity
 // here; that would tilt the UI on real hardware.
 //
-// Convention (ported from the pre-T38 PlayerRender composite, kept here so the
-// two never drift): axis = (−tiltRad.y, tiltRad.x)/|tiltRad|, angle = |tiltRad|.
+// Convention: axis = (−tiltRad.y, tiltRad.x)/|tiltRad|, angle = |tiltRad|.
+// `presentationTilt()` already delivers the view-tilt vector (negated relative
+// to the raw AccelSynth counter-gravity), so consumers pass it straight in.
 // Not constexpr (sin/cos + a 4-corner fit pass), same caveat as frameRotated.
 inline la::float4x4 tilt(float aspect, la::float2 tiltRad) {
     const float angle = std::sqrt(tiltRad.x * tiltRad.x + tiltRad.y * tiltRad.y);

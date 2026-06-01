@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "ee710223c08fa33d414a89001e3eb4b82f069c129819afc70f61d54fbdf297c4",
-    "prebuilt/ios-arm64-simulator/libge.a": "ce14e33ef41cfe10784373c57dd43257ac59e35eab3119c24dc8fd50ec12caf9",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "84a26129a5a06b6a156129f3fdd195771a25485a6e48443a38da975d7d34ed5f",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "ec0e490dcae74e2c55da1b9f2b2e79d0d214603246b94f32a15c6fd688619aa6",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "85a64c377d43a17bbcbfd54f5f9be1b457841c91333b912d38652a53ddf87775",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "03dc27ffcc7c61bc86b53b3af48376239a3dee90ce27ec35f11078dc61fb170d",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "5552e6555293b7e918ecb2a199b55775a20a96389e8535d33267a57b5d808065"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "ab866848deaf08fb094382dce9ad66419f36be5d9cd138ea6cb09e3e4bb16c82",
+    "prebuilt/ios-arm64-simulator/libge.a": "ebe181564b55b0d10426312d41447987c8021c4bded9170ee0e3038ee89f7a08",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "caaeb027af24a758d4aa368d264dea600b7375fa3efca223ef792b654fff8416",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "c6981c7a784f05442ade335f0c5bd5583976b0b8bdd09bbb7e657569b48ccb99",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "83039596a170eb1d379be43b13adee9853debddc88c952831aa1c4660e84216d",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "75cedafe4805e461d39e93b58dcaade74e7378e779b18b06b30ae78c10b5c98f",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "6066584d22f65c4c5d91a5c7116156411f9c37e99fb2bdc9fa29d8fc92cbb5dc"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -204,8 +204,8 @@
     "src/png.cpp": "ca11dcf761f88dc40d974f445b095b9b58de7c9fc50653b028d28b1fdb3f39a2",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "96b1f9da508a497d95e202f60041d2455af859be808c68f0f19327421a585d1e",
-    "src/render/DirectRenderHost.mm": "46b2e9367c41a8f89886f920feaef17258cb1655aa9a8956e65caf7acd6c0e54",
-    "src/render/RefreshRateBoost_apple.mm": "6ea69624087fae978b188591fb8bf989177f49ec0fe4ce334f7a4d1713373686",
+    "src/render/DirectRenderHost.mm": "536af59e4617b5f5fe1c75df56330f819b1e611bd1f090c0e3fac96cc80c8082",
+    "src/render/RefreshRateBoost_apple.mm": "bdbc1634be9c01048dfce47bfcead8bdf51fc12422a45e4cc2c4f2be69f82f2f",
     "src/sdl_input.cpp": "de6f95eed5bf0698cf62901f78bbf50d3e9c11819ad6834b02ebbb4efaeaaa57",
     "src/sprite.cpp": "cf314f0a1a8c9614f9c894734d44754c58e033e5dce3f737c34106cf2d2f0463",
     "src/svg.cpp": "191c733d4b9bf6fa47ee50408959d10b749df4741e0089dd3c426e42989ac4f6",
