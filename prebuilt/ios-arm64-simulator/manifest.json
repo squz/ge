@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "b419e525e95388b7b9d0997268c0f41df821037a432ea02b458acf6f0d2f0554",
-    "prebuilt/ios-arm64-simulator/libge.a": "779a3ac3386e7a338dd88eed7295499f1a85bd1ce427d45dc4717ccb037c9718",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "5ca78ba7356d1328b24e74de9d8e2befc6ed134fc8392b2fdcab41c559cc9bc6",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "3830cc1b7460d59a822521b6f7bfa6561dd80139f54de6a2cb4121275f42fa08",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "c5e92a904210e560f308ddc058e09e935959560f9f0b43a317bcaac3bfd4959c",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "baf743fdfba3eee68dd5918a547a06a379bce74f23ad1911e288ca88c29cf380",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "12a08da2d208391aa089550b5550cfdb05bc040d191e91a2a5d1062500049c8c"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "203f3dad42ed6ab9efe9f1a78a28f68763b0a47ea1ea05b7e5388242972e204a",
+    "prebuilt/ios-arm64-simulator/libge.a": "8ceee1e1d6028aba791109fbad8557de5348c4e3496d5b243dbd5d965b13f2eb",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "c0f99b8204c84fe011a1894475768900917df80b5a09230e3bf4547da37e1c2e",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "3f021802635bf867567d2c97fcf9d88d376c1e4f53722b7b327cc216ab061eaf",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "d630bcb7356153c451ddb9c6ab37ee4dc8f2de342666c47c515fd24848436607",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "2487cd42aaa2f40320dfc209b1b06d6c130d0632b62ed8a69109e6afe11573d8",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "269b0d7020e3a4de603a44d7dd16e85066d3cebb12731085c51e744d59ab4403"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -189,7 +189,7 @@
     "src/Resource.cpp": "71ac228dd2219a225a89cc73e01b92ff2f07754bd1ea25871aacf1f8181a0f8d",
     "src/SessionHost.mm": "22c9dc16c9e0e32f9fee0a1042660d93caf3f2a5834046c38b4c2731c7e279fc",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
-    "src/SokolContext.mm": "194807b6db019a928d5201f5bd36045bbfd9b7dda6ff7c0061be09f6051994ed",
+    "src/SokolContext.mm": "69b9e224ba2be59e977914dfa479c293a9604c08e18a3405e3ee4eee098be5ac",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/audio_apple.mm": "f891fd144ec32d03ffdcf811dec90ec24cf255ba277f20e98f62d0d5fa4a7b3e",
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",

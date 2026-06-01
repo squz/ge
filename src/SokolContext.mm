@@ -32,11 +32,9 @@ struct SokolContext::M {
     SDL_MetalView   metalView = nullptr;
     CAMetalLayer*   layer = nil;
     id<MTLDevice>   device = nil;
-    id<MTLCommandQueue> queue = nil;
 
     // Per-frame state, valid only between beginFrame/endFrame.
     id<CAMetalDrawable>    currentDrawable = nil;
-    id<MTLCommandBuffer>   currentCmdBuf   = nil;
 
     ~M() {
         sg_shutdown();
@@ -60,11 +58,11 @@ void sokolLog(const char* tag, uint32_t log_level, uint32_t log_item,
         message ? message : "");
 }
 
-// Apple Metal command-queue / drawable pointers handed to sokol_gfx
-// via the per-frame swapchain block must outlive the sg_commit() call,
-// which is guaranteed because sokol takes a strong reference internally
-// when it enqueues the encoder work. We just hold them on M for the
-// duration of the frame and release them in endFrame.
+// The CAMetalDrawable handed to sokol_gfx via the per-frame swapchain
+// block must outlive the sg_commit() call, which is guaranteed because
+// sokol takes a strong reference internally when it enqueues the encoder
+// work. We just hold it on M for the duration of the frame and release
+// it in endFrame.
 } // namespace
 
 SokolContext::SokolContext(const SokolConfig& config)
@@ -143,8 +141,6 @@ SokolContext::SokolContext(const SokolConfig& config)
     }
     m->layer.drawableSize = CGSizeMake(m->width, m->height);
 
-    m->queue = [m->device newCommandQueue];
-
     sg_desc desc{};
     desc.environment.defaults.color_format = SG_PIXELFORMAT_BGRA8;
     desc.environment.defaults.depth_format = SG_PIXELFORMAT_NONE;
@@ -186,7 +182,6 @@ void SokolContext::beginFrame(const float clearColor[4]) {
         SPDLOG_WARN("nextDrawable returned nil; skipping frame");
         return;
     }
-    m->currentCmdBuf = [m->queue commandBuffer];
 
     sg_pass pass{};
     auto& act = pass.action;
@@ -207,16 +202,13 @@ void SokolContext::beginFrame(const float clearColor[4]) {
     sc.depth_format = SG_PIXELFORMAT_NONE;
     sc.metal.current_drawable = (__bridge const void*)m->currentDrawable;
 
-    // sokol needs the active MTLCommandBuffer for the frame; it picks
-    // one up from environment.metal.* callbacks normally, but in our
-    // pull-mode wrapper we pass it through every frame via the swapchain.
-    // Actually: sokol-Metal pulls the cmd buffer from desc.environment
-    // at init; per-frame we just hand it the drawable. The command
-    // buffer it uses internally is created from the device's default
-    // queue. We keep our own cmd buffer for explicit present.
-    // (Confirmed: sokol_gfx Metal creates an internal cmd buffer per
-    // frame from the device; we don't have to thread ours through.)
-    (void)m->currentCmdBuf;
+    // sokol_gfx-Metal creates AND commits its own MTLCommandBuffer each
+    // frame (from the device handed to sg_setup) and presents the drawable
+    // inside sg_commit(). ge must NOT create its own command buffer here:
+    // an uncommitted [queue commandBuffer] every frame exhausts the
+    // MTLCommandQueue's in-flight limit (~64), after which commandBuffer
+    // blocks and beginFrame wedges the main thread — fatal on the iOS
+    // Simulator's MTLSimDriver (renders ~1s then freezes). 🎯T89.
 
     sg_begin_pass(&pass);
 }
@@ -230,9 +222,8 @@ void SokolContext::endFrame() {
 
     // sokol_gfx-Metal handles the [commandBuffer presentDrawable:...]
     // internally when given a drawable in the swapchain config. So we
-    // just drop our refs.
+    // just drop our drawable ref.
     m->currentDrawable = nil;
-    m->currentCmdBuf   = nil;
 }
 
 // Apple lifecycle: the CAMetalLayer survives backgrounding and rendering

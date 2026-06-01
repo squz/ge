@@ -351,9 +351,15 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     const uint32_t buggyColor = ge::iap::owned("pro")
         ? rgb(0x00, 0xE0, 0xFF)   // pro: chromed cyan
         : rgb(0xFF, 0xCC, 0x33);  // default: yellow
+    // 🎯T89 render-liveness indicator: a constant slow spin advanced once
+    // per rendered frame. If the buggy stops turning, the render loop has
+    // stalled (e.g. a Metal command-buffer wedge) — an at-a-glance signal
+    // that beats reattaching a logger. Purely visual; does not touch physics.
+    static float diagSpin = 0.f;
+    diagSpin += 0.01f;   // ~one revolution per ~10s at 60fps
     pushRotatedRect(verts,
         ge::Rect{pose.x - hw, pose.y - hh, 2.f * hw, 2.f * hh},
-        pose.angle,
+        pose.angle + diagSpin,
         buggyColor);
 
     // --- Submit the solid-color mesh ---

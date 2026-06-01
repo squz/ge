@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "79c7ad0e19a911608e1cda7973bdff44fd38b3945b178656ee11649a64ed5ce2",
-    "prebuilt/ios-arm64/libge.a": "34bc85314ec3ddeded7de53f6a24784cd930e1e0c514bb1515e7c7f262e8e5c3",
-    "prebuilt/ios-arm64/libliteparser.a": "c755b4f0d2bbab1ce11167b222360cd1bc2473ceba47d1ab0ad92f0d448aa762",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "6fab82aa7179f466f5e55340c9b6597cd01ea514069e2f301b65f26588a328c3",
-    "prebuilt/ios-arm64/liblz4_ge.a": "7bd424463f8fdf3bb2406c932bc3dbde79f2f27bf63eb322c5552f9fbb4c1ed7",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "906395500b6efe8c1c735de43e9e760f0e15777237c377d0ccb04ba397818ee9",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "792556fa8e079df8a3d600fe9b36b427111dcbba05ca8c27f808cbc1304843af"
+    "prebuilt/ios-arm64/libbox2d.a": "3af4ed97b07df0f4450487cf14205957f2e1175c654d56e9bec854dee801c691",
+    "prebuilt/ios-arm64/libge.a": "6dd28392a21e98d7a1f7392bb22d10baabad70d4dafbda21f340cd892de906de",
+    "prebuilt/ios-arm64/libliteparser.a": "11119862e640e5a54dc1da065c88bf20c06519ca486ee5a476a9500894fb01c6",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "14c176bfaf23a12f74ded88e41740579704f3b9c224ef972de9dc4cb86f48904",
+    "prebuilt/ios-arm64/liblz4_ge.a": "7f2b6c697e6e2861eef4292348cad8a64ea77bc2618d7e0d982c32913b041fa2",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "08a8d2fc319a1af06e75faf681dc1b6e5ff88af3a4979355b9e0b3e5de4f2030",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "80f9d2ac48e66cc6f42df3fe8105e494624b8f5e55effff7ba3af469905b0ff9"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -190,7 +190,7 @@
     "src/Resource.cpp": "71ac228dd2219a225a89cc73e01b92ff2f07754bd1ea25871aacf1f8181a0f8d",
     "src/SessionHost.mm": "22c9dc16c9e0e32f9fee0a1042660d93caf3f2a5834046c38b4c2731c7e279fc",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
-    "src/SokolContext.mm": "194807b6db019a928d5201f5bd36045bbfd9b7dda6ff7c0061be09f6051994ed",
+    "src/SokolContext.mm": "69b9e224ba2be59e977914dfa479c293a9604c08e18a3405e3ee4eee098be5ac",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/audio_apple.mm": "f891fd144ec32d03ffdcf811dec90ec24cf255ba277f20e98f62d0d5fa4a7b3e",
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",
