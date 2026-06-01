@@ -2952,7 +2952,7 @@ targets:
     achieved: 2026-06-01
   T92:
     name: ge implements the app side of spyder's bidirectional MessagePack RPC channel
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3002,9 +3002,10 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.1:
     name: 'app-channel transport: msgpack, framing, connect + hello handshake, dev-only gate'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3022,9 +3023,10 @@ targets:
     - dev-experience
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.2:
     name: app-channel lifecycle + time-control methods
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3041,9 +3043,10 @@ targets:
     - dev-experience
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.3:
     name: app-channel input injection (the did-the-tap-reach-my-handler killer)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3060,9 +3063,10 @@ targets:
     - dev-experience
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.4:
     name: app-channel structured log + perf push
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3080,9 +3084,10 @@ targets:
     - dev-experience
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.5:
     name: app-channel state registry + save/restore
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3099,9 +3104,10 @@ targets:
     - dev-experience
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.6:
     name: app-channel screenshot (cross-platform framebuffer readback)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3118,9 +3124,10 @@ targets:
     - gles
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T92.7:
     name: app-channel end-to-end verification across platforms + agents-guide docs
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -3141,6 +3148,7 @@ targets:
     - docs
     origin: subdivide(🎯T92)
     discovered: 2026-06-01
+    achieved: 2026-06-02
   T93:
     name: AccelSynth consumes mouse button + finger events while shift is held
     status: identified
