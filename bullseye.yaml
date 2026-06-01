@@ -2717,9 +2717,10 @@ targets:
     achieved: 2026-05-31
   T83:
     name: ge's log layer offers a TCP network sink for dev-time diagnostics that bypasses Apple unified logging and Android logcat
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - ge::log::install() checks getenv("SPYDER_LOG_TARGET") at startup. When set to host:port, a spdlog tcp_sink is appended to the default logger so every spdlog emission is also sent over TCP.
     - When the env var is unset or empty, no sink is installed and behaviour is unchanged.
@@ -2729,15 +2730,15 @@ targets:
     - 'agents-guide.md (or ge''s equivalent docs page) documents the convention: the env var name, the `nc -l <port>` recipe, the #ifdef guard, and the iOS/Android quirks (iOS picks env vars up from Xcode scheme or the spyder env-passthrough target; Android requires the Intent-extra → JNI shim).'
     - Sample diff in sample/tiltbuggy (or another consumer) shows the one-line install hook and the laptop-side commands to receive the stream.
     context: |-
-      Filed 2026-05-31 after a multi-hour iOS-logging investigation on multimaze2/Jevons that ended in the same place several previous ones have: Apple's unified-logging path is *the* recommended one but its access stack (DTX over RSD tunnel, DDI mount, Developer Mode, os_trace_relay fallback that drops third-party app emissions) has enough failure modes that consumers can't reliably depend on it as their primary dev-time diagnostic channel. NSLog isn't the escape hatch it historically was — on iOS 14+ it's reimplemented on top of os_log, inheriting the same gates.
+      Achieved 2026-06-01 (branch t83-tcp-log-sink). ge::log::install() (called automatically by ge::run) appends a NetworkLogSink to the default logger when a dev-log target is set, mirroring every SPDLOG_* emission over TCP. Tail with `nc -l <port>`. Implementation in src/log.cpp, gated behind #ifndef NDEBUG so the entire feature (getenv, sink, sender thread) compiles out of release builds — a misconfigured store binary can never phone home.
 
-      The real bypass is the one game devs use everywhere: open a socket. spdlog ships a tcp_sink out of the box, the app send()s lines to a host:port, `nc -l <port>` on the laptop tails in real time. Zero dependency on Apple log infrastructure or adb logcat quirks. Adding this once at the ge layer means every ge-based game (multimaze2, tiltbuggy, esfera2, yourworld2) gets it.
+      Target resolution (resolveLogTarget): SPYDER_LOG_TARGET env var first (desktop shell, iOS Xcode-scheme / SIMCTL_CHILD_, spyder launch passthrough); on Android — where apps aren't shell-launched so env vars don't reach them — also reads the `debug.ge.log_target` system property (`adb shell setprop debug.ge.log_target <host>:<port>`), no Java/Intent plumbing. This refines the original acceptance, which assumed getenv would suffice on all three platforms; it can't on Android, so the property path is the Android mechanism.
 
-      The compile-time gate is non-negotiable. A debug-only macro means a misconfigured release build can't ship a binary that phones home to a developer's LAN IP. #ifndef NDEBUG is the standard primitive; if ge has its own GE_DEBUG/GE_DEV macro already wired into the build configs, hook into that instead so all of ge's dev-only code goes through one switch.
+      NetworkLogSink (not spdlog's stock tcp_sink): formats on the calling thread, hands lines to a dedicated sender thread via a bounded queue (drops oldest past 4096), reconnects with exponential backoff (250ms→5s). A downed listener costs nothing on the render hot path; spdlog's stock sink would block + throw per line on the game thread.
 
-      The runtime gate (env var) means even in a debug build, the sink only installs if explicitly told where to point — so an SDK-internal QA build won't accidentally start streaming when a dev runs it locally without a listener.
+      Runtime-verified all three platforms 2026-06-01: macOS desktop (bin/tiltbuggy → nc), iOS Simulator (iPhone 16 Pro, SIMCTL_CHILD_SPYDER_LOG_TARGET → nc, full log stream, no os_log dependency), Android (S21 Ultra SM-G9980, debug.ge.log_target + adb reverse → nc, mirror line confirmed over TCP). Release path compiles clean under -DNDEBUG -Wall -Wextra (feature fully elided). Docs in agents-guide.md ("Dev-time log streaming over TCP") + sample pointer in sample/tiltbuggy/src/main.cpp. All three prebuilt libge.a regenerated; verify-prebuilds.py green.
 
-      Paired with the spyder launch_app env-passthrough target — that target gives spyder a way to inject SPYDER_LOG_TARGET at deploy time without source edits. Either target can land first: ge's TCP sink works today via Xcode scheme env vars (iOS) and shell env vars (desktop) without spyder; the spyder env passthrough adds spyder-driven deploys to the list.
+      Pairs with the (separate, not-yet-landed) spyder launch env-passthrough target, which would inject SPYDER_LOG_TARGET at deploy time; the sink works today without it via the mechanisms above.
     tags:
     - logging
     - ios
@@ -2749,6 +2750,7 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-05-31
+    achieved: 2026-06-01
   T84:
     name: sokol_gfx works on iOS Simulator (sg_make_shader assertion)
     status: achieved
