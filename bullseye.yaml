@@ -2930,3 +2930,23 @@ targets:
     - T38-followup
     origin: manual
     discovered: 2026-06-01
+  T91:
+    name: RefreshRateBoost on iOS Simulator doesn't throw at CADisplayLink.preferredFrameRateRange
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 1.0
+    acceptance:
+    - A consumer app running on the iOS Simulator does not abort on the first SDL_EVENT_MOUSE_BUTTON_DOWN (non-touch-synthetic) — RefreshRateBoost engageBoost() either no-ops on simulator or guards the preferredFrameRateRange call with a try/catch
+    - Crash report no longer shows CADisplayLink preferredFrameRateRange in lastExceptionBacktrace when clicking the sim window
+    - iOS device (where preferredFrameRateRange works as documented in API 15+) still gets the high-refresh boost during touch presses
+    context: 'Found 2026-06-01 testing multimaze2 with ge v0.46 on iPhone 16 Pro simulator (iOS 26.5). First click on the simulator window aborts the app. Crash backtrace top frames:\n\n  __exceptionPreprocess\n  objc_exception_throw\n  -[CADisplayLink preferredFrameRateRange]\n  ge::RefreshRateBoost::M::engageBoost()\n  ge::DirectRenderHost::pumpEvents()\n\nThe TCP log captured the sequence:\n  AccelSynth: event type=0x400 shiftDown=false   # SDL_EVENT_MOUSE_BUTTON_DOWN\n  AccelSynth: event type=0x401 shiftDown=false   # SDL_EVENT_MOUSE_BUTTON_UP\n  Application.cpp:803 MM2-EV mouse type=1025 pos=(177.3,196.3) which=4294967295\n  SokolContext destroyed   # ← app abort\n\nThe DirectRenderHost::pumpEvents code at line ~637 calls `i_->refreshRateBoost.engagePress()` for SDL_EVENT_MOUSE_BUTTON_DOWN when `which != SDL_TOUCH_MOUSEID`. That triggers engageBoost() which calls `-[CADisplayLink preferredFrameRateRange]` (or `-setPreferredFrameRateRange:`). On the iOS Simulator running on macOS, the CADisplayLink shim may not support the call, or the property''s getter throws because the link wasn''t created with a frame-rate-range setter call. Likely fixes: (1) #if !TARGET_OS_SIMULATOR no-op for engageBoost on the simulator (the boost is meaningless without a real ProMotion display anyway); (2) `@try` / `@catch` around the preferredFrameRateRange call so a sim throw degrades to no-op; (3) only access the property after API_AVAILABLE(iOS 15.0) and a successful setter.\n\nSeparately, the MM2-EV mouse with which=4294967295 (SDL_TOUCH_MOUSEID) on the UP suggests the sim sends both a regular MOUSE_BUTTON_DOWN (no touch ID — that''s the one that triggers engageBoost and crashes) AND a touch-synth MOUSE_BUTTON_UP for the same click. Worth understanding when fixing the related touch-routing issue (🎯T87).'
+    tags:
+    - multimaze-audit
+    - ios
+    - simulator
+    - T63-followup
+    - T38
+    origin: multimaze2-audit
+    discovered: 2026-06-01
+    achieved: 2026-06-01

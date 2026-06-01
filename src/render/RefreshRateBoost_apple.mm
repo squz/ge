@@ -14,6 +14,14 @@
 //
 // macOS: no-op. macOS displays don't VRR-throttle on idle, and
 // CADisplayLink / UIScreen.maximumFramesPerSecond don't exist on macOS.
+//
+// iOS Simulator (🎯T91): also a no-op. The Simulator's CADisplayLink shim
+// throws an Obj-C exception from -[CADisplayLink preferredFrameRateRange],
+// aborting the app on the first mouse-button press routed through
+// engagePress(). The boost is meaningless there anyway — the sim composites
+// into a Mac window at the host's refresh, with no physical ProMotion display
+// to hold high. So the real CADisplayLink path is gated to physical iOS
+// devices (TARGET_OS_IOS && !TARGET_OS_SIMULATOR).
 
 #include <ge/RefreshRateBoost.h>
 
@@ -37,7 +45,7 @@ struct RefreshRateBoost::M {
     // Warn-once flag for underflow (spurious releasePress).
     std::atomic<bool> warnedUnderflow{false};
 
-#if defined(__APPLE__) && TARGET_OS_IOS
+#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_SIMULATOR
     // CADisplayLink held while boost is engaged.
     // Access is serialised by the SDL event pump (single-threaded), so
     // no lock is needed around the Obj-C calls.
@@ -82,7 +90,9 @@ struct RefreshRateBoost::M {
         SPDLOG_DEBUG("RefreshRateBoost: released");
     }
 #else
-    // macOS / other Apple targets: no-op.
+    // macOS, iOS Simulator, and other Apple targets: no-op (see 🎯T91 note
+    // at the top — the simulator throws on preferredFrameRateRange and has
+    // no physical display to boost).
     void engageBoost() {}
     void releaseBoost() {}
 #endif
