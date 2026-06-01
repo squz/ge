@@ -709,6 +709,25 @@ app's bundle ID and passes the spdlog-rendered payload as one
   on iOS, `Activity.getPackageName()` via SDL's JNI bridge on Android,
   falls back to `"ge"` otherwise.
 
+### App Channel (🎯T92)
+
+Dev-only bidirectional MessagePack-RPC channel to spyder's `app_*` MCP tools
+(≥ v0.53.0), making every ge app agent-drivable: pause/step/speed, input
+injection, state query + save/restore, screenshot, clean quit, structured
+log + perf push. Activated when `LOG_TARGET` is `appchannel://host:port` (a
+bare `host:port` keeps the T83 text sink). `ge::run` dials it automatically.
+Entire feature compiled out under `NDEBUG` (same gate as T83) — no socket, no
+msgpack, no handlers in release. **Full reference: `agents-guide.md` → "Agent-drivable app channel".**
+
+- **`<ge/appchannel.h>`** — `registerMethod`, `installFromEnv`, `push`,
+  `active`, `applyTimeControl` (run-loop pacing), `perfEmit` (custom perf
+  counter), `registerStateSlice` / `registerStateSerializer` (consumer state
+  registry — register *before* `ge::run`; getters run on the game thread),
+  `pumpMainThreadTasks` (run-loop drains marshalled state tasks). Transport in
+  `src/appchannel.cpp`; per-platform screenshot readback in
+  `SokolContext::captureNextFrame` (Metal blit on Apple, `glReadPixels` on
+  Android) bridged via `src/render/ScreenshotBridge.h`.
+
 ### I/O
 
 - **`FileIO`** (`FileIO.h`) — `ge::openFile(path)` returns a `std::unique_ptr<std::istream>`. Uses `SDL_IOFromFile` internally for platform-agnostic file access (Android APK assets, iOS bundles, normal filesystem).
