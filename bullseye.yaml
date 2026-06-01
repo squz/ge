@@ -2817,6 +2817,34 @@ targets:
     origin: manual
     discovered: 2026-05-31
     achieved: 2026-05-31
+  T88:
+    name: ge pauses the render loop while the iOS app is backgrounded
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 3.0
+    acceptance:
+    - DirectRenderHost::paused() returns true on iOS (device + simulator) while the app is backgrounded, false in the foreground; driven by SDL_EVENT_DID_ENTER_BACKGROUND/_FOREGROUND and seeded at startup from UIApplication.applicationState so launch-into-background is covered before any event arrives
+    - 'While paused, the run loop yields the CPU instead of busy-spinning: pumpEvents blocks on SDL_WaitEventTimeout for the first event when paused() and drains the rest non-blocking. Backgrounded app holds at ~0% CPU (not the 100% spin a naive paused()->continue would cause on iOS)'
+    - No Metal command buffer is requested while backgrounded — SokolContext::beginFrame is never reached. The TiltBuggy 2026-05-31 20:07 scene-update watchdog hang (0x8BADF00D, main thread wedged in beginFrame -> MTLSimCommandQueue commandBuffer) does not reproduce
+    - Foreground->background->foreground resumes rendering cleanly with no multi-second dt spike
+    - Desktop and Android behaviour unchanged (paused() false on desktop; Android already gates via SDL blocking the loop)
+    context: |-
+      Achieved 2026-06-01; folded into the T83 release PR (#125) rather than its own PR per user direction. Surfaced from a TiltBuggy iOS-Simulator watchdog crash on the sokol_gfx path: a backgrounded scene can't get a Metal command buffer, so the unconditional SokolContext::beginFrame blocked the main thread and FrontBoard's scene-update watchdog (0x8BADF00D) killed it.
+
+      Fix in DirectRenderHost.mm + SessionHost.mm: paused() reflects iOS background state (driven by SDL lifecycle events + a UIApplication.applicationState seed for launch-into-background); beginFrame already early-returns on paused(); pumpEvents blocks on SDL_WaitEventTimeout while paused so the loop idles at ~0% CPU rather than busy-spinning (iOS, unlike Android, doesn't block ge's loop during background). Verified on iPhone 16 Pro sim: background via Home and behind another app holds at 0% CPU with no watchdog kill; foreground-from-background resumes rendering cleanly. All three prebuilt libge.a regenerated to carry both T83 and T88.
+    tags:
+    - ios
+    - simulator
+    - sokol
+    - lifecycle
+    - background
+    - watchdog
+    - T38-followup
+    - surfaced-by:tiltbuggy
+    origin: manual
+    discovered: 2026-06-01
+    achieved: 2026-06-01
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
