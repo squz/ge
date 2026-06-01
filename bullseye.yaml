@@ -2817,6 +2817,24 @@ targets:
     origin: manual
     discovered: 2026-05-31
     achieved: 2026-05-31
+  T87:
+    name: iOS touch/mouse events reach Application::event under sokol_gfx
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Consumer apps' onEvent callback fires for SDL_EVENT_FINGER_DOWN/UP on iOS physical devices when the user taps the screen — equivalent to the pre-T38 bgfx-era behaviour
+    - Consumer apps' onEvent callback fires for SDL_EVENT_MOUSE_BUTTON_DOWN/UP on the iOS Simulator when the user clicks the simulator window with the mouse (validates the same fix on the simulator as well)
+    - multimaze2 menu pack-row buttons respond to taps on Jevons (iPad mini), Minicades Test iPhone (iPhone 13), and iPhone 16 Pro simulator — loading the selected level pack as the on-tap callback designs
+    context: 'Found 2026-05-31 (multimaze2-audit). Recreated 2026-06-01 after the original definition was orphaned: it was swept into a bullseye auto-commit (f96dd05) alongside T88, which became unreachable when the T88 branch was consolidated into the T83 release PR (#125) and deleted. Restored verbatim from that dangling commit; NOT yet diagnosed or fixed. Multimaze2''s menu buttons render correctly on iOS but never respond to taps. A diagnostic NSLog at the very top of Application::event (before any classification) on iOS Simulator running ge v0.44, clicking the menu several times in the simulator window, produces NO log entries. Same symptom on physical iPad mini + iPhone 13. Pre-T38 (bgfx era) with the same SDL_main loop + SDL_Metal_CreateView pattern + DirectRenderHost::pumpEvents to SDL_PollEvent dispatch path worked. SokolContext.mm and BgfxContext.mm have essentially identical window/metalview creation, so the regression must be elsewhere in the T38 changes (view hierarchy, userInteractionEnabled on the metal view, or run-loop integration). Without this fix, consumer apps'' UI is dead on iOS.'
+    tags:
+    - multimaze-audit
+    - ios
+    - T38
+    - touch
+    - event-delivery
+    origin: multimaze2-audit
+    discovered: 2026-06-01
   T88:
     name: ge pauses the render loop while the iOS app is backgrounded
     status: achieved
@@ -2845,6 +2863,34 @@ targets:
     origin: manual
     discovered: 2026-06-01
     achieved: 2026-06-01
+  T89:
+    name: ge apps render indefinitely on the iOS Simulator (no sokol command-buffer leak)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 2.0
+    acceptance:
+    - SokolContext::beginFrame does not create an uncommitted MTLCommandBuffer per frame; sokol_gfx's own command buffer (created and committed inside sg_commit) is the only one. The dead currentCmdBuf member and the now-unused m->queue are removed.
+    - 'A ge app renders indefinitely on the iOS Simulator (far past frame 64): ticks flow continuously, CPU > 0%, and the main thread is never wedged in [MTLSimCommandQueue commandBuffer] -> semaphore_wait. Verified on iPhone 16 Pro sim: 18 then +47 ticks across reads, 4.5% CPU.'
+    - sample/tiltbuggy renders a constant slow spin on the buggy as a render-liveness indicator — if it stops turning, the loop has stalled.
+    - All Apple prebuilts (ios-arm64, ios-arm64-simulator) regenerated; verify-prebuilds.py green.
+    context: |-
+      Achieved 2026-06-01 on branch t89-sokol-cmdbuf-leak. Introduced by the T38 sokol migration: SokolContext.mm (the file that replaced BgfxContext.mm) hand-rolled `m->currentCmdBuf = [m->queue commandBuffer]` in beginFrame every frame but never used or committed it (a confused comment admitted uncertainty; sokol_gfx-Metal creates AND commits its own command buffer in sg_commit). A MTLCommandQueue allows only ~64 uncommitted command buffers; ge leaked one per frame, so beginFrame wedged in [MTLSimCommandQueue commandBuffer] -> _dispatch_semaphore_wait_slow at ~frame 64 — the app rendered ~1s then froze on the simulator (0% CPU, sleeping). bgfx never did this (it owned Metal command management internally).
+
+      Root-caused via a live thread sample showing 871/871 samples in beginFrame->commandBuffer->semaphore_wait with paused()=false (app foreground). This is almost certainly the same wedge behind the mm2 'background watchdog' crash (🎯T88's motivating crash had the identical stack — the leak wedges regardless of foreground/background; the 600s watchdog simply noticed it while the app happened to be backgrounded) and behind 🎯T87 ('no events on tap' = the wedged loop never reaching pumpEvents). T88's background-pause is still correct and complementary (a backgrounded app shouldn't render), but it was treating a symptom, not this leak.
+
+      Fix: removed the per-frame uncommitted command buffer and the dead queue from SokolContext.mm. After the fix the main thread blocks only in [CAMetalLayer nextDrawable] waiting on vsync (normal frame pacing), and ticks flow continuously.
+    tags:
+    - ios
+    - simulator
+    - sokol
+    - T38-regression
+    - metal
+    - render-loop
+    - surfaced-by:tiltbuggy
+    origin: manual
+    discovered: 2026-06-01
+    achieved: 2026-06-01
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
@@ -2866,3 +2912,21 @@ targets:
       **Why CMDeviceMotion.attitude, not raw accelerometer or raw gyroscope (decided 2026-04-13)**: gravity alone misses rotation around the vertical axis (twisting an upright phone left/right barely changes the gravity vector but is a real orientation change a game might want to surface). Raw gyroscope rotation rate would require manual integration and accumulates drift. Core Motion sensor-fuses gyro + accel and exposes absolute orientation as a quaternion — drift-free, captures vertical-axis twist correctly, no integration to hand-roll. The baseline is then an EMA of that attitude quaternion; delta = inverse(baseline) * current.
     origin: user request
     discovered: 2026-04-15
+  T90:
+    name: ge's render context is internal and backend-neutral — no rendering-backend name on the public API surface
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - include/ge/ has no rendering-backend-specific class name on its public surface. SokolContext is either moved to src/render/ (internal-only — no consumer source references it, only DirectRenderHost does) or renamed to a backend-neutral name (e.g. RenderContext/GeContext) if it must stay public.
+    - A future rendering-backend change does not force renaming a public ge class (the bgfx->sokol migration had to rename BgfxContext->SokolContext; that mistake is not repeated).
+    - Consuming apps and prebuilt/build wiring (ge-sources.mk, prebuild.sh, CMakeLists templates) are updated consistently; consumers that never referenced the class directly are unaffected at the source level.
+    context: Surfaced 2026-06-01 during the T89 investigation. SokolContext is a public header (include/ge/SokolContext.h) even though no consumer/sample source references it — it's used only internally by DirectRenderHost. Exposing a rendering-backend name (Sokol) on ge's public API surface repeats the BgfxContext mistake the T38 migration just had to rename away. Cleanest fix is to internalise it (move to src/render/, mirroring DirectRenderHost which already lives there); alternatively a backend-neutral public name. Deliberately NOT bundled into T89 (the runtime leak fix) since a public-class move/rename touches the build manifest, prebuild driver, and templates and is pure API hygiene, not a bug fix.
+    tags:
+    - api-hygiene
+    - sokol
+    - render
+    - public-surface
+    - T38-followup
+    origin: manual
+    discovered: 2026-06-01
