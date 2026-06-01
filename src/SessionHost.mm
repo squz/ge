@@ -60,6 +60,10 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
 
     while (!host.shouldQuit()) {
         host.pumpEvents();
+        // 🎯T92.5 Run any state-registry tasks the app-channel marshalled onto
+        // the game thread (state_query / save_state / restore_state), so they
+        // see a consistent snapshot. No-op when no channel is active.
+        ge::appchannel::pumpMainThreadTasks();
 
         uint64_t now = SDL_GetPerformanceCounter();
         float dt = float(now - last) / float(freq);

@@ -18,6 +18,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <functional>
+#include <future>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -67,6 +69,37 @@ std::unordered_map<std::string, double> g_perfCounters;
 float g_perfAccumMs = 0.0f;
 int   g_perfFrames  = 0;
 constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
+
+// 🎯T92.5 State registry. Populated by registerStateSlice/Serializer BEFORE
+// ge::run (single-threaded), read by the channel worker thread after — the
+// happens-before is the channel-thread launch in start().
+std::unordered_map<std::string, StateGetter> g_slices;
+StateGetter   g_stateSaver;
+StateRestorer g_stateRestorer;
+
+// Game-thread task queue. State handlers run on the worker thread but must
+// observe game state from the game thread (no torn reads against the sim), so
+// they marshal a task here and block on its result; pumpMainThreadTasks drains
+// it from the run loop.
+std::mutex g_taskMu;
+std::deque<std::function<void()>> g_tasks;
+
+// Marshal `fn` onto the game thread, block until it runs, return its result.
+// `fn`'s exceptions propagate back to the caller (the dispatcher turns them
+// into a JSON-RPC error). Caller's stack outlives the task (it blocks on the
+// future), so the by-reference capture is safe.
+nlohmann::json runOnGameThread(const std::function<nlohmann::json()>& fn) {
+    std::promise<nlohmann::json> prom;
+    auto fut = prom.get_future();
+    {
+        std::lock_guard<std::mutex> lk(g_taskMu);
+        g_tasks.push_back([&] {
+            try { prom.set_value(fn()); }
+            catch (...) { prom.set_exception(std::current_exception()); }
+        });
+    }
+    return fut.get();
+}
 
 // Registered request handlers, keyed by method name. Populated before
 // installFromEnv (single-threaded), read-only on the worker thread after.
@@ -149,13 +182,17 @@ private:
             stopSender();
             return;
         }
-        // hello: advertise the methods we have handlers for.
+        // hello: advertise the methods we handle and the state slices
+        // consumers registered (before ge::run).
         nlohmann::json methods = nlohmann::json::array();
         for (const auto& kv : handlers()) methods.push_back(kv.first);
+        nlohmann::json slices = nlohmann::json::array();
+        for (const auto& kv : g_slices) slices.push_back(kv.first);
         sendFrame(nlohmann::json{
             {"id", nextId_++},
             {"method", "hello"},
-            {"params", {{"app_name", app_}, {"app_version", ver_}, {"methods", methods}}}});
+            {"params", {{"app_name", app_}, {"app_version", ver_},
+                        {"methods", methods}, {"slices", slices}}}});
 
         for (;;) {
             nlohmann::json msg;
@@ -469,6 +506,40 @@ void registerBuiltins() {
         SDL_PushEvent(&e);
         return kAck;
     });
+
+    // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)
+    reg("state_query", [](const nlohmann::json& p) {
+        const std::string slice = p.value("slice", std::string{});
+        auto it = g_slices.find(slice);
+        if (it == g_slices.end())
+            throw Error{-32602, "state_query: unknown slice '" + slice + "'"};
+        return runOnGameThread(it->second);
+    });
+    reg("save_state", [](const nlohmann::json&) {
+        if (!g_stateSaver)
+            throw Error{-32601, "save_state: no serializer registered"};
+        const nlohmann::json snap = runOnGameThread(g_stateSaver);
+        // Return the snapshot as raw MessagePack bytes in a `state` bin field;
+        // spyder base64-encodes it into the app_save_state {state_b64, size}.
+        const std::vector<std::uint8_t> bytes = nlohmann::json::to_msgpack(snap);
+        return nlohmann::json{{"state", nlohmann::json::binary(bytes)}};
+    });
+    reg("restore_state", [kAck](const nlohmann::json& p) {
+        if (!g_stateRestorer)
+            throw Error{-32601, "restore_state: no serializer registered"};
+        // spyder base64-decodes the tool's state_b64 and hands us the raw
+        // bytes back as the `state` bin.
+        if (!p.is_object() || !p.contains("state") || !p["state"].is_binary())
+            throw Error{-32602, "restore_state: missing 'state' bin"};
+        const auto& bytes = p["state"].get_binary();
+        nlohmann::json snap;
+        try { snap = nlohmann::json::from_msgpack(bytes); }
+        catch (const std::exception& e) {
+            throw Error{-32602, std::string("restore_state: bad blob: ") + e.what()};
+        }
+        runOnGameThread([snap] { g_stateRestorer(snap); return nlohmann::json(nullptr); });
+        return kAck;
+    });
 }
 
 } // namespace
@@ -524,6 +595,28 @@ void perfTick(float frameMs) {
     });
 }
 
+void registerStateSlice(std::string name, StateGetter getter) {
+    g_slices[std::move(name)] = std::move(getter);
+}
+
+void registerStateSerializer(StateGetter save, StateRestorer restore) {
+    g_stateSaver    = std::move(save);
+    g_stateRestorer = std::move(restore);
+}
+
+void pumpMainThreadTasks() {
+    for (;;) {
+        std::function<void()> task;
+        {
+            std::lock_guard<std::mutex> lk(g_taskMu);
+            if (g_tasks.empty()) break;
+            task = std::move(g_tasks.front());
+            g_tasks.pop_front();
+        }
+        task();
+    }
+}
+
 void push(std::string method, nlohmann::json params) {
     Channel::instance().push(method, std::move(params));
 }
@@ -539,6 +632,9 @@ bool active() { return false; }
 float applyTimeControl(float realDt) { return realDt; }
 void perfEmit(const std::string&, double) {}
 void perfTick(float) {}
+void registerStateSlice(std::string, StateGetter) {}
+void registerStateSerializer(StateGetter, StateRestorer) {}
+void pumpMainThreadTasks() {}
 
 #endif
 

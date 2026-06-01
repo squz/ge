@@ -78,4 +78,26 @@ float applyTimeControl(float realDt);
 void perfEmit(const std::string& name, double value);
 void perfTick(float frameMs);
 
+// 🎯T92.5 State registry. Register these BEFORE ge::run so the slice names are
+// advertised in the hello. The getters / save / restore callbacks run on the
+// GAME THREAD (the run loop marshals them) so they observe a consistent
+// snapshot, never a torn read against the simulation. All no-ops / empty in
+// release builds.
+using StateGetter   = std::function<nlohmann::json()>;
+using StateRestorer = std::function<void(const nlohmann::json&)>;
+
+// A named, queryable slice of app state — spyder's app_state{slice} routes
+// here and returns the getter's JSON.
+void registerStateSlice(std::string name, StateGetter getter);
+
+// Whole-app save/restore — spyder's app_save_state / app_restore_state. `save`
+// returns a JSON snapshot; ge MessagePack+base64-encodes it for the wire and
+// hands the decoded JSON back to `restore`.
+void registerStateSerializer(StateGetter save, StateRestorer restore);
+
+// Drain tasks the state handlers marshalled onto the game thread. The
+// SessionHost run loop calls this once per iteration; consumers don't. No-op
+// in release builds.
+void pumpMainThreadTasks();
+
 } // namespace ge::appchannel

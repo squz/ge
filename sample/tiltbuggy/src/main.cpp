@@ -76,6 +76,36 @@ int main(int argc, char* argv[]) {
         SPDLOG_INFO("iap: restore complete ok={} error={}", r.ok, r.error);
     });
 
+    // 🎯T92.5 App-channel state registry — the copyable proving-ground for
+    // ge consumers. Registered BEFORE ge::run so the slice names ride in the
+    // hello; the getters/serializer run on the game thread (ge marshals them).
+    // Slices are read-only snapshots; the serializer round-trips the bits that
+    // are cheaply settable here (gravity + the pro entitlement).
+    ge::appchannel::registerStateSlice("scene", [&state] {
+        const auto p = state.scene ? state.scene->buggyPose() : tiltbuggy::Pose{};
+        return nlohmann::json{
+            {"buggy",   {{"x", p.x}, {"y", p.y}, {"angle", p.angle}}},
+            {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+        };
+    });
+    ge::appchannel::registerStateSlice("iap", [] {
+        return nlohmann::json{{"pro", ge::iap::owned("pro")}};
+    });
+    ge::appchannel::registerStateSerializer(
+        [&state] {
+            return nlohmann::json{
+                {"pro",     ge::iap::owned("pro")},
+                {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+            };
+        },
+        [&state](const nlohmann::json& j) {
+            if (j.contains("gravity")) {
+                state.gravity.x = j["gravity"].value("x", 0.0f);
+                state.gravity.y = j["gravity"].value("y", 0.0f);
+            }
+            ge::iap::testing::setOwned("pro", j.value("pro", false));
+        });
+
     ge::run([&](ge::Context ctx) -> ge::RunConfig {
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
