@@ -40,6 +40,16 @@ int main(int argc, char* argv[]) {
     // spdlog logs flow to platform-native channels via ge::log::install,
     // which ge::run calls automatically below. No per-app sink wiring
     // needed (🎯T66).
+    //
+    // For dev-time diagnostics that bypass Apple unified logging / logcat
+    // entirely (🎯T83), tail logs over TCP — no code change here, just
+    // point the engine at a listener:
+    //   Mac:      nc -l 9999
+    //   desktop:  SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
+    //   iOS sim:  SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
+    //                 xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
+    //   Android:  adb shell setprop debug.ge.log_target <mac-ip>:9999
+    // Debug builds only — the sink is compiled out under NDEBUG.
 
     bool brokered = false;  // default: direct/distribution modality
     for (int i = 1; i < argc; i++) {

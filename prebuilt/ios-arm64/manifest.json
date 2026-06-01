@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "6d9aa2685c77c977510aa3e401252d61604fbbb11040d37818802b21a9229be8",
-    "prebuilt/ios-arm64/libge.a": "5a2b5d9b7cb4341b1874ffab8f041c420a968c79e2ac96cddba0f2b74d07d7f3",
-    "prebuilt/ios-arm64/libliteparser.a": "005442e99bacfd6320ca9fdda84f2152b66387bf9ba66c6c27c0842b7290c532",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "164966807020defe78ce1101fed25a3b5b0f422b347f44f86d5b723e6734d62a",
-    "prebuilt/ios-arm64/liblz4_ge.a": "b1fcc4ba8bcf3e95f8786fc0f27b9a6139c27138830c979dbdbb9193f107e564",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "6db8ce3ef2948578c78e4f88cc60448978322d20b2c0e36d0d54a10ba7d5c3a0",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "929fa718debd13711cf1ae393941a49b28bf11b9db97f0559f5be5668005bcd3"
+    "prebuilt/ios-arm64/libbox2d.a": "84c9ce373a1993f39c438e32e3faf908bcb976effbdc99403e2bf162c2f0876a",
+    "prebuilt/ios-arm64/libge.a": "62c1d1ff276582b4986bc8e71d365319cd213640c1aab849ccaccbd4dfb5ba3f",
+    "prebuilt/ios-arm64/libliteparser.a": "1d9e05d3f87cdda89d07972a826bffa5cf7dd3f20a561e313eab20513b8bb8ad",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "5efab9f3be2d2bd5818047889563c5bc8ded9a08fc564b53bc8a5a9aaf521fc7",
+    "prebuilt/ios-arm64/liblz4_ge.a": "91ad565d230bffc82f89f518f162763257544a79c756ea860cd0a22062b592df",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "1dc393d2b1884ab6f9e010fe1d2ddd2fadd1197211873045b43d5d6b29f73a40",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "b1bff8bfd2e368adf56869921f08afa93f1f41d713d6270dcc090194d21d4cb1"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -134,6 +134,7 @@
     "headers/spdlog/include/spdlog/details/registry-inl.h": "22a4f626daf4fa47700971d4994b5fca9559249ab9f387148f657ed70476e938",
     "headers/spdlog/include/spdlog/details/registry.h": "a5ce3c5a8bc019e7d8508268b222136c01f1e81360df67f104f21bf4b49e4f4b",
     "headers/spdlog/include/spdlog/details/synchronous_factory.h": "3fcfcc28aa4edc2998e9e00d218362600605b89e0c58ebf2c7267950412e1cdc",
+    "headers/spdlog/include/spdlog/details/tcp_client.h": "6977deb87db2535da5afb0013644386bcf32e49b64655c31344f5835f1324029",
     "headers/spdlog/include/spdlog/fmt/bundled/base.h": "892fcc48f31a80382f0e304e427d68d2fd62a2d78aef142020199120db5269fb",
     "headers/spdlog/include/spdlog/fmt/bundled/format-inl.h": "e7baf108b84e89b29915bb35733540f8f4262cd8f4b41c15754eed4d2f185f61",
     "headers/spdlog/include/spdlog/fmt/bundled/format.h": "b4c65350362bf40e76a8e6b450587d912c7081b6eafeafaf3d7bcf53153e17fc",
@@ -197,7 +198,7 @@
     "src/iap_apple.mm": "55fe711d3bbeab828f31d16dc636c3c2e5b75ebcfa4e5cb8bc24acdf5adff754",
     "src/iap_apple_bridge.h": "1cf8377048684dc735824ebf19e1a357f0a166d6380019c1e6fee7d5cb6a0ede",
     "src/iap_internal.h": "87d94f03e82157d821df52eb260daded665304fa70755ac4aa42106542e5a28f",
-    "src/log.cpp": "9ba05bf084e48665d118ec05517a854cfa70a356f58430c1515b4deef1c38b69",
+    "src/log.cpp": "0465a0b1d5d39c24db9dcd08f74899a3eecf97f2f230d26ff6c387dd115929f5",
     "src/log_apple.mm": "540ddaccfb4c5721b66e8cd6d897732d5159f8c8b02df734d59e05017dc48c15",
     "src/long_press.cpp": "9150fcffd627d1b20c74fe691a92ab6b73df688a453d1fc856ce09110d36502f",
     "src/manifest.cpp": "02620d490465b09d869e441c9bda26ff0403e999093e15399dc3072366408a04",

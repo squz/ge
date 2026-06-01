@@ -214,6 +214,48 @@ static tweak::Tweak<float> speed("buggy.speed", 5.0f);
 Specialized variants: `EnumTweak` (dropdown), `Vec2Tweak`, `AxisTweak`, `Color`. Use
 `tweak::loadOverrides(db)` at startup to reapply saved values.
 
+### Dev-time log streaming over TCP — `include/ge/log.h` (🎯T83)
+
+Apple's unified-logging path (DTX over the RSD tunnel, DDI mount, Developer Mode,
+the `os_trace_relay` fallback that silently drops third-party app emissions) has
+enough failure modes that you can't rely on it as your primary on-device
+diagnostic channel — and `NSLog` is just `os_log` underneath since iOS 14, so it
+inherits the same gates. The escape hatch every game dev already knows: open a
+socket. `ge::log::install()` (called automatically from `ge::run`) appends a TCP
+sink to the default logger when a target is set, so **every `SPDLOG_INFO/WARN/
+ERROR` is also streamed to a host you tail with `nc`** — no Apple-log or
+`adb logcat` dependency in the path.
+
+```bash
+# On your Mac (the listener):
+nc -l 9999
+
+# Desktop app — shell env:
+SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
+
+# iOS Simulator (sim shares host loopback):
+SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
+    xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
+# iOS device / Xcode: add SPYDER_LOG_TARGET=<mac-LAN-ip>:9999 to the scheme env.
+
+# Android (apps aren't shell-launched, so env vars don't reach them — use a
+# system property instead; no Java/Intent plumbing needed):
+adb shell setprop debug.ge.log_target <mac-LAN-ip>:9999
+adb shell am start -n <pkg>/ge.GeActivity
+```
+
+**Compile-gated behind `#ifndef NDEBUG`** — the entire feature (the `getenv`, the
+sink, the sender thread) is compiled out of release builds, so a misconfigured
+TestFlight / Play Store binary can never phone home to a developer's LAN. The
+runtime gate (target unset → no sink) means even a debug build only opens a socket
+when explicitly told where to point.
+
+Implementation note: the sink formats on the calling thread and hands lines to a
+dedicated sender thread via a bounded queue, reconnecting with exponential backoff.
+A downed listener costs nothing on the render hot path; a log flood drops oldest
+lines past the queue cap rather than growing memory. See `NetworkLogSink` in
+`src/log.cpp`.
+
 ## Common patterns
 
 ### Adding a new wire message type
