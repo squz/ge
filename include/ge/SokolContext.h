@@ -11,6 +11,8 @@
 
 #include <ge/Linalg.h>
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 
 struct SDL_Window;
@@ -42,6 +44,16 @@ public:
     // beginFramePassAction() with an explicit pass-action setup.
     void beginFrame(const float clearColor[4] = nullptr);
     void endFrame();
+
+    // 🎯T92.6 One-shot framebuffer readback for the app-channel screenshot
+    // path. Arms a capture of the frame about to be presented; the next
+    // endFrame() — after the GPU has rendered it — invokes `sink` with the
+    // pixels as RGBA8, top-down, tightly packed (w*h*4 bytes), then disarms.
+    // Both this call and the sink run on the game thread. Capturing the
+    // swapchain requires a readable framebuffer, so this only does real work
+    // in dev builds (the layer is framebufferOnly in release).
+    using FrameCaptureSink = std::function<void(const std::uint8_t* rgba, int w, int h)>;
+    void captureNextFrame(FrameCaptureSink sink);
 
     // App-lifecycle hooks. On Apple these are no-ops — the CAMetalLayer
     // survives backgrounding and rendering resumes without a swap-chain

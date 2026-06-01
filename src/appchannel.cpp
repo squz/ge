@@ -36,8 +36,10 @@
 #endif
 
 #include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>  // 🎯T92.6 IMG_SavePNG_IO
 
-#include "render/LifecycleInject.h"  // ge::detail::injectMemoryWarning
+#include "render/LifecycleInject.h"   // ge::detail::injectMemoryWarning
+#include "render/ScreenshotBridge.h"  // ge::detail::captureFrameRGBA
 
 #endif  // NDEBUG
 
@@ -539,6 +541,46 @@ void registerBuiltins() {
         }
         runOnGameThread([snap] { g_stateRestorer(snap); return nlohmann::json(nullptr); });
         return kAck;
+    });
+
+    // ── screenshot (🎯T92.6) ──
+    // Capture the framebuffer (game thread, via the render host), PNG-encode
+    // it here (off the render thread), and return {format, width, height,
+    // data:<bin>} — the PNG rides as a MessagePack bin, no base64.
+    reg("screenshot_app", [](const nlohmann::json&) {
+        std::vector<std::uint8_t> rgba;
+        int w = 0, h = 0;
+        if (!ge::detail::captureFrameRGBA(rgba, w, h) || w <= 0 || h <= 0)
+            throw Error{-32000, "screenshot_app: capture failed (timed out or not rendering)"};
+
+        SDL_Surface* surf =
+            SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, rgba.data(), w * 4);
+        if (!surf)
+            throw Error{-32000, std::string("screenshot_app: surface: ") + SDL_GetError()};
+
+        std::vector<std::uint8_t> png;
+        if (SDL_IOStream* io = SDL_IOFromDynamicMem()) {
+            if (IMG_SavePNG_IO(surf, io, /*closeio=*/false)) {
+                const Sint64 n = SDL_TellIO(io);
+                void* ptr = SDL_GetPointerProperty(
+                    SDL_GetIOProperties(io),
+                    SDL_PROP_IOSTREAM_DYNAMIC_MEMORY_POINTER, nullptr);
+                if (ptr && n > 0)
+                    png.assign(static_cast<std::uint8_t*>(ptr),
+                               static_cast<std::uint8_t*>(ptr) + n);
+            }
+            SDL_CloseIO(io);
+        }
+        SDL_DestroySurface(surf);
+        if (png.empty())
+            throw Error{-32000, "screenshot_app: PNG encode failed"};
+
+        return nlohmann::json{
+            {"format", "png"},
+            {"width",  w},
+            {"height", h},
+            {"data",   nlohmann::json::binary(std::move(png))},
+        };
     });
 }
 

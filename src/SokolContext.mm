@@ -10,6 +10,11 @@
 #include <SDL3/SDL_metal.h>
 #include <spdlog/spdlog.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <vector>
+
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -35,6 +40,12 @@ struct SokolContext::M {
 
     // Per-frame state, valid only between beginFrame/endFrame.
     id<CAMetalDrawable>    currentDrawable = nil;
+
+    // 🎯T92.6 One-shot screenshot sink, armed via captureNextFrame, fired and
+    // cleared inside endFrame after sg_commit. Dedicated readback texture +
+    // command queue, lazily created on first capture.
+    SokolContext::FrameCaptureSink captureSink;
+    id<MTLCommandQueue>            captureQueue = nil;
 
     ~M() {
         sg_shutdown();
@@ -104,7 +115,16 @@ SokolContext::SokolContext(const SokolConfig& config)
     m->device = MTLCreateSystemDefaultDevice();
     m->layer.device = m->device;
     m->layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+#ifndef NDEBUG
+    // 🎯T92.6 Dev builds keep the drawable readable so the app-channel
+    // screenshot path can blit it back to the CPU. framebufferOnly = YES
+    // (the release default just below) blocks using the drawable as a blit
+    // source. The dev-only cost is a minor GPU optimisation the simulator /
+    // a debug build won't miss.
+    m->layer.framebufferOnly = NO;
+#else
     m->layer.framebufferOnly = YES;
+#endif
 
 #if !TARGET_OS_OSX
     // Paint the Metal layer and every UIView/UIWindow above it opaque
@@ -213,12 +233,57 @@ void SokolContext::beginFrame(const float clearColor[4]) {
     sg_begin_pass(&pass);
 }
 
+void SokolContext::captureNextFrame(FrameCaptureSink sink) {
+    m->captureSink = std::move(sink);
+}
+
 void SokolContext::endFrame() {
     if (!sg_isvalid()) return;
     if (!m->currentDrawable) return;
 
     sg_end_pass();
     sg_commit();
+
+    // 🎯T92.6 Screenshot readback. sokol's sg_commit has committed the render
+    // (and present) to its own command queue but not waited for it; we blit
+    // the drawable's texture on that SAME queue (sg_mtl_command_queue) so the
+    // copy is ordered strictly after the render, then wait and read back. The
+    // drawable is still alive here (dropped below).
+    if (m->captureSink) {
+        auto sink = std::move(m->captureSink);
+        m->captureSink = nullptr;
+        id<MTLTexture> src = m->currentDrawable.texture;
+        const NSUInteger w = src.width, h = src.height;
+        MTLTextureDescriptor* desc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                               width:w height:h mipmapped:NO];
+        desc.storageMode = MTLStorageModeShared;  // CPU-readable (unified memory)
+        desc.usage       = MTLTextureUsageShaderRead;
+        id<MTLTexture> dst = [m->device newTextureWithDescriptor:desc];
+        if (!m->captureQueue) m->captureQueue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+        id<MTLCommandBuffer>     cb   = [m->captureQueue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        [blit copyFromTexture:src sourceSlice:0 sourceLevel:0
+                 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
+                    toTexture:dst destinationSlice:0 destinationLevel:0
+            destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [blit endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+
+        std::vector<std::uint8_t> bgra(static_cast<std::size_t>(w) * h * 4);
+        [dst getBytes:bgra.data() bytesPerRow:w * 4
+           fromRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0];
+        // BGRA8 → RGBA8 so the sink's contract is uniform across backends.
+        std::vector<std::uint8_t> rgba(bgra.size());
+        for (std::size_t i = 0, n = static_cast<std::size_t>(w) * h; i < n; ++i) {
+            rgba[i * 4 + 0] = bgra[i * 4 + 2];
+            rgba[i * 4 + 1] = bgra[i * 4 + 1];
+            rgba[i * 4 + 2] = bgra[i * 4 + 0];
+            rgba[i * 4 + 3] = bgra[i * 4 + 3];
+        }
+        sink(rgba.data(), static_cast<int>(w), static_cast<int>(h));
+    }
 
     // sokol_gfx-Metal handles the [commandBuffer presentDrawable:...]
     // internally when given a drawable in the swapchain config. So we

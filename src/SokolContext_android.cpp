@@ -33,6 +33,11 @@
 #include <SDL3/SDL_properties.h>
 #include <spdlog/spdlog.h>
 
+#include <GLES3/gl3.h>  // 🎯T92.6 glReadPixels for screenshot readback
+
+#include <cstring>
+#include <vector>
+
 #define SOKOL_IMPL
 #define SOKOL_GLES3
 #include "sokol_gfx.h"
@@ -46,6 +51,9 @@ struct SokolContext::M {
     SDL_Window*   window = nullptr;
     SDL_GLContext gl     = nullptr;
     bool          paused = false;
+
+    // 🎯T92.6 One-shot screenshot sink, fired in endFrame after sg_commit.
+    SokolContext::FrameCaptureSink captureSink;
 
     ~M() {
         if (gl) {
@@ -208,12 +216,37 @@ void SokolContext::beginFrame(const float clearColor[4]) {
     sg_begin_pass(&pass);
 }
 
+void SokolContext::captureNextFrame(FrameCaptureSink sink) {
+    m->captureSink = std::move(sink);
+}
+
 void SokolContext::endFrame() {
     if (m->paused) return;
     if (!sg_isvalid()) return;
 
     sg_end_pass();
     sg_commit();
+
+    // 🎯T92.6 Screenshot readback. sg_commit has flushed the GL render into
+    // the default framebuffer; read it back BEFORE SDL_GL_SwapWindow discards
+    // the back buffer. glReadPixels is bottom-up (GL origin bottom-left), so
+    // flip rows to deliver top-down RGBA8 — the sink's uniform contract.
+    if (m->captureSink) {
+        auto sink = std::move(m->captureSink);
+        m->captureSink = nullptr;
+        const int w = m->width, h = m->height;
+        if (w > 0 && h > 0) {
+            const std::size_t row = static_cast<std::size_t>(w) * 4;
+            std::vector<std::uint8_t> raw(row * h);
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, raw.data());
+            std::vector<std::uint8_t> rgba(row * h);
+            for (int y = 0; y < h; ++y)
+                std::memcpy(&rgba[static_cast<std::size_t>(h - 1 - y) * row],
+                            &raw[static_cast<std::size_t>(y) * row], row);
+            sink(rgba.data(), w, h);
+        }
+    }
+
     // GLES present: swap the EGL backbuffer to the screen.
     SDL_GL_SwapWindow(m->window);
 }
