@@ -13,9 +13,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -57,6 +59,15 @@ std::atomic<int>   g_tcStepFrames{0};
 // reproducible.
 constexpr float kStepDt = 1.0f / 60.0f;
 
+// 🎯T92.4 Perf counters. perfEmit (game thread) sets the latest value per
+// name; perfTick accumulates frame time and, once the window elapses, pushes
+// {frame_ms (window average), counters}.
+std::mutex g_perfMu;
+std::unordered_map<std::string, double> g_perfCounters;
+float g_perfAccumMs = 0.0f;
+int   g_perfFrames  = 0;
+constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
+
 // Registered request handlers, keyed by method name. Populated before
 // installFromEnv (single-threaded), read-only on the worker thread after.
 std::unordered_map<std::string, Handler>& handlers() {
@@ -96,23 +107,38 @@ public:
         port_ = port;
         app_  = std::move(app);
         ver_  = std::move(ver);
-        // Dev-only; detached — the OS reaps it on process exit.
+        // Dev-only; detached — the OS reaps both on process exit. The receiver
+        // owns the socket reads + request dispatch; the sender drains queued
+        // pushes so the game thread never blocks on the socket (🎯T92.1/T92.4).
         std::thread([this] { run(); }).detach();
+        std::thread([this] { senderLoop(); }).detach();
     }
 
     bool active() const { return live_.load(); }
 
+    // Enqueue an async push ({method, params}); never blocks on the socket.
+    // Dropped if the channel isn't live, or if the backlog hits kMaxQueued
+    // (oldest first) so a stalled listener can't grow memory without bound.
     void push(const std::string& method, nlohmann::json params) {
         if (!live_.load()) return;
-        sendFrame(nlohmann::json{{"method", method}, {"params", std::move(params)}});
+        nlohmann::json env{{"method", method}, {"params", std::move(params)}};
+        {
+            std::lock_guard<std::mutex> lk(queueMu_);
+            if (sendQueue_.size() >= kMaxQueued) sendQueue_.pop_front();
+            sendQueue_.push_back(std::move(env));
+        }
+        queueCv_.notify_one();
     }
 
-    // Drain anything queued for the wire. Frames are sent synchronously under
-    // sendMu_ today, so there is never a backlog and this returns immediately;
-    // it exists so app_flush has a real drain point once T92.4 adds the
-    // batched log/perf sender queue.
+    // Block until the push queue is fully drained to the socket. Used by the
+    // app_flush handler as a precondition for app_quit.
     void flush() {
-        std::lock_guard<std::mutex> lk(sendMu_);
+        std::unique_lock<std::mutex> lk(queueMu_);
+        drainedCv_.wait(lk, [this] { return sendQueue_.empty(); });
+        lk.unlock();
+        // The queue is empty, but the sender may still be mid-write on the last
+        // frame; grabbing sendMu_ waits for that write to finish.
+        std::lock_guard<std::mutex> sl(sendMu_);
     }
 
 private:
@@ -120,6 +146,7 @@ private:
         fd_ = dialTCP(host_, port_);
         if (fd_ < 0) {
             SPDLOG_WARN("appchannel: connect to {}:{} failed", host_, port_);
+            stopSender();
             return;
         }
         // hello: advertise the methods we have handlers for.
@@ -136,8 +163,38 @@ private:
             dispatch(msg);
         }
         live_.store(false);
+        stopSender();
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
         SPDLOG_INFO("appchannel: channel closed");
+    }
+
+    // Sender thread: drain queued pushes onto the wire. Frame writes share
+    // sendMu_ with the receiver thread's request responses.
+    void senderLoop() {
+        for (;;) {
+            nlohmann::json env;
+            {
+                std::unique_lock<std::mutex> lk(queueMu_);
+                queueCv_.wait(lk, [this] { return senderStop_ || !sendQueue_.empty(); });
+                if (senderStop_ && sendQueue_.empty()) return;
+                env = std::move(sendQueue_.front());
+                sendQueue_.pop_front();
+            }
+            sendFrame(env);  // holds sendMu_ for the actual write
+            {
+                std::lock_guard<std::mutex> lk(queueMu_);
+                if (sendQueue_.empty()) drainedCv_.notify_all();
+            }
+        }
+    }
+
+    void stopSender() {
+        {
+            std::lock_guard<std::mutex> lk(queueMu_);
+            senderStop_ = true;
+        }
+        queueCv_.notify_all();
+        drainedCv_.notify_all();
     }
 
     void dispatch(const nlohmann::json& msg) {
@@ -221,6 +278,8 @@ private:
         return true;
     }
 
+    static constexpr std::size_t kMaxQueued = 4096;
+
     std::atomic<bool> started_{false};
     std::atomic<bool> live_{false};
     std::atomic<std::uint64_t> nextId_{1};
@@ -228,6 +287,13 @@ private:
     int port_ = 0;
     int fd_ = -1;
     std::mutex sendMu_;
+
+    // Async push queue, drained by senderLoop().
+    std::mutex queueMu_;
+    std::condition_variable queueCv_;
+    std::condition_variable drainedCv_;
+    std::deque<nlohmann::json> sendQueue_;
+    bool senderStop_ = false;
 };
 
 // "appchannel://host:port" → {host, port}; port <= 0 if not that scheme.
@@ -430,6 +496,34 @@ float applyTimeControl(float realDt) {
     return realDt * g_tcSpeed.load();
 }
 
+void perfEmit(const std::string& name, double value) {
+    std::lock_guard<std::mutex> lk(g_perfMu);
+    g_perfCounters[name] = value;
+}
+
+void perfTick(float frameMs) {
+    if (!Channel::instance().active()) return;  // nothing to push to
+    // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
+    // rides as just another sample alongside the consumer's perfEmit counters.
+    nlohmann::json samples = nlohmann::json::object();
+    {
+        std::lock_guard<std::mutex> lk(g_perfMu);
+        g_perfAccumMs += frameMs;
+        g_perfFrames  += 1;
+        if (g_perfAccumMs < kPerfWindowMs) return;  // still inside the window
+        samples["frame_ms"] = g_perfAccumMs / float(g_perfFrames);
+        for (const auto& kv : g_perfCounters) samples[kv.first] = kv.second;
+        g_perfAccumMs = 0.0f;
+        g_perfFrames  = 0;
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    Channel::instance().push("perf", nlohmann::json{
+        {"timestamp", static_cast<std::int64_t>(ms)},
+        {"samples",   std::move(samples)},
+    });
+}
+
 void push(std::string method, nlohmann::json params) {
     Channel::instance().push(method, std::move(params));
 }
@@ -443,6 +537,8 @@ void installFromEnv(const std::string&, const std::string&) {}
 void push(std::string, nlohmann::json) {}
 bool active() { return false; }
 float applyTimeControl(float realDt) { return realDt; }
+void perfEmit(const std::string&, double) {}
+void perfTick(float) {}
 
 #endif
 

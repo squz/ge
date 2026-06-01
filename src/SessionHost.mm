@@ -80,6 +80,11 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
             continue;
         }
 
+        // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf push
+        // accumulator; it emits a {frame_ms, counters} sample ~once per second
+        // when an app-channel is live (no-op otherwise).
+        ge::appchannel::perfTick(dt * 1000.0f);
+
         // 🎯T92.2 Apply dev time-control (app_pause/resume/step/speed). A
         // no-op pass-through unless an app-channel is driving it; returns 0
         // while paused (render + input below still run), kStepDt per stepped

@@ -68,4 +68,14 @@ bool active();
 // pass-through in release builds.
 float applyTimeControl(float realDt);
 
+// 🎯T92.4 Perf push. perfEmit records the latest value of a named custom
+// counter — consumers call it from the game thread (e.g. each frame). perfTick
+// is called once per frame by the SessionHost run loop with the real frame
+// time in ms; it pushes a {frame_ms, counters} `perf` message roughly once per
+// second (averaging frame_ms over the window). Both are no-ops when no channel
+// is active and compiled out in release builds. The push itself is enqueued on
+// the channel's async sender, so the game thread never blocks on the socket.
+void perfEmit(const std::string& name, double value);
+void perfTick(float frameMs);
+
 } // namespace ge::appchannel

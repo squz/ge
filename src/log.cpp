@@ -26,6 +26,7 @@
 // release builds (NDEBUG) so a misconfigured store binary can never open
 // a socket to a developer's LAN. See NetworkLogSink below.
 #ifndef NDEBUG
+#include <ge/appchannel.h>  // 🎯T92.4 structured log push
 #include <spdlog/sinks/base_sink.h>
 #ifdef _WIN32
 #include <spdlog/details/tcp_client-windows.h>
@@ -189,6 +190,35 @@ private:
     std::thread worker_;  // declared last: constructed after the state it touches
 };
 
+// 🎯T92.4 Structured-log sink for appchannel:// mode. Instead of the text
+// NetworkLogSink, this pushes a typed {level, subsystem, message} record over
+// the app-channel. The channel's own async sender does the socket I/O, so
+// sink_it_ never blocks; ge::appchannel::push no-ops until the handshake
+// completes (early lines fall back to the always-present native/stderr sink).
+class AppChannelLogSink final : public spdlog::sinks::base_sink<std::mutex> {
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        // Guard against a push path that itself logs (it must not) re-entering.
+        static thread_local bool inSink = false;
+        if (inSink) return;
+        inSink = true;
+        const auto lvl = spdlog::level::to_string_view(msg.level);
+        const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
+            msg.time.time_since_epoch()).count();
+        // spyder's app_log_get reads {timestamp, level, subsystem, format}.
+        // spdlog pre-renders the message, so the rendered text rides as
+        // `format` with no separate args.
+        ge::appchannel::push("log", nlohmann::json{
+            {"timestamp", static_cast<std::int64_t>(ms)},
+            {"level",     std::string(lvl.data(), lvl.size())},
+            {"subsystem", std::string(msg.logger_name.data(), msg.logger_name.size())},
+            {"format",    std::string(msg.payload.data(), msg.payload.size())},
+        });
+        inSink = false;
+    }
+    void flush_() override {}
+};
+
 }  // namespace
 #endif  // NDEBUG
 
@@ -225,9 +255,13 @@ void install(std::string subsystem) {
         std::string netHost;
         int netPort = 0;
         // An "appchannel://" target is the structured MessagePack-RPC channel
-        // (🎯T92, ge::appchannel) — not this text sink. Skip it here; the
-        // appchannel client (installed from ge::run) owns that target.
-        if (!netTarget.empty() && netTarget.rfind("appchannel://", 0) != 0) {
+        // (🎯T92, ge::appchannel, dialed from ge::run). In that mode logs go
+        // as typed {level,subsystem,message} pushes (🎯T92.4) instead of the
+        // T83 text sink. A bare "host:port" keeps the text NetworkLogSink.
+        const bool isAppChannel = netTarget.rfind("appchannel://", 0) == 0;
+        if (isAppChannel) {
+            sinks.push_back(std::make_shared<AppChannelLogSink>());
+        } else if (!netTarget.empty()) {
             std::tie(netHost, netPort) = parseTarget(netTarget);
             if (netPort > 0)
                 sinks.push_back(std::make_shared<NetworkLogSink>(netHost, netPort));
@@ -246,10 +280,12 @@ void install(std::string subsystem) {
         // Now that the logger is live, surface the network-sink decision
         // through it (so the line itself also reaches the TCP listener).
 #ifndef NDEBUG
-        if (netPort > 0) {
+        if (isAppChannel) {
+            SPDLOG_INFO("ge::log: structured log push via app-channel (🎯T92.4)");
+        } else if (netPort > 0) {
             SPDLOG_INFO("ge::log: mirroring to {}:{} via TCP (🎯T83)",
                         netHost, netPort);
-        } else if (!netTarget.empty() && netTarget.rfind("appchannel://", 0) != 0) {
+        } else if (!netTarget.empty()) {
             SPDLOG_WARN("ge::log: dev-log target '{}' is not host:port — ignored",
                         netTarget);
         }

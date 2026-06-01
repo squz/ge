@@ -10,6 +10,7 @@
 #include "Renderer.h"
 #include "Scene.h"
 
+#include <ge/appchannel.h>
 #include <ge/iap.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
@@ -83,9 +84,13 @@ int main(int argc, char* argv[]) {
         return {
             .onUpdate = [&](float dt) {
                 state.scene->step(dt, state.gravity);
+                auto p = state.scene->buggyPose();
+                // 🎯T92.4 Sample app-channel perf counter — the copyable
+                // proving-ground pattern for ge consumers. Surfaces in
+                // spyder's app_perf_get alongside the engine's frame_ms.
+                ge::appchannel::perfEmit("buggy_x", p.x);
                 static int frame = 0;
                 if (++frame % 60 == 0) {
-                    auto p = state.scene->buggyPose();
                     SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
                                 ge::iap::owned("pro"));
