@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "e0c38ea46172a54b0105f7107be514590331ada8376b81554e79b11cca57fb5b",
-    "prebuilt/ios-arm64-simulator/libge.a": "ff3bf3d03e8a3aca886cc11180c863ec9e45190eaeb38dbe5b9178af1343b0c6",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "8a0eafc6a1f9359c8b1c15afd37502bb082f624c79e1a80a175fbba2cd3022c2",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "fda3dc246b61b95d879b03f92a8fdb1961ac3b9b02b43fd0c8217147c6a31a9c",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "17233ba2e2e49acc994b798ae3992b0f1b8cccc5dce9f321c328711df30e9bf9",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "aa0ba7d2cb7dab027cccb05f46af3e38eb65f10f454a6fbdc9b6ae238ff66002",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "9189b7f0f7bd5c471eb4704cfb7530433c8b58d437eb55123d7603110a5f2c9b"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "ee710223c08fa33d414a89001e3eb4b82f069c129819afc70f61d54fbdf297c4",
+    "prebuilt/ios-arm64-simulator/libge.a": "ce14e33ef41cfe10784373c57dd43257ac59e35eab3119c24dc8fd50ec12caf9",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "84a26129a5a06b6a156129f3fdd195771a25485a6e48443a38da975d7d34ed5f",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "ec0e490dcae74e2c55da1b9f2b2e79d0d214603246b94f32a15c6fd688619aa6",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "85a64c377d43a17bbcbfd54f5f9be1b457841c91333b912d38652a53ddf87775",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "03dc27ffcc7c61bc86b53b3af48376239a3dee90ce27ec35f11078dc61fb170d",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "5552e6555293b7e918ecb2a199b55775a20a96389e8535d33267a57b5d808065"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -163,7 +163,7 @@
     "include/ge/RefreshRateBoost.h": "0a5c96808be7e4c3782d878ed58913f40563a45107bdc844df633a6bf7b2d815",
     "include/ge/RenderHost.h": "2674044da08b5785f67d50ded3596072546e5ea7f90ae543b6e9c800b5e7b2ce",
     "include/ge/Resource.h": "ea756acd98750bc942f726da7f72b0bad9979df3d7045ae73ad584a58841e281",
-    "include/ge/SessionHost.h": "3b4b3a15bfa64d660dbae1443802bd202786d63cf0a260061e28a64ac6266a12",
+    "include/ge/SessionHost.h": "3c4584a4fb836f342e8c6d8620a11357c3c234f33d54427fb665bd3fb0a0cd87",
     "include/ge/Signal.h": "d4d5297b9edee48ec575e580134aec3b4686c8a0626ca78e19727272403eede4",
     "include/ge/SokolContext.h": "3e9df0ab8f31b70125fdb82392c5db5a2c3554b69dbdbd7ea36b55b64372d3a6",
     "include/ge/audio.h": "dee9117f73ed76a310cef4af7eed2b18fdbcf7abbb77dad76e852239bbf8f168",
@@ -179,7 +179,7 @@
     "include/ge/text.h": "3a915fca2a5de2c26e23f7c7b01eefe59c110edfc35e02d2cd84ac47c72859f1",
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",
     "src/Attitude_apple.mm": "4e999fe76f1828978d2037d40d62e4111c117d281d4bcf43fea139501cde86ec",
-    "src/Context.cpp": "a7eab5f783f3b3358fa8438d3b9da308788c4e34d435fdb243c3b96e6dfab2e2",
+    "src/Context.cpp": "9d07afa3f9b01d4d530373b9d17ba7afcea7e1556bad18ef732df593c497c232",
     "src/CutoutInsets.h": "e061fbc98eb548d634a715527794fde532a66cc4e0d929bc4ad01ff7ba52bf4c",
     "src/CutoutInsets_stub.cpp": "1b6160f61d47ee419e28deb79e1a785087635624cff438da1b0fbeff624529ff",
     "src/FileIO.cpp": "71cb81085b7883e7f701ce77cb3a1ae42846317c1adc400afff28c6d70edc4ae",
@@ -204,7 +204,7 @@
     "src/png.cpp": "ca11dcf761f88dc40d974f445b095b9b58de7c9fc50653b028d28b1fdb3f39a2",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "96b1f9da508a497d95e202f60041d2455af859be808c68f0f19327421a585d1e",
-    "src/render/DirectRenderHost.mm": "ae9a515e222d7090a4723b261c71a79223037f4e248d6372e275bc752335dd7f",
+    "src/render/DirectRenderHost.mm": "46b2e9367c41a8f89886f920feaef17258cb1655aa9a8956e65caf7acd6c0e54",
     "src/render/RefreshRateBoost_apple.mm": "6ea69624087fae978b188591fb8bf989177f49ec0fe4ce334f7a4d1713373686",
     "src/sdl_input.cpp": "de6f95eed5bf0698cf62901f78bbf50d3e9c11819ad6834b02ebbb4efaeaaa57",
     "src/sprite.cpp": "cf314f0a1a8c9614f9c894734d44754c58e033e5dce3f737c34106cf2d2f0463",

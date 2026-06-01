@@ -726,12 +726,19 @@ void DirectRenderHost::beginFrame() {
 
     // Drive AccelSynth ease-back even when no tilt is being applied —
     // it still emits SDL_EVENT_SENSOR_UPDATE events the game consumes.
+    //
+    // 🎯T94 Presentation tilt: expose the synth's contribution as a radians
+    // angle-vector for ge::ortho::tilt. The synth only exists when no real
+    // accelerometer was found, so this is {0,0} on real-accel platforms — the
+    // view tilts only where there's no physical tilt to double up on. Small
+    // deadzone (0.7 px) mirrors the player composite's threshold.
+    la::float2 presentationTilt{0.0f, 0.0f};
     if (i_->synth) {
         i_->synth->update();
-        // Tilt result no longer drives a compose pass — the game draws
-        // straight to the swap chain. We still pull the value so the
-        // synth's internal state machine keeps ticking.
-        (void)i_->synth->current();
+        const Tilt t = i_->synth->current();
+        if (std::sqrt(t.x * t.x + t.y * t.y) > 0.7f) {
+            presentationTilt = la::float2{t.x, t.y} * kTiltRadPerPixel;
+        }
     }
 
     // Open the swap-chain pass. Game's onRender runs between here and
@@ -755,6 +762,7 @@ void DirectRenderHost::beginFrame() {
         i_->ctx->setPixelsPerPt(ppt > 0.0f ? ppt : 1.0f);
         i_->ctx->setDeviceUiScale(computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
         i_->ctx->setParallax(updateParallax());
+        i_->ctx->setPresentationTilt(presentationTilt);
     }
 }
 

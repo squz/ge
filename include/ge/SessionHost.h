@@ -398,6 +398,19 @@ public:
     // for a 3D scene tilt.
     la::float2 parallax() const;
 
+    // 🎯T94 Presentation tilt: the tilt to apply to the *rendered view* as a
+    // surrogate for physical device tilt, as a radians angle-vector (direction
+    // = tilt direction, magnitude = tilt angle). Feed straight into
+    // `ge::ortho::tilt(aspect, ctx.presentationTilt())`.
+    //
+    // This is AccelSynth's contribution, so it is {0, 0} whenever a real
+    // hardware accelerometer is present (synth never runs) — the view tilts
+    // only on synth platforms (desktop / sim / emu), never on a device whose
+    // screen is already physically tilted. Distinct from gameplay gravity
+    // (which is real-or-synth and uniform) and from parallax() (a subtle
+    // always-on camera offset that does run on real devices).
+    la::float2 presentationTilt() const;
+
     // The engine-provided database.
     std::shared_ptr<sqlpipe::Database> db() const;
 
@@ -417,6 +430,7 @@ public:
     void setPixelsPerPt(float);
     void setDeviceUiScale(float);
     void setParallax(la::float2);
+    void setPresentationTilt(la::float2);
 
 private:
     struct M;

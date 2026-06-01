@@ -175,3 +175,53 @@ static_assert(kPxMatrix[0][0] == 2.f / 800.f);
 static_assert(kS2C.x          == 160.f);
 static_assert(kS2C.y          == 240.f);
 } // namespace
+
+// ─────────────────────────────────────────────────────────────────────
+// tilt (🎯T94): perspective tilt composed onto a base projection
+// ─────────────────────────────────────────────────────────────────────
+
+namespace {
+// Apply M to (p.x, p.y, 0, 1) WITH the perspective w-divide → NDC (x, y).
+float2 applyNdc(const float4x4& m, float2 p) {
+    auto v = ge::la::mul(m, float4{p.x, p.y, 0.f, 1.f});
+    return {v.x / v.w, v.y / v.w};
+}
+} // namespace
+
+TEST_CASE("ortho::tilt: zero tilt is the identity") {
+    const auto m = ge::ortho::tilt(1.5f, {0.f, 0.f});
+    for (float2 p : {float2{0, 0}, float2{1, 1}, float2{-1, 0.5f}, float2{0.25f, -1}}) {
+        auto q = applyNdc(m, p);
+        CHECK(q.x == doctest::Approx(p.x).epsilon(kEps));
+        CHECK(q.y == doctest::Approx(p.y).epsilon(kEps));
+    }
+}
+
+TEST_CASE("ortho::tilt: rotated quad stays inside the screen and fills it (bbox fit)") {
+    const auto m = ge::ortho::tilt(1.0f, {0.3f, 0.0f});  // ~17° about the y-axis
+    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+    for (float2 c : {float2{-1, -1}, float2{1, -1}, float2{1, 1}, float2{-1, 1}}) {
+        auto q = applyNdc(m, c);
+        CHECK(q.x >= -1.f - kEps);
+        CHECK(q.x <=  1.f + kEps);
+        CHECK(q.y >= -1.f - kEps);
+        CHECK(q.y <=  1.f + kEps);
+        minX = std::min(minX, q.x); maxX = std::max(maxX, q.x);
+        minY = std::min(minY, q.y); maxY = std::max(maxY, q.y);
+    }
+    // The fit scales the rotated quad until its bbox fills [-1,1] on the
+    // binding axis — so at least one axis spans the full 2.0.
+    const bool fillsX = std::abs((maxX - minX) - 2.f) < 1e-3f;
+    const bool fillsY = std::abs((maxY - minY) - 2.f) < 1e-3f;
+    CHECK((fillsX || fillsY));
+}
+
+TEST_CASE("ortho::tilt: +x presentation tilt recedes the right edge (sign convention)") {
+    // tiltRad = (+angle, 0) → axis (0,1,0): the right edge (x=+1) rotates away
+    // from the camera, so it should project SHORTER than the left edge. This
+    // pins the convention ported from the pre-T38 player composite.
+    const auto m = ge::ortho::tilt(1.0f, {0.4f, 0.0f});
+    const float leftH  = applyNdc(m, {-1, 1}).y - applyNdc(m, {-1, -1}).y;
+    const float rightH = applyNdc(m, { 1, 1}).y - applyNdc(m, { 1, -1}).y;
+    CHECK(std::abs(leftH) > std::abs(rightH));
+}
