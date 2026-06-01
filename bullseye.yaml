@@ -2717,7 +2717,7 @@ targets:
     achieved: 2026-05-31
   T83:
     name: ge's log layer offers a TCP network sink for dev-time diagnostics that bypasses Apple unified logging and Android logcat
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     actual_cost: 3.0
