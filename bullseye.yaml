@@ -3051,3 +3051,22 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-06-01
     achieved: 2026-06-01
+  T95:
+    name: RefreshRateBoost setPreferredFrameRateRange throws on iOS 26.5 device too
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 1.0
+    acceptance:
+    - First touch on a real iOS 17/26 device (iPad mini A17 Pro, iPhone 13 etc.) does not abort the consumer app with `-[CADisplayLink setPreferredFrameRateRange:]` ObjC exception.
+    - engageBoost either guards the call with @try/@catch and logs once on failure, or validates the CAFrameRateRange (e.g. ensures display.maximumFramesPerSecond > 0) before calling the setter, or is short-circuited on OS / device variants known to throw.
+    - The high-refresh-rate boost still works on devices where it's actually supported (real ProMotion displays); failure to engage degrades to standard refresh rather than crashing.
+    context: '🎯T91 patched the iOS Simulator case by gating engageBoost behind `TARGET_OS_IOS && !TARGET_OS_SIMULATOR`. But on 2026-06-01 the multimaze2 build deployed to two physical iOS devices (iPad mini A17 Pro running iOS 26.5, iPhone 13 same OS) and BOTH crash on first touch with the exact same backtrace:\n\n  abort\n  __cxa_throw / objc_exception_throw\n  -[CADisplayLink setPreferredFrameRateRange:]\n  ge::RefreshRateBoost::M::engageBoost()\n  ge::DirectRenderHost::pumpEvents()\n\nSo the device case isn''t a clean win — Apple''s CADisplayLink now throws on a wider set of conditions than the sim-only carve-out anticipated. Possible causes worth checking:\n  - iOS 26.5 changed the validation rules on the frame-rate range struct (zero/invalid values?).\n  - The link wasn''t yet committed when the setter ran.\n  - The display value of `display.maximumFramesPerSecond` is 0 at the moment of call, producing an invalid CAFrameRateRange.\n\nMinimum-viable fix: wrap the setter in `@try { ... } @catch (NSException *e) { SPDLOG_WARN(...); } @finally { invalidate or null the link }`. Cost is one log line on broken OSes; benefit is the consumer app stays alive. Better fix: read `display.maximumFramesPerSecond`, skip the boost when it''s 0 or 60 (no ProMotion).\n\nCrash log: ~/work/github.com/squz/multimaze2/tmp/mm-jevons/MultiMaze-2026-06-01-215203.ips (also same backtrace on the iPhone 13 build).'
+    tags:
+    - multimaze-audit
+    - ios
+    - device
+    - T91-followup
+    origin: multimaze2-audit
+    discovered: 2026-06-01
+    achieved: 2026-06-01
