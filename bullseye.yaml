@@ -2952,7 +2952,7 @@ targets:
     achieved: 2026-06-01
   T92:
     name: ge implements the app side of spyder's bidirectional MessagePack RPC channel
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2983,6 +2983,14 @@ targets:
       Consumer cooperation needed: state_query, save_state/restore_state, and perf counters all depend on consumers registering their own slices / serializers / counters. ge provides the registry + the wire dispatch; consumers populate it. Sample tiltbuggy registration is part of the deliverable so future ge apps have a copyable pattern.
 
       Pairs with T83 (NetworkLogSink — the simpler-protocol cousin that landed first).
+    depends_on:
+    - T92.1
+    - T92.2
+    - T92.3
+    - T92.4
+    - T92.5
+    - T92.6
+    - T92.7
     tags:
     - spyder-integration
     - messagepack
@@ -2993,6 +3001,145 @@ targets:
     - umbrella
     - surfaced-by:multimaze2
     origin: manual
+    discovered: 2026-06-01
+  T92.1:
+    name: 'app-channel transport: msgpack, framing, connect + hello handshake, dev-only gate'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - msgpack (header-only msgpack-cxx preferred) is vendored under vendor/ and wired into includes; no hand-rolled MessagePack.
+    - 'ge::log::install (or a sibling ge::appchannel) parses LOG_TARGET: a value of the form `appchannel://host:port` dials the RPC channel; a bare `host:port` keeps the existing T83 text NetworkLogSink unchanged (backwards-compatible).'
+    - Length-prefixed framing ([4-byte LE length][MessagePack body], max 16 MB) with a JSON-RPC-shaped envelope ({id,method,params} / {id,result|error} / {method,params} push). Encode/decode via the vendored lib.
+    - On connect the app sends a `hello` request advertising app_name (consumer-set), app_version, and the methods it handles; it awaits {spyder_version, accepted_methods} before the channel is live. A background sender/receiver thread owns the socket (game thread never blocks), mirroring NetworkLogSink.
+    - 'Entire client compiled out under NDEBUG (same gate as T83). Verified: a ge app dials a spyder app_channel_start listener and app_channel_list shows the session with the right app_name/version/methods.'
+    context: Foundation leaf of T92. Establishes the wire + handshake + the LOG_TARGET appchannel:// scheme discriminator (recommendation (a) from T92), reusing the off-thread sender pattern from T83's NetworkLogSink. All other T92 leaves dispatch into this.
+    tags:
+    - spyder-integration
+    - messagepack
+    - rpc
+    - transport
+    - dev-experience
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.2:
+    name: app-channel lifecycle + time-control methods
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Lifecycle handlers: ping (server-arrival ts), quit (ack then SDL_QUIT, clean exit code 0 / no macOS crash notification), flush (drain sender queues then ack), backgrounded/foregrounded (post the platform lifecycle notifications — reuse the T44/T45/T88 hooks), low_memory_warning (post the memory-warning notification).'
+    - 'Time-control handlers: pause (paused flag → dt=0, render + input continue), resume, step (advance N frames then re-pause), speed (dt multiplier). Implemented as a one-time pacing change in the SessionHost run loop.'
+    - 'Verified against spyder: app_ping, app_quit, app_pause, app_resume, app_step, app_speed each produce the correct behaviour on macOS desktop.'
+    context: Dispatches into the T92.1 channel. quit (no crash notification) and pause/step (frame-by-frame visual debugging) are the headline wins after input injection.
+    depends_on:
+    - T92.1
+    tags:
+    - spyder-integration
+    - rpc
+    - lifecycle
+    - dev-experience
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.3:
+    name: app-channel input injection (the did-the-tap-reach-my-handler killer)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'input_inject handler fabricates SDL events and SDL_PushEvent''s them: finger_down/up/motion (normalized 0-1 coords denormalized to the surface), key_down/up, accel. All land in the consumer''s onEvent indistinguishably from real OS events.'
+    - SDL_TOUCH_MOUSEID / synthetic-vs-real concerns handled so injected input behaves like a real finger/click for ge::Button etc.
+    - 'Verified against spyder: app_input finger_down/up on tiltbuggy''s BUY PRO fires the purchase (pro=true) on macOS desktop and the iOS simulator — the exact tap-routing question that consumed the T87 investigation, now answerable in one tool call.'
+    context: 'The single biggest debugging unlock per T92''s context: eliminates the entire manual ''did the tap reach my handler'' loop (cf. the multi-hour T87/T89/T91 sim saga in this very repo).'
+    depends_on:
+    - T92.1
+    tags:
+    - spyder-integration
+    - rpc
+    - input
+    - dev-experience
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.4:
+    name: app-channel structured log + perf push
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A structured `log` push (level, subsystem, format/rendered message, args) replaces the T83 text emission when the channel is in appchannel:// mode (text mode unchanged).
+    - A periodic `perf` push (default 1s cadence) carries frame_ms plus custom counters; consumers register counters via a perfEmit(name, value) API.
+    - 'Verified against spyder: app_log_get returns the structured log stream and app_perf_get returns frame timing + a custom counter from a sample consumer.'
+    context: The app→spyder push half of the channel; supersedes NetworkLogSink's formatted-text emission with typed messages when RPC mode is active.
+    depends_on:
+    - T92.1
+    tags:
+    - spyder-integration
+    - rpc
+    - logging
+    - perf
+    - dev-experience
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.5:
+    name: app-channel state registry + save/restore
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'ge ships a registry: registerStateSlice(name, getter -> serializable) and registerStateSerializer(saveFn, restoreFn). state_query, save_state, restore_state route through it.'
+    - Consumers populate the registry; ge owns only the wire dispatch + registry. tiltbuggy registers a couple of slices as the copyable proving-ground pattern.
+    - 'Verified against spyder: app_state slice query, app_save_state, and app_restore_state round-trip a sample consumer''s state on macOS desktop.'
+    context: 'The consumer-cooperative half: ge provides the registry + dispatch, consumers register slices/serializers. tiltbuggy sample registration is part of the deliverable.'
+    depends_on:
+    - T92.1
+    tags:
+    - spyder-integration
+    - rpc
+    - state
+    - dev-experience
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.6:
+    name: app-channel screenshot (cross-platform framebuffer readback)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - screenshot_app triggers a framebuffer readback — Metal MTLBlitCommandEncoder on Apple, glReadPixels on Android GLES — PNG-encodes via the existing image dependency, and responds {format:'png', width, height, data:<bin>} with the PNG as MessagePack bin (no base64).
+    - 'Verified against spyder: app_screenshot returns a valid PNG of the current frame on macOS desktop, iOS simulator, and Android.'
+    context: The one leaf with real per-platform graphics work (readback differs by backend). Sits on the sokol/Metal + GLES paths.
+    depends_on:
+    - T92.1
+    tags:
+    - spyder-integration
+    - rpc
+    - screenshot
+    - metal
+    - gles
+    origin: subdivide(🎯T92)
+    discovered: 2026-06-01
+  T92.7:
+    name: app-channel end-to-end verification across platforms + agents-guide docs
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A sample consumer (tiltbuggy or a minimal sample/appchannel-demo/) is driven through app_ping -> app_pause -> app_input (tap) -> app_state -> app_screenshot -> app_quit and responds correctly on macOS desktop, iOS simulator, iOS device, and Android, against spyder >=0.53.0.
+    - Logs and perf flow through app_log_get / app_perf_get on all platforms.
+    - agents-guide documents the connect/hello flow, the LOG_TARGET appchannel:// scheme, how consumers register state slices/serializers/perf counters, the per-platform screenshot readback, and the dev-only compile gate.
+    context: 'The closing leaf: cross-platform proof + documentation. Retiring this (with T92.1-T92.6) retires the T92 umbrella.'
+    depends_on:
+    - T92.2
+    - T92.3
+    - T92.4
+    - T92.5
+    - T92.6
+    tags:
+    - spyder-integration
+    - rpc
+    - verification
+    - docs
+    origin: subdivide(🎯T92)
     discovered: 2026-06-01
   T93:
     name: AccelSynth consumes mouse button + finger events while shift is held
@@ -3070,3 +3217,32 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-06-01
     achieved: 2026-06-01
+  T96:
+    name: RefreshRateBoost is removed from ge
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - include/ge/RefreshRateBoost.h, src/render/RefreshRateBoost_apple.mm, and src/render/RefreshRateBoost_test.cpp are deleted, and removed from tools/ge-sources.mk (and any Module.mk / build references).
+    - 'DirectRenderHost no longer references RefreshRateBoost: the i_->refreshRateBoost member is gone, and the press-counter wiring in pumpEvents (engagePress on FINGER/MOUSE_BUTTON_DOWN, releasePress on UP/CANCEL) plus the background drainPresses() calls are removed.'
+    - 'The Android JNI hook is removed: GeActivity.java''s setFrameRateBoost / nativeOnAudioFocus-adjacent frame-rate plumbing and any nativeSetFrameRateBoost bridge are deleted.'
+    - ge builds on macOS desktop + iOS + Android; all three prebuilt libge.a regenerate and verify-prebuilds.py is green; consumer apps are unaffected (nothing public depended on it).
+    - 'No high-refresh regression in practice: on ProMotion the continuously-rendering ge run loop already drives the display to its max via presentation cadence; on Android VRR the display still ramps on demand. If guaranteed high refresh is ever wanted it''s pursued via the real levers (iOS Info.plist CADisableMinimumFrameDurationOnPhone; a future session-scoped Android Surface.setFrameRate), NOT a press-gated boost.'
+    context: |-
+      Decided 2026-06-01. RefreshRateBoost (🎯T63) holds a ProMotion/VRR display at max refresh while a touch/mouse press is in flight, to shave ~1 vsync off the first-tap-after-idle highlight latency. In review it doesn't earn its keep:
+
+      - It is redundant under ge's architecture. The run loop renders every frame unconditionally (not on-demand), so a ge app presents drawables continuously even on a static menu — ProMotion (cadence-driven) already holds the display high, leaving no idle gap to fill. The actual lever for >60Hz on iPhone is the Info.plist opt-in CADisableMinimumFrameDurationOnPhone, not this.
+      - It is mis-scoped on Android. Android VRR is hint-driven (Surface.setFrameRate); press-gating means gameplay BETWEEN taps falls back to 60Hz even on a 120Hz panel. The right granularity (if ever wanted) is a session-scoped request, not per-press.
+      - It has been pure liability: it caused two app-aborting crashes — 🎯T91 (iOS Simulator, CADisplayLink shim throws) and 🎯T95 (real 60Hz iOS 26.5 devices — iPhone 13, iPad mini A17 Pro — invalid CAFrameRateRange min>max throws). Both were ge-side crashes on ALL such hardware to benefit a few ProMotion devices in an idle state.
+
+      Conclusion (user, 2026-06-01): even a future freeze-when-static rendering mode would not warrant explicit refresh-rate control, because the display ramps back up on its own once frames resume. Delete RefreshRateBoost entirely rather than rework it. Supersedes the earlier 'make it opt-in / rework to session-scoped' idea.
+    tags:
+    - render
+    - refresh-rate
+    - ios
+    - android
+    - cleanup
+    - removal
+    - T63-reversal
+    origin: manual
+    discovered: 2026-06-01
