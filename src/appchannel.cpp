@@ -256,6 +256,20 @@ std::string resolveTarget() {
     return {};
 }
 
+// Coerce a JSON field to float, tolerating spyder's RPC passthrough
+// delivering extra (non-schema) args as strings ("0.14") rather than JSON
+// numbers. Returns dflt when the field is absent or unparseable.
+float jnum(const nlohmann::json& p, const char* key, float dflt) {
+    if (!p.is_object() || !p.contains(key)) return dflt;
+    const auto& v = p[key];
+    if (v.is_number()) return v.get<float>();
+    if (v.is_string()) {
+        try { return std::stof(v.get<std::string>()); }
+        catch (...) { return dflt; }
+    }
+    return dflt;
+}
+
 // Push an SDL event of just a type onto SDL's (thread-safe) event queue, so
 // it surfaces in the consumer's next pumpEvents indistinguishably from a real
 // OS event. Used for the lifecycle injections that map cleanly to SDL events.
@@ -338,6 +352,55 @@ void registerBuiltins() {
         float m = (p.is_object() && p.contains("multiplier")) ? p.value("multiplier", 1.0f) : 1.0f;
         if (m < 0.0f) m = 0.0f;
         g_tcSpeed.store(m);         // orthogonal to pause; inert while paused
+        return kAck;
+    });
+
+    // ── input injection (🎯T92.3) ──
+    // Fabricate an SDL_Event and SDL_PushEvent it. SDL's event queue is
+    // thread-safe, so the event surfaces in the consumer's onEvent on the
+    // next pumpEvents indistinguishably from a real OS event — including the
+    // engine's own transforms (sensor → screen-frame rotation, refresh-rate
+    // press tracking). Touch coords are normalized 0–1 exactly as SDL
+    // delivers real touches, so ge::input::fromSdl denormalizes them against
+    // the surface size like any real finger.
+    reg("input_inject", [kAck](const nlohmann::json& p) {
+        if (!p.is_object() || !p.contains("type"))
+            throw Error{-32602, "input_inject: missing 'type'"};
+        const std::string type = p.value("type", std::string{});
+        SDL_Event e{};
+        if (type == "finger_down" || type == "finger_up" || type == "finger_motion") {
+            e.type = (type == "finger_down")  ? SDL_EVENT_FINGER_DOWN
+                   : (type == "finger_up")    ? SDL_EVENT_FINGER_UP
+                                              : SDL_EVENT_FINGER_MOTION;
+            e.tfinger.touchID  = static_cast<SDL_TouchID>(0x1ABC);  // synthetic, non-zero
+            e.tfinger.fingerID = static_cast<SDL_FingerID>(jnum(p, "id", 1.0f));
+            e.tfinger.x        = jnum(p, "x", 0.0f);
+            e.tfinger.y        = jnum(p, "y", 0.0f);
+            e.tfinger.dx       = jnum(p, "dx", 0.0f);
+            e.tfinger.dy       = jnum(p, "dy", 0.0f);
+            e.tfinger.pressure = jnum(p, "pressure", 1.0f);
+        } else if (type == "key_down" || type == "key_up") {
+            const std::string key = p.value("key", std::string{});
+            const SDL_Keycode kc = SDL_GetKeyFromName(key.c_str());
+            if (kc == SDLK_UNKNOWN)
+                throw Error{-32602, "input_inject: unknown key '" + key + "'"};
+            e.type         = (type == "key_down") ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            e.key.scancode = SDL_GetScancodeFromKey(kc, nullptr);
+            e.key.key      = kc;
+            e.key.mod      = SDL_KMOD_NONE;
+            e.key.down     = (type == "key_down");
+            e.key.repeat   = false;
+        } else if (type == "accel") {
+            // Device-frame acceleration; the engine rotates it into screen
+            // frame in pumpEvents just like a real SDL_SENSOR_ACCEL sample.
+            e.type           = SDL_EVENT_SENSOR_UPDATE;
+            e.sensor.data[0] = jnum(p, "x", 0.0f);
+            e.sensor.data[1] = jnum(p, "y", 0.0f);
+            e.sensor.data[2] = jnum(p, "z", 0.0f);
+        } else {
+            throw Error{-32602, "input_inject: unknown type '" + type + "'"};
+        }
+        SDL_PushEvent(&e);
         return kAck;
     });
 }
