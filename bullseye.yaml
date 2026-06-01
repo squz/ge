@@ -2950,3 +2950,123 @@ targets:
     origin: multimaze2-audit
     discovered: 2026-06-01
     achieved: 2026-06-01
+  T92:
+    name: ge implements the app side of spyder's bidirectional MessagePack RPC channel
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '**Connect + handshake**: when ge sees a LOG_TARGET pointing at a spyder app_channel listener (see scheme question in context), it dials over TCP, sends a `hello` request advertising app_name (consumer-set), app_version, and the methods ge has handlers for. Awaits the `accepted_methods` ack before considering the channel live.'
+    - '**Framing**: length-prefixed MessagePack frames (4-byte LE length, then body, max 16 MB). Envelope is JSON-RPC-shaped: `{id, method, params}` requests, `{id, result|error}` responses, `{method, params}` async pushes. msgpack-c (or equivalent) handles encode/decode; no hand-rolled MessagePack.'
+    - '**Lifecycle methods (ge owns)**: `ping` (returns server-arrival ts), `quit` (acks then enqueues SDL_QUIT — exit code 0, no macOS crash notification), `flush` (drains log/perf sender queues, acks when done), `backgrounded`/`foregrounded` (post platform lifecycle notification — UIApplicationWillResignActive analog / onPause), `low_memory_warning` (post UIApplicationDidReceiveMemoryWarningNotification / onTrimMemory).'
+    - '**Time-control methods (ge owns)**: `pause` (set paused flag; dt becomes 0; render and input handling continue), `resume` (clear paused), `step` (advance N frames then re-pause), `speed` (set dt multiplier). One-time main-loop pacing change in the SessionHost/run loop.'
+    - '**Input injection (ge owns)**: `input_inject` for finger_down/up/motion (normalized 0–1 coords), key_down/up, accel — fabricate SDL_Event and call SDL_PushEvent. All paths land in the consumer''s event() handler indistinguishably from real OS events.'
+    - '**State + serialization (consumer extends)**: ge ships a registry where consumers register slice-getters (`registerStateSlice("scene", []() -> json/MessagePack { ... })`) and save/restore handlers (`registerStateSerializer(saveFn, restoreFn)`). `state_query`, `save_state`, `restore_state` route through the registry. Sample tiltbuggy registers a couple of slices as the proving ground.'
+    - '**Screenshot (ge owns)**: `screenshot_app` triggers framebuffer readback (Metal MTLBlitCommandEncoder for Apple, glReadPixels for GLES on Android), PNG-encodes (existing dependency), responds with `{format: "png", width, height, data: <bin>}`. The PNG bytes ride as MessagePack `bin` — no base64.'
+    - '**Push messages (ge owns)**: structured `log` push replaces the current NetworkLogSink text emission (level, subsystem, format, args sent as a typed message instead of formatted text); periodic `perf` push (default 1s cadence) carrying frame_ms + custom counters consumers register via `perfEmit(name, value)`.'
+    - '**Dev-only compile gate**: the entire client (connect, framing, dispatcher, all handlers) is gated behind #ifndef NDEBUG (or ge''s existing debug-build macro). Release builds compile the feature out completely — no msgpack symbols, no socket, no handler table. Same gate as the existing T83 NetworkLogSink.'
+    - '**Verified end-to-end against spyder ≥0.53.0**: a sample consumer (tiltbuggy or a minimal `sample/appchannel-demo/`) runs against a spyder app_channel listener. The agent drives `app_ping` → `app_pause` → `app_input` (tap) → `app_state` (slice query) → `app_screenshot` → `app_quit` and the app responds correctly to each on macOS desktop, iOS (simulator + device), and Android. Logs and perf counters flow through `app_log_get` / `app_perf_get`.'
+    - '**Documented in ge''s agents-guide**: the connect/hello flow, the LOG_TARGET scheme decision (see context), how consumers register state slices / serializers / perf counters, the per-platform readback story for screenshot_app, the dev-only compile gate.'
+    context: |-
+      Pairs with spyder T75 (shipped as spyder v0.53.0 — bidirectional MessagePack RPC channel, full v1 method set: 20 app_* MCP tools, 14 sub-targets retired). Spyder is the host; ge is the in-app client that gives the methods something to dispatch into.
+
+      Why this matters: turns spyder's app_* tool surface from "you could drive an app if it implemented the protocol" into "every ge-based game is agent-drivable by default" — multimaze2, tiltbuggy, esfera2, yourworld2, future apps. The single biggest debugging-mode unlock is input_inject (eliminates the entire "did the tap reach my handler" investigation that consumed multimaze2 hours), with quit (no macOS crash notifications) and pause/step (frame-by-frame visual debugging) close behind.
+
+      LOG_TARGET scheme decision (resolve early): spyder ships two distinct TCP families — log_collect_* (raw newline text, v0.51) and app_channel_* (MessagePack RPC, v0.53). Both want a way for the app to know where to dial. Options for ge to surface:
+        (a) Single LOG_TARGET env, URL-scheme on the value: `host:port` (text, current) vs `appchannel://host:port` (RPC). One env var, scheme picks protocol.
+        (b) Separate env vars: LOG_TARGET (text) and SPYDER_APP_CHANNEL (RPC). Each unambiguously names one path.
+        (c) Single LOG_TARGET, autodetect protocol from peer behaviour. Reject — adds latency and ambiguous error modes.
+      Recommendation: (a). Same env var, scheme as type discriminator. Easier to document, app-side parser stays in one place.
+
+      Backwards compat with T83: the existing text-only NetworkLogSink (host:port, no scheme) keeps working unchanged — that's the `nc -l <port>` debug-without-spyder workflow. The new appchannel client is purely additive.
+
+      Consumer cooperation needed: state_query, save_state/restore_state, and perf counters all depend on consumers registering their own slices / serializers / counters. ge provides the registry + the wire dispatch; consumers populate it. Sample tiltbuggy registration is part of the deliverable so future ge apps have a copyable pattern.
+
+      Pairs with T83 (NetworkLogSink — the simpler-protocol cousin that landed first).
+    tags:
+    - spyder-integration
+    - messagepack
+    - rpc
+    - ios
+    - android
+    - dev-experience
+    - umbrella
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-06-01
+  T93:
+    name: AccelSynth consumes mouse button + finger events while shift is held
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - While shift is held on desktop or iOS Sim, ge::AccelSynth::handle returns true for SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_FINGER_DOWN, SDL_EVENT_FINGER_UP — not just SDL_EVENT_MOUSE_MOTION — so the consumer’s onEvent never sees the press/release pair that would otherwise start a game gesture.
+    - Mouse / finger button events with NO shift held continue to pass through unmodified.
+    - 'Shift state transition while a press is in flight: pressing shift during a non-tilt drag finishes the drag (events keep flowing to consumer until the press lifts); releasing shift during a tilt-drag ends the tilt and from that point events flow through normally.'
+    context: 'Found 2026-06-01 while debugging multimaze2 shift-drag interactions on the desktop/sim build.\n\nCurrent behaviour: AccelSynth.handle consumes the Shift key event and consumes MOUSE_MOTION while shift is held, but it does NOT consume MOUSE_BUTTON_DOWN / MOUSE_BUTTON_UP. So the consumer (game) sees the press / release pair but no motion in between, and any ‘tap-and-flick’ fallback in the consumer fires on the start→end cursor positions even though the user''s intent was ‘tilt gravity’.\n\nConcrete repro: multimaze2 playing screen, hold shift, click+drag the mouse left or right. Gravity tilts correctly (balls roll), but mm2''s swipe-between-levels gesture also fires because the press/release made it through. Two intents interfere on one input gesture.\n\nFix: make AccelSynth.handle return true for SDL_EVENT_MOUSE_BUTTON_DOWN / UP and SDL_EVENT_FINGER_DOWN / UP whenever shiftDown_. The press is part of the tilt gesture; the consumer never needed to see it. (Today''s design implicitly assumed mouse motion was the only thing that mattered, which is true for the gravity calc but not for stealing the gesture from the consumer.)'
+    tags:
+    - multimaze-audit
+    - AccelSynth
+    - desktop
+    - ios-sim
+    - T17
+    origin: multimaze2-audit
+    discovered: 2026-06-01
+  T94:
+    name: ge exposes a tilt-perspective projection (ge::ortho::tilted) driven by a presentation-tilt that is zero on real-accelerometer platforms
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 3.0
+    acceptance:
+    - 'ge::ortho exposes a builder `tilted(content_rect, screen_rect, tilt) -> la::float4x4` that maps content-space into clip space with the tilt applied: rotation about an axis perpendicular to the tilt vector + perspective foreshortening + a bounding-box fit that keeps the rotated quad inside the screen. The data-dependent bbox-fit is folded into the returned matrix (not a per-vertex post-step). Non-constexpr (uses sin/cos), consistent with frameRotated. The perspective/sign convention is documented on the function (the undocumented sign is what mm2 copied wrong).'
+    - 'ge exposes a *presentation tilt* distinct from gameplay gravity: a Context accessor (e.g. Context::presentationTilt()) that returns AccelSynth''s current contribution as a (gx,gy) vector, and is {0,0} whenever a real hardware accelerometer is present (AccelSynth isn''t active). Plumbed like Context::parallax() (DirectRenderHost sets it each frame from i_->synth; {0,0} when synth is nil). Consumers feed presentationTilt() straight to ortho::tilted with NO platform/source branching.'
+    - 'The tilt math currently private at src/render/PlayerRender.cpp:36-81 (rotationXY Rodrigues + projectVertex: camera at z=D=2, fovY=2*atan(1/D), perspective divide; ComposeParams bbox-fit ndc''=ndc*fitS+fitT) is replaced by a call into ge::ortho::tilted so the implementations can''t drift.'
+    - 'A unit test pins: the sign/axis convention, the rotated quad stays inside the screen (bbox fit), and zero tilt yields an identity-equivalent (un-tilted) projection.'
+    - Direct-render consumers (multimaze2 now, tiltbuggy-on-device, the player when it returns) drop hand-rolled tilt matrices for one ge::ortho::tilted call fed by presentationTilt().
+    context: |-
+      Filed 2026-06-01 (multimaze2-audit); design refined 2026-06-01 in a ge session. The original framing ("extract PlayerRender's tilt math so the player and mm2 don't drift") was sharpened on three points:
+
+      1. WRONG AXIS — the player is NOT a consumer category. The relevant axis is **hardware-accelerometer presence on the rendering platform**, a runtime property ge already decides via AccelSynth::realSensorAvailable() (real sensor -> hardware tilt; none -> AccelSynth synthesizes). The player is orthogonal: it straddles both sides depending on where it runs (device = real accel; desktop/sim = synth). "Parked, not obsolete" — T34 rewrites the player as a ge app; its tilt-composite need endures and should consume this utility, not regrow a private copy. Consumers are any direct-render tilt game on any platform, not "the player".
+
+      2. TWO DISTINCT TILTS (the footgun) — do NOT conflate them:
+         - **gameplay tilt** (gravity): real-or-synth, uniform, source deliberately hidden by AccelSynth ("invisible to the engine"). Correct as-is — one gravity path everywhere.
+         - **presentation tilt** (the perspective re-projection this target builds): a SURROGATE for physical tilt. It must be applied ONLY where there is no hardware accelerometer (synth platforms). On a real device the screen is *already physically tilted in the user's hands*; re-projecting the content tilts the UI relative to an already-tilted screen — double-counted and nausea-inducing. So presentation tilt must be ZERO on real-accel platforms. A naive consumer that feeds its gameplay gravity into the projection will wrongly tilt the UI on every real device — that is the footgun this target must remove.
+
+      3. THE GATE IS FREE — presentation tilt == AccelSynth's own contribution, which is naturally {0,0} when AccelSynth isn't active (a real sensor is present). So ge just exposes that value (zeroed on hardware) and the consumer feeds it to ortho::tilted with zero branching. No separate "is the accelerometer synthetic?" query needed; the zero falls out of AccelSynth being inactive.
+
+      So this target is AccelSynth's render-side complement: AccelSynth normalizes tilt INPUT across platforms; ge::ortho::tilted + presentationTilt() normalize tilt PRESENTATION across consumers, with the real-vs-synth gate baked in so it can't be got wrong.
+
+      Distinct from 🎯T9 parallax (a subtle always-on camera offset that DOES run on real devices) — not to be folded in here.
+
+      Source-of-truth math: src/render/PlayerRender.cpp:36-81. AccelSynth's g-vector convention (the one to document/match): gx = -kG*sin(angle)*tilt.x/mag, gy = +kG*sin(angle)*tilt.y/mag, angle = mag*kTiltRadPerPixel. Not urgent (mm2 has a working local copy) but should land before/with T34 so the canonical math has a public home before the player path is restructured.
+    tags:
+    - multimaze-audit
+    - ortho
+    - tilt
+    - accelsynth
+    - presentation-tilt
+    - T17-followup
+    - T34-coupling
+    origin: multimaze2-audit
+    discovered: 2026-06-01
+    achieved: 2026-06-01
+  T95:
+    name: RefreshRateBoost setPreferredFrameRateRange throws on iOS 26.5 device too
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 1.0
+    acceptance:
+    - First touch on a real iOS 17/26 device (iPad mini A17 Pro, iPhone 13 etc.) does not abort the consumer app with `-[CADisplayLink setPreferredFrameRateRange:]` ObjC exception.
+    - engageBoost either guards the call with @try/@catch and logs once on failure, or validates the CAFrameRateRange (e.g. ensures display.maximumFramesPerSecond > 0) before calling the setter, or is short-circuited on OS / device variants known to throw.
+    - The high-refresh-rate boost still works on devices where it's actually supported (real ProMotion displays); failure to engage degrades to standard refresh rather than crashing.
+    context: '🎯T91 patched the iOS Simulator case by gating engageBoost behind `TARGET_OS_IOS && !TARGET_OS_SIMULATOR`. But on 2026-06-01 the multimaze2 build deployed to two physical iOS devices (iPad mini A17 Pro running iOS 26.5, iPhone 13 same OS) and BOTH crash on first touch with the exact same backtrace:\n\n  abort\n  __cxa_throw / objc_exception_throw\n  -[CADisplayLink setPreferredFrameRateRange:]\n  ge::RefreshRateBoost::M::engageBoost()\n  ge::DirectRenderHost::pumpEvents()\n\nSo the device case isn''t a clean win — Apple''s CADisplayLink now throws on a wider set of conditions than the sim-only carve-out anticipated. Possible causes worth checking:\n  - iOS 26.5 changed the validation rules on the frame-rate range struct (zero/invalid values?).\n  - The link wasn''t yet committed when the setter ran.\n  - The display value of `display.maximumFramesPerSecond` is 0 at the moment of call, producing an invalid CAFrameRateRange.\n\nMinimum-viable fix: wrap the setter in `@try { ... } @catch (NSException *e) { SPDLOG_WARN(...); } @finally { invalidate or null the link }`. Cost is one log line on broken OSes; benefit is the consumer app stays alive. Better fix: read `display.maximumFramesPerSecond`, skip the boost when it''s 0 or 60 (no ProMotion).\n\nCrash log: ~/work/github.com/squz/multimaze2/tmp/mm-jevons/MultiMaze-2026-06-01-215203.ips (also same backtrace on the iPhone 13 build).'
+    tags:
+    - multimaze-audit
+    - ios
+    - device
+    - T91-followup
+    origin: multimaze2-audit
+    discovered: 2026-06-01
+    achieved: 2026-06-01

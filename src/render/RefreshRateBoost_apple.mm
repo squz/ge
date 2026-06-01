@@ -51,6 +51,9 @@ struct RefreshRateBoost::M {
     // no lock is needed around the Obj-C calls.
     CADisplayLink* displayLink = nil;
 
+    // Warn-once flag for a setter that throws (🎯T95).
+    std::atomic<bool> warnedBoostFailed{false};
+
     void engageBoost() {
         if (displayLink) return;  // already engaged
 
@@ -61,6 +64,13 @@ struct RefreshRateBoost::M {
             maxFps = (float)screen.maximumFramesPerSecond;
         }
 
+        // 🎯T95 No ProMotion (≤ 60 Hz) → there's nothing to boost, AND
+        // CAFrameRateRangeMake(80, maxFps, …) would be an INVALID range
+        // (minimum 80 > maximum 60) that throws an ObjC exception on iOS 26
+        // — which aborted the app on first touch on the iPhone 13 and
+        // iPad mini A17 Pro (both 60 Hz). Skip cleanly; standard refresh.
+        if (maxFps <= 60.0f) return;
+
         // Create a display link that fires a no-op callback.
         // The mere existence of a CADisplayLink with a high
         // preferredFrameRateRange keeps the display in high-refresh mode;
@@ -68,19 +78,29 @@ struct RefreshRateBoost::M {
         displayLink = [CADisplayLink displayLinkWithTarget:
             [NSObject new] selector:@selector(description)];
 
-        // CAFrameRateRange: (minimum, maximum, preferred).
-        // minimum=80 filters out any non-ProMotion device; on 60 Hz
-        // hardware iOS ignores preferred and clamps to 60.
-        if (@available(iOS 15.0, *)) {
-            displayLink.preferredFrameRateRange =
-                CAFrameRateRangeMake(80.0f, maxFps, maxFps);
-        } else {
-            displayLink.preferredFramesPerSecond = NSInteger(maxFps);
+        // CAFrameRateRange: (minimum, maximum, preferred). minimum=80 filters
+        // out non-ProMotion; maxFps > 60 here so the range is valid. Belt-and-
+        // braces @try/@catch (🎯T95): any future OS that tightens validation
+        // degrades to standard refresh instead of crashing the consumer app.
+        @try {
+            if (@available(iOS 15.0, *)) {
+                displayLink.preferredFrameRateRange =
+                    CAFrameRateRangeMake(80.0f, maxFps, maxFps);
+            } else {
+                displayLink.preferredFramesPerSecond = NSInteger(maxFps);
+            }
+            [displayLink addToRunLoop:NSRunLoop.mainRunLoop
+                             forMode:NSRunLoopCommonModes];
+            SPDLOG_DEBUG("RefreshRateBoost: engaged (maxFps={})", maxFps);
+        } @catch (NSException* e) {
+            if (!warnedBoostFailed.exchange(true)) {
+                SPDLOG_WARN("RefreshRateBoost: preferredFrameRateRange threw ({}); "
+                            "boost disabled, standard refresh.",
+                            e.reason ? e.reason.UTF8String : "?");
+            }
+            [displayLink invalidate];
+            displayLink = nil;
         }
-
-        [displayLink addToRunLoop:NSRunLoop.mainRunLoop
-                         forMode:NSRunLoopCommonModes];
-        SPDLOG_DEBUG("RefreshRateBoost: engaged (maxFps={})", maxFps);
     }
 
     void releaseBoost() {

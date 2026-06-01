@@ -23,6 +23,7 @@ struct Context::M {
     float pixelsPerPt = 1.0f;
     float deviceUiScale = 1.0f;
     la::float2 parallax{0.0f, 0.0f};
+    la::float2 presentationTilt{0.0f, 0.0f};
     std::shared_ptr<sqlpipe::Database> db;
 };
 
@@ -59,6 +60,7 @@ float Context::pixelsPerPt() const  { return m->pixelsPerPt; }
 float Context::ptsPerPixel() const  { return 1.0f / m->pixelsPerPt; }
 float Context::deviceUiScale() const { return m->deviceUiScale; }
 la::float2 Context::parallax() const { return m->parallax; }
+la::float2 Context::presentationTilt() const { return m->presentationTilt; }
 std::shared_ptr<sqlpipe::Database> Context::db() const { return m->db; }
 
 void Context::setSurfaceDimensions(int surfacePxW, int surfacePxH) {
@@ -72,5 +74,6 @@ void Context::setUiSafeInsets(SafeAreaInsets saPt)   { m->uiInsetsPt   = saPt; }
 void Context::setPixelsPerPt(float v)                { m->pixelsPerPt = v; }
 void Context::setDeviceUiScale(float v)              { m->deviceUiScale = v; }
 void Context::setParallax(la::float2 p)              { m->parallax = p; }
+void Context::setPresentationTilt(la::float2 t)      { m->presentationTilt = t; }
 
 } // namespace ge

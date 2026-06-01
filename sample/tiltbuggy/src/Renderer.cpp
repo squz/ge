@@ -14,6 +14,7 @@
 #include <ge/FileIO.h>
 #include <ge/Linalg.h>
 #include <ge/iap.h>
+#include <ge/ortho.h>
 #include <ge/sprite.h>
 #include <ge/svg.h>
 #include <ge/transform.h>
@@ -307,6 +308,17 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         -orthoH, orthoH,
         -1.0f, 1.0f);
 
+    // 🎯T94 Tilt the *playfield* in perspective as a surrogate for physical
+    // device tilt. presentationTilt() is AccelSynth's contribution — nonzero
+    // only on synth platforms (desktop / sim / emu), {0,0} on a real device
+    // (whose screen is already physically tilted, so this is identity there).
+    // Composed onto the base projection; the GPU's w-divide does the
+    // foreshortening. Applied to the scene (field, buggy, pond, title) but NOT
+    // the BUY PRO button — that stays axis-aligned so it lines up with its
+    // screen-space hit-test in main.cpp.
+    const ge::la::float4x4 projTilt =
+        ge::la::mul(ge::ortho::tilt(aspect, c.presentationTilt()), proj);
+
     std::vector<PosColorVertex> verts;
     verts.reserve(6 * (2 + scene.surfaces().size()));
 
@@ -381,7 +393,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // Identity model matrix — vertices already in world space — so the
         // MVP collapses to just the projection.
         vs_params_t vsp;
-        std::memcpy(vsp.u_modelViewProj, &proj[0][0], sizeof(vsp.u_modelViewProj));
+        std::memcpy(vsp.u_modelViewProj, &projTilt[0][0], sizeof(vsp.u_modelViewProj));
         sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
         sg_apply_uniforms(UB_vs_params, &up);
 
@@ -413,7 +425,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
                 s.rect.w + 2.f * pw,
                 -(s.rect.h + 2.f * ph),           // negative for y-up
             });
-            i_->pond.draw(ge::la::mul(proj, model));
+            i_->pond.draw(ge::la::mul(projTilt, model));
         }
     }
 
@@ -430,7 +442,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
             titleWidth,
             -titleHeight,                             // h NEGATIVE for y-up
         });
-        i_->title.draw(ge::la::mul(proj, model));
+        i_->title.draw(ge::la::mul(projTilt, model));
     }
 
     // BUY PRO button — only when pro isn't owned. Positioned in screen-
