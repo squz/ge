@@ -31,6 +31,10 @@
 #include <sys/system_properties.h>
 #endif
 
+#include <SDL3/SDL.h>
+
+#include "render/LifecycleInject.h"  // ge::detail::injectMemoryWarning
+
 #endif  // NDEBUG
 
 namespace ge::appchannel {
@@ -39,6 +43,19 @@ namespace ge::appchannel {
 namespace {
 
 constexpr std::size_t kMaxBody = 16u * 1024 * 1024;  // 16 MB per spyder spec
+
+// 🎯T92.2 Dev time-control, driven by app_pause/resume/step/speed and read
+// once per frame by the SessionHost run loop via applyTimeControl(). All
+// reads/writes are atomic so the channel worker thread can mutate while the
+// game thread reads. Identity values (not paused, 1× speed, no steps) make
+// applyTimeControl a pass-through when nothing has driven them.
+std::atomic<bool>  g_tcPaused{false};
+std::atomic<float> g_tcSpeed{1.0f};
+std::atomic<int>   g_tcStepFrames{0};
+// A single stepped frame advances this much nominal time — fixed (not the
+// real wall-clock dt, which would be huge after a pause) so frame-stepping is
+// reproducible.
+constexpr float kStepDt = 1.0f / 60.0f;
 
 // Registered request handlers, keyed by method name. Populated before
 // installFromEnv (single-threaded), read-only on the worker thread after.
@@ -88,6 +105,14 @@ public:
     void push(const std::string& method, nlohmann::json params) {
         if (!live_.load()) return;
         sendFrame(nlohmann::json{{"method", method}, {"params", std::move(params)}});
+    }
+
+    // Drain anything queued for the wire. Frames are sent synchronously under
+    // sendMu_ today, so there is never a backlog and this returns immediately;
+    // it exists so app_flush has a real drain point once T92.4 adds the
+    // batched log/perf sender queue.
+    void flush() {
+        std::lock_guard<std::mutex> lk(sendMu_);
     }
 
 private:
@@ -231,6 +256,92 @@ std::string resolveTarget() {
     return {};
 }
 
+// Push an SDL event of just a type onto SDL's (thread-safe) event queue, so
+// it surfaces in the consumer's next pumpEvents indistinguishably from a real
+// OS event. Used for the lifecycle injections that map cleanly to SDL events.
+void pushSdlType(Uint32 type) {
+    SDL_Event e{};
+    e.type = type;
+    SDL_PushEvent(&e);
+}
+
+// Register ge-owned method handlers. Idempotent and consumer-friendly: a
+// method already registered (e.g. by a consumer overriding "ping", or a
+// re-entry) is left untouched.
+void registerBuiltins() {
+    auto reg = [](const char* name, Handler h) {
+        if (handlers().find(name) == handlers().end())
+            handlers().emplace(name, std::move(h));
+    };
+    const nlohmann::json kAck = nlohmann::json::object();
+
+    // ── liveness ──
+    // Echo the app's wall-clock millis so spyder's app_ping reports a real
+    // round-trip timestamp (its documented "the timestamp the app saw").
+    reg("ping", [](const nlohmann::json&) {
+        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        return nlohmann::json{{"ts", static_cast<std::int64_t>(ms)}};
+    });
+
+    // ── lifecycle ──
+    // quit: enqueue SDL_QUIT → the run loop exits via shouldQuit(), onShutdown
+    // runs, process exits 0 (no macOS crash notification). Acked before the
+    // main thread processes the event, so spyder sees the ack.
+    reg("quit", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_QUIT);
+        return kAck;
+    });
+    // flush: drain the wire sender, then ack (precondition for app_quit).
+    reg("flush", [kAck](const nlohmann::json&) {
+        Channel::instance().flush();
+        return kAck;
+    });
+    // backgrounded / foregrounded: post the SDL lifecycle events the engine
+    // already acts on (🎯T7/T88 audio + render gating).
+    reg("backgrounded", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_DID_ENTER_BACKGROUND);
+        return kAck;
+    });
+    reg("foregrounded", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_DID_ENTER_FOREGROUND);
+        return kAck;
+    });
+    // low_memory_warning: routed through the engine's pending-warning atomic
+    // (see render/LifecycleInject.h) rather than an SDL event, to avoid double-
+    // firing the iOS observer. iOS reports a single ungraded warning → Critical.
+    reg("low_memory_warning", [kAck](const nlohmann::json&) {
+        ge::detail::injectMemoryWarning(MemoryPressureLevel::Critical);
+        return kAck;
+    });
+
+    // ── time-control ── (read by the run loop via applyTimeControl)
+    reg("pause", [kAck](const nlohmann::json&) {
+        g_tcStepFrames.store(0);
+        g_tcPaused.store(true);
+        return kAck;
+    });
+    reg("resume", [kAck](const nlohmann::json&) {
+        g_tcStepFrames.store(0);
+        g_tcSpeed.store(1.0f);      // "resume normal pacing" — clear any speed
+        g_tcPaused.store(false);
+        return kAck;
+    });
+    reg("step", [kAck](const nlohmann::json& p) {
+        int frames = (p.is_object() && p.contains("frames")) ? p.value("frames", 1) : 1;
+        if (frames < 1) frames = 1;
+        g_tcStepFrames.store(frames);
+        g_tcPaused.store(true);     // step implies "advance N then re-pause"
+        return kAck;
+    });
+    reg("speed", [kAck](const nlohmann::json& p) {
+        float m = (p.is_object() && p.contains("multiplier")) ? p.value("multiplier", 1.0f) : 1.0f;
+        if (m < 0.0f) m = 0.0f;
+        g_tcSpeed.store(m);         // orthogonal to pause; inert while paused
+        return kAck;
+    });
+}
+
 } // namespace
 
 void registerMethod(std::string method, Handler handler) {
@@ -240,18 +351,20 @@ void registerMethod(std::string method, Handler handler) {
 void installFromEnv(const std::string& appName, const std::string& appVersion) {
     auto [host, port] = parseAppchannel(resolveTarget());
     if (port <= 0) return;
-    // Built-in liveness probe so a freshly-connected channel is drivable.
-    // Echoes the app's wall-clock millis so spyder's app_ping reports a real
-    // round-trip timestamp (its documented "the timestamp the app saw").
-    if (handlers().find("ping") == handlers().end()) {
-        registerMethod("ping", [](const nlohmann::json&) {
-            const auto now = std::chrono::system_clock::now().time_since_epoch();
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-            return nlohmann::json{{"ts", static_cast<std::int64_t>(ms)}};
-        });
-    }
+    registerBuiltins();
     Channel::instance().start(host, port, appName, appVersion);
     SPDLOG_INFO("appchannel: dialing appchannel://{}:{} (app={})", host, port, appName);
+}
+
+float applyTimeControl(float realDt) {
+    if (g_tcPaused.load()) {
+        if (g_tcStepFrames.load() > 0) {
+            g_tcStepFrames.fetch_sub(1);
+            return kStepDt;     // advance exactly one frame; re-holds at 0
+        }
+        return 0.0f;            // held: render + input continue, no sim advance
+    }
+    return realDt * g_tcSpeed.load();
 }
 
 void push(std::string method, nlohmann::json params) {
@@ -266,6 +379,7 @@ void registerMethod(std::string, Handler) {}
 void installFromEnv(const std::string&, const std::string&) {}
 void push(std::string, nlohmann::json) {}
 bool active() { return false; }
+float applyTimeControl(float realDt) { return realDt; }
 
 #endif
 

@@ -80,7 +80,11 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
             continue;
         }
 
-        if (rc.onUpdate) rc.onUpdate(dt);
+        // 🎯T92.2 Apply dev time-control (app_pause/resume/step/speed). A
+        // no-op pass-through unless an app-channel is driving it; returns 0
+        // while paused (render + input below still run), kStepDt per stepped
+        // frame, or dt×speed otherwise.
+        if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
 
         host.beginFrame();
         if (rc.onRender) rc.onRender(host.context());

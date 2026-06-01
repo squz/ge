@@ -58,4 +58,14 @@ void push(std::string method, nlohmann::json params);
 // True once the hello handshake has completed and the channel is live.
 bool active();
 
+// 🎯T92.2 Dev time-control. The SessionHost run loop calls this once per
+// frame with the real (clamped) frame dt; it returns the dt to hand to
+// onUpdate after applying the pause / resume / step / speed state driven by
+// spyder's app_pause/app_resume/app_step/app_speed. When paused it returns
+// 0 (render + input keep running so the app stays responsive); a pending
+// `step` advances exactly one frame at a fixed nominal dt and is consumed
+// here. Returns realDt unchanged when no channel is active, and is a no-op
+// pass-through in release builds.
+float applyTimeControl(float realDt);
+
 } // namespace ge::appchannel

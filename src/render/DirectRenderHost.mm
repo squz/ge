@@ -11,6 +11,7 @@
 
 #include "DirectRenderHost.h"
 #include "AccelSynth.h"
+#include "LifecycleInject.h"
 
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
@@ -175,6 +176,17 @@ void rotateAccelToScreen(SDL_DisplayOrientation orient, float d[/*≥3*/]) {
 }
 
 } // namespace
+
+// 🎯T92.2 App-channel memory-warning injection. appchannel's
+// low_memory_warning handler calls this from the channel worker thread; it
+// stores into the same pending atomic the iOS observer / Android onTrimMemory
+// path uses, so pumpEvents drains it on the game thread and the consumer's
+// onMemoryWarning fires identically to a real OS warning.
+namespace detail {
+void injectMemoryWarning(MemoryPressureLevel level) {
+    g_pendingMemoryWarning.store(int(level));
+}
+} // namespace detail
 
 #if defined(__ANDROID__)
 // Native methods called from ge.GeActivity — see android-shared/.../GeActivity.java.
