@@ -224,7 +224,10 @@ void install(std::string subsystem) {
         const std::string netTarget = resolveLogTarget();
         std::string netHost;
         int netPort = 0;
-        if (!netTarget.empty()) {
+        // An "appchannel://" target is the structured MessagePack-RPC channel
+        // (🎯T92, ge::appchannel) — not this text sink. Skip it here; the
+        // appchannel client (installed from ge::run) owns that target.
+        if (!netTarget.empty() && netTarget.rfind("appchannel://", 0) != 0) {
             std::tie(netHost, netPort) = parseTarget(netTarget);
             if (netPort > 0)
                 sinks.push_back(std::make_shared<NetworkLogSink>(netHost, netPort));
@@ -246,7 +249,7 @@ void install(std::string subsystem) {
         if (netPort > 0) {
             SPDLOG_INFO("ge::log: mirroring to {}:{} via TCP (🎯T83)",
                         netHost, netPort);
-        } else if (!netTarget.empty()) {
+        } else if (!netTarget.empty() && netTarget.rfind("appchannel://", 0) != 0) {
             SPDLOG_WARN("ge::log: dev-log target '{}' is not host:port — ignored",
                         netTarget);
         }

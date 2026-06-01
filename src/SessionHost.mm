@@ -17,6 +17,7 @@
 #include "render/DirectRenderHost.h"
 
 #include <SDL3/SDL.h>
+#include <ge/appchannel.h>
 #include <ge/log.h>
 #include <spdlog/spdlog.h>
 
@@ -102,6 +103,13 @@ void run(Factory factory, const SessionHostConfig& config) {
     // we want those visible on iOS/Android logs without per-app
     // sink wiring. Idempotent if a consumer has already installed.
     ge::log::install();
+
+    // 🎯T92 Dev-only bidirectional RPC channel to spyder (app_channel_*),
+    // activated when LOG_TARGET is "appchannel://host:port". No-op otherwise
+    // and compiled out in release. ge-internal method handlers (ping today;
+    // lifecycle/time/input in later leaves) are registered inside this call
+    // before the hello handshake advertises them.
+    ge::appchannel::installFromEnv(config.appName ? config.appName : "ge", "dev");
 
     if (config.headless) {
         runBrokered(factory, config);
