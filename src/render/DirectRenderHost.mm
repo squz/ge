@@ -218,6 +218,16 @@ struct DirectRenderHost::Impl {
     std::function<void(const SDL_Event&)> eventHandler;
     bool quit = false;
 
+    // 🎯T88 iOS background gate. True while the app is backgrounded
+    // (DID_ENTER_BACKGROUND, or launched directly into the background);
+    // cleared on DID_ENTER_FOREGROUND. paused() returns this on iOS so the
+    // render loop skips SokolContext::beginFrame — the backgrounded
+    // simulator Metal driver blocks command-buffer creation, which trips
+    // FrontBoard's scene-update watchdog (0x8BADF00D). While set,
+    // pumpEvents idles on SDL_WaitEventTimeout instead of busy-spinning
+    // (iOS, unlike Android, does not block ge's loop during background).
+    bool backgrounded = false;
+
     // Host-owned session Context. Built in DirectRenderHost's ctor
     // (db setup is host-specific — desktop persistent file via
     // SDL_GetPrefPath) and refreshed each beginFrame so callback
@@ -356,6 +366,23 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         i_->ctx->setPixelsPerPt(ppt > 0.0f ? ppt : 1.0f);
         i_->ctx->setDeviceUiScale(computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
     }
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // 🎯T88 Seed the background gate. If the app is launched directly into
+    // the background (e.g. spyder/CLI launching the sim without bringing
+    // Simulator.app forward), no DID_ENTER_BACKGROUND event ever fires —
+    // the scene starts backgrounded. Without this seed the first
+    // beginFrame would block on a command buffer the backgrounded scene
+    // can't get. The ctor runs on the main thread on iOS (SDL_main is
+    // invoked from -postFinishLaunch), so reading applicationState is safe.
+    // Only Background pauses; Inactive (transient overlay / app switcher)
+    // still permits Metal work, so it stays live.
+    if ([UIApplication sharedApplication].applicationState
+            == UIApplicationStateBackground) {
+        i_->backgrounded = true;
+        SPDLOG_INFO("DirectRenderHost: launched into background — render gated until foreground");
+    }
+#endif
 }
 
 DirectRenderHost::~DirectRenderHost() {
@@ -385,11 +412,21 @@ DeviceClass DirectRenderHost::deviceClass() const {
 #endif
 }
 bool DirectRenderHost::paused() const {
-    // SokolContext on macOS has no background/foreground concept — the
-    // CAMetalLayer survives backgrounding and reactivates on its own.
-    // Once SokolContext_android.cpp lands it will expose a paused()
-    // accessor mirroring BgfxContext's; route through here when it does.
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // 🎯T88 On iOS (device + simulator) a backgrounded scene cannot get a
+    // Metal command buffer — SokolContext::beginFrame would block forever
+    // and the scene-update watchdog kills us. Gate the renderer on the
+    // tracked background state (see Impl::backgrounded). Note the macOS
+    // desktop case below still returns false: AppKit keeps the
+    // CAMetalLayer live across app hide/space switches.
+    return i_->backgrounded;
+#else
+    // macOS desktop: the CAMetalLayer survives backgrounding and
+    // reactivates on its own — no gate needed. Android tears its swap
+    // chain down via SDL blocking the loop (SessionHost.mm) rather than
+    // through this accessor.
     return false;
+#endif
 }
 const Context& DirectRenderHost::context() const { return *i_->ctx; }
 
@@ -542,8 +579,23 @@ void DirectRenderHost::pumpEvents() {
     }
 #endif
 
+    // 🎯T88 While backgrounded on iOS the run loop has nothing to draw, so
+    // block on the first event rather than spin: SDL does not block ge's
+    // loop on iOS the way it does on Android, so a naive paused()->continue
+    // would burn 100% CPU (and earn a CPU-usage watchdog kill) until the OS
+    // suspends us. SDL_WaitEventTimeout idles the thread at ~0% CPU and
+    // wakes within one event of foregrounding; the timeout bounds how long
+    // we wait before the loop re-checks shouldQuit. The first delivered
+    // event clears `blocking` so the remaining queue drains non-blocking.
+    // Desktop/Android: paused() is false, so this is always a plain poll.
+    constexpr int kPausedWaitMs = 250;
+    bool blocking = paused();
     SDL_Event e;
-    while (SDL_PollEvent(&e)) {
+    for (;;) {
+        bool have = blocking ? SDL_WaitEventTimeout(&e, kPausedWaitMs)
+                             : SDL_PollEvent(&e);
+        if (!have) break;
+        blocking = false;
         if (e.type == SDL_EVENT_QUIT) {
             i_->quit = true;
             continue;
@@ -554,10 +606,15 @@ void DirectRenderHost::pumpEvents() {
         // before continuing so audio silencing is immediate.
         if (e.type == SDL_EVENT_DID_ENTER_BACKGROUND) {
             ge::audio::onBackground();
+            i_->backgrounded = true;   // 🎯T88 gate the renderer
+            // Drain presses so the display isn't left pinned at max
+            // refresh across the background transition (mirrors Android).
+            i_->refreshRateBoost.drainPresses();
             continue;
         }
         if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
             ge::audio::onForeground();
+            i_->backgrounded = false;  // 🎯T88 resume rendering
             continue;
         }
         // Activity lifecycle on Android. SDL3 doesn't deliver the

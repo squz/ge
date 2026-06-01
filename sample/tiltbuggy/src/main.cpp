@@ -42,13 +42,17 @@ int main(int argc, char* argv[]) {
     // needed (🎯T66).
     //
     // For dev-time diagnostics that bypass Apple unified logging / logcat
-    // entirely (🎯T83), tail logs over TCP — no code change here, just
-    // point the engine at a listener:
-    //   Mac:      nc -l 9999
-    //   desktop:  SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
-    //   iOS sim:  SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
-    //                 xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
-    //   Android:  adb shell setprop debug.ge.log_target <mac-ip>:9999
+    // entirely (🎯T83), stream logs over TCP — no code change here, just set
+    // the LOG_TARGET=host:port convention in the launch env.
+    //   Preferred (spyder v0.51.0+): log_collect_start picks a port + reports
+    //     your LAN IPs; pass one as LOG_TARGET to launch_app/deploy_app, then
+    //     log_collect_get. No port-picking, works on real devices.
+    //   No-spyder fallback:
+    //     Mac:      nc -l 9999
+    //     desktop:  LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
+    //     iOS sim:  SIMCTL_CHILD_LOG_TARGET=127.0.0.1:9999 xcrun simctl launch …
+    //     Android:  adb reverse tcp:9999 tcp:9999;
+    //               adb shell setprop debug.ge.log_target 127.0.0.1:9999
     // Debug builds only — the sink is compiled out under NDEBUG.
 
     bool brokered = false;  // default: direct/distribution modality

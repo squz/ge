@@ -222,25 +222,52 @@ enough failure modes that you can't rely on it as your primary on-device
 diagnostic channel — and `NSLog` is just `os_log` underneath since iOS 14, so it
 inherits the same gates. The escape hatch every game dev already knows: open a
 socket. `ge::log::install()` (called automatically from `ge::run`) appends a TCP
-sink to the default logger when a target is set, so **every `SPDLOG_INFO/WARN/
-ERROR` is also streamed to a host you tail with `nc`** — no Apple-log or
+sink to the default logger when the `LOG_TARGET=host:port` convention is set, so
+**every `SPDLOG_INFO/WARN/ERROR` is also streamed to that host** — no Apple-log or
 `adb logcat` dependency in the path.
 
+**Preferred: let spyder be the listener (v0.51.0+).** `log_collect_start` opens a
+fresh kernel-assigned port and returns the LAN-reachable `hosts` of your machine,
+so there's no port to pick and no `ipconfig getifaddr en0` guesswork. Hand one
+`host:port` to `LOG_TARGET` in the launch env, then drain with `log_collect_get`:
+
+```jsonc
+// 1. Open a listener (spyder picks the port + reports your LAN IPs).
+log_collect_start { "owner": "tiltbuggy" }
+//   → { "session_id": "ab12…", "port": 54321, "hosts": ["192.168.1.42", …] }
+
+// 2. Launch/deploy with LOG_TARGET pointing at one of those host:port pairs.
+//    On a device use a LAN host; on the iOS Simulator 127.0.0.1 also works.
+deploy_app { "device": "Jevons", "path": "…/TiltBuggy.app",
+             "env": { "LOG_TARGET": "192.168.1.42:54321" } }
+
+// 3. Read what's arrived (capture continues); tear down when done.
+log_collect_get  { "session_id": "ab12…" }
+log_collect_stop { "session_id": "ab12…" }
+```
+
+spyder owns the port-per-session bookkeeping, reconnect handling, and a bounded
+buffer; ge just streams newline-delimited text to it. (Caveat: the env arrives on
+*that* launch — a user-tap relaunch from SpringBoard / the launcher loses it;
+re-run `launch_app` with the same env to resume.)
+
+**Fallback: a bare `nc` listener** (no spyder — desktop dev, Xcode-scheme env, or
+`adb` by hand):
+
 ```bash
-# On your Mac (the listener):
-nc -l 9999
+nc -l 9999                                    # on your Mac
+LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy       # desktop
 
-# Desktop app — shell env:
-SPYDER_LOG_TARGET=127.0.0.1:9999 bin/tiltbuggy
-
-# iOS Simulator (sim shares host loopback):
-SIMCTL_CHILD_SPYDER_LOG_TARGET=127.0.0.1:9999 \
+# iOS Simulator (shares host loopback):
+SIMCTL_CHILD_LOG_TARGET=127.0.0.1:9999 \
     xcrun simctl launch --terminate-running-process booted com.squz.tiltbuggy
-# iOS device / Xcode: add SPYDER_LOG_TARGET=<mac-LAN-ip>:9999 to the scheme env.
+# iOS device / Xcode: add LOG_TARGET=<mac-LAN-ip>:9999 to the scheme env.
 
-# Android (apps aren't shell-launched, so env vars don't reach them — use a
-# system property instead; no Java/Intent plumbing needed):
-adb shell setprop debug.ge.log_target <mac-LAN-ip>:9999
+# Android apps aren't shell-launched, so env vars don't reach them. spyder's
+# launch env-passthrough sets LOG_TARGET for you; by hand, use a system property
+# (no Java/Intent plumbing — ge's resolveLogTarget reads it too):
+adb reverse tcp:9999 tcp:9999                  # device localhost → your Mac
+adb shell setprop debug.ge.log_target 127.0.0.1:9999
 adb shell am start -n <pkg>/ge.GeActivity
 ```
 

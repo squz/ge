@@ -2722,23 +2722,30 @@ targets:
     cost: 0.0
     actual_cost: 3.0
     acceptance:
-    - ge::log::install() checks getenv("SPYDER_LOG_TARGET") at startup. When set to host:port, a spdlog tcp_sink is appended to the default logger so every spdlog emission is also sent over TCP.
+    - ge::log::install() checks getenv("LOG_TARGET") at startup. When set to host:port, a network log sink is appended to the default logger so every spdlog emission is also sent over TCP.
     - When the env var is unset or empty, no sink is installed and behaviour is unchanged.
-    - 'The sink-install code is compile-gated behind #ifndef NDEBUG (or ge''s existing debug-build macro, whichever the project already uses). Release builds compile the entire feature out — no getenv call, no symbol references — so the convention can''t accidentally leak into a TestFlight or Play Store binary.'
-    - 'Reconnect-on-error: if the listening host disconnects mid-session, the sink reconnects rather than silently going dead (spdlog 1.x tcp_sink does not do this out of the box — a thin wrapper that retries with backoff on send failure is part of the deliverable).'
-    - 'Verified on macOS desktop, iOS (Jevons or equivalent iPad/iPhone), and Android (an emulator or physical device): the app emits via SPDLOG_INFO, lines arrive at `nc -l <port>` on the host within ~100ms, no Apple-log / logcat dependency in the path.'
-    - 'agents-guide.md (or ge''s equivalent docs page) documents the convention: the env var name, the `nc -l <port>` recipe, the #ifdef guard, and the iOS/Android quirks (iOS picks env vars up from Xcode scheme or the spyder env-passthrough target; Android requires the Intent-extra → JNI shim).'
-    - Sample diff in sample/tiltbuggy (or another consumer) shows the one-line install hook and the laptop-side commands to receive the stream.
+    - '**Android fallback**: where getenv can''t reach the app (Activity-launched, no shell inheritance), ge also reads the `debug.ge.log_target` system property via the standard Android property API. Both mechanisms feed the same resolveLogTarget() lookup. Set with `adb shell setprop debug.ge.log_target <host>:<port>`.'
+    - 'The sink-install code is compile-gated behind #ifndef NDEBUG (or ge''s existing debug-build macro). Release builds compile the entire feature out — no getenv call, no symbol references — so the convention can''t accidentally leak into a TestFlight or Play Store binary.'
+    - 'Reconnect-on-error: if the listening host disconnects mid-session, the sink reconnects with backoff rather than going silently dead. spdlog 1.x''s stock tcp_sink does *blocking* reconnect on the calling thread and would block the render loop — ge ships a bespoke NetworkLogSink with a sender thread and bounded drop-oldest queue.'
+    - 'Verified end-to-end on macOS desktop, iOS (simulator or device), and Android (emulator or physical device): the app emits via SPDLOG_INFO, lines arrive at the listener within ~100ms, no Apple-log / logcat dependency in the path.'
+    - '**Spyder integration documented**: ge''s docs and the sample/tiltbuggy snippet explicitly show the spyder log_collect_* workflow as the preferred recipe for device-driven LAN streaming — `log_collect_start` allocates a port (random, no more 9999 placeholder), returns the LAN host candidates, and the caller passes one of those host:port pairs as LOG_TARGET in a subsequent spyder launch_app / deploy_app env. The bare `nc -l 9999` recipe stays as the no-spyder fallback for desktop/Xcode-scheme launches but is no longer the headline example.'
+    - 'agents-guide.md documents the LOG_TARGET convention, the spyder log_collect path, the Android property fallback, the #ifdef guard, and the per-platform injection mechanisms (desktop shell env, iOS Xcode scheme env or spyder launch passthrough, Android setprop or spyder launch passthrough).'
     context: |-
-      Achieved 2026-06-01 (branch t83-tcp-log-sink). ge::log::install() (called automatically by ge::run) appends a NetworkLogSink to the default logger when a dev-log target is set, mirroring every SPDLOG_* emission over TCP. Tail with `nc -l <port>`. Implementation in src/log.cpp, gated behind #ifndef NDEBUG so the entire feature (getenv, sink, sender thread) compiles out of release builds — a misconfigured store binary can never phone home.
+      Re-opened 2026-06-01 (was achieved earlier the same day in branch t83-tcp-log-sink, not yet merged). The bulk of the work is done — NetworkLogSink, resolveLogTarget, compile gate, three-platform runtime verification all shipped against the branch. Two cleanup items remain before merge:
 
-      Target resolution (resolveLogTarget): SPYDER_LOG_TARGET env var first (desktop shell, iOS Xcode-scheme / SIMCTL_CHILD_, spyder launch passthrough); on Android — where apps aren't shell-launched so env vars don't reach them — also reads the `debug.ge.log_target` system property (`adb shell setprop debug.ge.log_target <host>:<port>`), no Java/Intent plumbing. This refines the original acceptance, which assumed getenv would suffice on all three platforms; it can't on Android, so the property path is the Android mechanism.
+      1. Env-var name: the acceptance text said SPYDER_LOG_TARGET (drafted before the LOG_TARGET / SPYDER_LOG_TARGET / GE_LOG_TARGET discussion landed on un-namespaced LOG_TARGET). The actual implementation in src/log.cpp uses LOG_TARGET — matching the convention. Acceptance text was just stale; refresh to match what shipped.
 
-      NetworkLogSink (not spdlog's stock tcp_sink): formats on the calling thread, hands lines to a dedicated sender thread via a bounded queue (drops oldest past 4096), reconnects with exponential backoff (250ms→5s). A downed listener costs nothing on the render hot path; spdlog's stock sink would block + throw per line on the game thread.
+      2. Spyder log_collect_* integration: spyder v0.51.0 (released 2026-06-01) ships log_collect_start / _get / _stop / _list — a host-side TCP listener that allocates a random kernel-assigned port and returns the laptop's LAN-reachable host candidates. The intended workflow is:
 
-      Runtime-verified all three platforms 2026-06-01: macOS desktop (bin/tiltbuggy → nc), iOS Simulator (iPhone 16 Pro, SIMCTL_CHILD_SPYDER_LOG_TARGET → nc, full log stream, no os_log dependency), Android (S21 Ultra SM-G9980, debug.ge.log_target + adb reverse → nc, mirror line confirmed over TCP). Release path compiles clean under -DNDEBUG -Wall -Wextra (feature fully elided). Docs in agents-guide.md ("Dev-time log streaming over TCP") + sample pointer in sample/tiltbuggy/src/main.cpp. All three prebuilt libge.a regenerated; verify-prebuilds.py green.
+             log_collect_start         -> {port, hosts}
+             deploy_app env={LOG_TARGET: host:port}
+             log_collect_get / _stop
 
-      Pairs with the (separate, not-yet-landed) spyder launch env-passthrough target, which would inject SPYDER_LOG_TARGET at deploy time; the sink works today without it via the mechanisms above.
+         ge's docs (agents-guide.md, sample/tiltbuggy/src/main.cpp) still use the bare `nc -l 9999` recipe everywhere. That recipe is still valid for the no-spyder cases (desktop dev, Xcode-scheme env, adb setprop), but it shouldn't be the headline — the spyder path is one tool call away and removes the "pick a port that won't collide" guesswork. Reframe the docs accordingly before merging the t83-tcp-log-sink branch.
+
+      The NetworkLogSink design choices (sender thread, bounded drop-oldest queue, exponential backoff 250ms→5s) all stay — the implementation is correct, only the doc framing and the acceptance prose need updating.
+
+      Pairs with the spyder env passthrough target (T73, shipped in spyder v0.50.0) and the new spyder log_collect_* family (v0.51.0).
     tags:
     - logging
     - ios
@@ -2810,6 +2817,34 @@ targets:
     origin: manual
     discovered: 2026-05-31
     achieved: 2026-05-31
+  T88:
+    name: ge pauses the render loop while the iOS app is backgrounded
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 3.0
+    acceptance:
+    - DirectRenderHost::paused() returns true on iOS (device + simulator) while the app is backgrounded, false in the foreground; driven by SDL_EVENT_DID_ENTER_BACKGROUND/_FOREGROUND and seeded at startup from UIApplication.applicationState so launch-into-background is covered before any event arrives
+    - 'While paused, the run loop yields the CPU instead of busy-spinning: pumpEvents blocks on SDL_WaitEventTimeout for the first event when paused() and drains the rest non-blocking. Backgrounded app holds at ~0% CPU (not the 100% spin a naive paused()->continue would cause on iOS)'
+    - No Metal command buffer is requested while backgrounded — SokolContext::beginFrame is never reached. The TiltBuggy 2026-05-31 20:07 scene-update watchdog hang (0x8BADF00D, main thread wedged in beginFrame -> MTLSimCommandQueue commandBuffer) does not reproduce
+    - Foreground->background->foreground resumes rendering cleanly with no multi-second dt spike
+    - Desktop and Android behaviour unchanged (paused() false on desktop; Android already gates via SDL blocking the loop)
+    context: |-
+      Achieved 2026-06-01; folded into the T83 release PR (#125) rather than its own PR per user direction. Surfaced from a TiltBuggy iOS-Simulator watchdog crash on the sokol_gfx path: a backgrounded scene can't get a Metal command buffer, so the unconditional SokolContext::beginFrame blocked the main thread and FrontBoard's scene-update watchdog (0x8BADF00D) killed it.
+
+      Fix in DirectRenderHost.mm + SessionHost.mm: paused() reflects iOS background state (driven by SDL lifecycle events + a UIApplication.applicationState seed for launch-into-background); beginFrame already early-returns on paused(); pumpEvents blocks on SDL_WaitEventTimeout while paused so the loop idles at ~0% CPU rather than busy-spinning (iOS, unlike Android, doesn't block ge's loop during background). Verified on iPhone 16 Pro sim: background via Home and behind another app holds at 0% CPU with no watchdog kill; foreground-from-background resumes rendering cleanly. All three prebuilt libge.a regenerated to carry both T83 and T88.
+    tags:
+    - ios
+    - simulator
+    - sokol
+    - lifecycle
+    - background
+    - watchdog
+    - T38-followup
+    - surfaced-by:tiltbuggy
+    origin: manual
+    discovered: 2026-06-01
+    achieved: 2026-06-01
   T9:
     name: ge exposes device tilt as optional parallax input to games
     status: converging
