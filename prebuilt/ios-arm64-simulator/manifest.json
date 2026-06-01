@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "494a3b87a06a57538525fe2c309f3b921770ec013495877949ec98660c56fd51",
-    "prebuilt/ios-arm64-simulator/libge.a": "36a28f93bd8978e7ca849aaca2deedc3b9a1d038093cf9df1f91581afba55da5",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "960841c43b67d7c98a1bc75e822ddf2d74cf99f895023805730e12e361b66f5c",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "95855a16b195b617cce6723a43a2f64d7575963c8a8e0090dc6e707192894012",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "d3ff9d95393474d1714bf553ba24960b0a0e62c09cf3e01258976cf689e1f358",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "9f0b7611f63d0e340caf57fb2bdb67ebeb4d98fed1edbadf8a76761e0f1c3653",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "5e86e8e879e737737b26124ad407cd9ce5260acc66cf66c96ebf065a628d1635"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "b419e525e95388b7b9d0997268c0f41df821037a432ea02b458acf6f0d2f0554",
+    "prebuilt/ios-arm64-simulator/libge.a": "779a3ac3386e7a338dd88eed7295499f1a85bd1ce427d45dc4717ccb037c9718",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "5ca78ba7356d1328b24e74de9d8e2befc6ed134fc8392b2fdcab41c559cc9bc6",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "3830cc1b7460d59a822521b6f7bfa6561dd80139f54de6a2cb4121275f42fa08",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "c5e92a904210e560f308ddc058e09e935959560f9f0b43a317bcaac3bfd4959c",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "baf743fdfba3eee68dd5918a547a06a379bce74f23ad1911e288ca88c29cf380",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "12a08da2d208391aa089550b5550cfdb05bc040d191e91a2a5d1062500049c8c"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -187,7 +187,7 @@
     "src/Immersive.h": "edb92f2dc22de505e2421e3aa6ef3baef8da00025a5cf61d41917e03ab08cd6f",
     "src/Immersive_stub.cpp": "a13eec311166436a9cd380351b1664b76a5d41cbd6552a22d47553fe5751902e",
     "src/Resource.cpp": "71ac228dd2219a225a89cc73e01b92ff2f07754bd1ea25871aacf1f8181a0f8d",
-    "src/SessionHost.mm": "74e7425a95e07f6c8a40a8f67a6e89b3510c6f18a6980aab2b048aa8b793c458",
+    "src/SessionHost.mm": "22c9dc16c9e0e32f9fee0a1042660d93caf3f2a5834046c38b4c2731c7e279fc",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
     "src/SokolContext.mm": "194807b6db019a928d5201f5bd36045bbfd9b7dda6ff7c0061be09f6051994ed",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
@@ -204,7 +204,7 @@
     "src/png.cpp": "ca11dcf761f88dc40d974f445b095b9b58de7c9fc50653b028d28b1fdb3f39a2",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "96b1f9da508a497d95e202f60041d2455af859be808c68f0f19327421a585d1e",
-    "src/render/DirectRenderHost.mm": "eeddb2b6fe17d4ca9a045e1fa2a031c5120c6ecea272ea8f92211e3732828a11",
+    "src/render/DirectRenderHost.mm": "ae9a515e222d7090a4723b261c71a79223037f4e248d6372e275bc752335dd7f",
     "src/render/RefreshRateBoost_apple.mm": "06a3f6325093d445bca6637dc4fb3daf11614b75b0d7f23526945d7b931f1236",
     "src/sdl_input.cpp": "de6f95eed5bf0698cf62901f78bbf50d3e9c11819ad6834b02ebbb4efaeaaa57",
     "src/sprite.cpp": "cf314f0a1a8c9614f9c894734d44754c58e033e5dce3f737c34106cf2d2f0463",
