@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "203f3dad42ed6ab9efe9f1a78a28f68763b0a47ea1ea05b7e5388242972e204a",
-    "prebuilt/ios-arm64-simulator/libge.a": "8ceee1e1d6028aba791109fbad8557de5348c4e3496d5b243dbd5d965b13f2eb",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "c0f99b8204c84fe011a1894475768900917df80b5a09230e3bf4547da37e1c2e",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "3f021802635bf867567d2c97fcf9d88d376c1e4f53722b7b327cc216ab061eaf",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "d630bcb7356153c451ddb9c6ab37ee4dc8f2de342666c47c515fd24848436607",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "2487cd42aaa2f40320dfc209b1b06d6c130d0632b62ed8a69109e6afe11573d8",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "269b0d7020e3a4de603a44d7dd16e85066d3cebb12731085c51e744d59ab4403"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "e0c38ea46172a54b0105f7107be514590331ada8376b81554e79b11cca57fb5b",
+    "prebuilt/ios-arm64-simulator/libge.a": "ff3bf3d03e8a3aca886cc11180c863ec9e45190eaeb38dbe5b9178af1343b0c6",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "8a0eafc6a1f9359c8b1c15afd37502bb082f624c79e1a80a175fbba2cd3022c2",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "fda3dc246b61b95d879b03f92a8fdb1961ac3b9b02b43fd0c8217147c6a31a9c",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "17233ba2e2e49acc994b798ae3992b0f1b8cccc5dce9f321c328711df30e9bf9",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "aa0ba7d2cb7dab027cccb05f46af3e38eb65f10f454a6fbdc9b6ae238ff66002",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "9189b7f0f7bd5c471eb4704cfb7530433c8b58d437eb55123d7603110a5f2c9b"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -205,7 +205,7 @@
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "96b1f9da508a497d95e202f60041d2455af859be808c68f0f19327421a585d1e",
     "src/render/DirectRenderHost.mm": "ae9a515e222d7090a4723b261c71a79223037f4e248d6372e275bc752335dd7f",
-    "src/render/RefreshRateBoost_apple.mm": "06a3f6325093d445bca6637dc4fb3daf11614b75b0d7f23526945d7b931f1236",
+    "src/render/RefreshRateBoost_apple.mm": "6ea69624087fae978b188591fb8bf989177f49ec0fe4ce334f7a4d1713373686",
     "src/sdl_input.cpp": "de6f95eed5bf0698cf62901f78bbf50d3e9c11819ad6834b02ebbb4efaeaaa57",
     "src/sprite.cpp": "cf314f0a1a8c9614f9c894734d44754c58e033e5dce3f737c34106cf2d2f0463",
     "src/svg.cpp": "191c733d4b9bf6fa47ee50408959d10b749df4741e0089dd3c426e42989ac4f6",
