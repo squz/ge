@@ -11,6 +11,8 @@
 
 #include "DirectRenderHost.h"
 #include "AccelSynth.h"
+#include "LifecycleInject.h"
+#include "ScreenshotBridge.h"
 
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
@@ -33,6 +35,10 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <mutex>
+#include <vector>
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -175,6 +181,71 @@ void rotateAccelToScreen(SDL_DisplayOrientation orient, float d[/*≥3*/]) {
 }
 
 } // namespace
+
+// 🎯T92.2 App-channel memory-warning injection. appchannel's
+// low_memory_warning handler calls this from the channel worker thread; it
+// stores into the same pending atomic the iOS observer / Android onTrimMemory
+// path uses, so pumpEvents drains it on the game thread and the consumer's
+// onMemoryWarning fires identically to a real OS warning.
+namespace detail {
+void injectMemoryWarning(MemoryPressureLevel level) {
+    g_pendingMemoryWarning.store(int(level));
+}
+
+// 🎯T92.6 Screenshot bridge. captureFrameRGBA (worker thread) arms a request
+// and blocks; DirectRenderHost::endFrame (game thread) sees screenshotArmed(),
+// hands SokolContext a sink that routes back to deliverScreenshot, which fills
+// the request and wakes the worker.
+namespace {
+struct ScreenshotRequest {
+    std::vector<std::uint8_t>* rgba = nullptr;
+    int* w = nullptr;
+    int* h = nullptr;
+    std::promise<bool> done;
+};
+std::mutex        g_ssMu;
+ScreenshotRequest* g_ssReq = nullptr;   // non-null while a capture is in flight
+std::atomic<bool>  g_ssArmed{false};
+} // namespace
+
+bool screenshotArmed() { return g_ssArmed.load(); }
+
+void deliverScreenshot(const std::uint8_t* rgba, int w, int h) {
+    std::lock_guard<std::mutex> lk(g_ssMu);
+    if (!g_ssReq) return;  // already timed out / cancelled
+    if (rgba && w > 0 && h > 0) {
+        g_ssReq->rgba->assign(rgba, rgba + static_cast<std::size_t>(w) * h * 4);
+        *g_ssReq->w = w;
+        *g_ssReq->h = h;
+        g_ssReq->done.set_value(true);
+    } else {
+        g_ssReq->done.set_value(false);
+    }
+    g_ssReq = nullptr;
+    g_ssArmed.store(false);
+}
+
+bool captureFrameRGBA(std::vector<std::uint8_t>& rgba, int& w, int& h) {
+    ScreenshotRequest req;
+    req.rgba = &rgba;
+    req.w = &w;
+    req.h = &h;
+    auto fut = req.done.get_future();
+    {
+        std::lock_guard<std::mutex> lk(g_ssMu);
+        if (g_ssReq) return false;       // another capture already in flight
+        g_ssReq = &req;
+    }
+    g_ssArmed.store(true);
+    if (fut.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+        std::lock_guard<std::mutex> lk(g_ssMu);
+        g_ssReq = nullptr;               // abandon: endFrame never serviced it
+        g_ssArmed.store(false);
+        return false;
+    }
+    return fut.get();
+}
+} // namespace detail
 
 #if defined(__ANDROID__)
 // Native methods called from ge.GeActivity — see android-shared/.../GeActivity.java.
@@ -810,6 +881,15 @@ la::float2 DirectRenderHost::updateParallax() {
 
 void DirectRenderHost::endFrame(uint32_t /*frameNumber*/) {
     if (paused()) return;
+    // 🎯T92.6 If the app-channel armed a screenshot, hand SokolContext a sink
+    // for this frame; it reads the framebuffer back inside endFrame (after the
+    // GPU render) and routes the RGBA to the waiting worker thread.
+    if (ge::detail::screenshotArmed()) {
+        i_->sokolCtx->captureNextFrame(
+            [](const std::uint8_t* rgba, int w, int h) {
+                ge::detail::deliverScreenshot(rgba, w, h);
+            });
+    }
     // Close out the swap-chain pass: sg_end_pass + sg_commit + present.
     i_->sokolCtx->endFrame();
 }

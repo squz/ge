@@ -283,6 +283,113 @@ A downed listener costs nothing on the render hot path; a log flood drops oldest
 lines past the queue cap rather than growing memory. See `NetworkLogSink` in
 `src/log.cpp`.
 
+### Agent-drivable app channel — `include/ge/appchannel.h` (🎯T92)
+
+The structured sibling of the T83 text sink: a bidirectional MessagePack-RPC
+channel to spyder's `app_*` MCP tools, so **every ge app is agent-drivable by
+default** — pause it, single-step it, inject a tap, query its state, grab a
+screenshot, quit it cleanly, drain its logs/perf — without per-app plumbing.
+Pairs with spyder ≥ v0.53.0 (the channel host).
+
+**Activation — same `LOG_TARGET`, a scheme discriminator.** A value of
+`appchannel://host:port` dials the RPC channel; a bare `host:port` keeps the T83
+text `NetworkLogSink` unchanged (fully backwards-compatible). One env var, the
+URL scheme picks the protocol. `ge::run` dials it automatically.
+
+```jsonc
+// spyder is the listener:
+app_channel_start { "owner": "tiltbuggy" }
+//   → { "listener_id": "…", "port": 49546, "hosts": ["192.168.1.42", …] }
+
+// Launch with LOG_TARGET=appchannel://<host>:<port>:
+//   desktop : LOG_TARGET=appchannel://127.0.0.1:49546 bin/tiltbuggy
+//   iOS sim : SIMCTL_CHILD_LOG_TARGET=appchannel://127.0.0.1:49546 xcrun simctl launch …
+//   iOS dev : LOG_TARGET=appchannel://<mac-LAN-ip>:49546 in the Xcode scheme env
+//   Android : adb reverse tcp:49546 tcp:49546
+//             adb shell setprop debug.ge.log_target appchannel://127.0.0.1:49546
+
+app_channel_list   // → session with app_name / app_version / advertised methods
+app_ping           // round-trip liveness (the app echoes its wall-clock ts)
+```
+
+**Connect + hello handshake.** On connect the app sends a `hello` request
+advertising `{app_name, app_version, methods, slices}` — the method names it has
+handlers for and the state slices consumers registered — and awaits spyder's
+`{spyder_version}` ack before the channel goes live. Framing is length-prefixed
+MessagePack: `[4-byte LE length][MessagePack body]` (≤ 16 MB), with a
+JSON-RPC-shaped envelope — `{id, method, params}` requests either direction,
+`{id, result|error}` responses, `{method, params}` async pushes. Encode/decode is
+`nlohmann::json::to_msgpack`/`from_msgpack` (already vendored — no hand-rolled
+MessagePack, no new dependency). A background receiver thread owns socket reads +
+request dispatch; a background sender thread drains queued pushes — **the game
+thread never blocks on the socket.**
+
+**ge-owned methods** (registered in `appchannel.cpp`'s `registerBuiltins`):
+
+| Method | spyder tool | Effect |
+|---|---|---|
+| `ping` | `app_ping` | echoes the app's wall-clock `ts` |
+| `quit` | `app_quit` | `SDL_PushEvent(SDL_EVENT_QUIT)` → clean exit 0, no macOS crash dialog |
+| `flush` | `app_flush` | drains the push sender, then acks (precondition for quit) |
+| `backgrounded` / `foregrounded` | `app_background` / `app_foreground` | post the SDL lifecycle events (T7/T88 audio + render gating) |
+| `low_memory_warning` | `app_low_memory` | fires `onMemoryWarning(Critical)` via the same atomic the iOS observer / Android `onTrimMemory` uses |
+| `pause` / `resume` / `step` / `speed` | `app_pause` / `app_resume` / `app_step` / `app_speed` | time-control: `dt`→0 (render+input continue), restore, advance N frames at a fixed `kStepDt` then re-pause, `dt` multiplier |
+| `input_inject` | `app_input` | fabricate + `SDL_PushEvent` a `finger_down/up/motion` (normalized 0–1), `key_down/up`, or `accel` event — lands in `onEvent` indistinguishably from real OS input |
+| `state_query` | `app_state` | return a consumer-registered state slice (run on the game thread) |
+| `save_state` / `restore_state` | `app_save_state` / `app_restore_state` | round-trip a consumer snapshot; ge MessagePack-encodes it into a `state` bin, spyder base64s into `{state_b64, size}` |
+| `screenshot_app` | `app_screenshot` | framebuffer readback → PNG `{format, width, height, data:<bin>}` |
+
+Time-control rides the run loop via `ge::appchannel::applyTimeControl(dt)` (the
+real frame `dt` in, the effective `dt` for `onUpdate` out). `app_pause` keeps
+render + input alive, so `app_input` / `app_state` / `app_screenshot` while paused
+are **state-correlated** — the killer combo for visual debugging.
+
+**Consumer-cooperative surface** (register *before* `ge::run` so it's advertised
+in the hello; getters run on the game thread, marshalled by the run loop's
+`pumpMainThreadTasks`, so they never tear against the simulation):
+
+```cpp
+#include <ge/appchannel.h>
+
+// Queryable read-only slices (spyder app_state{slice}):
+ge::appchannel::registerStateSlice("scene", [&]{
+    auto p = state.scene->buggyPose();
+    return nlohmann::json{{"buggy", {{"x", p.x}, {"y", p.y}}}};
+});
+
+// Whole-app save/restore (save returns a JSON snapshot; restore gets it back):
+ge::appchannel::registerStateSerializer(
+    [&]{ return nlohmann::json{{"pro", ge::iap::owned("pro")}}; },
+    [&](const nlohmann::json& j){ ge::iap::testing::setOwned("pro", j.value("pro", false)); });
+
+// Perf counters — emit each frame; ride alongside frame_ms in the ~1 Hz perf push:
+ge::appchannel::perfEmit("buggy_x", p.x);
+```
+
+The push half supersedes the T83 text emission in `appchannel://` mode: a typed
+`log` push (`{timestamp, level, subsystem, format}`) drains via `app_log_get`, and
+a periodic `perf` push (`{timestamp, samples:{frame_ms, …counters}}`, ~1 Hz) drains
+via `app_perf_get`. Bare `host:port` keeps the text sink.
+
+**Per-platform screenshot readback** (`SokolContext::captureNextFrame`, a one-shot
+sink fired inside `endFrame` after the GPU render): Apple blits the drawable on
+**sokol's own command queue** (`sg_mtl_command_queue`, so the copy is ordered after
+the render — no cross-queue race) into a Shared texture, then `getBytes`; dev
+builds set `framebufferOnly = NO` so the drawable is a readable blit source.
+Android `glReadPixels` after `sg_commit`, before the buffer swap, rows flipped to
+top-down. Both deliver RGBA8; the worker thread PNG-encodes (`IMG_SavePNG_IO`) off
+the render loop. The handler blocks (≤ 2 s) until `DirectRenderHost::endFrame`
+services the capture — see `src/render/ScreenshotBridge.h`.
+
+**Compile-gated behind `#ifndef NDEBUG`** — same gate as T83. In a release build
+there is no socket, no msgpack, no handler table, and the public functions are
+empty no-ops, so a store binary can never expose a control channel.
+
+Verified end-to-end against spyder v0.53.0 on macOS desktop:
+`app_ping → app_pause → app_input(tap) → app_state → app_screenshot → app_quit`
+plus `app_log_get` / `app_perf_get`. The Apple Metal readback path is shared by
+iOS; the Android GLES path is `glReadPixels`-based.
+
 ## Common patterns
 
 ### Adding a new wire message type

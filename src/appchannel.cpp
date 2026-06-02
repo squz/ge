@@ -1,0 +1,683 @@
+// Copyright 2026 Marcelo Cantos
+// SPDX-License-Identifier: Apache-2.0
+//
+// 🎯T92.1 — app side of spyder's bidirectional MessagePack-RPC channel.
+// Transport + framing + hello handshake + request dispatch. Compiled out
+// entirely under NDEBUG. See include/ge/appchannel.h for the wire format.
+
+#include <ge/appchannel.h>
+
+#include <spdlog/spdlog.h>
+
+#ifndef NDEBUG
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <functional>
+#include <future>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#if defined(__ANDROID__)
+#include <sys/system_properties.h>
+#endif
+
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>  // 🎯T92.6 IMG_SavePNG_IO
+
+#include "render/LifecycleInject.h"   // ge::detail::injectMemoryWarning
+#include "render/ScreenshotBridge.h"  // ge::detail::captureFrameRGBA
+
+#endif  // NDEBUG
+
+namespace ge::appchannel {
+
+#ifndef NDEBUG
+namespace {
+
+constexpr std::size_t kMaxBody = 16u * 1024 * 1024;  // 16 MB per spyder spec
+
+// 🎯T92.2 Dev time-control, driven by app_pause/resume/step/speed and read
+// once per frame by the SessionHost run loop via applyTimeControl(). All
+// reads/writes are atomic so the channel worker thread can mutate while the
+// game thread reads. Identity values (not paused, 1× speed, no steps) make
+// applyTimeControl a pass-through when nothing has driven them.
+std::atomic<bool>  g_tcPaused{false};
+std::atomic<float> g_tcSpeed{1.0f};
+std::atomic<int>   g_tcStepFrames{0};
+// A single stepped frame advances this much nominal time — fixed (not the
+// real wall-clock dt, which would be huge after a pause) so frame-stepping is
+// reproducible.
+constexpr float kStepDt = 1.0f / 60.0f;
+
+// 🎯T92.4 Perf counters. perfEmit (game thread) sets the latest value per
+// name; perfTick accumulates frame time and, once the window elapses, pushes
+// {frame_ms (window average), counters}.
+std::mutex g_perfMu;
+std::unordered_map<std::string, double> g_perfCounters;
+float g_perfAccumMs = 0.0f;
+int   g_perfFrames  = 0;
+constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
+
+// 🎯T92.5 State registry. Populated by registerStateSlice/Serializer BEFORE
+// ge::run (single-threaded), read by the channel worker thread after — the
+// happens-before is the channel-thread launch in start().
+std::unordered_map<std::string, StateGetter> g_slices;
+StateGetter   g_stateSaver;
+StateRestorer g_stateRestorer;
+
+// Game-thread task queue. State handlers run on the worker thread but must
+// observe game state from the game thread (no torn reads against the sim), so
+// they marshal a task here and block on its result; pumpMainThreadTasks drains
+// it from the run loop.
+std::mutex g_taskMu;
+std::deque<std::function<void()>> g_tasks;
+
+// Marshal `fn` onto the game thread, block until it runs, return its result.
+// `fn`'s exceptions propagate back to the caller (the dispatcher turns them
+// into a JSON-RPC error). Caller's stack outlives the task (it blocks on the
+// future), so the by-reference capture is safe.
+nlohmann::json runOnGameThread(const std::function<nlohmann::json()>& fn) {
+    std::promise<nlohmann::json> prom;
+    auto fut = prom.get_future();
+    {
+        std::lock_guard<std::mutex> lk(g_taskMu);
+        g_tasks.push_back([&] {
+            try { prom.set_value(fn()); }
+            catch (...) { prom.set_exception(std::current_exception()); }
+        });
+    }
+    return fut.get();
+}
+
+// Registered request handlers, keyed by method name. Populated before
+// installFromEnv (single-threaded), read-only on the worker thread after.
+std::unordered_map<std::string, Handler>& handlers() {
+    static std::unordered_map<std::string, Handler> h;
+    return h;
+}
+
+int dialTCP(const std::string& host, int port) {
+    addrinfo hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0)
+        return -1;
+    int fd = -1;
+    for (addrinfo* a = res; a; a = a->ai_next) {
+        fd = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (fd < 0) continue;
+        if (::connect(fd, a->ai_addr, a->ai_addrlen) == 0) break;
+        ::close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    return fd;
+}
+
+class Channel {
+public:
+    static Channel& instance() {
+        static Channel c;
+        return c;
+    }
+
+    void start(std::string host, int port, std::string app, std::string ver) {
+        if (started_.exchange(true)) return;
+        host_ = std::move(host);
+        port_ = port;
+        app_  = std::move(app);
+        ver_  = std::move(ver);
+        // Dev-only; detached — the OS reaps both on process exit. The receiver
+        // owns the socket reads + request dispatch; the sender drains queued
+        // pushes so the game thread never blocks on the socket (🎯T92.1/T92.4).
+        std::thread([this] { run(); }).detach();
+        std::thread([this] { senderLoop(); }).detach();
+    }
+
+    bool active() const { return live_.load(); }
+
+    // Enqueue an async push ({method, params}); never blocks on the socket.
+    // Dropped if the channel isn't live, or if the backlog hits kMaxQueued
+    // (oldest first) so a stalled listener can't grow memory without bound.
+    void push(const std::string& method, nlohmann::json params) {
+        if (!live_.load()) return;
+        nlohmann::json env{{"method", method}, {"params", std::move(params)}};
+        {
+            std::lock_guard<std::mutex> lk(queueMu_);
+            if (sendQueue_.size() >= kMaxQueued) sendQueue_.pop_front();
+            sendQueue_.push_back(std::move(env));
+        }
+        queueCv_.notify_one();
+    }
+
+    // Block until the push queue is fully drained to the socket. Used by the
+    // app_flush handler as a precondition for app_quit.
+    void flush() {
+        std::unique_lock<std::mutex> lk(queueMu_);
+        drainedCv_.wait(lk, [this] { return sendQueue_.empty(); });
+        lk.unlock();
+        // The queue is empty, but the sender may still be mid-write on the last
+        // frame; grabbing sendMu_ waits for that write to finish.
+        std::lock_guard<std::mutex> sl(sendMu_);
+    }
+
+private:
+    void run() {
+        fd_ = dialTCP(host_, port_);
+        if (fd_ < 0) {
+            SPDLOG_WARN("appchannel: connect to {}:{} failed", host_, port_);
+            stopSender();
+            return;
+        }
+        // hello: advertise the methods we handle and the state slices
+        // consumers registered (before ge::run).
+        nlohmann::json methods = nlohmann::json::array();
+        for (const auto& kv : handlers()) methods.push_back(kv.first);
+        nlohmann::json slices = nlohmann::json::array();
+        for (const auto& kv : g_slices) slices.push_back(kv.first);
+        sendFrame(nlohmann::json{
+            {"id", nextId_++},
+            {"method", "hello"},
+            {"params", {{"app_name", app_}, {"app_version", ver_},
+                        {"methods", methods}, {"slices", slices}}}});
+
+        for (;;) {
+            nlohmann::json msg;
+            if (!recvFrame(msg)) break;
+            dispatch(msg);
+        }
+        live_.store(false);
+        stopSender();
+        if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+        SPDLOG_INFO("appchannel: channel closed");
+    }
+
+    // Sender thread: drain queued pushes onto the wire. Frame writes share
+    // sendMu_ with the receiver thread's request responses.
+    void senderLoop() {
+        for (;;) {
+            nlohmann::json env;
+            {
+                std::unique_lock<std::mutex> lk(queueMu_);
+                queueCv_.wait(lk, [this] { return senderStop_ || !sendQueue_.empty(); });
+                if (senderStop_ && sendQueue_.empty()) return;
+                env = std::move(sendQueue_.front());
+                sendQueue_.pop_front();
+            }
+            sendFrame(env);  // holds sendMu_ for the actual write
+            {
+                std::lock_guard<std::mutex> lk(queueMu_);
+                if (sendQueue_.empty()) drainedCv_.notify_all();
+            }
+        }
+    }
+
+    void stopSender() {
+        {
+            std::lock_guard<std::mutex> lk(queueMu_);
+            senderStop_ = true;
+        }
+        queueCv_.notify_all();
+        drainedCv_.notify_all();
+    }
+
+    void dispatch(const nlohmann::json& msg) {
+        // hello response → channel goes live.
+        if (!live_.load() && msg.contains("result") && msg["result"].is_object()
+            && msg["result"].contains("spyder_version")) {
+            live_.store(true);
+            SPDLOG_INFO("appchannel: handshake ok (spyder {})",
+                        msg["result"].value("spyder_version", std::string{"?"}));
+            return;
+        }
+        // request from spyder → dispatch + respond.
+        if (msg.contains("id") && msg.contains("method")) {
+            const std::string method = msg["method"];
+            const nlohmann::json params =
+                msg.contains("params") ? msg["params"] : nlohmann::json::object();
+            nlohmann::json resp{{"id", msg["id"]}};
+            auto it = handlers().find(method);
+            if (it == handlers().end()) {
+                resp["error"] = {{"code", -32601}, {"message", "method not found: " + method}};
+            } else {
+                try {
+                    resp["result"] = it->second(params);
+                } catch (const Error& e) {
+                    resp["error"] = {{"code", e.code}, {"message", e.message}};
+                } catch (const std::exception& e) {
+                    resp["error"] = {{"code", -32000}, {"message", e.what()}};
+                }
+            }
+            sendFrame(resp);
+        }
+    }
+
+    void sendFrame(const nlohmann::json& env) {
+        std::vector<std::uint8_t> body = nlohmann::json::to_msgpack(env);
+        if (body.size() > kMaxBody) return;
+        const std::uint32_t len = static_cast<std::uint32_t>(body.size());
+        const std::uint8_t hdr[4] = {
+            static_cast<std::uint8_t>(len & 0xff),
+            static_cast<std::uint8_t>((len >> 8) & 0xff),
+            static_cast<std::uint8_t>((len >> 16) & 0xff),
+            static_cast<std::uint8_t>((len >> 24) & 0xff)};
+        std::lock_guard<std::mutex> lk(sendMu_);
+        if (fd_ < 0) return;
+        if (writeAll(hdr, 4)) writeAll(body.data(), body.size());
+    }
+
+    bool recvFrame(nlohmann::json& out) {
+        std::uint8_t hdr[4];
+        if (!readAll(hdr, 4)) return false;
+        const std::uint32_t len = std::uint32_t(hdr[0]) | (std::uint32_t(hdr[1]) << 8)
+                                | (std::uint32_t(hdr[2]) << 16) | (std::uint32_t(hdr[3]) << 24);
+        if (len == 0 || len > kMaxBody) return false;
+        std::vector<std::uint8_t> body(len);
+        if (!readAll(body.data(), len)) return false;
+        try {
+            out = nlohmann::json::from_msgpack(body);
+        } catch (const std::exception& e) {
+            SPDLOG_WARN("appchannel: msgpack decode failed: {}", e.what());
+            return false;
+        }
+        return true;
+    }
+
+    bool writeAll(const std::uint8_t* p, std::size_t n) {
+        while (n) {
+            ssize_t w = ::send(fd_, p, n, 0);
+            if (w <= 0) return false;
+            p += w;
+            n -= static_cast<std::size_t>(w);
+        }
+        return true;
+    }
+    bool readAll(std::uint8_t* p, std::size_t n) {
+        while (n) {
+            ssize_t r = ::recv(fd_, p, n, 0);
+            if (r <= 0) return false;
+            p += r;
+            n -= static_cast<std::size_t>(r);
+        }
+        return true;
+    }
+
+    static constexpr std::size_t kMaxQueued = 4096;
+
+    std::atomic<bool> started_{false};
+    std::atomic<bool> live_{false};
+    std::atomic<std::uint64_t> nextId_{1};
+    std::string host_, app_, ver_;
+    int port_ = 0;
+    int fd_ = -1;
+    std::mutex sendMu_;
+
+    // Async push queue, drained by senderLoop().
+    std::mutex queueMu_;
+    std::condition_variable queueCv_;
+    std::condition_variable drainedCv_;
+    std::deque<nlohmann::json> sendQueue_;
+    bool senderStop_ = false;
+};
+
+// "appchannel://host:port" → {host, port}; port <= 0 if not that scheme.
+std::pair<std::string, int> parseAppchannel(const std::string& target) {
+    static constexpr char kScheme[] = "appchannel://";
+    if (target.rfind(kScheme, 0) != 0) return {"", 0};
+    const std::string hp = target.substr(sizeof(kScheme) - 1);
+    const auto colon = hp.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= hp.size()) return {"", 0};
+    int port = 0;
+    try {
+        port = std::stoi(hp.substr(colon + 1));
+    } catch (...) {
+        return {"", 0};
+    }
+    if (port <= 0 || port > 65535) return {"", 0};
+    return {hp.substr(0, colon), port};
+}
+
+std::string resolveTarget() {
+    if (const char* e = std::getenv("LOG_TARGET"); e && *e) return e;
+#if defined(__ANDROID__)
+    char buf[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.ge.log_target", buf) > 0 && buf[0]) return buf;
+#endif
+    return {};
+}
+
+// Coerce a JSON field to float, tolerating spyder's RPC passthrough
+// delivering extra (non-schema) args as strings ("0.14") rather than JSON
+// numbers. Returns dflt when the field is absent or unparseable.
+float jnum(const nlohmann::json& p, const char* key, float dflt) {
+    if (!p.is_object() || !p.contains(key)) return dflt;
+    const auto& v = p[key];
+    if (v.is_number()) return v.get<float>();
+    if (v.is_string()) {
+        try { return std::stof(v.get<std::string>()); }
+        catch (...) { return dflt; }
+    }
+    return dflt;
+}
+
+// Push an SDL event of just a type onto SDL's (thread-safe) event queue, so
+// it surfaces in the consumer's next pumpEvents indistinguishably from a real
+// OS event. Used for the lifecycle injections that map cleanly to SDL events.
+void pushSdlType(Uint32 type) {
+    SDL_Event e{};
+    e.type = type;
+    SDL_PushEvent(&e);
+}
+
+// Register ge-owned method handlers. Idempotent and consumer-friendly: a
+// method already registered (e.g. by a consumer overriding "ping", or a
+// re-entry) is left untouched.
+void registerBuiltins() {
+    auto reg = [](const char* name, Handler h) {
+        if (handlers().find(name) == handlers().end())
+            handlers().emplace(name, std::move(h));
+    };
+    const nlohmann::json kAck = nlohmann::json::object();
+
+    // ── liveness ──
+    // Echo the app's wall-clock millis so spyder's app_ping reports a real
+    // round-trip timestamp (its documented "the timestamp the app saw").
+    reg("ping", [](const nlohmann::json&) {
+        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        return nlohmann::json{{"ts", static_cast<std::int64_t>(ms)}};
+    });
+
+    // ── lifecycle ──
+    // quit: enqueue SDL_QUIT → the run loop exits via shouldQuit(), onShutdown
+    // runs, process exits 0 (no macOS crash notification). Acked before the
+    // main thread processes the event, so spyder sees the ack.
+    reg("quit", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_QUIT);
+        return kAck;
+    });
+    // flush: drain the wire sender, then ack (precondition for app_quit).
+    reg("flush", [kAck](const nlohmann::json&) {
+        Channel::instance().flush();
+        return kAck;
+    });
+    // backgrounded / foregrounded: post the SDL lifecycle events the engine
+    // already acts on (🎯T7/T88 audio + render gating).
+    reg("backgrounded", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_DID_ENTER_BACKGROUND);
+        return kAck;
+    });
+    reg("foregrounded", [kAck](const nlohmann::json&) {
+        pushSdlType(SDL_EVENT_DID_ENTER_FOREGROUND);
+        return kAck;
+    });
+    // low_memory_warning: routed through the engine's pending-warning atomic
+    // (see render/LifecycleInject.h) rather than an SDL event, to avoid double-
+    // firing the iOS observer. iOS reports a single ungraded warning → Critical.
+    reg("low_memory_warning", [kAck](const nlohmann::json&) {
+        ge::detail::injectMemoryWarning(MemoryPressureLevel::Critical);
+        return kAck;
+    });
+
+    // ── time-control ── (read by the run loop via applyTimeControl)
+    reg("pause", [kAck](const nlohmann::json&) {
+        g_tcStepFrames.store(0);
+        g_tcPaused.store(true);
+        return kAck;
+    });
+    reg("resume", [kAck](const nlohmann::json&) {
+        g_tcStepFrames.store(0);
+        g_tcSpeed.store(1.0f);      // "resume normal pacing" — clear any speed
+        g_tcPaused.store(false);
+        return kAck;
+    });
+    reg("step", [kAck](const nlohmann::json& p) {
+        int frames = (p.is_object() && p.contains("frames")) ? p.value("frames", 1) : 1;
+        if (frames < 1) frames = 1;
+        g_tcStepFrames.store(frames);
+        g_tcPaused.store(true);     // step implies "advance N then re-pause"
+        return kAck;
+    });
+    reg("speed", [kAck](const nlohmann::json& p) {
+        float m = (p.is_object() && p.contains("multiplier")) ? p.value("multiplier", 1.0f) : 1.0f;
+        if (m < 0.0f) m = 0.0f;
+        g_tcSpeed.store(m);         // orthogonal to pause; inert while paused
+        return kAck;
+    });
+
+    // ── input injection (🎯T92.3) ──
+    // Fabricate an SDL_Event and SDL_PushEvent it. SDL's event queue is
+    // thread-safe, so the event surfaces in the consumer's onEvent on the
+    // next pumpEvents indistinguishably from a real OS event — including the
+    // engine's own transforms (sensor → screen-frame rotation, refresh-rate
+    // press tracking). Touch coords are normalized 0–1 exactly as SDL
+    // delivers real touches, so ge::input::fromSdl denormalizes them against
+    // the surface size like any real finger.
+    reg("input_inject", [kAck](const nlohmann::json& p) {
+        if (!p.is_object() || !p.contains("type"))
+            throw Error{-32602, "input_inject: missing 'type'"};
+        const std::string type = p.value("type", std::string{});
+        SDL_Event e{};
+        if (type == "finger_down" || type == "finger_up" || type == "finger_motion") {
+            e.type = (type == "finger_down")  ? SDL_EVENT_FINGER_DOWN
+                   : (type == "finger_up")    ? SDL_EVENT_FINGER_UP
+                                              : SDL_EVENT_FINGER_MOTION;
+            e.tfinger.touchID  = static_cast<SDL_TouchID>(0x1ABC);  // synthetic, non-zero
+            e.tfinger.fingerID = static_cast<SDL_FingerID>(jnum(p, "id", 1.0f));
+            e.tfinger.x        = jnum(p, "x", 0.0f);
+            e.tfinger.y        = jnum(p, "y", 0.0f);
+            e.tfinger.dx       = jnum(p, "dx", 0.0f);
+            e.tfinger.dy       = jnum(p, "dy", 0.0f);
+            e.tfinger.pressure = jnum(p, "pressure", 1.0f);
+        } else if (type == "key_down" || type == "key_up") {
+            const std::string key = p.value("key", std::string{});
+            const SDL_Keycode kc = SDL_GetKeyFromName(key.c_str());
+            if (kc == SDLK_UNKNOWN)
+                throw Error{-32602, "input_inject: unknown key '" + key + "'"};
+            e.type         = (type == "key_down") ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            e.key.scancode = SDL_GetScancodeFromKey(kc, nullptr);
+            e.key.key      = kc;
+            e.key.mod      = SDL_KMOD_NONE;
+            e.key.down     = (type == "key_down");
+            e.key.repeat   = false;
+        } else if (type == "accel") {
+            // Device-frame acceleration; the engine rotates it into screen
+            // frame in pumpEvents just like a real SDL_SENSOR_ACCEL sample.
+            e.type           = SDL_EVENT_SENSOR_UPDATE;
+            e.sensor.data[0] = jnum(p, "x", 0.0f);
+            e.sensor.data[1] = jnum(p, "y", 0.0f);
+            e.sensor.data[2] = jnum(p, "z", 0.0f);
+        } else {
+            throw Error{-32602, "input_inject: unknown type '" + type + "'"};
+        }
+        SDL_PushEvent(&e);
+        return kAck;
+    });
+
+    // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)
+    reg("state_query", [](const nlohmann::json& p) {
+        const std::string slice = p.value("slice", std::string{});
+        auto it = g_slices.find(slice);
+        if (it == g_slices.end())
+            throw Error{-32602, "state_query: unknown slice '" + slice + "'"};
+        return runOnGameThread(it->second);
+    });
+    reg("save_state", [](const nlohmann::json&) {
+        if (!g_stateSaver)
+            throw Error{-32601, "save_state: no serializer registered"};
+        const nlohmann::json snap = runOnGameThread(g_stateSaver);
+        // Return the snapshot as raw MessagePack bytes in a `state` bin field;
+        // spyder base64-encodes it into the app_save_state {state_b64, size}.
+        const std::vector<std::uint8_t> bytes = nlohmann::json::to_msgpack(snap);
+        return nlohmann::json{{"state", nlohmann::json::binary(bytes)}};
+    });
+    reg("restore_state", [kAck](const nlohmann::json& p) {
+        if (!g_stateRestorer)
+            throw Error{-32601, "restore_state: no serializer registered"};
+        // spyder base64-decodes the tool's state_b64 and hands us the raw
+        // bytes back as the `state` bin.
+        if (!p.is_object() || !p.contains("state") || !p["state"].is_binary())
+            throw Error{-32602, "restore_state: missing 'state' bin"};
+        const auto& bytes = p["state"].get_binary();
+        nlohmann::json snap;
+        try { snap = nlohmann::json::from_msgpack(bytes); }
+        catch (const std::exception& e) {
+            throw Error{-32602, std::string("restore_state: bad blob: ") + e.what()};
+        }
+        runOnGameThread([snap] { g_stateRestorer(snap); return nlohmann::json(nullptr); });
+        return kAck;
+    });
+
+    // ── screenshot (🎯T92.6) ──
+    // Capture the framebuffer (game thread, via the render host), PNG-encode
+    // it here (off the render thread), and return {format, width, height,
+    // data:<bin>} — the PNG rides as a MessagePack bin, no base64.
+    reg("screenshot_app", [](const nlohmann::json&) {
+        std::vector<std::uint8_t> rgba;
+        int w = 0, h = 0;
+        if (!ge::detail::captureFrameRGBA(rgba, w, h) || w <= 0 || h <= 0)
+            throw Error{-32000, "screenshot_app: capture failed (timed out or not rendering)"};
+
+        SDL_Surface* surf =
+            SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, rgba.data(), w * 4);
+        if (!surf)
+            throw Error{-32000, std::string("screenshot_app: surface: ") + SDL_GetError()};
+
+        std::vector<std::uint8_t> png;
+        if (SDL_IOStream* io = SDL_IOFromDynamicMem()) {
+            if (IMG_SavePNG_IO(surf, io, /*closeio=*/false)) {
+                const Sint64 n = SDL_TellIO(io);
+                void* ptr = SDL_GetPointerProperty(
+                    SDL_GetIOProperties(io),
+                    SDL_PROP_IOSTREAM_DYNAMIC_MEMORY_POINTER, nullptr);
+                if (ptr && n > 0)
+                    png.assign(static_cast<std::uint8_t*>(ptr),
+                               static_cast<std::uint8_t*>(ptr) + n);
+            }
+            SDL_CloseIO(io);
+        }
+        SDL_DestroySurface(surf);
+        if (png.empty())
+            throw Error{-32000, "screenshot_app: PNG encode failed"};
+
+        return nlohmann::json{
+            {"format", "png"},
+            {"width",  w},
+            {"height", h},
+            {"data",   nlohmann::json::binary(std::move(png))},
+        };
+    });
+}
+
+} // namespace
+
+void registerMethod(std::string method, Handler handler) {
+    handlers()[std::move(method)] = std::move(handler);
+}
+
+void installFromEnv(const std::string& appName, const std::string& appVersion) {
+    auto [host, port] = parseAppchannel(resolveTarget());
+    if (port <= 0) return;
+    registerBuiltins();
+    Channel::instance().start(host, port, appName, appVersion);
+    SPDLOG_INFO("appchannel: dialing appchannel://{}:{} (app={})", host, port, appName);
+}
+
+float applyTimeControl(float realDt) {
+    if (g_tcPaused.load()) {
+        if (g_tcStepFrames.load() > 0) {
+            g_tcStepFrames.fetch_sub(1);
+            return kStepDt;     // advance exactly one frame; re-holds at 0
+        }
+        return 0.0f;            // held: render + input continue, no sim advance
+    }
+    return realDt * g_tcSpeed.load();
+}
+
+void perfEmit(const std::string& name, double value) {
+    std::lock_guard<std::mutex> lk(g_perfMu);
+    g_perfCounters[name] = value;
+}
+
+void perfTick(float frameMs) {
+    if (!Channel::instance().active()) return;  // nothing to push to
+    // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
+    // rides as just another sample alongside the consumer's perfEmit counters.
+    nlohmann::json samples = nlohmann::json::object();
+    {
+        std::lock_guard<std::mutex> lk(g_perfMu);
+        g_perfAccumMs += frameMs;
+        g_perfFrames  += 1;
+        if (g_perfAccumMs < kPerfWindowMs) return;  // still inside the window
+        samples["frame_ms"] = g_perfAccumMs / float(g_perfFrames);
+        for (const auto& kv : g_perfCounters) samples[kv.first] = kv.second;
+        g_perfAccumMs = 0.0f;
+        g_perfFrames  = 0;
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    Channel::instance().push("perf", nlohmann::json{
+        {"timestamp", static_cast<std::int64_t>(ms)},
+        {"samples",   std::move(samples)},
+    });
+}
+
+void registerStateSlice(std::string name, StateGetter getter) {
+    g_slices[std::move(name)] = std::move(getter);
+}
+
+void registerStateSerializer(StateGetter save, StateRestorer restore) {
+    g_stateSaver    = std::move(save);
+    g_stateRestorer = std::move(restore);
+}
+
+void pumpMainThreadTasks() {
+    for (;;) {
+        std::function<void()> task;
+        {
+            std::lock_guard<std::mutex> lk(g_taskMu);
+            if (g_tasks.empty()) break;
+            task = std::move(g_tasks.front());
+            g_tasks.pop_front();
+        }
+        task();
+    }
+}
+
+void push(std::string method, nlohmann::json params) {
+    Channel::instance().push(method, std::move(params));
+}
+
+bool active() { return Channel::instance().active(); }
+
+#else  // NDEBUG — feature compiled out entirely.
+
+void registerMethod(std::string, Handler) {}
+void installFromEnv(const std::string&, const std::string&) {}
+void push(std::string, nlohmann::json) {}
+bool active() { return false; }
+float applyTimeControl(float realDt) { return realDt; }
+void perfEmit(const std::string&, double) {}
+void perfTick(float) {}
+void registerStateSlice(std::string, StateGetter) {}
+void registerStateSerializer(StateGetter, StateRestorer) {}
+void pumpMainThreadTasks() {}
+
+#endif
+
+} // namespace ge::appchannel

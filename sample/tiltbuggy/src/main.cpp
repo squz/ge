@@ -10,6 +10,7 @@
 #include "Renderer.h"
 #include "Scene.h"
 
+#include <ge/appchannel.h>
 #include <ge/iap.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
@@ -75,6 +76,36 @@ int main(int argc, char* argv[]) {
         SPDLOG_INFO("iap: restore complete ok={} error={}", r.ok, r.error);
     });
 
+    // 🎯T92.5 App-channel state registry — the copyable proving-ground for
+    // ge consumers. Registered BEFORE ge::run so the slice names ride in the
+    // hello; the getters/serializer run on the game thread (ge marshals them).
+    // Slices are read-only snapshots; the serializer round-trips the bits that
+    // are cheaply settable here (gravity + the pro entitlement).
+    ge::appchannel::registerStateSlice("scene", [&state] {
+        const auto p = state.scene ? state.scene->buggyPose() : tiltbuggy::Pose{};
+        return nlohmann::json{
+            {"buggy",   {{"x", p.x}, {"y", p.y}, {"angle", p.angle}}},
+            {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+        };
+    });
+    ge::appchannel::registerStateSlice("iap", [] {
+        return nlohmann::json{{"pro", ge::iap::owned("pro")}};
+    });
+    ge::appchannel::registerStateSerializer(
+        [&state] {
+            return nlohmann::json{
+                {"pro",     ge::iap::owned("pro")},
+                {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+            };
+        },
+        [&state](const nlohmann::json& j) {
+            if (j.contains("gravity")) {
+                state.gravity.x = j["gravity"].value("x", 0.0f);
+                state.gravity.y = j["gravity"].value("y", 0.0f);
+            }
+            ge::iap::testing::setOwned("pro", j.value("pro", false));
+        });
+
     ge::run([&](ge::Context ctx) -> ge::RunConfig {
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
@@ -83,9 +114,13 @@ int main(int argc, char* argv[]) {
         return {
             .onUpdate = [&](float dt) {
                 state.scene->step(dt, state.gravity);
+                auto p = state.scene->buggyPose();
+                // 🎯T92.4 Sample app-channel perf counter — the copyable
+                // proving-ground pattern for ge consumers. Surfaces in
+                // spyder's app_perf_get alongside the engine's frame_ms.
+                ge::appchannel::perfEmit("buggy_x", p.x);
                 static int frame = 0;
                 if (++frame % 60 == 0) {
-                    auto p = state.scene->buggyPose();
                     SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
                                 ge::iap::owned("pro"));

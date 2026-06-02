@@ -17,6 +17,7 @@
 #include "render/DirectRenderHost.h"
 
 #include <SDL3/SDL.h>
+#include <ge/appchannel.h>
 #include <ge/log.h>
 #include <spdlog/spdlog.h>
 
@@ -59,6 +60,10 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
 
     while (!host.shouldQuit()) {
         host.pumpEvents();
+        // 🎯T92.5 Run any state-registry tasks the app-channel marshalled onto
+        // the game thread (state_query / save_state / restore_state), so they
+        // see a consistent snapshot. No-op when no channel is active.
+        ge::appchannel::pumpMainThreadTasks();
 
         uint64_t now = SDL_GetPerformanceCounter();
         float dt = float(now - last) / float(freq);
@@ -79,7 +84,16 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
             continue;
         }
 
-        if (rc.onUpdate) rc.onUpdate(dt);
+        // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf push
+        // accumulator; it emits a {frame_ms, counters} sample ~once per second
+        // when an app-channel is live (no-op otherwise).
+        ge::appchannel::perfTick(dt * 1000.0f);
+
+        // 🎯T92.2 Apply dev time-control (app_pause/resume/step/speed). A
+        // no-op pass-through unless an app-channel is driving it; returns 0
+        // while paused (render + input below still run), kStepDt per stepped
+        // frame, or dt×speed otherwise.
+        if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
 
         host.beginFrame();
         if (rc.onRender) rc.onRender(host.context());
@@ -102,6 +116,13 @@ void run(Factory factory, const SessionHostConfig& config) {
     // we want those visible on iOS/Android logs without per-app
     // sink wiring. Idempotent if a consumer has already installed.
     ge::log::install();
+
+    // 🎯T92 Dev-only bidirectional RPC channel to spyder (app_channel_*),
+    // activated when LOG_TARGET is "appchannel://host:port". No-op otherwise
+    // and compiled out in release. ge-internal method handlers (ping today;
+    // lifecycle/time/input in later leaves) are registered inside this call
+    // before the hello handshake advertises them.
+    ge::appchannel::installFromEnv(config.appName ? config.appName : "ge", "dev");
 
     if (config.headless) {
         runBrokered(factory, config);

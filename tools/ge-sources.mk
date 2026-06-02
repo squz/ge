@@ -27,6 +27,7 @@
 # on Android) — no single cross-platform file.
 GE_SRC_COMMON := \
 	src/Context.cpp \
+	src/appchannel.cpp \
 	src/Resource.cpp \
 	src/FileIO.cpp \
 	src/Signal.cpp \
@@ -123,6 +124,14 @@ GE_SRC_DIRECT_ANDROID          := $(GE_SRC_COMMON) $(GE_SRC_ANDROID) $(GE_SRC_OR
 # ── helper print targets (for tools/prebuild.sh extraction) ────────
 # `make -s -f tools/ge-sources.mk print-direct-ios` etc. Newline-separated
 # so bash mapfile / read can ingest line-at-a-time.
+#
+# These targets exist only for explicit `make -f … print-direct-<platform>`
+# extraction by tools/prebuild.sh. As a manifest-only include, ge-sources.mk
+# must stay GOAL-TRANSPARENT: the first target it defines (print-direct-ios)
+# would otherwise become the parent's .DEFAULT_GOAL, so a bare `make` in a
+# consumer would print the iOS source list instead of building the app.
+# Save the parent's default goal here and restore it after the targets.
+ge_sources_saved_goal := $(.DEFAULT_GOAL)
 
 print-direct-ios:
 	@printf '%s\n' $(GE_SRC_DIRECT_IOS)
@@ -135,3 +144,8 @@ print-direct-apple-desktop:
 
 print-brokered:
 	@printf '%s\n' $(GE_SRC_BROKERED)
+
+# Restore the parent's default goal (see the goal-transparency note above
+# the print targets). Empty before this include → stays empty, so the next
+# real target the parent defines (Module.mk's `all:`) becomes the default.
+.DEFAULT_GOAL := $(ge_sources_saved_goal)
