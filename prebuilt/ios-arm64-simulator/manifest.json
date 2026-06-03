@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "6e5cbd1d43e039a09b7c19fb48956bf48b73fdde068d82875cfb632df8a3caba",
-    "prebuilt/ios-arm64-simulator/libge.a": "ff07da7c0a603dbfc0a8133f1065566f0034040657a7baaf5ca1b04495130546",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "11d1b0848f1f9dbcb040b9ee4a6571d7c201237cadbafb15dfc3958ecd774821",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "d0e74e8a90739c395d0f00bea99630f653aec6dfe8519d3b758034fd582bf148",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "76b83f60bb4f4bcec58112db35d056887ae50c1eaaa3f091ba05e4eea7542f33",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "d59ee14d4fc84eca756d3ce63389adbcce1ae6fdccb86b28295544321a4977cc",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "a1e49e28de878f621e2aac6de87dbfa5c3b746170ce9ac465350232cdadc2e74"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "9c0abdaf9d3bcf4aafbb7edc9f33cbaaac855667f3832dd1417c3216ff199f20",
+    "prebuilt/ios-arm64-simulator/libge.a": "846d04833729b6c57c3e113becd6db0d75cd9f84eab19e9f0eff57cebde8f7d6",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "936f29fead55154aac7ed26daeded27f281756266493b0e7e40b22d043336989",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "61fdcf72c9e64997b2c155e33926dd1590956e61e6380ce1ba5e509445901dba",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "6648d129544a1444c48d80100eadf07e91f1cbfbb3e92a9483b5b9c6e609061e",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "661f77b0db9060da3ee9f43da21ebcbdf3377a4fae15441ccfec13ed867ddc58",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "f41fa1e9dd8f8d4e3ace5ea77305e2b32ce00a561b6ac345e84ac254f25ea027"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -158,7 +158,7 @@
     "headers/spdlog/include/spdlog/version.h": "a0c15d9295eba580732dada20940a443c53ddb47d8565c730d7af1ee5f3bd712",
     "include/ge/FileIO.h": "0f70f106a94292e77e99871250fd3edb6a43951c111cdacaeacec59ce45c74a4",
     "include/ge/FontLoader.h": "0acfb0819ee9e76acaa75484c82261479b780ee77f8b993c2e64691ca92d76e5",
-    "include/ge/Linalg.h": "f4545c93398fcd3a380970687413bd5acb4c8cd4f2f3c79a606d4bb0b5abd64e",
+    "include/ge/Linalg.h": "4ddf30dadbe7f2e2b78588684fb04fe3be298e3155b7f3c921f20600c1e917bc",
     "include/ge/Protocol.h": "e785026ae929b67a4342a6203e8d8d2caf711683245f3554dd7290472760428c",
     "include/ge/RefreshRateBoost.h": "0a5c96808be7e4c3782d878ed58913f40563a45107bdc844df633a6bf7b2d815",
     "include/ge/RenderHost.h": "2674044da08b5785f67d50ded3596072546e5ea7f90ae543b6e9c800b5e7b2ce",
@@ -169,7 +169,7 @@
     "include/ge/appchannel.h": "186b974eb5c5cb3e15f89e3c48477f7055853639ecd0e6919400c39ae0d3864e",
     "include/ge/audio.h": "dee9117f73ed76a310cef4af7eed2b18fdbcf7abbb77dad76e852239bbf8f168",
     "include/ge/button.h": "20077fc58a590161b3e879ed3cbd6e793ebf59e8ca5b34500a9b3d67ac60e60d",
-    "include/ge/debug.h": "559f4782b80522fd7ac4cd03865d8342ee663c851e2885dfe1003a5a85e8d057",
+    "include/ge/debug.h": "b6a965dec74743dd095b96952da249f134395596752a722094003bbc9cd207a6",
     "include/ge/iap.h": "5db130e8acb1c630dc3f323abfe47ce5aeeca1c5cf66d83a3b670b3fcc6eca08",
     "include/ge/log.h": "0499bcb19f22909b42df0e663eeb2e3cc24b31a0bdbabd3cb29abd9496c27988",
     "include/ge/long_press.h": "74738b0415cdff6174bfdb4e95bce63cc706988e4c741ff1a389a63741673812",
@@ -198,7 +198,7 @@
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/audio_apple.mm": "f891fd144ec32d03ffdcf811dec90ec24cf255ba277f20e98f62d0d5fa4a7b3e",
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",
-    "src/debug.cpp": "32670903aa5f09b2c58383f0a3596ae7b6a37b5d9c7b5459ea2f12fc54af7a69",
+    "src/debug.cpp": "3d3e4cd31e313c2b1ac9fe76b02934c3dda5f3ce18f30a872380e2587ad09a65",
     "src/iap.cpp": "d9743376b98f20068e39eca1313c6f4b5b810f7ca310d274ec6c62efdd41d995",
     "src/iap_apple.mm": "55fe711d3bbeab828f31d16dc636c3c2e5b75ebcfa4e5cb8bc24acdf5adff754",
     "src/iap_apple_bridge.h": "1cf8377048684dc735824ebf19e1a357f0a166d6380019c1e6fee7d5cb6a0ede",
