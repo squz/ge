@@ -156,31 +156,27 @@ inline uint32_t packAbgr(la::float4 c) {
     return byte(c.x) | (byte(c.y) << 8) | (byte(c.z) << 16) | (byte(c.w) << 24);
 }
 
-// The {} sentinel — fully transparent, useless as a real colour.
-inline bool isAuto(la::float4 c) {
-    return c.x == 0.0f && c.y == 0.0f && c.z == 0.0f && c.w == 0.0f;
-}
-
 inline la::float3 v3(la::float2 p) { return {p.x, p.y, 0.0f}; }
 inline la::float3 v3(la::float3 p) { return p; }
 
 template <class V>
 void meshImpl(std::span<const V> verts, std::span<const uint16_t> idx,
-              bool fill, la::float4 color) {
+              la::float4 wire, la::float4 fill) {
     if (!enabled()) return;
-    if (isAuto(color)) color = fill ? kFillColor : kLineColor;  // {} → pick by fill
+    const bool doWire = wire.w > 0.0f;   // alpha 0 → layer absent
+    const bool doFill = fill.w > 0.0f;
+    if (!doWire && !doFill) return;
     if (idx.size() % 3 != 0)
         SPDLOG_WARN("ge::debug::mesh: index count {} not a multiple of 3; "
                     "tail ignored", idx.size());
     for (size_t i = 0; i + 3 <= idx.size(); i += 3) {
         const uint16_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
         if (a >= verts.size() || b >= verts.size() || c >= verts.size()) continue;
-        if (fill) {
-            tri(v3(verts[a]), v3(verts[b]), v3(verts[c]), color);
-        } else {
-            line(v3(verts[a]), v3(verts[b]), color);
-            line(v3(verts[b]), v3(verts[c]), color);
-            line(v3(verts[c]), v3(verts[a]), color);
+        if (doFill) tri(v3(verts[a]), v3(verts[b]), v3(verts[c]), fill);
+        if (doWire) {
+            line(v3(verts[a]), v3(verts[b]), wire);
+            line(v3(verts[b]), v3(verts[c]), wire);
+            line(v3(verts[c]), v3(verts[a]), wire);
         }
     }
 }
@@ -236,12 +232,12 @@ void tri(la::float2 a, la::float2 b, la::float2 c, la::float4 color) {
 }
 
 void mesh(std::span<const la::float2> verts, std::span<const uint16_t> idx,
-          bool fill, la::float4 color) {
-    meshImpl(verts, idx, fill, color);
+          la::float4 wireColor, la::float4 fillColor) {
+    meshImpl(verts, idx, wireColor, fillColor);
 }
 void mesh(std::span<const la::float3> verts, std::span<const uint16_t> idx,
-          bool fill, la::float4 color) {
-    meshImpl(verts, idx, fill, color);
+          la::float4 wireColor, la::float4 fillColor) {
+    meshImpl(verts, idx, wireColor, fillColor);
 }
 
 void text(la::float2 posPx, std::string_view str, la::float4 color) {

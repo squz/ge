@@ -48,21 +48,32 @@ TEST_CASE("ge::debug line + tri accumulate vertices when enabled") {
     CHECK(ge::debug::testing::textItemCount() == 0);
 }
 
-TEST_CASE("ge::debug::mesh wireframe derives 3 edges (6 verts) per triangle") {
+TEST_CASE("ge::debug::mesh wireframe (default) derives 3 edges (6 verts) per triangle") {
     reset(true);
     const float2   verts[] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
     const uint16_t idx[]   = {0, 1, 2, 1, 3, 2};  // two triangles
-    ge::debug::mesh(verts, idx);                  // fill defaults false → wireframe
+    ge::debug::mesh(verts, idx);                  // default: magenta wire, fill absent
     CHECK(ge::debug::testing::lineVertexCount() == 12);  // 2 tris * 3 edges * 2
+    CHECK(ge::debug::testing::triVertexCount()  == 0);   // no fill by default
 }
 
-TEST_CASE("ge::debug::mesh fill emits 3 verts per triangle") {
+TEST_CASE("ge::debug::mesh fill-only (wire absent) emits 3 verts per triangle") {
     reset(true);
     const float3   verts[] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     const uint16_t idx[]   = {0, 1, 2};
-    ge::debug::mesh(verts, idx, /*fill=*/true);
-    CHECK(ge::debug::testing::triVertexCount() == 3);
-    CHECK(ge::debug::testing::lineVertexCount() == 0);  // fill emits no lines
+    // wireColor alpha 0 → wire layer skipped; fillColor present → fill only.
+    ge::debug::mesh(verts, idx, /*wireColor=*/{}, /*fillColor=*/{1.0f, 0.0f, 1.0f, 0.25f});
+    CHECK(ge::debug::testing::triVertexCount()  == 3);
+    CHECK(ge::debug::testing::lineVertexCount() == 0);
+}
+
+TEST_CASE("ge::debug::mesh draws both fill and wireframe when both colours present") {
+    reset(true);
+    const float2   verts[] = {{0, 0}, {1, 0}, {0, 1}};
+    const uint16_t idx[]   = {0, 1, 2};
+    ge::debug::mesh(verts, idx, ge::debug::kWireColor, ge::debug::kFillColor);
+    CHECK(ge::debug::testing::triVertexCount()  == 3);  // one filled triangle
+    CHECK(ge::debug::testing::lineVertexCount() == 6);  // three edges
 }
 
 TEST_CASE("ge::debug::mesh ignores a degenerate tail and out-of-range indices") {

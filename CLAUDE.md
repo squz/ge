@@ -643,7 +643,7 @@ While the overlay is disabled, every accumulation call is a cheap no-op and
 `flush` does nothing, so call sites stay unconditional — flipping `enabled()` at
 runtime lights the whole layer up without touching the surrounding draw code.
 The public surface names no rendering backend (coords are `ge::la` vectors,
-colours are `ge::la::float4` straight-alpha RGBA — same as `ge::rasterizeText`);
+colours are `ge::Color` — straight-alpha RGBA `float4`, same as `ge::rasterizeText`);
 internally it's two sokol pipelines (line list + triangle list) sharing one
 program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
 
@@ -651,14 +651,14 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   latches the `GE_DEBUG_OVERLAY` env var (`1/true/yes/on` → enabled), else off.
 - **`ge::debug::line` / `tri`** — ad-hoc world-space primitives (`la::float2` or
   `la::float3`), transformed by the `worldToClip` passed to `flush`.
-- **Submit-mesh convention — `ge::debug::mesh(verts, indices, fill=false, color={})`**
+- **Submit-mesh convention — `ge::debug::mesh(verts, indices, wireColor=magenta, fillColor={})`**
   (`verts` / `indices` are `std::span` — pass a `vector`, `array`, or C-array) —
   hand the same indexed triangle mesh you draw with your own pipeline; while
-  enabled, ge overlays it as a wireframe (every edge; the default) or, with
-  `fill=true`, a translucent fill ("sector tinting"). Adopting it is one extra
-  call; the flag does the rest. `color={}` (transparent) is a sentinel — opaque
-  green for a wireframe, translucent green for a fill. Out-of-range indices and a
-  non-multiple-of-3 tail are skipped with a warning.
+  enabled, ge overlays a wireframe (every edge) in `wireColor` and/or a
+  translucent fill ("sector tinting") in `fillColor`. A `ge::Color` with alpha 0
+  skips that layer — so the default is a magenta wireframe with no fill; pass a
+  `fillColor` for a tint, or both for filled-and-outlined (fill under wire) in one
+  call. Out-of-range indices and a non-multiple-of-3 tail are skipped with a warning.
 - **`ge::debug::text(posPx, str, abgr)`** — single-line monospace HUD text in
   framebuffer-pixel space (top-left origin), independent of `worldToClip`.
 - **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything

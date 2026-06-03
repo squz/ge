@@ -484,11 +484,9 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         const ge::la::float2 chassis[4] = {
             corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh),
         };
-        // Translucent fill + wireframe outline, scoped to the buggy — the
-        // classic "debug shape" look. fillMesh tints just this sector rather
-        // than washing the whole field.
-        ge::debug::mesh(chassis, quad, /*fill=*/true);
-        ge::debug::mesh(chassis, quad);
+        // Magenta wireframe + translucent fill, scoped to the buggy — the
+        // classic "debug shape" look, both layers in one mesh() call.
+        ge::debug::mesh(chassis, quad, ge::debug::kWireColor, ge::debug::kFillColor);
 
         // Playfield border via ad-hoc lines — a clean outline that reads as a
         // debug overlay without tinting the surface underneath.
