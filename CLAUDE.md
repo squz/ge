@@ -635,6 +635,37 @@ sprite = ge::renderSvgDocument(*doc, 1024, 256);
 
 **Apple TTC limitation** — Apple's first-party fonts (SF Pro, Helvetica, HelveticaNeue) ship as `.ttc` collections; lunasvg's public C API drops the TTC face index, so requesting bold on an Apple system font yields synthetic **faux-bold** rather than the designed Bold cut. Custom fonts (separate `.ttf` per weight) and non-Apple platforms are unaffected. Dev-time only; ship custom fonts for production typography. Upgrade path if it bites: 5-line patch to lunasvg's wrapper to thread the ttcindex through to plutovg's existing `plutovg_font_face_load_from_file(path, ttcindex)`.
 
+### Debug overlay (🎯T97)
+
+`<ge/debug.h>` — an opt-in, flag-toggleable debug-render layer. Accumulate
+diagnostic primitives anywhere in the frame, then `flush` once after the scene.
+While the overlay is disabled, every accumulation call is a cheap no-op and
+`flush` does nothing, so call sites stay unconditional — flipping `enabled()` at
+runtime lights the whole layer up without touching the surrounding draw code.
+The public surface names no rendering backend (coords are `ge::la` vectors,
+colours are packed ABGR `0xAABBGGRR`); internally it's two sokol pipelines (line
+list + triangle list) sharing one program + stream buffer, mirroring `ge::Sprite`.
+
+- **`ge::debug::enabled()` / `setEnabled(bool)`** — runtime on/off. First query
+  latches the `GE_DEBUG_OVERLAY` env var (`1/true/yes/on` → enabled), else off.
+- **`ge::debug::line` / `tri`** — ad-hoc world-space primitives (`la::float2` or
+  `la::float3`), transformed by the `worldToClip` passed to `flush`.
+- **Submit-mesh convention — `ge::debug::mesh(verts, n, idx, m, fill=false, abgr=0)`**
+  — hand the same indexed triangle mesh you draw with your own pipeline; while
+  enabled, ge overlays it as a wireframe (every edge; the default) or, with
+  `fill=true`, a translucent fill ("sector tinting"). Adopting it is one extra
+  call; the flag does the rest. `abgr=0` is a sentinel — opaque green for a
+  wireframe, translucent green for a fill. Out-of-range indices and a
+  non-multiple-of-3 tail are skipped with a warning.
+- **`ge::debug::text(posPx, str, abgr)`** — single-line monospace HUD text in
+  framebuffer-pixel space (top-left origin), independent of `worldToClip`.
+- **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything
+  queued, into the active render pass; call once per frame after the scene.
+  GPU resources are created lazily on first non-empty flush.
+
+`sample/tiltbuggy` demonstrates all three surfaces end-to-end (sector-tinted
+playfield, buggy-chassis wireframe, tilt HUD); run it with `GE_DEBUG_OVERLAY=1`.
+
 ### Protocol
 
 - **`Protocol`** (`Protocol.h`) — Wire protocol structs (`DeviceInfo`, `SafeAreaUpdate`, `AspectLock`, `MessageHeader`) and magic number constants. Header-only.
