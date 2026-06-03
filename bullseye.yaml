@@ -63,6 +63,26 @@ targets:
     - dx
     origin: manual
     discovered: 2026-06-03
+  T101:
+    name: ge::debug offers convenience shape helpers (box, circle) on the two-colour mesh convention
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::debug::box(Rect, wireColor=magenta, fillColor={}) draws an axis-aligned rect outline and/or fill in the z=0 plane
+    - ge::debug::circle(center, radius, wireColor=magenta, fillColor={}, segments=32) draws a segments-gon outline and/or triangle-fan fill
+    - Both follow the two-colour convention (alpha-0 colour skips that layer) and are built on ge::debug::line/tri
+    - Unit tests cover box (4 edges / 2 tris) and circle (per-segment line + fan-tri counts)
+    - tiltbuggy demo uses box (playfield border) + circle (buggy position marker)
+    - Documented in CLAUDE.md's ge::debug section
+    context: 'Follow-on to 🎯T97 (ge::debug overlay). box + circle were requested during T97 review as the obvious shape helpers. Implemented on branch T97-debug-shapes off the merged T97 (origin/master @ 427f91f): header/impl/tests/demo/docs done, 211 unit cases pass, prebuilts regenerated. Goal: ship T97 + T101 together in ge v0.50.0. Status converging until that release tags; the multimaze VisibilityRenderer cutover (T97 criterion 4) is the remaining T97 piece, landing as a paired consumer PR after the release.'
+    tags:
+    - api
+    - debug-tooling
+    - shapes
+    - T97-followon
+    origin: manual
+    discovered: 2026-06-03
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
