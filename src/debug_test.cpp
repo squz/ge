@@ -76,6 +76,30 @@ TEST_CASE("ge::debug::mesh draws both fill and wireframe when both colours prese
     CHECK(ge::debug::testing::lineVertexCount() == 6);  // three edges
 }
 
+TEST_CASE("ge::debug::box outlines four edges, fills two triangles") {
+    reset(true);
+    ge::debug::box(ge::Rect{0, 0, 2, 1});  // wire only (default)
+    CHECK(ge::debug::testing::lineVertexCount() == 8);  // 4 edges * 2
+    CHECK(ge::debug::testing::triVertexCount()  == 0);
+
+    reset(true);
+    ge::debug::box(ge::Rect{0, 0, 2, 1}, /*wireColor=*/{}, ge::debug::kFillColor);
+    CHECK(ge::debug::testing::triVertexCount()  == 6);  // 2 tris * 3
+    CHECK(ge::debug::testing::lineVertexCount() == 0);
+}
+
+TEST_CASE("ge::debug::circle emits one segment per side, one fan tri per side") {
+    reset(true);
+    ge::debug::circle({0.0f, 0.0f}, 1.0f, ge::debug::kWireColor, {}, /*segments=*/8);
+    CHECK(ge::debug::testing::lineVertexCount() == 16);  // 8 segments * 2
+    CHECK(ge::debug::testing::triVertexCount()  == 0);
+
+    reset(true);
+    ge::debug::circle({0.0f, 0.0f}, 1.0f, /*wireColor=*/{}, ge::debug::kFillColor, 8);
+    CHECK(ge::debug::testing::triVertexCount()  == 24);  // 8 fan tris * 3
+    CHECK(ge::debug::testing::lineVertexCount() == 0);
+}
+
 TEST_CASE("ge::debug::mesh ignores a degenerate tail and out-of-range indices") {
     reset(true);
     const float2 verts[] = {{0, 0}, {1, 0}, {0, 1}};

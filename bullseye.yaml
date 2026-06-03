@@ -63,6 +63,48 @@ targets:
     - dx
     origin: manual
     discovered: 2026-06-03
+  T101:
+    name: ge wraps sokol render passes in a move-only RAII ge::Pass; SokolContext begin/endFrame are absorbed
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::Pass (include/ge/Pass.h) is a move-only RAII type using the pImpl convention (struct M; std::unique_ptr<M> m;) — its ctor calls sg_begin_pass(desc), its dtor sg_end_pass(); sokol_gfx.h stays out of the public header
+    - 'host.swapchainPass() returns the swapchain-variant Pass: ctor acquires the drawable + opens the swapchain pass, dtor ends the pass + sg_commit + presents; single-shot per frame (a second call in one frame asserts)'
+    - 'Offscreen render-to-texture is the same shape: `{ ge::Pass p{offscreenDesc}; /* draws */ }` before opening the swapchain pass'
+    - SokolContext::beginFrame no longer auto-opens a pass and endFrame no longer ends/commits inside the loop; the render loop runs onUpdate -> onRender -> frame bookkeeping, with all sg_begin/end/commit/present living in ge::Pass (Apple SokolContext.mm + Android SokolContext_android.cpp both updated)
+    - 'In-repo consumers migrated: tiltbuggy and the player open `auto p = ctx.host().swapchainPass();` at the top of onRender; prebuilt libs regenerated'
+    - Builds + unit tests pass; tiltbuggy renders correctly on desktop (app-channel screenshot)
+    context: 'Designed in the multimaze2 session (2026-06-03) whose lighting lab needs offscreen passes BEFORE the swapchain pass (render raytrace + glow/shadow into two offscreen sg_images, then a buffer-level diff composited across three panels). sokol allows only one pass active at a time, and today SokolContext::beginFrame opens the swapchain pass before onRender, so consumers can''t open offscreen passes. The agreed shape (after iterating: onPreRender → expose swapchain → RAII Pass → absorb begin/endFrame entirely): a single ge::Pass concept whose dtor owns teardown, no setup/teardown split across systems. Filed there as T101 ''file it, but leave it'' (unimplemented). NOTE: a breaking render-loop change — external consumers (esfera2, yourworld2, multimaze2) add one `swapchainPass()` line in onRender when they next bump ge. Implemented in this ge session per user direction; ships with T97 + T102 in v0.50.0.'
+    tags:
+    - render
+    - sokol
+    - api
+    - raii
+    - render-loop
+    - multimaze2
+    origin: manual
+    discovered: 2026-06-03
+  T102:
+    name: ge::debug offers convenience shape helpers (box, circle) on the two-colour mesh convention
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::debug::box(Rect, wireColor=magenta, fillColor={}) draws an axis-aligned rect outline and/or fill in the z=0 plane
+    - ge::debug::circle(center, radius, wireColor=magenta, fillColor={}, segments=32) draws a segments-gon outline and/or triangle-fan fill
+    - Both follow the two-colour convention (alpha-0 colour skips that layer) and are built on ge::debug::line/tri
+    - Unit tests cover box (4 edges / 2 tris) and circle (per-segment line + fan-tri counts)
+    - tiltbuggy demo uses box (playfield border) + circle (buggy position marker)
+    - Documented in CLAUDE.md's ge::debug section
+    context: 'Follow-on to 🎯T97 (ge::debug overlay). box + circle requested during T97 review as the obvious shape helpers. Implemented on branch T97-debug-shapes (PR #131): header/impl/tests/demo/docs, 211 unit cases, prebuilts regenerated. RENUMBERED from T101 → T102: T101 was already claimed by the multimaze2 session for the ge::Pass RAII wrapper; this session collided on the id because the two sessions share ge''s working tree + bullseye.yaml and that target hadn''t landed on a branch visible here. Ships with T97 + T101 in ge v0.50.0.'
+    tags:
+    - api
+    - debug-tooling
+    - shapes
+    - T97-followon
+    origin: manual
+    discovered: 2026-06-03
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified

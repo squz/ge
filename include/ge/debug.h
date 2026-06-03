@@ -59,6 +59,15 @@ void mesh(std::span<const la::float2> verts, std::span<const uint16_t> indices,
 void mesh(std::span<const la::float3> verts, std::span<const uint16_t> indices,
           Color wireColor = kWireColor, Color fillColor = {});
 
+// ── convenience shapes ───────────────────────────────────────────────────
+// Built from line() / tri(), same two-colour convention as mesh(): a colour
+// with alpha 0 skips that layer (default = magenta outline, no fill). `box` is
+// an axis-aligned ge::Rect in the z = 0 plane; `circle` is a segments-gon
+// centred at `center` (triangle-fan fill, perimeter-segment outline).
+void box(Rect rect, Color wireColor = kWireColor, Color fillColor = {});
+void circle(la::float2 center, float radius,
+            Color wireColor = kWireColor, Color fillColor = {}, int segments = 32);
+
 // ── text, screen space (top-left origin, +Y down, framebuffer pixels) ────
 // Anchored at posPx; independent of worldToClip. Single line, monospace.
 void text(la::float2 posPx, std::string_view str, Color color = kTextColor);
