@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -238,6 +239,44 @@ void mesh(std::span<const la::float2> verts, std::span<const uint16_t> idx,
 void mesh(std::span<const la::float3> verts, std::span<const uint16_t> idx,
           la::float4 wireColor, la::float4 fillColor) {
     meshImpl(verts, idx, wireColor, fillColor);
+}
+
+void box(Rect r, la::float4 wireColor, la::float4 fillColor) {
+    const bool doWire = wireColor.w > 0.0f;
+    const bool doFill = fillColor.w > 0.0f;
+    if (!enabled() || (!doWire && !doFill)) return;
+    const la::float2 c0{r.x, r.y};
+    const la::float2 c1{r.x + r.w, r.y};
+    const la::float2 c2{r.x + r.w, r.y + r.h};
+    const la::float2 c3{r.x, r.y + r.h};
+    if (doFill) {
+        tri(c0, c1, c2, fillColor);
+        tri(c0, c2, c3, fillColor);
+    }
+    if (doWire) {
+        line(c0, c1, wireColor);
+        line(c1, c2, wireColor);
+        line(c2, c3, wireColor);
+        line(c3, c0, wireColor);
+    }
+}
+
+void circle(la::float2 center, float radius, la::float4 wireColor,
+            la::float4 fillColor, int segments) {
+    const bool doWire = wireColor.w > 0.0f;
+    const bool doFill = fillColor.w > 0.0f;
+    if (!enabled() || (!doWire && !doFill)) return;
+    if (segments < 3) segments = 3;
+    constexpr float kTwoPi = 6.28318530718f;
+    la::float2 prev{center.x + radius, center.y};  // theta = 0
+    for (int i = 1; i <= segments; ++i) {
+        const float t = (float(i) / float(segments)) * kTwoPi;
+        const la::float2 cur{center.x + radius * std::cos(t),
+                             center.y + radius * std::sin(t)};
+        if (doFill) tri(center, prev, cur, fillColor);
+        if (doWire) line(prev, cur, wireColor);
+        prev = cur;
+    }
 }
 
 void text(la::float2 posPx, std::string_view str, la::float4 color) {

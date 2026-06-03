@@ -659,7 +659,11 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   skips that layer — so the default is a magenta wireframe with no fill; pass a
   `fillColor` for a tint, or both for filled-and-outlined (fill under wire) in one
   call. Out-of-range indices and a non-multiple-of-3 tail are skipped with a warning.
-- **`ge::debug::text(posPx, str, abgr)`** — single-line monospace HUD text in
+- **`ge::debug::box(rect, wireColor=magenta, fillColor={})` / `circle(center, radius, wireColor=magenta, fillColor={}, segments=32)`**
+  — convenience shapes built from `line`/`tri`, same two-colour convention
+  (alpha-0 skips a layer). `box` is an axis-aligned `ge::Rect` in the z=0 plane;
+  `circle` is a `segments`-gon (triangle-fan fill, perimeter outline).
+- **`ge::debug::text(posPx, str, color)`** — single-line monospace HUD text in
   framebuffer-pixel space (top-left origin), independent of `worldToClip`.
 - **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything
   queued, into the active render pass; call once per frame after the scene.

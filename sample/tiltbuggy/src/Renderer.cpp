@@ -488,13 +488,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // classic "debug shape" look, both layers in one mesh() call.
         ge::debug::mesh(chassis, quad, ge::debug::kWireColor, ge::debug::kFillColor);
 
-        // Playfield border via ad-hoc lines — a clean outline that reads as a
-        // debug overlay without tinting the surface underneath.
-        const ge::la::float2 tl{bgL, bgT}, tr{bgR, bgT}, br{bgR, bgB}, bl{bgL, bgB};
-        ge::debug::line(tl, tr);
-        ge::debug::line(tr, br);
-        ge::debug::line(br, bl);
-        ge::debug::line(bl, tl);
+        // Playfield border via box(), buggy position marker via circle() —
+        // the convenience shapes, wire-only (default colour).
+        ge::debug::box(ge::Rect{bgL, bgB, bgR - bgL, bgT - bgB});
+        ge::debug::circle({pose.x, pose.y}, hw * 1.6f);
 
         const auto t = c.presentationTilt();
         char hud[64];
