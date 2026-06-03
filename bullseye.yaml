@@ -107,6 +107,24 @@ targets:
     origin: manual
     discovered: 2026-06-03
     achieved: 2026-06-03
+  T103:
+    name: Android arm64 libge.a prebuilt links cleanly against the consumer's NDK (r27)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Linking libmain.so from a consumer (multimaze2) against ge/prebuilt/android-arm64/libge.a succeeds with NDK r27 (27.0.12077973) — no undefined __cxa_init_primary_exception or std::exception_ptr::__from_native_exception_pointer symbols
+    - tools/prebuild.sh pins the Android prebuild to an NDK major floor (GE_ANDROID_NDK_MAJOR, default 27) and exports it so write-manifest.py records the same toolchain
+    - tools/verify-prebuilds.py fails if the committed android-arm64 manifest records an NDK major newer than the pin (regression guard, unit-tested)
+    - 'Root cause documented in docs/vendor-prebuilds.md (libc++ exception-ABI skew: prebuilt built with newer NDK than the consumer links with)'
+    context: 'Surfaced by multimaze2''s v0.50.0 ge bump (2026-06-04). prebuild.sh and write-manifest.py both selected the highest installed NDK (`tail -1` / `cands[-1]`); the build machine had gained NDK r29 (Clang 21) alongside r27, so the shipped libge.a baked in references to libc++ exception-ABI symbols (__cxa_init_primary_exception, std::exception_ptr::__from_native_exception_pointer) that NDK r27''s libc++abi doesn''t provide — the consumer Android link failed with "undefined symbol". Fix: pin the prebuild to the oldest consumer NDK major (r27), export ANDROID_NDK_HOME so the manifest records it, and add a verify-prebuilds.py guard. Rebuilt android-arm64 with NDK r27/Clang 18 — forbidden symbols gone, verifier passes. NOTE: this was tracked locally as "T100" on a stale local master whose bullseye.yaml had diverged; on master T100 is a different (incremental-build) target, so the Android fix is recorded here as T103.'
+    tags:
+    - multimaze-audit
+    - android
+    - build
+    origin: manual
+    discovered: 2026-06-04
+    achieved: 2026-06-04
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
