@@ -425,6 +425,23 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                     dbPath, config.schemaDdl);
     i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
     i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
+    // 🎯T101 Install the swapchain-pass factory. The game opens it once at the
+    // top of onRender via ctx.swapchainPass(); the ctor opens the sokol swap-
+    // chain pass and the returned ge::Pass's teardown arms any pending
+    // screenshot and commits + presents — the body that used to live in the
+    // loop-driven beginFrame / endFrame bracket.
+    i_->ctx->setSwapchainPassFn([this]() -> Pass {
+        i_->sokolCtx->beginFrame(i_->clearColor);
+        return makePass([this]() {
+            if (ge::detail::screenshotArmed()) {
+                i_->sokolCtx->captureNextFrame(
+                    [](const std::uint8_t* rgba, int w, int h) {
+                        ge::detail::deliverScreenshot(rgba, w, h);
+                    });
+            }
+            i_->sokolCtx->endFrame();
+        });
+    });
     {
         SDL_Window* win = i_->sokolCtx->window();
         // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
@@ -775,7 +792,7 @@ void DirectRenderHost::pumpEvents() {
     }
 }
 
-void DirectRenderHost::beginFrame() {
+void DirectRenderHost::refreshFrame() {
     // While the activity is backgrounded the swap chain is gone (Android)
     // and any draw work will reference a stale ANativeWindow and crash on
     // present. Skip everything; SDL3 also blocks the main loop on Android
@@ -816,12 +833,11 @@ void DirectRenderHost::beginFrame() {
         }
     }
 
-    // Open the swap-chain pass. Game's onRender runs between here and
-    // endFrame(); each draw call lands directly on the back buffer.
-    i_->sokolCtx->beginFrame(i_->clearColor);
-
-    // Refresh per-frame Context state (post-resize + current insets)
-    // so onUpdate / onRender accessors observe live values.
+    // 🎯T101 The swap-chain pass is no longer opened here — the game opens it
+    // via Context::swapchainPass() at the top of onRender (see the factory
+    // installed in initialize()). This method only refreshes per-frame Context
+    // state (post-resize + current insets) so onUpdate / onRender accessors
+    // observe live values.
     if (i_->ctx) {
         i_->ctx->setSurfaceDimensions(i_->width, i_->height);
         i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
@@ -877,21 +893,6 @@ la::float2 DirectRenderHost::updateParallax() {
     // 2 * d.x radians, around screen-Y is 2 * d.y. Sign matches "tilt
     // toward +axis = positive value".
     return la::float2{2.0f * d.x, 2.0f * d.y} * i_->parallaxFactor;
-}
-
-void DirectRenderHost::endFrame(uint32_t /*frameNumber*/) {
-    if (paused()) return;
-    // 🎯T92.6 If the app-channel armed a screenshot, hand SokolContext a sink
-    // for this frame; it reads the framebuffer back inside endFrame (after the
-    // GPU render) and routes the RGBA to the waiting worker thread.
-    if (ge::detail::screenshotArmed()) {
-        i_->sokolCtx->captureNextFrame(
-            [](const std::uint8_t* rgba, int w, int h) {
-                ge::detail::deliverScreenshot(rgba, w, h);
-            });
-    }
-    // Close out the swap-chain pass: sg_end_pass + sg_commit + present.
-    i_->sokolCtx->endFrame();
 }
 
 bool DirectRenderHost::shouldQuit() const {

@@ -65,7 +65,7 @@ targets:
     discovered: 2026-06-03
   T101:
     name: ge wraps sokol render passes in a move-only RAII ge::Pass; SokolContext begin/endFrame are absorbed
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
@@ -75,7 +75,18 @@ targets:
     - SokolContext::beginFrame no longer auto-opens a pass and endFrame no longer ends/commits inside the loop; the render loop runs onUpdate -> onRender -> frame bookkeeping, with all sg_begin/end/commit/present living in ge::Pass (Apple SokolContext.mm + Android SokolContext_android.cpp both updated)
     - 'In-repo consumers migrated: tiltbuggy and the player open `auto p = ctx.host().swapchainPass();` at the top of onRender; prebuilt libs regenerated'
     - Builds + unit tests pass; tiltbuggy renders correctly on desktop (app-channel screenshot)
-    context: 'Designed in the multimaze2 session (2026-06-03) whose lighting lab needs offscreen passes BEFORE the swapchain pass (render raytrace + glow/shadow into two offscreen sg_images, then a buffer-level diff composited across three panels). sokol allows only one pass active at a time, and today SokolContext::beginFrame opens the swapchain pass before onRender, so consumers can''t open offscreen passes. The agreed shape (after iterating: onPreRender → expose swapchain → RAII Pass → absorb begin/endFrame entirely): a single ge::Pass concept whose dtor owns teardown, no setup/teardown split across systems. Filed there as T101 ''file it, but leave it'' (unimplemented). NOTE: a breaking render-loop change — external consumers (esfera2, yourworld2, multimaze2) add one `swapchainPass()` line in onRender when they next bump ge. Implemented in this ge session per user direction; ships with T97 + T102 in v0.50.0.'
+    context: |-
+      Move-only RAII ge::Pass (include/ge/Pass.h, src/Pass.cpp): ctor opens a sokol pass, dtor ends it; the teardown closure lives in the pImpl so all move/RAII semantics come from unique_ptr. Context::swapchainPass() returns this frame's swapchain pass (host-built closure: SokolContext::beginFrame in ctor, screenshot-arm + endFrame in dtor); ge::offscreenPass(sg_pass) wraps offscreen passes. The loop's beginFrame/endFrame bracket is replaced by RenderHost::refreshFrame() (per-frame Context refresh, no pass) + consumer-owned swapchainPass() in onRender. Pass.h forward-declares sg_pass so it doesn't drag sokol across the central headers.
+
+      IMPLEMENTED + VALIDATED (direct path), branch T101-ge-pass off master:
+        ✓ ge::Pass + Context::swapchainPass + offscreenPass
+        ✓ SokolContext untouched (re-bracket, not rewrite — T89/T92.6 code byte-identical)
+        ✓ DirectRenderHost beginFrame→refreshFrame + swapchain closure; SessionHost loop slimmed
+        ✓ tiltbuggy migrated (auto p = c.swapchainPass() at top of drawFrame)
+        ✓ 211 unit cases pass; tiltbuggy renders end-to-end on desktop via app-channel screenshot (scene + T102 box/circle + T97 debug text all correct, no wedge)
+        ✓ CLAUDE.md documents ge::Pass + the render-loop change + migration
+
+      SCOPE NOTE: the wire/brokered host (ServerWireBridge) is pre-existing-dead bgfx — it was never ported in T38 and cannot compile (bgfx retired); it's gated behind GE_SRC_BROKERED which no successful build compiles. So wire-mode ge::Pass is moot until 🎯T34 ports the wire path to sokol, at which point it adopts swapchainPass() fresh. ge::Pass therefore only touches the live direct path. Ships with T97 + T102 in ge v0.50.0; retire on that release.
     tags:
     - render
     - sokol

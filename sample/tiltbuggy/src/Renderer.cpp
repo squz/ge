@@ -258,6 +258,11 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
                          float /*tiltX*/, float /*tiltY*/) {
     if (!sg_isvalid()) return;
 
+    // 🎯T101 Open this frame's swapchain pass — held for the rest of drawFrame;
+    // its destructor (sg_end_pass + commit + present) runs when this returns.
+    // All draws below (solid mesh, sprites, ge::debug flush) land inside it.
+    auto pass = c.swapchainPass();
+
     // Lazy pipeline + stream buffer init (mirrors src/sprite.cpp's
     // ensureState). One-shot per renderer instance.
     if (!i_->ready) {

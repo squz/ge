@@ -25,6 +25,7 @@ struct Context::M {
     la::float2 parallax{0.0f, 0.0f};
     la::float2 presentationTilt{0.0f, 0.0f};
     std::shared_ptr<sqlpipe::Database> db;
+    std::function<Pass()> swapchainPassFn;  // 🎯T101 installed by the host
 };
 
 Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
@@ -75,5 +76,16 @@ void Context::setPixelsPerPt(float v)                { m->pixelsPerPt = v; }
 void Context::setDeviceUiScale(float v)              { m->deviceUiScale = v; }
 void Context::setParallax(la::float2 p)              { m->parallax = p; }
 void Context::setPresentationTilt(la::float2 t)      { m->presentationTilt = t; }
+void Context::setSwapchainPassFn(std::function<Pass()> fn) {
+    m->swapchainPassFn = std::move(fn);
+}
+
+// 🎯T101 Delegate to the host's installed factory. The fallback (no factory
+// wired) yields a no-op Pass so a stray call can't crash — though every real
+// session installs one at start.
+Pass Context::swapchainPass() const {
+    if (m->swapchainPassFn) return m->swapchainPassFn();
+    return makePass(nullptr);
+}
 
 } // namespace ge

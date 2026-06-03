@@ -34,8 +34,7 @@ public:
     void send(const wire::SessionConfig&) override;
     void setEventHandler(std::function<void(const SDL_Event&)>) override;
     void pumpEvents() override;
-    void beginFrame() override;
-    void endFrame(uint32_t frameNumber) override;
+    void refreshFrame() override;
     bool shouldQuit() const override;
 
     // Wire 🎯T44 / 🎯T45 callbacks. Called once after the game's factory
