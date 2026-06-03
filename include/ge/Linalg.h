@@ -36,3 +36,8 @@ using linalg::clamp;
 using linalg::minelem;
 using linalg::maxelem;
 }
+
+// A semantic alias for a straight-alpha RGBA colour (components in [0, 1]).
+// Promoted to `ge::` (not `ge::la`) because it's a domain concept, not a raw
+// linalg alias — used across the rendering surface (ge::debug, text, …).
+namespace ge { using Color = la::float4; }

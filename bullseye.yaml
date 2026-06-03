@@ -45,6 +45,24 @@ targets:
     origin: user request
     discovered: 2026-04-15
     achieved: 2026-04-26
+  T100:
+    name: ge's incremental build recompiles every dependent object when a header changes
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Editing a public header (e.g. include/ge/*.h) and re-running the build recompiles every .o whose translation unit includes that header — no stale-object 'symbol(s) not found' link errors
+    - 'Verified by a regression check: change a signature in a header used by a test + the sample, rebuild WITHOUT make clean, and confirm both the test and sample relink against the new signature'
+    - The -MMD/-MP .d header-dependency files are actually -included by Module.mk (or the equivalent mechanism), with paths that match the compiler's emitted prerequisites
+    context: 'Discovered during 🎯T97. A header-only change to include/ge/debug.h (switching the color param type uint32_t → la::float4) did NOT trigger recompilation of debug_test.o or the sample''s Renderer.o under `make unit-test` / `make -C sample/tiltbuggy`; the stale objects still referenced the old `…, unsigned int` signatures while the freshly-rebuilt libge.a provided the new `…, la::float4` ones, yielding an arm64 ''Undefined symbols … referenced from debug_test.o'' link error. A `make clean` + full rebuild resolved it. Implies the -MMD/-MP .d header-dependency edges aren''t being honored in the incremental desktop build (not -included, or a path mismatch). Risk: confusing stale-link errors at best; silently stale objects at worst when signatures still happen to link. Prebuilds are unaffected (prebuild.sh compiles fresh each run).'
+    tags:
+    - build
+    - incremental
+    - makefile
+    - reliability
+    - dx
+    origin: manual
+    discovered: 2026-06-03
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
@@ -3254,3 +3272,70 @@ targets:
     - T63-reversal
     origin: manual
     discovered: 2026-06-01
+  T97:
+    name: ge offers an opt-in, flag-toggleable debug-render layer that consumers can light up without per-call plumbing
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A consumer using the ge submit-mesh convention can toggle a debug flag at runtime and see wireframes / sector tinting overlaid on every conforming draw without touching their own renderer code.
+    - '`ge::debug::lines`, `tris`, `text` ad-hoc submission API exists and is documented.'
+    - At least one ge sample (e.g. tiltbuggy) demonstrates the debug overlay end-to-end.
+    - multimaze's VisibilityRenderer wireframe mode is removed and replaced with the ge::debug path.
+    context: |-
+      multimaze's 🎯T25 floor-light work surfaced the recurring need to visualise CPU-generated meshes without bolting one-off wireframe modes onto each consumer renderer. ge now ships ge::debug (<ge/debug.h>): an opt-in, GE_DEBUG_OVERLAY-toggleable layer with ad-hoc line/tri primitives, a submit-mesh convention (ge::debug::mesh(verts, idx, fill=false) — wireframe or translucent sector-tint fill), pixel-space text HUD, and flush(Context, mvp). sokol-backed (two pipelines sharing one program + stream buffer), public surface names no backend.
+
+      PROGRESS (PR on branch T97-debug-render-layer, targeting ge v0.50.0):
+        ✓ criterion 1 (submit-mesh convention, runtime flag) — ge::debug::mesh
+        ✓ criterion 2 (ge::debug::line/tri/text ad-hoc API + CLAUDE.md docs)
+        ✓ criterion 3 (tiltbuggy demo: fill+wireframe buggy, line field border, text HUD; verified end-to-end on desktop via app-channel screenshot)
+        ☐ criterion 4 (multimaze VisibilityRenderer Mode::Wireframe removal + cutover to ge::debug) — deferred to a paired multimaze2 PR that bumps the ge submodule to v0.50.0, since the cutover depends on the released debug API. VisibilityRenderer's Mode::Wireframe is currently dead code (never invoked from MazeRenderer), so the cutover is a clean dead-plumbing removal + an optional ge::debug::mesh visualisation hook.
+
+      Retire once the multimaze2 cutover lands.
+    tags:
+    - multimaze-audit
+    - engine-feature
+    - debug-tooling
+    origin: manual
+    discovered: 2026-06-03
+  T98:
+    name: ge has no live bgfx references — bgfx survives only as historical mentions
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - include/ge/BgfxContext.h and src/BgfxContext.mm are deleted (the sokol migration, T38, made them vestigial; no live render path references them)
+    - No file under src/, include/, tools/, sample/ references bgfx symbols, includes, or BGFX_* macros except in comments explicitly marked as historical/migration notes
+    - Module.mk's empty bgfx shim variables (ge/BGFX_LIBS, ge/BGFX_ALL_INCLUDES, ge/BGFX_* etc.) are removed, or retained only with a one-line comment stating they are empty back-compat shims — prefer removal unless a named external consumer still expands them
+    - CLAUDE.md describes the sokol_gfx backend throughout (BgfxContext references, 'bgfx draw calls in onRender', Metal/Vulkan-via-bgfx wording, etc. updated to sokol); bgfx appears only as clearly-historical migration context
+    - grep -ri bgfx over the repo (excluding vendor/, .git/) returns only historical references
+    context: 'T38 migrated ge from bgfx to sokol_gfx and most followups (T84/T87/T90) are done, but vestigial bgfx remnants persist: src/BgfxContext.{h,mm} (compiled but unused per render-path exploration 2026-06-03), empty BGFX_* shim vars in Module.mk, and a CLAUDE.md still written largely in bgfx terms (e.g. ''bgfx draw calls'', Sprite::draw(0) view-index examples that no longer match the sokol sg_view signature). User directive 2026-06-03: ''There should be no mention of bgfx beyond historical references.'' This is the cleanup pass to make that true.'
+    tags:
+    - cleanup
+    - sokol
+    - bgfx
+    - T38-followup
+    - docs
+    origin: manual
+    discovered: 2026-06-03
+  T99:
+    name: ge offers an opt-in ge::app&lt;App&gt; wrapper binding a State-first App class to the run loop, with optional fixed-step simulation
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - include/ge/app.h provides ge::app<App>(State&, LoopOpts={}) returning a ge::Factory that wires an App's conventionally-named methods to RunConfig callbacks via C++20 concept detection; State is always the first parameter
+    - An App declaring step(State&, const Input&, float dt) is driven by a fixed-timestep accumulator (dt = 1/tickHz, constant) with double-buffered prev-state and an interpolation alpha handed to render; an App declaring only update/render runs variable-rate with no accumulator and no copyability requirement
+    - Optional event/shutdown (and back-press/memory-warning) are wired only when the App declares them
+    - ge::Input is a serializable per-tick input batch (pointer/key edges + held continuous samples like tilt) usable as the unit a future input-replay system records
+    - At least one sample (tiltbuggy) is migrated to the wrapper and its main() collapses to a single ge::run(ge::app<App>(state)) line
+    - Documented in CLAUDE.md Public API
+    context: 'Design discussion 2026-06-02/03 distilling Unity''s data-flow (DOTS) turn into a lightweight, opt-in wrapper for ge: take the data-flow philosophy (pure serializable State, deterministic stateless step, read-only view, tooling on top — replay/snapshot/agent-testing) WITHOUT the data-oriented machinery (ECS/archetype storage/job system) that ge''s entity counts don''t justify and that sank DOTS adoption. The wrapper also removes the current factory boilerplate (three forwarding lambdas with inconsistent state-parameter ordering). Fixed step uses rigid-constant dt + render interpolation (determinism), dt passed as a plain float (matches physics-engine convention; the loop guarantees constancy, so no newtype). View-only animation state lives on the per-session App, not in State. Composes with T92''s app-channel state registry (snapshot/restore) and time-control (pause/step/speed). Not yet scoped against the prebuilt-libs tax (header-only adapter, so likely none). Lower priority than the multimaze-audit frontier.'
+    tags:
+    - api
+    - ergonomics
+    - data-flow
+    - run-loop
+    - design-discussion
+    origin: manual
+    discovered: 2026-06-03

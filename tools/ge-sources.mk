@@ -32,6 +32,7 @@ GE_SRC_COMMON := \
 	src/FileIO.cpp \
 	src/Signal.cpp \
 	src/sprite.cpp \
+	src/debug.cpp \
 	src/svg.cpp \
 	src/png.cpp \
 	src/text.cpp \

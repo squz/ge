@@ -13,6 +13,7 @@
 
 #include <ge/FileIO.h>
 #include <ge/Linalg.h>
+#include <ge/debug.h>
 #include <ge/iap.h>
 #include <ge/ortho.h>
 #include <ge/sprite.h>
@@ -29,6 +30,7 @@
 #include "simple.h"  // sokol-shdc generated; -I via Module.mk
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -459,6 +461,50 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         const float wH =                btn.h              * pxToWorldY;
         const auto model = ge::frame(ge::Rect{wL, wT, wW, -wH});
         i_->buyPro.draw(ge::la::mul(proj, model));
+    }
+
+    // ── 🎯T97 debug-overlay demo ────────────────────────────────────────
+    // Opt in with GE_DEBUG_OVERLAY=1 (or ge::debug::setEnabled(true)). While
+    // off, every call below is a no-op and flush() does nothing, so this stays
+    // unconditional — the flag toggles the whole overlay at runtime with no
+    // change to the draw code above. Exercises all three ge::debug surfaces:
+    //   • fillMesh + wireMesh — translucent fill + outline over the buggy chassis
+    //   • line     — playfield border outline
+    //   • text     — a pixel-space HUD line
+    {
+        const uint16_t quad[6] = {0, 1, 2, 0, 2, 3};
+
+        // Buggy chassis quad — same rotated quad the solid-colour pass drew.
+        const float a = pose.angle + diagSpin;
+        const float ca = std::cos(a), sa = std::sin(a);
+        auto corner = [&](float ox, float oy) {
+            return ge::la::float2{pose.x + ox * ca - oy * sa,
+                                  pose.y + ox * sa + oy * ca};
+        };
+        const ge::la::float2 chassis[4] = {
+            corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh),
+        };
+        // Magenta wireframe + translucent fill, scoped to the buggy — the
+        // classic "debug shape" look, both layers in one mesh() call.
+        ge::debug::mesh(chassis, quad, ge::debug::kWireColor, ge::debug::kFillColor);
+
+        // Playfield border via ad-hoc lines — a clean outline that reads as a
+        // debug overlay without tinting the surface underneath.
+        const ge::la::float2 tl{bgL, bgT}, tr{bgR, bgT}, br{bgR, bgB}, bl{bgL, bgB};
+        ge::debug::line(tl, tr);
+        ge::debug::line(tr, br);
+        ge::debug::line(br, bl);
+        ge::debug::line(bl, tl);
+
+        const auto t = c.presentationTilt();
+        char hud[64];
+        std::snprintf(hud, sizeof hud, "tiltbuggy debug  tilt=(%.2f, %.2f)",
+                      t.x, t.y);
+        ge::debug::text({12.0f, 12.0f}, hud);
+
+        // World primitives ride the same projTilt as the scene; pixel-space
+        // text uses the surface size from `c`.
+        ge::debug::flush(c, projTilt);
     }
 }
 
