@@ -77,17 +77,47 @@ case "$PLATFORM" in
     GE_MANIFEST_TARGET=print-direct-ios
     ;;
   android-arm64)
-    # Locate NDK: explicit env var, else highest installed.
+    # ── NDK ABI pin (🎯T100) ──────────────────────────────────────────
+    # libge.a bakes in references to libc++ runtime symbols emitted by the
+    # NDK that compiles it; the consumer's Gradle build links those refs
+    # against ITS NDK's libc++. Build with an NDK newer than the consumer's
+    # and the older runtime won't provide the newer exception-ABI symbols
+    # (e.g. __cxa_init_primary_exception,
+    # std::exception_ptr::__from_native_exception_pointer) — the consumer
+    # link dies with "undefined symbol". Rule: build with an NDK no newer
+    # than the OLDEST NDK any consumer links with. Pin to that major here;
+    # bump GE_ANDROID_NDK_MAJOR in lockstep once the whole consumer fleet
+    # moves up. Keep in sync with ANDROID_NDK_MAJOR_PIN in
+    # tools/verify-prebuilds.py.
+    GE_ANDROID_NDK_MAJOR="${GE_ANDROID_NDK_MAJOR:-27}"
     if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+      # Explicit override wins, but warn if it is newer than the pin — that
+      # is precisely the skew that produced 🎯T100.
       NDK="$ANDROID_NDK_HOME"
+      ovr_major="$(basename "$NDK" | cut -d. -f1)"
+      if [[ "$ovr_major" =~ ^[0-9]+$ && "$ovr_major" -gt "$GE_ANDROID_NDK_MAJOR" ]]; then
+        echo "warning: ANDROID_NDK_HOME points at NDK r$ovr_major, newer than the r$GE_ANDROID_NDK_MAJOR ABI pin." >&2
+        echo "         Consumers on r$GE_ANDROID_NDK_MAJOR may fail to link newer libc++ symbols (🎯T100)." >&2
+        echo "         Unset ANDROID_NDK_HOME to auto-select r$GE_ANDROID_NDK_MAJOR, or bump GE_ANDROID_NDK_MAJOR." >&2
+      fi
     elif [[ -d "$HOME/Library/Android/sdk/ndk" ]]; then
-      NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/*/ 2>/dev/null | sort -V | tail -1)"
+      # Highest installed NDK whose MAJOR matches the pin, so an
+      # incidentally-newer NDK on the build machine can't leak forward-
+      # incompatible symbols into the shipped prebuilt.
+      NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/"$GE_ANDROID_NDK_MAJOR".*/ 2>/dev/null | sort -V | tail -1)"
       NDK="${NDK%/}"
     fi
     if [[ -z "${NDK:-}" || ! -d "$NDK" ]]; then
-      echo "error: Android NDK not found. Set ANDROID_NDK_HOME or install one under ~/Library/Android/sdk/ndk/." >&2
+      echo "error: Android NDK r$GE_ANDROID_NDK_MAJOR not found." >&2
+      echo "  Install it under ~/Library/Android/sdk/ndk/ (e.g. r$GE_ANDROID_NDK_MAJOR.x), or set" >&2
+      echo "  ANDROID_NDK_HOME to an r$GE_ANDROID_NDK_MAJOR toolchain. The prebuilt's libc++ ABI" >&2
+      echo "  must be no newer than any consumer's NDK (🎯T100)." >&2
       exit 1
     fi
+    # Pin write-manifest.py (called below) to the SAME NDK so the manifest
+    # records exactly what built the archive — no independent re-derivation
+    # that could pick a different (newer) NDK than this build used.
+    export ANDROID_NDK_HOME="$NDK"
     NDK_HOST="$(ls "$NDK/toolchains/llvm/prebuilt" 2>/dev/null | head -1)"
     if [[ -z "$NDK_HOST" ]]; then
       echo "error: no llvm host triple under $NDK/toolchains/llvm/prebuilt." >&2

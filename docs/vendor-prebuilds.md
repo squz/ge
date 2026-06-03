@@ -67,6 +67,53 @@ Both scripts assume submodules are initialized
 (`git submodule update --init --recursive`). They run in ~30 s for a
 single-vendor bump on an M-series MacBook.
 
+## Android NDK ABI pin (🎯T100)
+
+The `android-arm64` prebuilt is **pinned to NDK r27** and must stay no
+newer than the oldest NDK any consumer links with.
+
+`libge.a` is a static archive: it bakes in *references* to libc++
+runtime symbols (`std::exception_ptr` machinery, `__cxa_*` exception
+ABI) but not their definitions — those come from the consumer's NDK
+libc++ at the final `libmain.so` link. libc++ evolves its exception
+ABI across releases; NDK r27 (Clang 18) lacks symbols that NDK r28+
+(Clang 19/21) emit, e.g.:
+
+- `__cxa_init_primary_exception`
+- `std::exception_ptr::__from_native_exception_pointer(void*)`
+
+If the prebuilt is compiled with a *newer* NDK than the consumer ships,
+the consumer's older libc++abi can't resolve those references and the
+Android link dies:
+
+```
+ld.lld: error: undefined symbol: __cxa_init_primary_exception
+>>> referenced by DirectRenderHost.mm
+```
+
+This bit multimaze2 (which pins NDK r27) when a v0.50.0 prebuilt was
+re-cooked on a laptop that had also installed NDK r29 — the bug 🎯T100
+fixed.
+
+**The rule: build the prebuilt with an NDK ≤ every consumer's NDK.**
+Building older is forward-compatible (a newer consumer NDK provides a
+superset of symbols); building newer is not. The pin lives in two
+places, cross-referenced:
+
+- `tools/prebuild.sh` — `GE_ANDROID_NDK_MAJOR` (default `27`) selects the
+  highest installed NDK whose major matches the pin, ignoring an
+  incidentally-newer NDK on the build machine. It then exports
+  `ANDROID_NDK_HOME` so `write-manifest.py` records the same toolchain.
+- `tools/verify-prebuilds.py` — `ANDROID_NDK_MAJOR_PIN` (`27`) asserts the
+  committed manifest's recorded NDK major equals the pin, so a prebuilt
+  cooked with the wrong NDK is caught in CI / pre-commit, not at a
+  consumer's link step.
+
+**Bumping the pin** (once the whole consumer fleet has moved to a newer
+NDK): change `GE_ANDROID_NDK_MAJOR` in `tools/prebuild.sh` *and*
+`ANDROID_NDK_MAJOR_PIN` in `tools/verify-prebuilds.py` together, re-cook
+`android-arm64`, and confirm a consumer still links.
+
 ## Why submodules are kept
 
 The submodules under `ge/vendor/github.com/<org>/<repo>/` remain in

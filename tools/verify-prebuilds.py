@@ -47,6 +47,13 @@ REPO_ROOT = Path(
 ).resolve()
 SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 
+# Android NDK ABI floor (🎯T100). The android-arm64 prebuilt must be built
+# with an NDK whose major version is no newer than the oldest NDK any
+# consumer links with — otherwise libge.a references libc++ exception-ABI
+# symbols the consumer's older runtime can't resolve. Keep in sync with
+# GE_ANDROID_NDK_MAJOR in tools/prebuild.sh.
+ANDROID_NDK_MAJOR_PIN = "27"
+
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -168,6 +175,22 @@ def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]
         actual = sha256_file(p)
         if actual != expected:
             errors.append(f"input changed: {rel}")
+
+    # 5) Android NDK ABI pin (🎯T100). The android-arm64 prebuilt must be
+    # built with the pinned NDK major; a newer one bakes in libc++
+    # exception-ABI symbols (__cxa_init_primary_exception, ...) that
+    # consumers on the pinned NDK can't resolve at link time. Derive the
+    # build NDK's major from the recorded toolchain path and compare.
+    if manifest_path.parent.name == "android-arm64":
+        ndk_path = manifest.get("toolchain", {}).get("ndk_path", "")
+        ndk_major = Path(ndk_path).name.split(".", 1)[0] if ndk_path else ""
+        if ndk_major != ANDROID_NDK_MAJOR_PIN:
+            errors.append(
+                f"android-arm64 prebuilt built with NDK r{ndk_major or '?'}, "
+                f"expected r{ANDROID_NDK_MAJOR_PIN} (🎯T100). Rebuild with: "
+                f"GE_ANDROID_NDK_MAJOR={ANDROID_NDK_MAJOR_PIN} "
+                f"tools/prebuild.sh android-arm64"
+            )
 
     counts = {
         "scripts":   len(manifest.get("scripts", {})),

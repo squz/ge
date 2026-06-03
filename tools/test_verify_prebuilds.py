@@ -100,6 +100,7 @@ class FakeRepo:
         submodule_shas: dict[str, str] | None = None,
         prebuilts: dict[str, str] | None = None,
         inputs: dict[str, str] | None = None,
+        toolchain: dict[str, str] | None = None,
         version: int = 2,
     ) -> Path:
         """Write a manifest under prebuilt/<platform>/manifest.json.
@@ -113,11 +114,13 @@ class FakeRepo:
             prebuilts = {rel: sha256(c) for rel, c in self.prebuilts.items()}
         if inputs is None:
             inputs = {rel: sha256(c) for rel, c in self.inputs.items()}
+        if toolchain is None:
+            toolchain = {"clang": "fake-clang"}
 
         manifest = {
             "version":         version,
             "platform":        platform,
-            "toolchain":       {"clang": "fake-clang"},
+            "toolchain":       toolchain,
             "scripts":         scripts,
             "submodule_shas":  submodule_shas,
             "prebuilts":       prebuilts,
@@ -264,6 +267,41 @@ class VerifierTests(unittest.TestCase):
         r = self.repo.run()
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("missing input: src/gone.cpp", r.stderr)
+
+    # ── Android NDK ABI pin (🎯T100) ───────────────────────────────
+
+    def test_android_ndk_pin_ok(self) -> None:
+        """android-arm64 prebuilt built with the pinned NDK major passes."""
+        self.repo.add_prebuilt("prebuilt/android-arm64/libge.a")
+        self.repo.materialise()
+        self.repo.write_manifest(
+            platform="android-arm64",
+            toolchain={
+                "clang": "fake-clang",
+                "ndk_path": "/opt/Android/sdk/ndk/27.0.12077973",
+            },
+        )
+
+        r = self.repo.run()
+        self.assertEqual(r.returncode, 0, f"stderr={r.stderr!r}")
+
+    def test_android_ndk_pin_too_new_fails(self) -> None:
+        """A prebuilt built with a newer NDK than the pin is rejected —
+        the exact 🎯T100 skew (NDK 29 prebuilt, NDK 27 consumer)."""
+        self.repo.add_prebuilt("prebuilt/android-arm64/libge.a")
+        self.repo.materialise()
+        self.repo.write_manifest(
+            platform="android-arm64",
+            toolchain={
+                "clang": "fake-clang",
+                "ndk_path": "/opt/Android/sdk/ndk/29.0.14206865",
+            },
+        )
+
+        r = self.repo.run()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("built with NDK r29", r.stderr)
+        self.assertIn("T100", r.stderr)
 
     # ── manifest format ────────────────────────────────────────────
 

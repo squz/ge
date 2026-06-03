@@ -7,8 +7,8 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "c3f2fd49f240587b15f767e4df8aae0ab756dca34e475c1b8c28799f90ddf844",
-    "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
+    "tools/prebuild.sh": "61eef450d6c7b7b347be830e8b1a8dafaa1a315a1c3248b1389bb24d66ff1224",
+    "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
   "submodule_shas": {

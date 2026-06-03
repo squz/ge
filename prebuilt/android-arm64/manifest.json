@@ -2,13 +2,13 @@
   "version": 2,
   "platform": "android-arm64",
   "toolchain": {
-    "clang": "Android (13989888, +pgo, -bolt, +lto, -mlgo, based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project 5e96669f06077099aa41290cdb4c5e6fa0f59349)",
-    "ndk_path": "/Users/marcelo/Library/Android/sdk/ndk/29.0.14206865"
+    "clang": "Android (12027248, +pgo, -bolt, +lto, -mlgo, based on r522817) clang version 18.0.1 (https://android.googlesource.com/toolchain/llvm-project d8003a456d14a3deb8054cdaa529ffbf02d9b262)",
+    "ndk_path": "/Users/marcelo/Library/Android/sdk/ndk/27.0.12077973"
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "c3f2fd49f240587b15f767e4df8aae0ab756dca34e475c1b8c28799f90ddf844",
-    "tools/verify-prebuilds.py": "0db7386a7e013f7c032ce408d3d45b28ea10ec2f860f25d4bce1fca27a15a8fe",
+    "tools/prebuild.sh": "61eef450d6c7b7b347be830e8b1a8dafaa1a315a1c3248b1389bb24d66ff1224",
+    "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
   "submodule_shas": {
@@ -27,13 +27,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/android-arm64/libbox2d.a": "4bbd9060d5a383870ffa67814546fccefe8d9316c07c1aae5cb54ec8ba8b4314",
-    "prebuilt/android-arm64/libge.a": "94db8deda858e20d2e0ee6a7ec1fc60aacd2c8ea709aea203fcca88432c48d09",
-    "prebuilt/android-arm64/libliteparser.a": "be32b2f24bd9db6b9416197d713bcf64d659e7818ba59b392854155c1a15c9b9",
-    "prebuilt/android-arm64/liblunasvg_ge.a": "8829ecd8516ec11f1c780bd489060406fe851d719d3d9b9c7aa8817a3c7aeefd",
-    "prebuilt/android-arm64/liblz4_ge.a": "38b9b734ea6551735e1b1ff3da2e0abb204f17c497d8fa917dc2690cd595845f",
-    "prebuilt/android-arm64/libplutovg_ge.a": "899ac194c560eb59bd8346e9bae4a50d0e7c4aa354404e7801e1cbf3fda2f085",
-    "prebuilt/android-arm64/libsqlite3_ge.a": "b55862ffbf6549a7fb6320a70934e05636a20bad78138286b8da2b2cad8dfe4a"
+    "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
+    "prebuilt/android-arm64/libge.a": "017ae0d37f148c49cae235c185965248bb9ba669287e590701edd4ca34702b00",
+    "prebuilt/android-arm64/libliteparser.a": "ab444e1270fd03c88ceb27fb93e8185b5a9ecf48c961e03cddae9c2698d5193c",
+    "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
+    "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
+    "prebuilt/android-arm64/libplutovg_ge.a": "443c764b969c908d01b338b92f1e2081109f40ae0fe57e9c6acb9841edb175ff",
+    "prebuilt/android-arm64/libsqlite3_ge.a": "3c98d9537364e9a04b63c470098ddd897c36b4c1d7c0d66f47486b5e768eaee1"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
