@@ -65,7 +65,7 @@ targets:
     discovered: 2026-06-03
   T101:
     name: ge wraps sokol render passes in a move-only RAII ge::Pass; SokolContext begin/endFrame are absorbed
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -75,18 +75,7 @@ targets:
     - SokolContext::beginFrame no longer auto-opens a pass and endFrame no longer ends/commits inside the loop; the render loop runs onUpdate -> onRender -> frame bookkeeping, with all sg_begin/end/commit/present living in ge::Pass (Apple SokolContext.mm + Android SokolContext_android.cpp both updated)
     - 'In-repo consumers migrated: tiltbuggy and the player open `auto p = ctx.host().swapchainPass();` at the top of onRender; prebuilt libs regenerated'
     - Builds + unit tests pass; tiltbuggy renders correctly on desktop (app-channel screenshot)
-    context: |-
-      Move-only RAII ge::Pass (include/ge/Pass.h, src/Pass.cpp): ctor opens a sokol pass, dtor ends it; the teardown closure lives in the pImpl so all move/RAII semantics come from unique_ptr. Context::swapchainPass() returns this frame's swapchain pass (host-built closure: SokolContext::beginFrame in ctor, screenshot-arm + endFrame in dtor); ge::offscreenPass(sg_pass) wraps offscreen passes. The loop's beginFrame/endFrame bracket is replaced by RenderHost::refreshFrame() (per-frame Context refresh, no pass) + consumer-owned swapchainPass() in onRender. Pass.h forward-declares sg_pass so it doesn't drag sokol across the central headers.
-
-      IMPLEMENTED + VALIDATED (direct path), branch T101-ge-pass off master:
-        ✓ ge::Pass + Context::swapchainPass + offscreenPass
-        ✓ SokolContext untouched (re-bracket, not rewrite — T89/T92.6 code byte-identical)
-        ✓ DirectRenderHost beginFrame→refreshFrame + swapchain closure; SessionHost loop slimmed
-        ✓ tiltbuggy migrated (auto p = c.swapchainPass() at top of drawFrame)
-        ✓ 211 unit cases pass; tiltbuggy renders end-to-end on desktop via app-channel screenshot (scene + T102 box/circle + T97 debug text all correct, no wedge)
-        ✓ CLAUDE.md documents ge::Pass + the render-loop change + migration
-
-      SCOPE NOTE: the wire/brokered host (ServerWireBridge) is pre-existing-dead bgfx — it was never ported in T38 and cannot compile (bgfx retired); it's gated behind GE_SRC_BROKERED which no successful build compiles. So wire-mode ge::Pass is moot until 🎯T34 ports the wire path to sokol, at which point it adopts swapchainPass() fresh. ge::Pass therefore only touches the live direct path. Ships with T97 + T102 in ge v0.50.0; retire on that release.
+    context: 'ge::Pass (move-only RAII render pass) + Context::swapchainPass() + ge::offscreenPass shipped in ge v0.50.0 (PR #132, commit c638efb). RenderHost::beginFrame/endFrame absorbed → refreshFrame() + consumer-owned swapchainPass(); SokolContext re-bracketed (delicate T89/T92.6 code byte-identical). tiltbuggy migrated + renders end-to-end on desktop (app-channel screenshot). 211 unit cases pass. Direct path achieved. NOTE: the wire/brokered host (ServerWireBridge) was pre-existing-dead bgfx (never ported in T38); it adopts swapchainPass() when 🎯T34 ports the wire path to sokol — tracked under T34, not a remaining T101 item.'
     tags:
     - render
     - sokol
@@ -96,9 +85,10 @@ targets:
     - multimaze2
     origin: manual
     discovered: 2026-06-03
+    achieved: 2026-06-03
   T102:
     name: ge::debug offers convenience shape helpers (box, circle) on the two-colour mesh convention
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -108,7 +98,7 @@ targets:
     - Unit tests cover box (4 edges / 2 tris) and circle (per-segment line + fan-tri counts)
     - tiltbuggy demo uses box (playfield border) + circle (buggy position marker)
     - Documented in CLAUDE.md's ge::debug section
-    context: 'Follow-on to 🎯T97 (ge::debug overlay). box + circle requested during T97 review as the obvious shape helpers. Implemented on branch T97-debug-shapes (PR #131): header/impl/tests/demo/docs, 211 unit cases, prebuilts regenerated. RENUMBERED from T101 → T102: T101 was already claimed by the multimaze2 session for the ge::Pass RAII wrapper; this session collided on the id because the two sessions share ge''s working tree + bullseye.yaml and that target hadn''t landed on a branch visible here. Ships with T97 + T101 in ge v0.50.0.'
+    context: 'ge::debug::box + circle shipped in ge v0.50.0 (PR #131, commit 7c158de). Two-colour convention, ge::Color, unit-tested, tiltbuggy demo, prebuilts. Achieved.'
     tags:
     - api
     - debug-tooling
@@ -116,6 +106,7 @@ targets:
     - T97-followon
     origin: manual
     discovered: 2026-06-03
+    achieved: 2026-06-03
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
