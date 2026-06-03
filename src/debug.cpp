@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -40,7 +41,7 @@ struct DebugVertex {
 
 struct TextItem {
     la::float2  pos;
-    uint32_t    abgr;
+    la::float4  color;
     std::string str;
 };
 
@@ -145,33 +146,41 @@ void drawRun(sg_pipeline pipe, const DebugVertex* verts, int count,
     sg_draw(0, count, 1);
 }
 
-inline la::float4 unpackColor(uint32_t abgr) {
-    return { float(abgr & 0xFFu) / 255.0f,
-             float((abgr >> 8) & 0xFFu) / 255.0f,
-             float((abgr >> 16) & 0xFFu) / 255.0f,
-             float((abgr >> 24) & 0xFFu) / 255.0f };
+// Pack straight-alpha RGBA [0,1] into 0xAABBGGRR for the DebugVertex stream
+// (sokol UBYTE4N reads it back as vec4(r,g,b,a) — see ge_debug.glsl).
+inline uint32_t packAbgr(la::float4 c) {
+    auto byte = [](float f) -> uint32_t {
+        f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+        return uint32_t(f * 255.0f + 0.5f);
+    };
+    return byte(c.x) | (byte(c.y) << 8) | (byte(c.z) << 16) | (byte(c.w) << 24);
+}
+
+// The {} sentinel — fully transparent, useless as a real colour.
+inline bool isAuto(la::float4 c) {
+    return c.x == 0.0f && c.y == 0.0f && c.z == 0.0f && c.w == 0.0f;
 }
 
 inline la::float3 v3(la::float2 p) { return {p.x, p.y, 0.0f}; }
 inline la::float3 v3(la::float3 p) { return p; }
 
 template <class V>
-void meshImpl(const V* verts, int vertCount, const uint16_t* idx,
-              int idxCount, bool fill, uint32_t abgr) {
+void meshImpl(std::span<const V> verts, std::span<const uint16_t> idx,
+              bool fill, la::float4 color) {
     if (!enabled()) return;
-    if (abgr == 0) abgr = fill ? kFillColor : kLineColor;  // 0 → pick by fill
-    if (idxCount % 3 != 0)
-        SPDLOG_WARN("ge::debug::mesh: indexCount {} not a multiple of 3; "
-                    "tail ignored", idxCount);
-    for (int i = 0; i + 3 <= idxCount; i += 3) {
+    if (isAuto(color)) color = fill ? kFillColor : kLineColor;  // {} → pick by fill
+    if (idx.size() % 3 != 0)
+        SPDLOG_WARN("ge::debug::mesh: index count {} not a multiple of 3; "
+                    "tail ignored", idx.size());
+    for (size_t i = 0; i + 3 <= idx.size(); i += 3) {
         const uint16_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
-        if (a >= vertCount || b >= vertCount || c >= vertCount) continue;
+        if (a >= verts.size() || b >= verts.size() || c >= verts.size()) continue;
         if (fill) {
-            tri(v3(verts[a]), v3(verts[b]), v3(verts[c]), abgr);
+            tri(v3(verts[a]), v3(verts[b]), v3(verts[c]), color);
         } else {
-            line(v3(verts[a]), v3(verts[b]), abgr);
-            line(v3(verts[b]), v3(verts[c]), abgr);
-            line(v3(verts[c]), v3(verts[a]), abgr);
+            line(v3(verts[a]), v3(verts[b]), color);
+            line(v3(verts[b]), v3(verts[c]), color);
+            line(v3(verts[c]), v3(verts[a]), color);
         }
     }
 }
@@ -201,41 +210,43 @@ void setEnabled(bool on) {
 // accumulation
 // ────────────────────────────────────────────────
 
-void line(la::float3 a, la::float3 b, uint32_t abgr) {
+void line(la::float3 a, la::float3 b, la::float4 color) {
     if (!enabled()) return;
+    const uint32_t abgr = packAbgr(color);
     auto& v = st().lineVerts;
     v.push_back({a.x, a.y, a.z, abgr});
     v.push_back({b.x, b.y, b.z, abgr});
 }
 
-void line(la::float2 a, la::float2 b, uint32_t abgr) {
-    line(v3(a), v3(b), abgr);
+void line(la::float2 a, la::float2 b, la::float4 color) {
+    line(v3(a), v3(b), color);
 }
 
-void tri(la::float3 a, la::float3 b, la::float3 c, uint32_t abgr) {
+void tri(la::float3 a, la::float3 b, la::float3 c, la::float4 color) {
     if (!enabled()) return;
+    const uint32_t abgr = packAbgr(color);
     auto& v = st().triVerts;
     v.push_back({a.x, a.y, a.z, abgr});
     v.push_back({b.x, b.y, b.z, abgr});
     v.push_back({c.x, c.y, c.z, abgr});
 }
 
-void tri(la::float2 a, la::float2 b, la::float2 c, uint32_t abgr) {
-    tri(v3(a), v3(b), v3(c), abgr);
+void tri(la::float2 a, la::float2 b, la::float2 c, la::float4 color) {
+    tri(v3(a), v3(b), v3(c), color);
 }
 
-void mesh(const la::float2* verts, int vertCount, const uint16_t* idx,
-          int idxCount, bool fill, uint32_t abgr) {
-    meshImpl(verts, vertCount, idx, idxCount, fill, abgr);
+void mesh(std::span<const la::float2> verts, std::span<const uint16_t> idx,
+          bool fill, la::float4 color) {
+    meshImpl(verts, idx, fill, color);
 }
-void mesh(const la::float3* verts, int vertCount, const uint16_t* idx,
-          int idxCount, bool fill, uint32_t abgr) {
-    meshImpl(verts, vertCount, idx, idxCount, fill, abgr);
+void mesh(std::span<const la::float3> verts, std::span<const uint16_t> idx,
+          bool fill, la::float4 color) {
+    meshImpl(verts, idx, fill, color);
 }
 
-void text(la::float2 posPx, std::string_view str, uint32_t abgr) {
+void text(la::float2 posPx, std::string_view str, la::float4 color) {
     if (!enabled()) return;
-    st().texts.push_back({posPx, abgr, std::string(str)});
+    st().texts.push_back({posPx, color, std::string(str)});
 }
 
 // ────────────────────────────────────────────────
@@ -276,7 +287,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
             const la::float4x4 px = ortho::pixelOrtho(full.w * ppt, full.h * ppt);
             const float sizePx = kTextPt * ppt;
             for (const auto& t : s.texts) {
-                Sprite sp = rasterizeText(t.str, s.font, sizePx, unpackColor(t.abgr));
+                Sprite sp = rasterizeText(t.str, s.font, sizePx, t.color);
                 if (sp.isNull()) continue;
                 const Rect rect{t.pos.x, t.pos.y, float(sp.width), float(sp.height)};
                 sp.draw(la::mul(px, frame(rect)));

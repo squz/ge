@@ -52,7 +52,7 @@ TEST_CASE("ge::debug::mesh wireframe derives 3 edges (6 verts) per triangle") {
     reset(true);
     const float2   verts[] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
     const uint16_t idx[]   = {0, 1, 2, 1, 3, 2};  // two triangles
-    ge::debug::mesh(verts, 4, idx, 6);            // fill defaults false → wireframe
+    ge::debug::mesh(verts, idx);                  // fill defaults false → wireframe
     CHECK(ge::debug::testing::lineVertexCount() == 12);  // 2 tris * 3 edges * 2
 }
 
@@ -60,7 +60,7 @@ TEST_CASE("ge::debug::mesh fill emits 3 verts per triangle") {
     reset(true);
     const float3   verts[] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     const uint16_t idx[]   = {0, 1, 2};
-    ge::debug::mesh(verts, 3, idx, 3, /*fill=*/true);
+    ge::debug::mesh(verts, idx, /*fill=*/true);
     CHECK(ge::debug::testing::triVertexCount() == 3);
     CHECK(ge::debug::testing::lineVertexCount() == 0);  // fill emits no lines
 }
@@ -70,12 +70,12 @@ TEST_CASE("ge::debug::mesh ignores a degenerate tail and out-of-range indices") 
     const float2 verts[] = {{0, 0}, {1, 0}, {0, 1}};
 
     const uint16_t withTail[] = {0, 1, 2, 9};  // one triangle + a 1-index tail
-    ge::debug::mesh(verts, 3, withTail, 4);
+    ge::debug::mesh(verts, withTail);
     CHECK(ge::debug::testing::lineVertexCount() == 6);  // only the valid triangle
 
     reset(true);
-    const uint16_t oob[] = {0, 1, 99};  // index past vertCount → whole tri skipped
-    ge::debug::mesh(verts, 3, oob, 3);
+    const uint16_t oob[] = {0, 1, 99};  // index past verts.size() → whole tri skipped
+    ge::debug::mesh(verts, oob);
     CHECK(ge::debug::testing::lineVertexCount() == 0);
 }
 
