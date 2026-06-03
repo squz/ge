@@ -45,6 +45,24 @@ targets:
     origin: user request
     discovered: 2026-04-15
     achieved: 2026-04-26
+  T100:
+    name: ge's incremental build recompiles every dependent object when a header changes
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Editing a public header (e.g. include/ge/*.h) and re-running the build recompiles every .o whose translation unit includes that header — no stale-object 'symbol(s) not found' link errors
+    - 'Verified by a regression check: change a signature in a header used by a test + the sample, rebuild WITHOUT make clean, and confirm both the test and sample relink against the new signature'
+    - The -MMD/-MP .d header-dependency files are actually -included by Module.mk (or the equivalent mechanism), with paths that match the compiler's emitted prerequisites
+    context: 'Discovered during 🎯T97. A header-only change to include/ge/debug.h (switching the color param type uint32_t → la::float4) did NOT trigger recompilation of debug_test.o or the sample''s Renderer.o under `make unit-test` / `make -C sample/tiltbuggy`; the stale objects still referenced the old `…, unsigned int` signatures while the freshly-rebuilt libge.a provided the new `…, la::float4` ones, yielding an arm64 ''Undefined symbols … referenced from debug_test.o'' link error. A `make clean` + full rebuild resolved it. Implies the -MMD/-MP .d header-dependency edges aren''t being honored in the incremental desktop build (not -included, or a path mismatch). Risk: confusing stale-link errors at best; silently stale objects at worst when signatures still happen to link. Prebuilds are unaffected (prebuild.sh compiles fresh each run).'
+    tags:
+    - build
+    - incremental
+    - makefile
+    - reliability
+    - dx
+    origin: manual
+    discovered: 2026-06-03
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
