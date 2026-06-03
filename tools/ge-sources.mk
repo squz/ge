@@ -33,6 +33,7 @@ GE_SRC_COMMON := \
 	src/Signal.cpp \
 	src/sprite.cpp \
 	src/debug.cpp \
+	src/Pass.cpp \
 	src/svg.cpp \
 	src/png.cpp \
 	src/text.cpp \

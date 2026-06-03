@@ -9,6 +9,7 @@
 #include <sqlpipe.h>
 
 #include <ge/Linalg.h>
+#include <ge/Pass.h>
 #include <SDL3/SDL_events.h>
 #include <cstdint>
 #include <functional>
@@ -414,6 +415,14 @@ public:
     // The engine-provided database.
     std::shared_ptr<sqlpipe::Database> db() const;
 
+    // 🎯T101 Open this frame's swapchain render pass. Call once at the top of
+    // onRender, before any draws; the returned ge::Pass holds the pass open for
+    // its lifetime (typically the whole onRender body) and, on destruction,
+    // ends the pass + commits + presents (direct mode) or encodes + transmits
+    // (wire mode). Open any ge::offscreenPass blocks *before* this. Exactly one
+    // swapchain pass per frame.
+    Pass swapchainPass() const;
+
     // Engine-internal: refresh per-frame state. Apps should not call
     // these — the run loop wires them up before each onUpdate /
     // onRender pair so accessors above always read live values.
@@ -431,6 +440,9 @@ public:
     void setDeviceUiScale(float);
     void setParallax(la::float2);
     void setPresentationTilt(la::float2);
+    // 🎯T101 The host installs its swapchain-pass factory here at session
+    // start; Context::swapchainPass() invokes it.
+    void setSwapchainPassFn(std::function<Pass()>);
 
 private:
     struct M;

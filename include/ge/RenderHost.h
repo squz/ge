@@ -57,17 +57,15 @@ public:
     // Drain pending events through the registered handler.
     virtual void pumpEvents() = 0;
 
-    // Bracket the per-frame rendering phase. The engine submits draw calls
-    // between begin and end. ServerWireBridge uses begin to bind its
-    // capture framebuffer and end to trigger the encode/transmit pipeline.
-    // DirectRenderHost: begin opens a sokol swapchain pass (clear + drawable
-    // acquire), end commits it.
-    //
-    // frameNumber is an opaque counter the engine increments each frame;
-    // hosts that need to correlate async readbacks (ServerWireBridge in
-    // the bgfx implementation) consume it.
-    virtual void beginFrame() = 0;
-    virtual void endFrame(uint32_t frameNumber) = 0;
+    // Per-frame pre-render refresh, called once each frame before onUpdate /
+    // onRender. Adopts any staged resize and updates the live Context's
+    // per-frame fields (dimensions, safe-area insets, parallax, presentation
+    // tilt) so the callbacks observe current values. It does NOT open a render
+    // pass (🎯T101): consumers open exactly one swapchain pass per frame via
+    // Context::swapchainPass() inside onRender, and all sg_begin/end_pass +
+    // commit + present (DirectRenderHost) or encode + transmit (ServerWireBridge)
+    // live inside that ge::Pass's lifetime, not here.
+    virtual void refreshFrame() = 0;
 
     // True when the render subsystem has signaled shutdown (window close,
     // wire closed, SIGINT, etc.).

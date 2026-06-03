@@ -68,7 +68,7 @@ Key points:
 - **App resources are created per session** (each reconnect gets a fresh `Context`)
 - The factory callback receives a `ge::Context` (rects, device class, DB) and returns a `RunConfig`
 - `RunConfig` uses designated initializers: `onUpdate`, `onRender`, `onEvent`, `onShutdown`
-- `onRender(const Context&)` is called each frame. The Context exposes three rects (`drawSafeRectInPts`, `uiSafeRectInPts`, `fullRectInPts`) — all in point space (🎯T60). The game must consciously pick the right one for each piece of work; there is no shortcut `width/height` to dodge the question. The engine refreshes them all before each call. Future per-frame state (parallax delta, tilt, …) joins `Context`, not the signature. bgfx frame submission happens inside `onRender`.
+- `onRender(const Context&)` is called each frame. The Context exposes three rects (`drawSafeRectInPts`, `uiSafeRectInPts`, `fullRectInPts`) — all in point space (🎯T60). The game must consciously pick the right one for each piece of work; there is no shortcut `width/height` to dodge the question. The engine refreshes them all before each call (the host's per-frame refresh runs before `onRender`). Future per-frame state (parallax delta, tilt, …) joins `Context`, not the signature. **🎯T101:** open this frame's render pass at the top of `onRender` with `auto p = c.swapchainPass();` *before any draws* — the returned `ge::Pass` holds the swapchain pass open for its lifetime and, on destruction, ends the pass + commits + presents. Open any `ge::offscreenPass` blocks before it.
 - `ge::run` blocks until SIGINT or all sessions end
 - Ctrl+C terminates the process gracefully
 
@@ -553,7 +553,7 @@ Consumer apps require no code changes — the boost is entirely engine-internal.
 
 ### Rendering
 
-- **`BgfxContext`** (`BgfxContext.h`) — Manages the bgfx device lifecycle: initialization (Metal on macOS, Vulkan on Android), frame begin/end, and headless vs. windowed mode. Used internally by `SessionHost`; apps interact with bgfx directly via its API rather than through this class.
+- **`ge::Pass`** (`Pass.h`, 🎯T101) — move-only RAII render pass. `Context::swapchainPass()` returns this frame's swapchain pass — its ctor acquires the drawable + opens the pass, its destructor ends the pass + commits + presents; call it once at the top of `onRender` before any draws and hold it for the frame. `ge::offscreenPass(const sg_pass&)` wraps an offscreen render-to-texture pass the same way (open it *before* the swapchain pass). Exactly one swapchain pass per frame. The old loop-driven `beginFrame`/`endFrame` bracket is gone: the host now exposes a per-frame `refreshFrame` (Context update, no pass) and the consumer owns the pass via `swapchainPass()`. **Migration:** every consumer adds `auto p = c.swapchainPass();` at the top of `onRender`. The wire/brokered host (`ServerWireBridge`) is pre-existing-dead bgfx (🎯T34) and will adopt this interface when its sokol port lands.
 
 ### Sprites, transforms, and SVG (🎯T42, 🎯T47, 🎯T48, 🎯T49, 🎯T50, 🎯T51)
 

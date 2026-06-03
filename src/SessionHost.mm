@@ -95,14 +95,14 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
         // frame, or dt×speed otherwise.
         if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
 
-        host.beginFrame();
+        // 🎯T101 Refresh per-frame Context state (resize, insets, parallax,
+        // tilt) before onRender. The game opens this frame's swapchain pass
+        // itself via ctx.swapchainPass() at the top of onRender; all
+        // sg_begin/end_pass + commit/present (direct) or encode/transmit (wire)
+        // live inside that ge::Pass's lifetime, so the loop no longer brackets
+        // the frame.
+        host.refreshFrame();
         if (rc.onRender) rc.onRender(host.context());
-        // Self-incrementing frame counter (T38: bgfx::frame() removed; sokol
-        // commits inside SokolContext::endFrame and has no equivalent return).
-        // ServerWireBridge used the bgfx frame number to correlate async
-        // readbacks; not needed for the direct-render path.
-        static uint32_t frameNum = 0;
-        host.endFrame(++frameNum);
     }
 
     if (rc.onShutdown) rc.onShutdown();
