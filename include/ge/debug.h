@@ -32,6 +32,14 @@ inline constexpr Color kWireColor{1.0f, 0.0f, 1.0f, 1.0f};
 inline constexpr Color kFillColor{1.0f, 0.0f, 1.0f, 0.25f};
 inline constexpr Color kTextColor{1.0f, 1.0f, 1.0f, 1.0f};
 
+// On-screen side length of a point() marker, in points (pt) — a fixed
+// perceptual size, projected device-independently (pt, not px) like text.
+inline constexpr float kPointSizePt = 4.0f;
+
+// Default circle() quality: the largest on-screen gap, in points, allowed
+// between the drawn polygon and the true circle. Smaller = smoother + costlier.
+inline constexpr float kCircleQualityPt = 2.0f;
+
 // Runtime on/off. The first query latches the GE_DEBUG_OVERLAY env var
 // (1/true/yes/on, case-insensitive → enabled), else disabled. setEnabled
 // overrides it for the rest of the process.
@@ -62,11 +70,44 @@ void mesh(std::span<const la::float3> verts, std::span<const uint16_t> indices,
 // ── convenience shapes ───────────────────────────────────────────────────
 // Built from line() / tri(), same two-colour convention as mesh(): a colour
 // with alpha 0 skips that layer (default = magenta outline, no fill). `box` is
-// an axis-aligned ge::Rect in the z = 0 plane; `circle` is a segments-gon
-// centred at `center` (triangle-fan fill, perimeter-segment outline).
+// an axis-aligned ge::Rect in the z = 0 plane.
 void box(Rect rect, Color wireColor = kWireColor, Color fillColor = {});
-void circle(la::float2 center, float radius,
-            Color wireColor = kWireColor, Color fillColor = {}, int segments = 32);
+
+// `circle` is an n-gon centred at `center` (triangle-fan fill, perimeter-
+// segment outline), but you don't pick n — you pick a `quality`: the maximum
+// on-screen distance, in points, between the polygon and the true circle. The
+// engine then chooses just enough vertices to honour it. Because that error is
+// perceptual, the vertex count is resolved at flush() against worldToClip, so a
+// circle stays smooth as you zoom in and cheap as you zoom out — without the
+// caller tracking scale. The polygon is *balanced*: vertices sit ~quality
+// outside the circle and edge midpoints ~quality inside, halving the count a
+// purely-inscribed polygon would need for the same worst-case error. `minVerts`
+// floors the count (e.g. 4 to keep a recognisable diamond when tiny); the hard
+// floor is 3. See segmentsForQuality() for the exact policy.
+void circle(la::float2 center, float radius, Color wireColor = kWireColor,
+            Color fillColor = {}, float quality = kCircleQualityPt,
+            int minVerts = 0);
+
+// The tessellation policy circle() applies at flush, exposed pure for tests and
+// for callers who tessellate their own arcs. `radiusPt` is the circle's *on-
+// screen* radius in points; `qualityPt` the max polygon↔circle deviation in
+// points. Returns the vertex count: ceil((π/2)·√(radiusPt/qualityPt)), floored
+// at max(3, minVerts) and capped so a pathological zoom can't explode it.
+int segmentsForQuality(float radiusPt, float qualityPt, int minVerts = 0);
+
+// `point` marks an exact location — a contact point, a sampled position, a
+// graph node — that box() / circle() only imply via their centre. Unlike those
+// (which are world-space and so grow/shrink with zoom), a point is a *fixed
+// perceptual size*: a small filled square `kPointSizePt` points on a side,
+// centred on `pos` and held constant on screen however far worldToClip zooms
+// out — so a cloud of points stays legible instead of collapsing to nothing.
+// It is expanded to a screen-space quad at flush() (where the projection and
+// surface size are known), the same way text() is. `pos` is projected through
+// worldToClip; the 3D overload lets a point ride a perspective scene. Single
+// layer (fill only) — one Color, default opaque magenta; alpha 0 is a no-op.
+// For a *sized* dot that scales with the world, use circle() instead.
+void point(la::float2 pos, Color color = kWireColor);
+void point(la::float3 pos, Color color = kWireColor);
 
 // ── text, screen space (top-left origin, +Y down, framebuffer pixels) ────
 // Anchored at posPx; independent of worldToClip. Single line, monospace.
@@ -90,6 +131,8 @@ namespace testing {
 int lineVertexCount();
 int triVertexCount();
 int textItemCount();
+int pointItemCount();
+int circleItemCount();
 } // namespace testing
 
 } // namespace ge::debug

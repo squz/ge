@@ -46,10 +46,27 @@ struct TextItem {
     std::string str;
 };
 
+struct PointItem {
+    la::float3 pos;     // world space; projected through worldToClip at flush
+    uint32_t   abgr;
+};
+
+struct CircleItem {
+    la::float2 center;  // world space
+    float      radius;  // world units
+    la::float4 wire;
+    la::float4 fill;
+    float      quality; // max on-screen polygon↔circle gap, pt
+    int        minVerts;
+};
+
 // ~16k vertices per frame; debug overlays in tiltbuggy / multimaze2 sit far
 // below that. Overflow warns and drops the run rather than corrupting.
 constexpr int   kStreamBufferBytes = 256 * 1024;
 constexpr float kTextPt            = 13.0f;
+// Upper bound on circle() tessellation, so a pathological zoom-in on a tight
+// quality can't ask for thousands of verts.
+constexpr int   kMaxCircleSegments = 256;
 
 struct State {
     bool enabled       = false;
@@ -67,6 +84,8 @@ struct State {
     std::vector<DebugVertex> lineVerts;
     std::vector<DebugVertex> triVerts;
     std::vector<TextItem>    texts;
+    std::vector<PointItem>   points;
+    std::vector<CircleItem>  circles;
 };
 
 State& st() {
@@ -261,22 +280,39 @@ void box(Rect r, la::float4 wireColor, la::float4 fillColor) {
     }
 }
 
+int segmentsForQuality(float radiusPt, float qualityPt, int minVerts) {
+    const int lo = minVerts > 3 ? minVerts : 3;   // a polygon needs ≥ 3 verts
+    if (radiusPt <= 0.0f || qualityPt <= 0.0f) return lo;
+    // Balanced n-gon: with vertices ~q outside the circle and edge midpoints ~q
+    // inside, the small-angle solution of the equal-deviation condition is
+    // n ≈ (π/2)·√(r/q). Simple, and the clamps own the tails — sub-pixel
+    // exactness there is invisible on a debug overlay.
+    int n = int(std::ceil(1.57079633f * std::sqrt(radiusPt / qualityPt)));
+    if (n < lo) n = lo;
+    if (n > kMaxCircleSegments) n = kMaxCircleSegments;
+    return n;
+}
+
 void circle(la::float2 center, float radius, la::float4 wireColor,
-            la::float4 fillColor, int segments) {
+            la::float4 fillColor, float quality, int minVerts) {
     const bool doWire = wireColor.w > 0.0f;
     const bool doFill = fillColor.w > 0.0f;
     if (!enabled() || (!doWire && !doFill)) return;
-    if (segments < 3) segments = 3;
-    constexpr float kTwoPi = 6.28318530718f;
-    la::float2 prev{center.x + radius, center.y};  // theta = 0
-    for (int i = 1; i <= segments; ++i) {
-        const float t = (float(i) / float(segments)) * kTwoPi;
-        const la::float2 cur{center.x + radius * std::cos(t),
-                             center.y + radius * std::sin(t)};
-        if (doFill) tri(center, prev, cur, fillColor);
-        if (doWire) line(prev, cur, wireColor);
-        prev = cur;
-    }
+    // Deferred, like point(): the vertex count needs the on-screen radius,
+    // known only once flush() has worldToClip.
+    st().circles.push_back(
+        {center, radius, wireColor, fillColor, quality, minVerts});
+}
+
+void point(la::float3 pos, la::float4 color) {
+    if (!enabled() || color.w <= 0.0f) return;   // alpha 0 → absent
+    // Stored, not expanded here: a point is a fixed on-screen size, so the
+    // quad can't be sized until flush() knows worldToClip + the surface.
+    st().points.push_back({pos, packAbgr(color)});
+}
+
+void point(la::float2 pos, la::float4 color) {
+    point(v3(pos), color);
 }
 
 void text(la::float2 posPx, std::string_view str, la::float4 color) {
@@ -293,17 +329,91 @@ void clear() {
     s.lineVerts.clear();
     s.triVerts.clear();
     s.texts.clear();
+    s.points.clear();
+    s.circles.clear();
 }
 
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
     auto& s = st();
-    if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty()) return;
+    if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty() &&
+        s.points.empty() && s.circles.empty())
+        return;
     if (!ensureState()) { clear(); return; }
+
+    // Expand circles into the world-space tri/line streams first — each one's
+    // vertex count comes from its on-screen radius (projected here), so the pt
+    // quality holds at any zoom. They then ride the same worldToClip draw below.
+    if (!s.circles.empty()) {
+        const Rect full = ctx.fullRectInPts();
+        for (const auto& c : s.circles) {
+            const bool doWire = c.wire.w > 0.0f;
+            const bool doFill = c.fill.w > 0.0f;
+            // On-screen radius in pt: project the centre and a +x edge point.
+            const la::float4 pc =
+                la::mul(worldToClip, la::float4{c.center.x, c.center.y, 0, 1});
+            const la::float4 pe = la::mul(
+                worldToClip, la::float4{c.center.x + c.radius, c.center.y, 0, 1});
+            float radiusPt = 0.0f;
+            if (pc.w > 0.0f && pe.w > 0.0f) {
+                const float dx = (pe.x / pe.w - pc.x / pc.w) * full.w * 0.5f;
+                const float dy = (pe.y / pe.w - pc.y / pc.w) * full.h * 0.5f;
+                radiusPt = std::sqrt(dx * dx + dy * dy);
+            }
+            const int   n     = segmentsForQuality(radiusPt, c.quality, c.minVerts);
+            const float step  = 6.28318530718f / float(n);
+            const float half  = step * 0.5f;                 // π/n
+            const float denom = 1.0f + std::cos(half);
+            // Balanced radius Rv = 2r/(1+cos(π/n)): vertices sit ~quality outside
+            // the circle, edge midpoints ~quality inside — equal worst-case error.
+            const float rv = denom > 0.0f ? c.radius * 2.0f / denom : c.radius;
+            la::float2 prev{c.center.x + rv, c.center.y};    // angle 0
+            for (int i = 1; i <= n; ++i) {
+                const float t = float(i) * step;
+                const la::float2 cur{c.center.x + rv * std::cos(t),
+                                     c.center.y + rv * std::sin(t)};
+                if (doFill) tri(c.center, prev, cur, c.fill);
+                if (doWire) line(prev, cur, c.wire);
+                prev = cur;
+            }
+        }
+    }
 
     if (!s.triVerts.empty())
         drawRun(s.tris, s.triVerts.data(), int(s.triVerts.size()), worldToClip);
     if (!s.lineVerts.empty())
         drawRun(s.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
+
+    // Fixed-perceptual-size points: project each centre through worldToClip,
+    // then expand to a screen-space quad kPointSizePt pt on a side and draw it
+    // with an identity transform — so the dot is a constant on-screen size no
+    // matter how far worldToClip zooms. NDC spans the surface's pt extent, so
+    // the half-extent in NDC is just kPointSizePt/full.{w,h} (the px-per-pt
+    // factor cancels), giving a square in pixels on any aspect / density.
+    if (!s.points.empty()) {
+        const Rect  full = ctx.fullRectInPts();
+        const float hx = full.w > 0.0f ? kPointSizePt / full.w : 0.0f;
+        const float hy = full.h > 0.0f ? kPointSizePt / full.h : 0.0f;
+        std::vector<DebugVertex> quads;
+        quads.reserve(s.points.size() * 6);
+        for (const auto& p : s.points) {
+            const la::float4 clip =
+                la::mul(worldToClip, la::float4{p.pos.x, p.pos.y, p.pos.z, 1.0f});
+            if (clip.w <= 0.0f) continue;   // behind the camera / at infinity
+            const float nx = clip.x / clip.w, ny = clip.y / clip.w,
+                        nz = clip.z / clip.w;
+            const DebugVertex a{nx - hx, ny - hy, nz, p.abgr};
+            const DebugVertex b{nx + hx, ny - hy, nz, p.abgr};
+            const DebugVertex c{nx + hx, ny + hy, nz, p.abgr};
+            const DebugVertex d{nx - hx, ny + hy, nz, p.abgr};
+            quads.insert(quads.end(), {a, b, c, a, c, d});
+        }
+        if (!quads.empty()) {
+            // Corners are already in NDC, so draw with identity (no reprojection).
+            constexpr la::float4x4 kIdentity{{1, 0, 0, 0}, {0, 1, 0, 0},
+                                             {0, 0, 1, 0}, {0, 0, 0, 1}};
+            drawRun(s.tris, quads.data(), int(quads.size()), kIdentity);
+        }
+    }
 
     if (!s.texts.empty()) {
         if (!s.fontTried) {
@@ -343,6 +453,8 @@ namespace testing {
 int lineVertexCount() { return int(st().lineVerts.size()); }
 int triVertexCount()  { return int(st().triVerts.size()); }
 int textItemCount()   { return int(st().texts.size()); }
+int pointItemCount()  { return int(st().points.size()); }
+int circleItemCount() { return int(st().circles.size()); }
 } // namespace testing
 
 } // namespace ge::debug
