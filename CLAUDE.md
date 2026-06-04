@@ -672,12 +672,15 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   `ge::debug::segmentsForQuality(radiusPt, qualityPt, minVerts)` exposes the
   policy for callers tessellating their own arcs.
 - **`ge::debug::point(pos, color=magenta)`** (`la::float2` / `la::float3`) — a
-  position marker held at a **fixed perceptual size** (`kPointSizePt`, 4 pt on a
-  side) however far `worldToClip` zooms, so point clouds stay legible. `pos` is
-  projected through `worldToClip`, then expanded to a screen-space quad at
-  `flush` (like `text`), not at the call site — so it adds a `pointItemCount`,
-  not tri/line verts, until flushed. Single fill layer (alpha-0 = no-op). Reach
-  for `circle` instead when you want a dot that scales with the world.
+  position marker held at a **fixed perceptual size** (`kPointSizePt`, 2 pt
+  across) however far `worldToClip` zooms, so point clouds stay legible. Drawn
+  as a tiny filled disc — internally a fixed-pt `circle` run through the shared
+  `expandCircle` tessellator with a ≥8-vertex floor (so it reads round even
+  tiny), not a bespoke quad. `pos` is projected through `worldToClip`; at
+  `flush` the world radius that yields `kPointSizePt` pt is solved and the disc
+  expanded (like `text`), so it adds a `pointItemCount`, not tri/line verts,
+  until flushed. Single fill layer (alpha-0 = no-op). Reach for `circle` instead
+  when you want a dot that scales with the world.
 - **`ge::debug::text(posPx, str, color)`** — single-line monospace HUD text in
   framebuffer-pixel space (top-left origin), independent of `worldToClip`.
 - **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything

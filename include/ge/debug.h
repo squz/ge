@@ -32,13 +32,13 @@ inline constexpr Color kWireColor{1.0f, 0.0f, 1.0f, 1.0f};
 inline constexpr Color kFillColor{1.0f, 0.0f, 1.0f, 0.25f};
 inline constexpr Color kTextColor{1.0f, 1.0f, 1.0f, 1.0f};
 
-// On-screen side length of a point() marker, in points (pt) — a fixed
-// perceptual size, projected device-independently (pt, not px) like text.
-inline constexpr float kPointSizePt = 4.0f;
+// On-screen diameter of a point() marker, in points (pt) — a fixed perceptual
+// size, projected device-independently (pt, not px) like text.
+inline constexpr float kPointSizePt = 2.0f;
 
 // Default circle() quality: the largest on-screen gap, in points, allowed
 // between the drawn polygon and the true circle. Smaller = smoother + costlier.
-inline constexpr float kCircleQualityPt = 2.0f;
+inline constexpr float kCircleQualityPt = 0.5f;
 
 // Runtime on/off. The first query latches the GE_DEBUG_OVERLAY env var
 // (1/true/yes/on, case-insensitive → enabled), else disabled. setEnabled
@@ -98,11 +98,13 @@ int segmentsForQuality(float radiusPt, float qualityPt, int minVerts = 0);
 // `point` marks an exact location — a contact point, a sampled position, a
 // graph node — that box() / circle() only imply via their centre. Unlike those
 // (which are world-space and so grow/shrink with zoom), a point is a *fixed
-// perceptual size*: a small filled square `kPointSizePt` points on a side,
-// centred on `pos` and held constant on screen however far worldToClip zooms
-// out — so a cloud of points stays legible instead of collapsing to nothing.
-// It is expanded to a screen-space quad at flush() (where the projection and
-// surface size are known), the same way text() is. `pos` is projected through
+// perceptual size*: a small filled disc `kPointSizePt` points across, centred
+// on `pos` and held constant on screen however far worldToClip zooms out — so a
+// cloud of points stays legible instead of collapsing to nothing. Under the
+// hood it's a tiny circle tessellated with at least 8 vertices, so it reads
+// round rather than blocky even at its default size. It is expanded to a
+// screen-space disc at flush() (where the projection and surface size are
+// known), the same way text() is. `pos` is projected through
 // worldToClip; the 3D overload lets a point ride a perspective scene. Single
 // layer (fill only) — one Color, default opaque magenta; alpha 0 is a no-op.
 // For a *sized* dot that scales with the world, use circle() instead.
