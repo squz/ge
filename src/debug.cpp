@@ -23,8 +23,10 @@
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -64,6 +66,7 @@ struct CircleItem {
 // below that. Overflow warns and drops the run rather than corrupting.
 constexpr int   kStreamBufferBytes = 256 * 1024;
 constexpr float kTextPt            = 13.0f;
+constexpr float kFpsMarginPt       = 10.0f;
 // Upper bound on circle() tessellation, so a pathological zoom-in on a tight
 // quality can't ask for thousands of verts.
 constexpr int   kMaxCircleSegments = 256;
@@ -86,6 +89,10 @@ struct State {
     std::vector<TextItem>    texts;
     std::vector<PointItem>   points;
     std::vector<CircleItem>  circles;
+
+    bool fpsStarted = false;
+    std::chrono::steady_clock::time_point lastFpsTime;
+    float frameMs = 0.0f;
 };
 
 State& st() {
@@ -178,6 +185,29 @@ inline uint32_t packAbgr(la::float4 c) {
 
 inline la::float3 v3(la::float2 p) { return {p.x, p.y, 0.0f}; }
 inline la::float3 v3(la::float3 p) { return p; }
+
+std::string fpsLabel(State& s) {
+    using Clock = std::chrono::steady_clock;
+    const auto now = Clock::now();
+    if (!s.fpsStarted) {
+        s.fpsStarted = true;
+        s.lastFpsTime = now;
+        return "FPS --";
+    }
+
+    const float ms = std::chrono::duration<float, std::milli>(now - s.lastFpsTime).count();
+    s.lastFpsTime = now;
+    if (ms > 0.0f && ms < 1000.0f) {
+        s.frameMs = s.frameMs <= 0.0f ? ms : (s.frameMs * 0.9f + ms * 0.1f);
+    }
+
+    char buf[32];
+    if (s.frameMs > 0.0f)
+        std::snprintf(buf, sizeof(buf), "%.0f FPS", 1000.0f / s.frameMs);
+    else
+        std::snprintf(buf, sizeof(buf), "FPS --");
+    return buf;
+}
 
 template <class V>
 void meshImpl(std::span<const V> verts, std::span<const uint16_t> idx,
@@ -379,8 +409,10 @@ void expandCircle(la::float3 center, float radius, la::float4 wire,
 
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
     auto& s = st();
+    const bool showFps = enabled();
+    const std::string fps = showFps ? fpsLabel(s) : std::string{};
     if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty() &&
-        s.points.empty() && s.circles.empty())
+        s.points.empty() && s.circles.empty() && !showFps)
         return;
     if (!ensureState()) { clear(); return; }
 
@@ -417,7 +449,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
     if (!s.lineVerts.empty())
         drawRun(s.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
 
-    if (!s.texts.empty()) {
+    if (!s.texts.empty() || showFps) {
         if (!s.fontTried) {
             s.fontTried = true;
             try {
@@ -433,13 +465,29 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
             const Rect  full = ctx.fullRectInPts();
             const la::float4x4 px = ortho::pixelOrtho(full.w * ppt, full.h * ppt);
             const float sizePx = kTextPt * ppt;
-            for (const auto& t : s.texts) {
-                Sprite sp = rasterizeText(t.str, s.font, sizePx, t.color);
-                if (sp.isNull()) continue;
-                const Rect rect{t.pos.x, t.pos.y, float(sp.width), float(sp.height)};
+            auto drawText = [&](la::float2 pos, const std::string& str, la::float4 color) {
+                Sprite sp = rasterizeText(str, s.font, sizePx, color);
+                if (sp.isNull()) return;
+                const Rect rect{pos.x, pos.y, float(sp.width), float(sp.height)};
                 sp.draw(la::mul(px, frame(rect)));
                 sg_destroy_view(sp.view);
                 sg_destroy_image(sp.tex);
+            };
+            for (const auto& t : s.texts) {
+                drawText(t.pos, t.str, t.color);
+            }
+            if (showFps) {
+                Sprite sp = rasterizeText(fps, s.font, sizePx, kTextColor);
+                if (!sp.isNull()) {
+                    const float margin = kFpsMarginPt * ppt;
+                    const float surfaceW = full.w * ppt;
+                    float x = surfaceW - float(sp.width) - margin;
+                    if (x < margin) x = margin;
+                    const Rect rect{x, margin, float(sp.width), float(sp.height)};
+                    sp.draw(la::mul(px, frame(rect)));
+                    sg_destroy_view(sp.view);
+                    sg_destroy_image(sp.tex);
+                }
             }
         }
     }

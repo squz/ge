@@ -662,7 +662,7 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
 - **`ge::debug::box(rect, wireColor=magenta, fillColor={})`** — convenience
   shape built from `line`/`tri`, same two-colour convention (alpha-0 skips a
   layer); an axis-aligned `ge::Rect` in the z=0 plane.
-- **`ge::debug::circle(center, radius, wireColor=magenta, fillColor={}, quality=2pt, minVerts=0)`**
+- **`ge::debug::circle(center, radius, wireColor=magenta, fillColor={}, quality=0.5pt, minVerts=0)`**
   — you specify a **quality** (max on-screen polygon↔circle gap in pt), not a
   vertex count; the engine resolves the count at `flush` against `worldToClip`,
   so circles stay smooth zoomed in and cheap zoomed out. The polygon is
@@ -684,8 +684,10 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
 - **`ge::debug::text(posPx, str, color)`** — single-line monospace HUD text in
   framebuffer-pixel space (top-left origin), independent of `worldToClip`.
 - **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything
-  queued, into the active render pass; call once per frame after the scene.
-  GPU resources are created lazily on first non-empty flush.
+  queued, into the active render pass; call once per frame after the scene. When
+  the overlay is enabled, `flush` also draws a smoothed FPS readout in the
+  top-right corner, even if no other debug primitives were queued. GPU resources
+  are created lazily on first enabled flush.
 
 `sample/tiltbuggy` demonstrates all three surfaces end-to-end (sector-tinted
 playfield, buggy-chassis wireframe, tilt HUD); run it with `GE_DEBUG_OVERLAY=1`.
