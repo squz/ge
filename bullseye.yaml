@@ -160,6 +160,24 @@ targets:
     origin: manual
     discovered: 2026-06-04
     achieved: 2026-06-04
+  T106:
+    name: android-debug-overlay-links-cleanly
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Android consumer that references any ge::debug symbol (point/line/tri/box/circle) — without calling text() — links its libmain.so without FT_* undefined-symbol errors.
+    - 'Fix is in ge: either split text() into its own TU only pulled in by text() call sites, link a FreeType .a into the Android prebuilt the way ge already does on macOS/iOS via vendor/sdl3/lib/.../libfreetype.a, or weak-stub the FT_ symbols inside libge.a.'
+    context: |-
+      After v0.52.0 (484bbbb), any Android consumer that references *any* ge::debug symbol pulls debug.cpp's entire .o into the link, which transitively references FT_Init_FreeType / FT_New_Face / FT_Set_Char_Size / FT_Done_Face / FT_Get_Char_Index / FT_Load_Glyph via ge::rasterizeText. The Android prebuilt link path (`cmake/android-arm64.cmake`) does not link a FreeType library, so the consumer's libmain.so fails with six undefined-symbol errors even when text() is never called.
+
+      Surfaced by multimaze2's 🎯T27 ball-light debug overlay (visualises perimeter sample positions via ge::debug::point) — worked around in the consumer with a local FT_ stub TU until this lands.
+    tags:
+    - multimaze-audit
+    - android
+    - debug-overlay
+    origin: manual
+    discovered: 2026-06-04
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
