@@ -1,15 +1,15 @@
-# Prebuilds (iOS arm64)
+# Prebuilds
 
-ge ships prebuilt static libs and lifted public headers for nine
-vendor dependencies **plus libge itself** so consumer apps' iOS CI
+ge ships prebuilt static libs and lifted public headers for vendor
+dependencies **plus libge itself** so consumer apps' CI
 doesn't need to recursively initialize ge's submodules and doesn't
 need to recompile ge from sources.
 
 The artefacts:
 
-- **`ge/prebuilt/ios-arm64/lib<name>.a`** — ten static libs (bgfx,
-  bx, bimg, box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
-  liteparser, **ge**), tracked via Git LFS. ~13 MB total.
+- **`ge/prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/lib<name>.a`**
+  — static libs for box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
+  liteparser, and **ge**, tracked via Git LFS.
 - **`ge/headers/<dep>/include/`** — lifted public-header subset of
   each header-providing submodule (bgfx, bx, bimg, box2d, lunasvg,
   plutovg, liteparser, sdl3 — SDL3 core + freetype, spdlog, asio),
@@ -55,7 +55,7 @@ cd ../../../../..
 
 # 2. Re-prebuild + re-lift. Both targets are idempotent and overwrite
 #    their output dirs.
-make ge/prebuild-vendor-ios-arm64
+make prebuild
 make ge/lift-headers
 
 # 3. Commit the bump + the refreshed artefacts in one go.
@@ -64,8 +64,21 @@ git commit -m "bgfx: bump to <new-sha>; refresh prebuilts + headers"
 ```
 
 Both scripts assume submodules are initialized
-(`git submodule update --init --recursive`). They run in ~30 s for a
-single-vendor bump on an M-series MacBook.
+(`git submodule update --init --recursive`). `make prebuild` fans out
+all three platforms in parallel, and each platform script compiles
+independent source files in parallel internally.
+
+For ordinary ge source/header edits where vendor submodules and vendor
+sources did not change, use the faster libge-only path:
+
+```bash
+make prebuild-libge
+```
+
+This rebuilds only `libge.a` for each platform and preserves existing
+vendor archives plus their manifest input hashes. If a vendor input has
+changed, `tools/verify-prebuilds.py` still catches the stale vendor
+archive because the old vendor input hash is kept in the manifest.
 
 ## Android NDK ABI pin (🎯T100)
 
@@ -122,26 +135,17 @@ vendor we ship. Bumping a submodule SHA is the canonical mechanism for
 upgrades. The prebuilt .a files are *derived artefacts*, not the
 source.
 
-Developers who edit ge itself, or who want to verify the prebuilds
-match the committed submodule SHAs, run
-`git submodule update --init --recursive` and re-run the prebuild
-script. Consumer CI doesn't, and doesn't need to.
+Developers who edit ge itself can usually choose one of two local
+iteration paths:
 
-## Why iOS arm64 only (today)
+- `make prebuild-libge` — refresh committed `libge.a` prebuilts without
+  rebuilding vendor archives.
+- iOS project generator `engine_mode: :source` — compile ge sources
+  directly into a local app target while still linking vendor prebuilts.
+  Keep `engine_mode: :prebuilt` for release/CI projects.
 
-T71 deliberately scoped to iOS arm64 first:
-
-- The iOS build (via `build_project.rb`) is the cost-driver in
-  multimaze2-class CI workflows — most other paths build under `make`
-  on a developer's laptop, where caching works.
-- iOS arm64 is one slice; Android, macOS, iOS simulator, and Android
-  emulator add roughly 5× the build matrix. Solving one cleanly is
-  better than solving five badly.
-- App Store IPAs are device-only — no simulator slice required.
-
-When Android CI lands (target T46-class follow-up), the same pattern
-extends: add `prebuilt/android-arm64/`, a sibling prebuild script, and
-teach Module.mk's Android branch to link the prebuilts.
+Consumer CI doesn't recursively initialize ge's submodules, and doesn't
+need to.
 
 ## CI savings
 
@@ -181,7 +185,6 @@ without consuming TestFlight build slots
   laptop. A future target may add a GHA workflow that produces and
   commits prebuilts when a vendor submodule SHA changes or ge sources
   are edited; for now, manual.
-- **No Android / macOS / simulator slices**. iOS arm64 device only.
 - **No prebuilt Swift bridge**. `src/iap_apple.swift` still compiles
   in the consumer's xcodeproj because the bridging-header config is a
   per-target Xcode setting. Trivial cost (one Swift file, ~2 s).
@@ -190,12 +193,9 @@ without consuming TestFlight build slots
 
 ```
 ge/
-├── prebuilt/ios-arm64/                       (all .a files via LFS)
+├── prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/
 │   ├── libge.a             8.9 MB
-│   ├── libbgfx.a           1.1 MB
 │   ├── libsqlite3_ge.a     1.5 MB
-│   ├── libbx.a             268 KB
-│   ├── libbimg.a           111 KB
 │   ├── libbox2d.a          490 KB
 │   ├── liblunasvg_ge.a     392 KB
 │   ├── libplutovg_ge.a     302 KB
@@ -213,7 +213,7 @@ ge/
 │   ├── spdlog/include/spdlog/…
 │   └── asio/include/asio/…
 └── tools/
-    ├── prebuild-vendor-ios-arm64.sh
+    ├── prebuild.sh
     └── lift-headers.sh
 ```
 

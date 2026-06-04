@@ -22,6 +22,8 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 .PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
         python-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
+        prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
+        prebuild-libge-android-arm64 \
         ge/lift-headers depgraph clean-depgraph
 
 all check matrix-test check-list unit-test clean run:
@@ -90,6 +92,20 @@ prebuild-android-arm64:
 	tools/prebuild.sh android-arm64
 
 prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
+
+# Source-only engine refresh: rebuild just libge.a for each platform and
+# preserve existing vendor archives + their manifest input hashes. Use this
+# when ge sources/headers change but vendor submodules and vendor sources do not.
+prebuild-libge-ios-arm64:
+	tools/prebuild.sh --libge-only ios-arm64
+
+prebuild-libge-ios-arm64-simulator:
+	tools/prebuild.sh --libge-only ios-arm64-simulator
+
+prebuild-libge-android-arm64:
+	tools/prebuild.sh --libge-only android-arm64
+
+prebuild-libge: prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator prebuild-libge-android-arm64
 
 # ── ge-maintenance rules (not for consuming apps) ──────────────────
 #

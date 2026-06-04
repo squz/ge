@@ -2,14 +2,16 @@
   "version": 2,
   "platform": "ios-arm64-simulator",
   "toolchain": {
-    "clang": "Android (13989888, +pgo, -bolt, +lto, -mlgo, based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project 5e96669f06077099aa41290cdb4c5e6fa0f59349)",
-    "ndk_path": "/Users/marcelo/Library/Android/sdk/ndk/29.0.14206865"
+    "clang": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+    "sdk": "iphonesimulator",
+    "sdk_path": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk",
+    "sdk_version": "26.5"
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "61eef450d6c7b7b347be830e8b1a8dafaa1a315a1c3248b1389bb24d66ff1224",
+    "tools/prebuild.sh": "5a8eb3f85d47ef7ad4a2bf0c4217907772f9585e5e1c9f730b0c9e0ec798fbc4",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
-    "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
+    "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
@@ -27,13 +29,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator/libbox2d.a": "e91376e6061cf082f9d63078e9a2866cc7d8afbad98e1c63089f1a32df14f253",
-    "prebuilt/ios-arm64-simulator/libge.a": "e96b5197acee521323223529acd9ebaa0ec1e23b41fda98828f597bafe2b58c1",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "f627274f170eb6c003571726108b08f9e8731efd4058b4df606ca6346cfce5f8",
-    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "c5a33e97492e278c215ecfe6289944cb9786fa230aef4d2d7253d75f07b63412",
-    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "2175d7757a93e6db2dde2e5fc39ba0b1787c8fa55e7105ca5625218fe44c228e",
-    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "aa97a7f172890f6361c276cb3f05d39c69a20d5e09480f73eaf963ddf0f9294c",
-    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "e3ff96de602acad6f3e758ff557a2ca86bda84b6fc7895a5e7dab55b3c20f58b"
+    "prebuilt/ios-arm64-simulator/libbox2d.a": "094d2cf4487cf43da0d651f050cd5e436d5371b5a3f8d03e66a4b22e7f74e9cd",
+    "prebuilt/ios-arm64-simulator/libge.a": "277b36276847290a33c5c5270501baa0f4ac03f1010c6dce83d8da983c3db299",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "815cb6f398c8453e6da65bff17f5dd244237dd7c06bd6bc5b06bdea2cf9e2f46",
+    "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
+    "prebuilt/ios-arm64-simulator/liblz4_ge.a": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
+    "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "ee0db6b08a6cb02008fbf3e098c9649feb2db943e5d9f14a9f2edc1040452f09",
+    "prebuilt/ios-arm64-simulator/libsqlite3_ge.a": "e9f43cb6fd03ac59c6b5ae806ea9f960b3166b3a57377a18b582c34df482171b"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",

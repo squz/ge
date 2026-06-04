@@ -3,14 +3,15 @@
   "platform": "ios-arm64",
   "toolchain": {
     "clang": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
-    "iphoneos_sdk_path": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk",
-    "iphoneos_sdk_version": "26.5"
+    "sdk": "iphoneos",
+    "sdk_path": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk",
+    "sdk_version": "26.5"
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "61eef450d6c7b7b347be830e8b1a8dafaa1a315a1c3248b1389bb24d66ff1224",
+    "tools/prebuild.sh": "5a8eb3f85d47ef7ad4a2bf0c4217907772f9585e5e1c9f730b0c9e0ec798fbc4",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
-    "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
+    "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
@@ -28,13 +29,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64/libbox2d.a": "cdcf81f0d754dc3fdc6bcdb1074cd45d0e44dfa8de954627dd22701be3cac2dc",
-    "prebuilt/ios-arm64/libge.a": "ed515ea1e3736d66edd81474a188d812f19d68499cbbfaccb1f06986320f5b2a",
-    "prebuilt/ios-arm64/libliteparser.a": "21579967487fd019b00eb9cb52c5299b6b86078913b785d953bc3cb2ff89d76f",
-    "prebuilt/ios-arm64/liblunasvg_ge.a": "dc17379ccf2b0fdc0f2e86a8a4cb16dff97735b707a784970a0ac0bd5aca930d",
-    "prebuilt/ios-arm64/liblz4_ge.a": "7545d7573269f2d0dc540861307f20084d2b57685e369f7f2d9dfbf75d142558",
-    "prebuilt/ios-arm64/libplutovg_ge.a": "3cdf709ac611e58ac8417965f855bb593b8ee53811ad994194f9c492a67bd4a2",
-    "prebuilt/ios-arm64/libsqlite3_ge.a": "063ed4c8f9d83eb302ae8bcbcfb818cf2d65cef4bac8e4e0b65a1266b2e362e3"
+    "prebuilt/ios-arm64/libbox2d.a": "4396fe502abedcbcd918c3e4042b2fd93b07e836fc8125a3ee0e0af94deb6884",
+    "prebuilt/ios-arm64/libge.a": "b027831d5af4f79f64d6830229975feaada2372e6b8891af73e5b6464bf35524",
+    "prebuilt/ios-arm64/libliteparser.a": "1f1005f7a8ba83d84943409d5bf982ef299f3b25835a8e5dd7668b4a7319a4f5",
+    "prebuilt/ios-arm64/liblunasvg_ge.a": "4cbd0867c2d3811f63378ba44f82d4469dd5d9525c4b87ea1f3e8a3f360cd9f3",
+    "prebuilt/ios-arm64/liblz4_ge.a": "72a95f6f6feafab3a1bf0d0b4b7e34d3f4edca525561a2ca24ff0540c314cb4f",
+    "prebuilt/ios-arm64/libplutovg_ge.a": "d1b58c43bdb025786966df868553f73252566cab08ac28e9e2a50239d9085cac",
+    "prebuilt/ios-arm64/libsqlite3_ge.a": "53dc0fbd93010ba967f92762a836b8e548998371916d24e13a885ffccda16c9c"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",

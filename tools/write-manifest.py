@@ -11,6 +11,7 @@ Usage:
     python3 tools/write-manifest.py --platform ios-arm64
     python3 tools/write-manifest.py --platform ios-arm64-simulator
     python3 tools/write-manifest.py --platform android-arm64
+    python3 tools/write-manifest.py --platform ios-arm64 --merge-existing-inputs
 
 Default platform is `ios-arm64` for backward compatibility with the
 original T71 caller.
@@ -126,7 +127,7 @@ def get_submodule_info() -> tuple[dict[str, str], list[str]]:
     return shas, paths
 
 
-def get_toolchain_ios() -> dict[str, str]:
+def get_toolchain_ios(platform: str) -> dict[str, str]:
     """iOS xcode/SDK/clang versions for diagnostic clarity. Not a
     fail-stop in the verifier; just recorded."""
     def run(cmd: list[str]) -> str:
@@ -135,12 +136,14 @@ def get_toolchain_ios() -> dict[str, str]:
         except Exception:
             return "<unavailable>"
 
-    clang_full = run(["xcrun", "--sdk", "iphoneos", "clang", "--version"])
+    sdk = "iphonesimulator" if platform == "ios-arm64-simulator" else "iphoneos"
+    clang_full = run(["xcrun", "--sdk", sdk, "clang", "--version"])
     clang_line = clang_full.split("\n", 1)[0] if clang_full else "<unavailable>"
     return {
         "clang": clang_line,
-        "iphoneos_sdk_path": run(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"]),
-        "iphoneos_sdk_version": run(["xcrun", "--sdk", "iphoneos", "--show-sdk-version"]),
+        "sdk": sdk,
+        "sdk_path": run(["xcrun", "--sdk", sdk, "--show-sdk-path"]),
+        "sdk_version": run(["xcrun", "--sdk", sdk, "--show-sdk-version"]),
     }
 
 
@@ -183,6 +186,16 @@ def main() -> int:
         choices=SUPPORTED_PLATFORMS,
         help="Platform directory under prebuilt/ to manifest (default: ios-arm64).",
     )
+    parser.add_argument(
+        "--merge-existing-inputs",
+        action="store_true",
+        help=(
+            "Preserve input hashes from an existing manifest when this run did "
+            "not emit depfiles for them. Used by libge-only prebuilds so "
+            "unchanged vendor archive inputs remain verified without rebuilding "
+            "vendor libraries."
+        ),
+    )
     args = parser.parse_args()
     platform = args.platform
 
@@ -224,6 +237,12 @@ def main() -> int:
             continue
         inputs[rel] = sha256_file(abs_p)
 
+    if args.merge_existing_inputs and manifest_path.exists():
+        with open(manifest_path) as f:
+            old_manifest = json.load(f)
+        for rel, expected in old_manifest.get("inputs", {}).items():
+            inputs.setdefault(rel, expected)
+
     # Hash the controlling scripts. After tools/prebuild.sh consolidation
     # there is a single unified script driving every platform — a change
     # to it invalidates every platform's manifest, which is the right
@@ -239,7 +258,7 @@ def main() -> int:
     for a in sorted(prebuilt_dir.glob("*.a")):
         prebuilts[a.relative_to(REPO_ROOT).as_posix()] = sha256_file(a)
 
-    toolchain = get_toolchain_ios() if platform == "ios-arm64" else get_toolchain_android()
+    toolchain = get_toolchain_ios(platform) if platform.startswith("ios-") else get_toolchain_android()
 
     manifest = {
         "version": 2,

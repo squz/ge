@@ -39,6 +39,7 @@ require 'xcodeproj'
 require 'pathname'
 require 'fileutils'
 require 'set'
+require 'shellwords'
 
 module GE
   module IOS
@@ -52,6 +53,7 @@ module GE
     GE_DIRECT_SOURCES = %w[
       src/iap_apple.swift
     ].freeze
+    GE_ENGINE_MODES = %i[prebuilt source].freeze
 
     # iOS frameworks ge needs: SDL3 + bgfx/Metal + audio + StoreKit etc.
     FRAMEWORKS = %w[
@@ -107,6 +109,11 @@ module GE
         deployment_target: '16.3',
         device_family: '1,2', # 1=iPhone, 2=iPad
         extra_defines: [],
+        # :prebuilt links ge/prebuilt/*/libge.a (release/CI default).
+        # :source compiles ge C/C++/ObjC++ sources into the app target while
+        # still linking vendor prebuilts. Use for local ge iteration so source
+        # edits don't require re-cooking libge.a first.
+        engine_mode: :prebuilt,
         # When true, the generated xcodeproj supports both iphoneos and
         # iphonesimulator destinations — LIBRARY_SEARCH_PATHS picks the
         # right prebuilt subdir per SDK, and code-sign settings relax
@@ -125,6 +132,10 @@ module GE
         @deployment_target = deployment_target
         @device_family = device_family
         @extra_defines = extra_defines
+        @engine_mode = engine_mode.to_sym
+        unless GE_ENGINE_MODES.include?(@engine_mode)
+          raise ArgumentError, "engine_mode must be one of #{GE_ENGINE_MODES.join(', ')}"
+        end
         @simulator = simulator
 
         # Path defaults — assume the consumer's invocation is from the
@@ -318,13 +329,25 @@ module GE
           add_source_file(path, vendor: false)
         end
 
-        # ge engine sources. (Vendor libs — bgfx, bx, bimg, box2d,
-        # lunasvg, plutovg, sqlite3, lz4, liteparser — are NOT compiled
-        # inline; they're prebuilt static libs under
-        # ge/prebuilt/ios-arm64/ and linked via LINKER_LIBS. See T71.)
-        GE_DIRECT_SOURCES.each do |rel|
+        # ge engine sources. In release/CI mode this is just the Swift bridge;
+        # libge.a supplies the C++ engine. In source mode, compile the same
+        # direct iOS source list tools/prebuild.sh uses, but keep vendor libs
+        # prebuilt.
+        ge_source_rels.each do |rel|
           add_source_file(File.join(@ge_root, rel), vendor: false)
         end
+      end
+
+      def ge_source_rels
+        return GE_DIRECT_SOURCES if @engine_mode == :prebuilt
+
+        manifest = File.join(@ge_root, 'tools/ge-sources.mk')
+        raise "ge source manifest missing: #{manifest}" unless File.exist?(manifest)
+
+        out = `make -s -f #{Shellwords.escape(manifest)} print-direct-ios`
+        raise "failed to read ge direct iOS sources from #{manifest}" unless $?.success?
+
+        GE_DIRECT_SOURCES + out.lines.map(&:strip).reject(&:empty?)
       end
 
       # xcodeproj's `add_file_references(refs, compiler_flags)` takes a
@@ -472,7 +495,8 @@ module GE
       def add_linker_settings!
         # Linker flags for the prebuilt SDL3 + ancillary libs that don't
         # compile from source.
-        flags = LINKER_LIBS.map { |l| "-l#{l}" } + ['-lobjc']
+        libs = @engine_mode == :source ? LINKER_LIBS.reject { |l| l == 'ge' } : LINKER_LIBS
+        flags = libs.map { |l| "-l#{l}" } + ['-lobjc']
         @app_target.build_configurations.each do |config|
           existing = config.build_settings['OTHER_LDFLAGS'] || ''
           config.build_settings['OTHER_LDFLAGS'] = (existing.split + flags).join(' ')
