@@ -663,6 +663,13 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   — convenience shapes built from `line`/`tri`, same two-colour convention
   (alpha-0 skips a layer). `box` is an axis-aligned `ge::Rect` in the z=0 plane;
   `circle` is a `segments`-gon (triangle-fan fill, perimeter outline).
+- **`ge::debug::point(pos, color=magenta)`** (`la::float2` / `la::float3`) — a
+  position marker held at a **fixed perceptual size** (`kPointSizePt`, 4 pt on a
+  side) however far `worldToClip` zooms, so point clouds stay legible. `pos` is
+  projected through `worldToClip`, then expanded to a screen-space quad at
+  `flush` (like `text`), not at the call site — so it adds a `pointItemCount`,
+  not tri/line verts, until flushed. Single fill layer (alpha-0 = no-op). Reach
+  for `circle` instead when you want a dot that scales with the world.
 - **`ge::debug::text(posPx, str, color)`** — single-line monospace HUD text in
   framebuffer-pixel space (top-left origin), independent of `worldToClip`.
 - **`ge::debug::flush(const Context&, worldToClip)`** — draw + clear everything

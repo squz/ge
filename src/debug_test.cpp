@@ -100,6 +100,29 @@ TEST_CASE("ge::debug::circle emits one segment per side, one fan tri per side") 
     CHECK(ge::debug::testing::lineVertexCount() == 0);
 }
 
+TEST_CASE("ge::debug::point queues a marker; the quad is built at flush") {
+    reset(true);
+    ge::debug::point(float2{1.0f, 2.0f});
+    CHECK(ge::debug::testing::pointItemCount() == 1);
+    // Nothing in the tri/line streams yet — a point is a fixed on-screen size,
+    // so its quad can't be built until flush() knows worldToClip + the surface.
+    CHECK(ge::debug::testing::triVertexCount()  == 0);
+    CHECK(ge::debug::testing::lineVertexCount() == 0);
+
+    ge::debug::point(float3{0.0f, 0.0f, 5.0f});  // 3D overload also queues one
+    CHECK(ge::debug::testing::pointItemCount() == 2);
+
+    // alpha 0 is absent, like the other shapes' skipped layers.
+    ge::debug::point(float2{9.0f, 9.0f}, /*color=*/{1, 0, 1, 0});
+    CHECK(ge::debug::testing::pointItemCount() == 2);
+}
+
+TEST_CASE("ge::debug::point is a no-op while disabled") {
+    reset(false);
+    ge::debug::point(float2{1.0f, 2.0f});
+    CHECK(ge::debug::testing::pointItemCount() == 0);
+}
+
 TEST_CASE("ge::debug::mesh ignores a degenerate tail and out-of-range indices") {
     reset(true);
     const float2 verts[] = {{0, 0}, {1, 0}, {0, 1}};

@@ -125,6 +125,23 @@ targets:
     origin: manual
     discovered: 2026-06-04
     achieved: 2026-06-04
+  T104:
+    name: ge::debug::point — fixed-perceptual-size position marker
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::debug::point(la::float2|la::float3 pos, Color = magenta) queues a marker that flush() expands to a screen-space quad of fixed size kPointSizePt (pt), held constant on screen regardless of worldToClip zoom — distinct from circle()'s world-space scaling
+    - Accumulation is a no-op while disabled and for alpha-0 colour; queued markers are counted by testing::pointItemCount() (not tri/line verts) until flushed — unit-tested in debug_test.cpp
+    - Public API documented in include/ge/debug.h and ge/CLAUDE.md; prebuilts rebuilt for all three platforms so consumers link the new symbol
+    context: 'Follow-on to 🎯T102 (ge::debug box + circle). User asked for a point() helper; the key design constraint (from user feedback) is that a sized point would just be a degenerate circle()/box(), so point() is instead a FIXED perceptual size: a small filled square kPointSizePt pt on a side, projected through worldToClip and expanded to a screen-space quad at flush() (same deferred-expansion pattern as text()), so it stays the same on-screen size however far the view zooms out — keeping point clouds legible. No shader change (reuses the tris pipeline with an identity transform for the pre-projected quad).'
+    tags:
+    - ge-debug
+    - rendering
+    - dx
+    origin: manual
+    discovered: 2026-06-04
+    achieved: 2026-06-04
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified

@@ -46,6 +46,11 @@ struct TextItem {
     std::string str;
 };
 
+struct PointItem {
+    la::float3 pos;     // world space; projected through worldToClip at flush
+    uint32_t   abgr;
+};
+
 // ~16k vertices per frame; debug overlays in tiltbuggy / multimaze2 sit far
 // below that. Overflow warns and drops the run rather than corrupting.
 constexpr int   kStreamBufferBytes = 256 * 1024;
@@ -67,6 +72,7 @@ struct State {
     std::vector<DebugVertex> lineVerts;
     std::vector<DebugVertex> triVerts;
     std::vector<TextItem>    texts;
+    std::vector<PointItem>   points;
 };
 
 State& st() {
@@ -279,6 +285,17 @@ void circle(la::float2 center, float radius, la::float4 wireColor,
     }
 }
 
+void point(la::float3 pos, la::float4 color) {
+    if (!enabled() || color.w <= 0.0f) return;   // alpha 0 → absent
+    // Stored, not expanded here: a point is a fixed on-screen size, so the
+    // quad can't be sized until flush() knows worldToClip + the surface.
+    st().points.push_back({pos, packAbgr(color)});
+}
+
+void point(la::float2 pos, la::float4 color) {
+    point(v3(pos), color);
+}
+
 void text(la::float2 posPx, std::string_view str, la::float4 color) {
     if (!enabled()) return;
     st().texts.push_back({posPx, color, std::string(str)});
@@ -293,17 +310,52 @@ void clear() {
     s.lineVerts.clear();
     s.triVerts.clear();
     s.texts.clear();
+    s.points.clear();
 }
 
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
     auto& s = st();
-    if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty()) return;
+    if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty() &&
+        s.points.empty())
+        return;
     if (!ensureState()) { clear(); return; }
 
     if (!s.triVerts.empty())
         drawRun(s.tris, s.triVerts.data(), int(s.triVerts.size()), worldToClip);
     if (!s.lineVerts.empty())
         drawRun(s.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
+
+    // Fixed-perceptual-size points: project each centre through worldToClip,
+    // then expand to a screen-space quad kPointSizePt pt on a side and draw it
+    // with an identity transform — so the dot is a constant on-screen size no
+    // matter how far worldToClip zooms. NDC spans the surface's pt extent, so
+    // the half-extent in NDC is just kPointSizePt/full.{w,h} (the px-per-pt
+    // factor cancels), giving a square in pixels on any aspect / density.
+    if (!s.points.empty()) {
+        const Rect  full = ctx.fullRectInPts();
+        const float hx = full.w > 0.0f ? kPointSizePt / full.w : 0.0f;
+        const float hy = full.h > 0.0f ? kPointSizePt / full.h : 0.0f;
+        std::vector<DebugVertex> quads;
+        quads.reserve(s.points.size() * 6);
+        for (const auto& p : s.points) {
+            const la::float4 clip =
+                la::mul(worldToClip, la::float4{p.pos.x, p.pos.y, p.pos.z, 1.0f});
+            if (clip.w <= 0.0f) continue;   // behind the camera / at infinity
+            const float nx = clip.x / clip.w, ny = clip.y / clip.w,
+                        nz = clip.z / clip.w;
+            const DebugVertex a{nx - hx, ny - hy, nz, p.abgr};
+            const DebugVertex b{nx + hx, ny - hy, nz, p.abgr};
+            const DebugVertex c{nx + hx, ny + hy, nz, p.abgr};
+            const DebugVertex d{nx - hx, ny + hy, nz, p.abgr};
+            quads.insert(quads.end(), {a, b, c, a, c, d});
+        }
+        if (!quads.empty()) {
+            // Corners are already in NDC, so draw with identity (no reprojection).
+            constexpr la::float4x4 kIdentity{{1, 0, 0, 0}, {0, 1, 0, 0},
+                                             {0, 0, 1, 0}, {0, 0, 0, 1}};
+            drawRun(s.tris, quads.data(), int(quads.size()), kIdentity);
+        }
+    }
 
     if (!s.texts.empty()) {
         if (!s.fontTried) {
@@ -343,6 +395,7 @@ namespace testing {
 int lineVertexCount() { return int(st().lineVerts.size()); }
 int triVertexCount()  { return int(st().triVerts.size()); }
 int textItemCount()   { return int(st().texts.size()); }
+int pointItemCount()  { return int(st().points.size()); }
 } // namespace testing
 
 } // namespace ge::debug
