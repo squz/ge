@@ -88,16 +88,44 @@ TEST_CASE("ge::debug::box outlines four edges, fills two triangles") {
     CHECK(ge::debug::testing::lineVertexCount() == 0);
 }
 
-TEST_CASE("ge::debug::circle emits one segment per side, one fan tri per side") {
+TEST_CASE("ge::debug::circle defers tessellation to flush (queues a CircleItem)") {
     reset(true);
-    ge::debug::circle({0.0f, 0.0f}, 1.0f, ge::debug::kWireColor, {}, /*segments=*/8);
-    CHECK(ge::debug::testing::lineVertexCount() == 16);  // 8 segments * 2
+    ge::debug::circle({0.0f, 0.0f}, 1.0f);
+    CHECK(ge::debug::testing::circleItemCount() == 1);
+    // No verts yet — the polygon is built at flush from the on-screen radius,
+    // so its vertex count honours the pt quality at the current zoom.
+    CHECK(ge::debug::testing::lineVertexCount() == 0);
     CHECK(ge::debug::testing::triVertexCount()  == 0);
 
-    reset(true);
-    ge::debug::circle({0.0f, 0.0f}, 1.0f, /*wireColor=*/{}, ge::debug::kFillColor, 8);
-    CHECK(ge::debug::testing::triVertexCount()  == 24);  // 8 fan tris * 3
-    CHECK(ge::debug::testing::lineVertexCount() == 0);
+    ge::debug::circle({1.0f, 1.0f}, 2.0f, /*wire=*/{}, ge::debug::kFillColor);
+    CHECK(ge::debug::testing::circleItemCount() == 2);
+
+    // Both layers absent (alpha 0) → not queued, like the other shapes.
+    ge::debug::circle({0, 0}, 1.0f, /*wire=*/{}, /*fill=*/{});
+    CHECK(ge::debug::testing::circleItemCount() == 2);
+}
+
+TEST_CASE("ge::debug::circle is a no-op while disabled") {
+    reset(false);
+    ge::debug::circle({0, 0}, 1.0f);
+    CHECK(ge::debug::testing::circleItemCount() == 0);
+}
+
+TEST_CASE("ge::debug::segmentsForQuality ~ (pi/2)*sqrt(radius/quality), with floors + cap") {
+    using ge::debug::segmentsForQuality;
+    // Monotonic: bigger on-screen radius, or finer quality, → more vertices.
+    CHECK(segmentsForQuality(100.0f, 2.0f, 0) > segmentsForQuality(25.0f, 2.0f, 0));
+    CHECK(segmentsForQuality(100.0f, 1.0f, 0) > segmentsForQuality(100.0f, 4.0f, 0));
+    // (pi/2)*sqrt(100/2) ~ 11.1 -> 12.
+    CHECK(segmentsForQuality(100.0f, 2.0f, 0) == 12);
+    // Hard floor of 3 when the circle is at/under tolerance (radius <= quality).
+    CHECK(segmentsForQuality(1.0f, 2.0f, 0) == 3);
+    CHECK(segmentsForQuality(0.0f, 2.0f, 0) == 3);
+    // minVerts raises the floor; degenerate quality floors rather than NaNs.
+    CHECK(segmentsForQuality(1.0f, 2.0f, 16) == 16);
+    CHECK(segmentsForQuality(100.0f, 0.0f, 8) == 8);
+    // Capped, so a pathological zoom-in can't explode the vertex count.
+    CHECK(segmentsForQuality(1.0e9f, 0.001f, 0) == 256);
 }
 
 TEST_CASE("ge::debug::point queues a marker; the quad is built at flush") {

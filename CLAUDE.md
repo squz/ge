@@ -659,10 +659,18 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   skips that layer — so the default is a magenta wireframe with no fill; pass a
   `fillColor` for a tint, or both for filled-and-outlined (fill under wire) in one
   call. Out-of-range indices and a non-multiple-of-3 tail are skipped with a warning.
-- **`ge::debug::box(rect, wireColor=magenta, fillColor={})` / `circle(center, radius, wireColor=magenta, fillColor={}, segments=32)`**
-  — convenience shapes built from `line`/`tri`, same two-colour convention
-  (alpha-0 skips a layer). `box` is an axis-aligned `ge::Rect` in the z=0 plane;
-  `circle` is a `segments`-gon (triangle-fan fill, perimeter outline).
+- **`ge::debug::box(rect, wireColor=magenta, fillColor={})`** — convenience
+  shape built from `line`/`tri`, same two-colour convention (alpha-0 skips a
+  layer); an axis-aligned `ge::Rect` in the z=0 plane.
+- **`ge::debug::circle(center, radius, wireColor=magenta, fillColor={}, quality=2pt, minVerts=0)`**
+  — you specify a **quality** (max on-screen polygon↔circle gap in pt), not a
+  vertex count; the engine resolves the count at `flush` against `worldToClip`,
+  so circles stay smooth zoomed in and cheap zoomed out. The polygon is
+  *balanced* (vertices ~quality outside, edge midpoints ~quality inside),
+  halving the count vs. an inscribed polygon. `minVerts` floors the count (hard
+  floor 3). Like `point`, it adds a `circleItemCount` until flushed.
+  `ge::debug::segmentsForQuality(radiusPt, qualityPt, minVerts)` exposes the
+  policy for callers tessellating their own arcs.
 - **`ge::debug::point(pos, color=magenta)`** (`la::float2` / `la::float3`) — a
   position marker held at a **fixed perceptual size** (`kPointSizePt`, 4 pt on a
   side) however far `worldToClip` zooms, so point clouds stay legible. `pos` is

@@ -142,6 +142,24 @@ targets:
     origin: manual
     discovered: 2026-06-04
     achieved: 2026-06-04
+  T105:
+    name: ge::debug::circle is tessellated by perceptual quality, not a vertex count
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - circle()'s segments parameter is replaced by quality (max on-screen polygon↔circle gap in pt, default kCircleQualityPt = 2) + optional minVerts; the vertex count is resolved at flush() from the on-screen radius (worldToClip), so smoothness is zoom-independent
+    - 'The polygon is balanced: vertices ~quality outside the circle, edge midpoints ~quality inside (Rv = 2r/(1+cos(π/n))) — ~half the vertices of an inscribed polygon for the same worst-case error'
+    - ge::debug::segmentsForQuality(radiusPt, qualityPt, minVerts) exposes the policy ((π/2)·√(radius/quality), floored at max(3,minVerts), capped at 256) and is unit-tested; circle() defers like point() (counted by testing::circleItemCount until flushed)
+    - Public API documented in include/ge/debug.h + ge/CLAUDE.md; prebuilts rebuilt for all three platforms
+    context: Sibling to 🎯T104 (point). User wanted to stop picking circle() segment counts and instead specify a perceptual quality (max polygon-to-circle distance in pt), with an optional minVerts floor. Because the error is in pt, the count needs the on-screen radius — resolved at flush against worldToClip, same deferral as point(). Per user steer, the metric is simple (small-angle n ≈ (π/2)·√(r/q)) rather than mathematically exact, and the polygon is balanced (vertices out, edges in, equal deviation) which roughly halves the vertex count vs an inscribed polygon. Breaking API change (segments→quality); only caller passing segments was the unit test (tiltbuggy uses defaults). Bundled with T104 in the feat/ge-debug-point branch / PR.
+    tags:
+    - ge-debug
+    - rendering
+    - dx
+    origin: manual
+    discovered: 2026-06-04
+    achieved: 2026-06-04
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
