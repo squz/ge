@@ -130,7 +130,7 @@ case "$PLATFORM" in
     AR="$NDK_BIN/llvm-ar"
     AR_FLAGS=(rcs)
     COMMON_FLAGS+=(
-      --target=aarch64-none-linux-android26
+      --target=aarch64-none-linux-android35
       --sysroot="$NDK_SYSROOT"
       -fPIC -DANDROID -D__ANDROID__
     )
@@ -317,10 +317,11 @@ GE_INCLUDES=(
 GE_SHADER_OUT_DIR="$OBJ_DIR/ge-shaders"
 mkdir -p "$GE_SHADER_OUT_DIR"
 SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
-# metal_sim (🎯T84): the iOS Simulator reports SG_BACKEND_METAL_SIMULATOR,
+# metal_sim (T84): the iOS Simulator reports SG_BACKEND_METAL_SIMULATOR,
 # so the headers need a metal_sim slot or sg_make_shader aborts there.
-# Keep this lang list in sync with Module.mk's ge/SOKOL_SHDC_LANGS.
-GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es"
+# spirv_vk is required by the experimental Android Vulkan path. Keep this
+# lang list in sync with Module.mk's ge/SOKOL_SHDC_LANGS.
+GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk"
 for sh in ge_sprite ge_debug; do
   "$SOKOL_SHDC" -i "src/render/shaders/$sh.glsl" \
                 -o "$GE_SHADER_OUT_DIR/$sh.h" \

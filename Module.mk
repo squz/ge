@@ -132,14 +132,15 @@ ge/SOKOL_SHDC = $(ge)/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sok
 # sokol_gfx picks the right one based on sg_query_backend(). The set is
 # the union of every backend SokolContext.mm / SokolContext_android.cpp
 # can pick: Metal on macOS + iOS device + iOS simulator, GLES3 (GLSL
-# 300 es) on Android GLES.
+# 300 es) for the legacy Android path, and Vulkan SPIR-V for the
+# experimental Android Vulkan path.
 #
 # metal_sim (🎯T84) is mandatory: the Apple-Silicon iOS Simulator reports
 # SG_BACKEND_METAL_SIMULATOR from sg_query_backend(), a distinct enum from
 # SG_BACKEND_METAL_IOS. Without a metal_sim slot the generated
 # <name>_shader_desc() returns NULL for that backend and sg_make_shader
 # aborts ("Assertion failed: (desc)") on the first SpriteBatch::submit.
-ge/SOKOL_SHDC_LANGS ?= metal_macos:metal_ios:metal_sim:glsl300es
+ge/SOKOL_SHDC_LANGS ?= metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk
 
 # Parent defines its shader source directory (default `shaders`).
 ge/SHADER_DIR ?= shaders

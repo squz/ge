@@ -7,7 +7,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "61eef450d6c7b7b347be830e8b1a8dafaa1a315a1c3248b1389bb24d66ff1224",
+    "tools/prebuild.sh": "7e5bbcae3ff3a0fde144fa4160957cc70ffcf887022ccb37575f664adb6bb00d",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "27aea5250307f896351abb17540e7faa85e7503662d6421ec0c85baadc7ac921"
   },
@@ -27,12 +27,12 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
-    "prebuilt/android-arm64/libge.a": "ac967ecc75e552b19b7d19ddf9751b680f49918348a8077f99355bd473ffba04",
+    "prebuilt/android-arm64/libbox2d.a": "b72375eeed0028cecbcce268f2c16427134e32f461870859f51aa93230864e39",
+    "prebuilt/android-arm64/libge.a": "76dce8a25848623fb8bd30a8b46fde1e4e058457077a8a4a2a7148d62c75465a",
     "prebuilt/android-arm64/libliteparser.a": "ab444e1270fd03c88ceb27fb93e8185b5a9ecf48c961e03cddae9c2698d5193c",
     "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
-    "prebuilt/android-arm64/libplutovg_ge.a": "443c764b969c908d01b338b92f1e2081109f40ae0fe57e9c6acb9841edb175ff",
+    "prebuilt/android-arm64/libplutovg_ge.a": "bb6440ed6ff330b03d53ba1ff53516584c6b0d681b1448e4bb38fb53f9d3cbf4",
     "prebuilt/android-arm64/libsqlite3_ge.a": "3c98d9537364e9a04b63c470098ddd897c36b4c1d7c0d66f47486b5e768eaee1"
   },
   "inputs": {
@@ -99,6 +99,7 @@
     "headers/sdl3/include/SDL3/SDL_tray.h": "65d74cb1727af7cb9029cbdad9cd6d0a7b9fe782efef05fec89fff267ca45036",
     "headers/sdl3/include/SDL3/SDL_version.h": "e51b8114aecab6a7a7134e3682e45ec8123558bcb76d9e9737864176b069c6c1",
     "headers/sdl3/include/SDL3/SDL_video.h": "46fc75b403c5d9ec5a9e3cd258cce38d59ec2d3c5c2fc4fde1d9637fc811fe77",
+    "headers/sdl3/include/SDL3/SDL_vulkan.h": "a0d1b8c6a2a7982e419dbdb8ea60fce09e99390238634ca117d82442953a4e1c",
     "headers/sdl3/include/freetype/config/ftconfig.h": "d4d3f993f3db4c22229f60fc031a81f5632add9a332552540e34ec85ea589c8a",
     "headers/sdl3/include/freetype/config/ftheader.h": "a108f40ae2861dbf363b247317a79b182018ea6a5e6aa51bcdf94ffd455139f7",
     "headers/sdl3/include/freetype/config/ftoption.h": "599b0d769c04afc3bcae8dd4d07712fda9a5698d712b83835634719b2f4b74c0",
@@ -197,7 +198,7 @@
     "src/SdlContext_android.cpp": "9877caf9cdad736c025a3c2eb5a519c77ac1cf400fbc604b1bf319927a7ced6a",
     "src/SessionHost.mm": "7407bdbf34a9b871f6a9a3d94367c8f68049b1b455cc92afb620488904efa2f4",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
-    "src/SokolContext_android.cpp": "ef0e3f829f7dc12fd830c3135451d19a1ea9d3626af9a370344eb458dca35bbb",
+    "src/SokolContext_android.cpp": "bc1a4908aaf6857cbda506bc5de1ed6362ba1d186583780c7a4447cd11549535",
     "src/appchannel.cpp": "6d93311ad47963a10f9450ce8772f5ef5f186c5ec18aaa4d19dda3e6a596cb34",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",

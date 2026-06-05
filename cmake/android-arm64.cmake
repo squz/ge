@@ -149,5 +149,5 @@ target_link_libraries(ge INTERFACE
     SDL3::SDL3
     SDL3_image::SDL3_image
     SDL3_ttf::SDL3_ttf
-    android log EGL GLESv3
+    android log vulkan
 )
