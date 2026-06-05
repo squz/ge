@@ -178,6 +178,47 @@ targets:
     - debug-overlay
     origin: manual
     discovered: 2026-06-04
+  T107:
+    name: ge's Android renderer backend selection is production-robust across Vulkan and GLES devices
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Research notes document sokol_gfx's Android Vulkan requirements, including required API level, required instance/device extensions, required feature structs, and which requirements can be satisfied via dynamic function loading versus raising minSdk.
+    - 'The research output separates two questions: the now-understood sokol Vulkan integration contract (ge owns instance/device/swapchain and feeds sg_desc/sg_pass the Vulkan handles) versus the Android portability policy (which OS/API/device-extension combinations should use Vulkan in production).'
+    - 'ge has a proposed backend-selection policy for Android: when to prefer Vulkan, when to fall back to GLES, how to detect unsupported devices before sg_setup, and how to log the chosen path with enough detail for field diagnosis.'
+    - The Android package design supports both SOKOL_VULKAN and SOKOL_GLES3 without duplicate sg_* symbol conflicts, e.g. by using isolated native libraries/modules and loading exactly one backend before SDL_main/app construction.
+    - 'A pre-native bootstrap probes the exact Sokol Vulkan contract before renderer startup: Vulkan API >= 1.3, VK_EXT_descriptor_buffer extension and descriptorBuffer feature, bufferDeviceAddress, dynamicRendering, synchronization2, graphics+present queue, compatible surface format, composite alpha, swapchain usage flags, and successful minimal swapchain viability.'
+    - Devices that fail any Vulkan probe choose GLES before sg_setup/app construction; app code never observes a partially initialized Sokol backend and never reaches sg_make_* with _sg.valid false.
+    - Startup logs record renderer decision and rejection reason, e.g. accepted Vulkan with device/API/extensions or rejected Vulkan due to missing VK_EXT_descriptor_buffer and selected GLES.
+    - 'The policy explicitly covers the multimaze2 experiment results: Pixel Tablet ran the Vulkan path after enabling descriptor-buffer features; ASUSAI2501C required VK_EXT_debug_utils for debug object labels and then ran; SM-G9980/S21 advertises Vulkan 1.1 and should select GLES; SM-X110/Tab A9 advertises Vulkan 1.3 but lacks VK_EXT_descriptor_buffer and should select GLES.'
+    - 'A device-test matrix is defined before production rollout: at minimum Pixel Tablet, ASUSAI2501C, SM-G9980/S21, SM-X110/Tab A9, and one Android emulator; each records Vulkan feature/extension support, selected backend, launch result, screenshot/readback status, and frame pacing.'
+    - Shader/resource packaging includes both spirv_vk and essl variants needed by the selected backend, and Android distribution/smoke tests cover both Vulkan-accepted and GLES-fallback launches.
+    - ge's production plan keeps GLES as a fallback unless the research proves the supported-device set can safely require the Vulkan feature set; screenshot/readback parity is included in the go/no-go criteria.
+    context: |-
+      Filed from multimaze2's T27 lighting-performance investigation. The experimental Vulkan path in ge was deliberately sharp-edged: Android SokolContext was switched from GLES3/EGL to SOKOL_VULKAN, app and ge shader generation added spirv_vk, android-arm64 link switched from EGL/GLESv3 to vulkan, and the prebuilt was rebuilt.
+
+      Findings so far:
+      - sokol_gfx's Vulkan backend expects the engine to own Vulkan instance/device/swapchain setup; it is not a one-flag swap from the GLES path.
+      - The broad sokol contract is understood: sg_setup() needs sg_desc.environment.vulkan populated with instance / physical device / logical device / queue / queue family; every swapchain pass needs sg_pass.swapchain.vulkan populated with the current swapchain image/view plus present/render semaphores; shaders must include a spirv_vk variant; screenshot/readback needs a separate Vulkan implementation.
+      - Current vendored Sokol actively loads and uses VK_EXT_descriptor_buffer entry points, including vkGetDescriptorSetLayoutSizeEXT, vkGetDescriptorSetLayoutBindingOffsetEXT, vkGetDescriptorEXT, vkCmdBindDescriptorBuffersEXT, and vkCmdSetDescriptorBufferOffsetsEXT.
+      - Directly linking against the Vulkan functions used by current sokol forced API 35 in the experiment because API 26 libvulkan lacked Vulkan 1.3-style entry points.
+      - Enabling VK_EXT_descriptor_buffer plus dynamic-rendering / synchronization2 / buffer-device-address features got Pixel Tablet past sg_setup and running.
+      - ASUSAI2501C exposed an additional debug-only failure: sokol tried to label Vulkan objects via vkSetDebugUtilsObjectNameEXT, so VK_EXT_debug_utils had to be enabled when available. After that, ASUS launched and rendered via Vulkan.
+      - Samsung compatibility tests on 2026-06-05 showed why Vulkan-only is unsafe: SM-G9980/S21 advertises Vulkan 1.1 and crashes with sg_make_image assertion _sg.valid because the Vulkan backend never initializes; SM-X110/Tab A9 advertises Vulkan 1.3 and has dynamicRendering/synchronization2/bufferDeviceAddress, but vkjson does not show VK_EXT_descriptor_buffer and it crashes the same way.
+      - Reference-only draft PR preserving the force-Vulkan experiment: https://github.com/squz/ge/pull/140
+
+      Production concern: Vulkan may help performance on modern Android hardware, but making it the only Android backend risks discovering extension/feature quirks in the field. Because SOKOL_VULKAN and SOKOL_GLES3 are compile-time backends sharing sg_* symbols, robust production fallback likely requires pre-load/pre-init backend selection with isolated native implementations rather than runtime switching inside one Sokol instance.
+    tags:
+    - multimaze-audit
+    - android
+    - sokol
+    - vulkan
+    - gles
+    - fallback
+    - renderer-robustness
+    origin: multimaze2 Android Vulkan compatibility testing, updated 2026-06-05
+    discovered: 2026-06-04
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
