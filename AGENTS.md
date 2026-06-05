@@ -1,6 +1,6 @@
 # ge/ Engine Module
 
-This file and `AGENTS.md` carry the same repository instructions for different
+This file and `CLAUDE.md` carry the same repository instructions for different
 agent runtimes. Keep them in sync when changing repo guidance.
 
 **IMPORTANT: When creating any artefact — code, targets, documentation, plans, tests — always consider whether it belongs in `ge/` (general-purpose engine, usable by any app) or in the parent project (game-specific logic). If unsure, ask before creating it.** Anything concerning the player, ged, wire protocol, engine infrastructure, or engine design belongs in `ge/`, not the consuming project.
@@ -908,7 +908,7 @@ make unit-test    # Build and run ge unit tests
 - `imgdiff::` — Image comparison utilities
 - Top-level — `DampedRotation`, `DampedValue`, `DeltaTimer`, `SdlContext`
 
-## Working with Claude Code
+## Working with Agents
 
 ### Modifying the engine
 
@@ -932,9 +932,9 @@ Protocol changes require updating both `SessionHost.mm` (server side) and `playe
 
 1. Header in `include/ge/ClassName.h`
 2. Implementation in `src/ClassName.cpp` (or `.mm` for ObjC++)
-3. Use pImpl for classes that pull in bgfx/SDL/asio headers (see parent project's CLAUDE.md for pImpl guidelines)
+3. Use pImpl for classes that pull in bgfx/SDL/asio headers (see parent project's AGENTS.md for pImpl guidelines)
 4. Add to `ge/SRC` in `Module.mk` if it's a new source file
-5. Update this CLAUDE.md's Public API section
+5. Update this AGENTS.md's Public API section
 
 ### Mobile smoke testing
 
