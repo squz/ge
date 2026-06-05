@@ -34,6 +34,17 @@ class BuildProjectTest < Minitest::Test
     # Stub Swift source referenced by GE_DIRECT_SOURCES.
     File.write(File.join(@ge_root, 'src/iap_apple.swift'), "// stub\n")
 
+    FileUtils.mkdir_p(File.join(@ge_root, 'tools'))
+    File.write(
+      File.join(@ge_root, 'tools/ge-sources.mk'),
+      "print-direct-ios:\n\t@printf '%s\\n' src/debug.cpp src/SessionHost.mm vendor/src/sqlpipe.cpp\n"
+    )
+    %w[src/debug.cpp src/SessionHost.mm vendor/src/sqlpipe.cpp].each do |rel|
+      abs = File.join(@ge_root, rel)
+      FileUtils.mkdir_p(File.dirname(abs))
+      File.write(abs, "// stub\n")
+    end
+
     ENV['APPLE_TEAM_ID'] ||= 'TESTTEAMID'
   end
 
@@ -48,7 +59,7 @@ class BuildProjectTest < Minitest::Test
     abs
   end
 
-  def build(resources:)
+  def build(resources:, engine_mode: :prebuilt)
     GE::IOS::ProjectBuilder.new(
       app_name: 'TestApp',
       bundle_id: 'com.example.testapp',
@@ -59,9 +70,15 @@ class BuildProjectTest < Minitest::Test
       project_root: @project_root,
       ge_root: @ge_root,
       resources: resources,
+      engine_mode: engine_mode,
     ).generate
 
     Xcodeproj::Project.open(File.join(@ios_dir, 'TestApp.xcodeproj'))
+  end
+
+  def source_phase_paths(project)
+    target = project.targets.first
+    target.source_build_phase.files.map { |bf| bf.file_ref.path }
   end
 
   def copy_files_phases(project)
@@ -285,5 +302,29 @@ class BuildProjectTest < Minitest::Test
     refute_match(%r{headers/bgfx/include}, paths, "bgfx headers should not be on the include path")
     refute_match(%r{headers/bx/include},   paths, "bx headers should not be on the include path")
     refute_match(%r{headers/bimg/include}, paths, "bimg headers should not be on the include path")
+  end
+
+  def test_prebuilt_engine_mode_links_libge_and_only_direct_swift_source
+    project = build(resources: [], engine_mode: :prebuilt)
+    target = project.targets.first
+    config = target.build_configurations.first
+
+    assert_match(/\-lge\b/, setting_str(config, 'OTHER_LDFLAGS'))
+    paths = source_phase_paths(project)
+    assert_includes paths, '../ge/src/iap_apple.swift'
+    refute_includes paths, '../ge/src/debug.cpp'
+  end
+
+  def test_source_engine_mode_compiles_ge_sources_and_drops_libge_link
+    project = build(resources: [], engine_mode: :source)
+    target = project.targets.first
+    config = target.build_configurations.first
+
+    refute_match(/\-lge\b/, setting_str(config, 'OTHER_LDFLAGS'))
+    paths = source_phase_paths(project)
+    assert_includes paths, '../ge/src/iap_apple.swift'
+    assert_includes paths, '../ge/src/debug.cpp'
+    assert_includes paths, '../ge/src/SessionHost.mm'
+    assert_includes paths, '../ge/vendor/src/sqlpipe.cpp'
   end
 end
