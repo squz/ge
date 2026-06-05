@@ -7,8 +7,10 @@ agent runtimes. Keep them in sync when changing repo guidance.
 
 Reusable rendering and streaming engine built on bgfx + SDL3. Consumed as a git submodule; build integration via `Module.mk`.
 
-homebrew_tap: disabled  <!-- ge is a library consumed via git submodule; no binary to ship through brew. -->
-profile: game  <!-- interactive rendering + streaming; "tests pass" doesn't guarantee visual correctness. -->
+homebrew_tap: disabled
+<!-- ge is a library consumed via git submodule; no binary to ship through brew. -->
+profile: game
+<!-- interactive rendering + streaming; "tests pass" doesn't guarantee visual correctness. -->
 
 Apps built on ge use a **server/player architecture**: the app (server) renders headless via bgfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
 
