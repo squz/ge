@@ -117,10 +117,12 @@ void text(la::float2 posPx, std::string_view str, Color color = kTextColor);
 
 // ── flush ────────────────────────────────────────────────────────────────
 // Draw everything accumulated since the last flush into the active render
-// pass, then clear. `worldToClip` transforms line / tri / mesh coords to clip
-// space; `ctx` supplies the surface size for projecting pixel-space text. Call
-// once per frame after your scene. A no-op (bar clearing) while disabled or
-// when nothing was queued — GPU resources are created lazily on first use.
+// pass, then clear. When the overlay is enabled, flush also draws a small
+// smoothed FPS readout in the top-right corner. `worldToClip` transforms line /
+// tri / mesh coords to clip space; `ctx` supplies the surface size for
+// projecting pixel-space text. Call once per frame after your scene. A no-op
+// while disabled; while enabled, it still draws FPS even when no other debug
+// primitives were queued. GPU resources are created lazily on first use.
 void flush(const Context& ctx, const la::float4x4& worldToClip);
 
 // Discard queued primitives without drawing (e.g. a frame you skip).
