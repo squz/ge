@@ -20,10 +20,13 @@
 #define SOKOL_IMPL
 #include "sokol_gfx.h"          // IMPL only (public section already guarded)
 
+// Returns this .so's sg_* table; libge's SokolContext installs it via its own
+// ge_sokol_set_api. Returning (rather than calling back) keeps the .so free of
+// any libge symbol dependency — it exports one symbol and imports none from ge.
 __attribute__((visibility("default")))
-void ge_sokol_bind_gles(void) {
+const ge_sg_api* ge_sokol_bind_gles(void) {
     static ge_sg_api a;
     ge_sg_api* _a = &a;
 #include "ge_sokol_fill.inc"     // _a->sg_X = sg_X;  (this .so's hidden impl)
-    ge_sokol_set_api(&a);
+    return &a;
 }

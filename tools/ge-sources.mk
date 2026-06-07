@@ -76,7 +76,12 @@ GE_SRC_ANDROID := \
 	src/iap_android.cpp \
 	src/log_android.cpp \
 	src/SokolContext_android.cpp \
-	src/render/RefreshRateBoost_android.cpp
+	src/render/RefreshRateBoost_android.cpp \
+	tools/sokol-dispatch/generated/ge_sokol_dispatch.c
+# 🎯T107: the sokol IMPL is NOT in libge on Android — it lives in
+# libgesokol-{gles,vk}.so. libge instead links the generated dispatch shim
+# (real sg_* → the table a backend .so installs). Apple keeps SOKOL_IMPL inline
+# in SokolContext.mm (one backend), so GE_SRC_APPLE is unchanged.
 
 # ── desktop / no-mobile stubs ──────────────────────────────────────
 # Linux/macOS desktop and Apple platforms that don't have an Immersive

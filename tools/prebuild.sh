@@ -369,6 +369,7 @@ GE_INCLUDES=(
   -I include
   -I vendor/include
   -I vendor/github.com/floooh/sokol
+  -I tools/sokol-dispatch/generated   # 🎯T107 dispatch shim header (Android libge)
   -I headers/spdlog/include
   -I headers/asio/include
   -I headers/sdl3/include

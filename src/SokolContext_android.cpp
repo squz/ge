@@ -38,10 +38,20 @@
 #include <cstring>
 #include <vector>
 
-#define SOKOL_IMPL
+// 🎯T107: the sokol GLES *implementation* lives in libgesokol-gles.so (a
+// separate per-backend .so). This TU is now pure backend glue (window / EGL /
+// swapchain); its sg_* calls resolve to libge's dispatch shim, which forwards
+// to whichever backend .so was bound. No SOKOL_IMPL here.
 #define SOKOL_GLES3
 #include "sokol_gfx.h"
 #include "sokol_log.h"
+#include "ge_sokol_dispatch.h"   // ge_sg_api, ge_sokol_set_api (libge shim)
+
+// The GLES backend .so (NEEDED by the consumer's libmain.so) returns its sg_*
+// table; we install it before sg_setup so every sg_* call across libge reaches
+// it. Runtime backend selection (probe → dlopen libgesokol-{vk,gles}.so)
+// supersedes this direct call.
+extern "C" const ge_sg_api* ge_sokol_bind_gles(void);
 
 namespace ge {
 
@@ -157,6 +167,9 @@ SokolContext::SokolContext(const SokolConfig& config)
     desc.environment.defaults.depth_format = SG_PIXELFORMAT_NONE;
     desc.environment.defaults.sample_count = 1;
     desc.logger.func = sokolLog;
+    // Install the GLES backend's sg_* into the dispatch table before sg_setup,
+    // so every sg_* call (here and across libge) reaches it (🎯T107).
+    ge_sokol_set_api(ge_sokol_bind_gles());
     sg_setup(&desc);
     if (!sg_isvalid()) {
         SPDLOG_ERROR("sg_setup failed");

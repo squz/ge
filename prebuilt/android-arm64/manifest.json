@@ -7,7 +7,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "5a8eb3f85d47ef7ad4a2bf0c4217907772f9585e5e1c9f730b0c9e0ec798fbc4",
+    "tools/prebuild.sh": "f3d87a9b686b7a60672bc5f8bc74d59360d5dcad5c4f3b06b90eb5e2dc9cf44e",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
   },
@@ -28,7 +28,7 @@
   },
   "prebuilts": {
     "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
-    "prebuilt/android-arm64/libge.a": "c9b954543d4247dfcaa9d1afff9bc619c91d60ee138ec91df20bc54e2d9e534b",
+    "prebuilt/android-arm64/libge.a": "23729131db430ac7f4e7d2ec01f7a1edb67106e83df2e6a7795c86ba6e7918b1",
     "prebuilt/android-arm64/libliteparser.a": "ab444e1270fd03c88ceb27fb93e8185b5a9ecf48c961e03cddae9c2698d5193c",
     "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
@@ -197,7 +197,7 @@
     "src/SdlContext_android.cpp": "9877caf9cdad736c025a3c2eb5a519c77ac1cf400fbc604b1bf319927a7ced6a",
     "src/SessionHost.mm": "7407bdbf34a9b871f6a9a3d94367c8f68049b1b455cc92afb620488904efa2f4",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
-    "src/SokolContext_android.cpp": "ef0e3f829f7dc12fd830c3135451d19a1ea9d3626af9a370344eb458dca35bbb",
+    "src/SokolContext_android.cpp": "30468f9a6ccf25d962f55049e465ea73e84f218718ad3f6fd17cde64fb8ec550",
     "src/appchannel.cpp": "6d93311ad47963a10f9450ce8772f5ef5f186c5ec18aaa4d19dda3e6a596cb34",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",
@@ -222,6 +222,8 @@
     "src/text.cpp": "74cc358d313bcb52962940ff7ba0380c14d5d895c51813f3a5a4ff9d87735cdb",
     "tools/player_orientation.h": "2ec92259560949274d24612a9be5cd34038a76cdf45f53bb80180f8d8447396d",
     "tools/player_orientation_stub.cpp": "8423e7f1b6b5452383430f7011741a592e1f31d0906882269b9495ee757410f7",
+    "tools/sokol-dispatch/generated/ge_sokol_dispatch.c": "94a519f3a76a75653b7435ce654b74177a36755ff7d9fe96a21930e33bb95f66",
+    "tools/sokol-dispatch/generated/ge_sokol_dispatch.h": "484a3eb5f720b28cb311168faa58673f0f57f25faa5b517878d2598bc44d4613",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "63d9b88aeddd78beaaad65f16e9cdf08a24745a0a60a924b502aece7b4ebfec3",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
     "vendor/github.com/sqliteai/liteparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
