@@ -149,5 +149,13 @@ target_link_libraries(ge INTERFACE
     SDL3::SDL3
     SDL3_image::SDL3_image
     SDL3_ttf::SDL3_ttf
+    # SDL3_ttf links its vendored FreeType/HarfBuzz *privately*, so their
+    # symbols don't reach a consumer's libmain.so. libge.a's text.cpp
+    # (ge::rasterizeText / ge::debug::text) references FT_* directly, so a
+    # consumer that actually pulls text.o (e.g. tiltbuggy's debug overlay)
+    # needs FreeType on its own link line. Static linking only pulls these
+    # in on demand, so consumers that don't use text (e.g. multimaze2) are
+    # unaffected. (🎯T30 / 🎯T107 prerequisite.)
+    freetype harfbuzz
     android log EGL GLESv3
 )
