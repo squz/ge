@@ -464,6 +464,21 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to ged at `localhost:42069
 
 **iOS and Android player builds are currently broken** — they still reference Dawn/WebGPU and need to be ported to bgfx + H.264 decode. The CMakeLists files and build scripts have been scrubbed of Dawn references and marked TODO.
 
+### iOS code signing — development vs ship (🎯T110)
+
+Two signing paths, deliberately separate. `build_project.rb` owns the `CODE_SIGN_*` settings — **never hand-edit signing into the generated xcodeproj.**
+
+- **Development — `make ge/ios-device`** (install on your own test devices). Debug build with `GE_IOS_SIGNING=development` → **Automatic** signing + **Apple Development** (no match, no shared secret), paired with `xcodebuild -allowProvisioningUpdates`. Each developer signs with **their own** cert; iOS devices accumulate multiple dev certs fine, so "different developers, different certs" is a non-problem at the dev layer (match would be *worse* here — shared secret, single point of failure). Sim builds (`make ge/ios`) don't sign.
+- **Ship — `make ge/ios-device-release`** (TestFlight / App Store). Release build, default `GE_IOS_SIGNING=appstore` → **Manual** + **Apple Distribution (Squz)** + the **match**-installed `match AppStore <bundle>` profile. The Distribution cert is the one identity that genuinely must be shared, so it lives in match (`fastlane/Fastfile`, `MATCH_PASSWORD` + ASC API key). See [[project_squz_cert_policy]].
+
+**The Apple model in one line:** a *certificate* says **who** signed; a *provisioning profile* says **what that signature may do** (which app, which devices — or any device for App Store — which entitlements). The cert's display name (`Apple Development: MARCELO CANTOS`) names the *member*; the `TeamIdentifier` (`SWA3H3N7TW`) is what attributes the build to **Squz**. They are not the same entity — a dev cert under Team Squz is still a Squz build.
+
+**A new device needs one-time enrollment.** `-allowProvisioningUpdates` reuses *already-registered* devices but will **not** enroll a brand-new one headlessly (`error: Device … isn't registered`). Today: connect it and Run once from Xcode (which enrolls it), then every later CLI build/deploy just works. The headless equivalent — a `fastlane register_devices` step keyed on the ASC API key — is the open piece of 🎯T110; until it lands, a never-before-seen device needs that single Xcode Run. Enrollment is **once per device, ever** — not per build.
+
+**Deployment floor is iOS 16.3** (`build_project.rb` default). Dropping to iOS 15 buys ~2–4% of old/weak/low-spend devices and costs `@available` guards around the iOS-16+ orientation-lock stack — not worth it.
+
+**Installing to a device:** modern devices via `spyder deploy_app` (or Apple `devicectl`, iOS 17+ only); iOS ≤16 devices use go-ios's lockdown path (spyder's high-level deploy/launch/screenshot assume the iOS-17 RemoteXPC tunnel — gap tracked as spyder 🎯T78).
+
 ### iOS orientation lock (iPadOS 26+)
 
 **Locking iPad orientation is a TWO-knob setup, and you need both:**
