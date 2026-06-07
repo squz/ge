@@ -150,11 +150,19 @@ selected backend, launch result, screenshot/readback status, and frame pacing.
 | Samsung S21 / SM-G9980 | — | **1.1** | n/a | FALLBACK_GLES `[device Vulkan < 1.3]` | experiment (PR #140), not re-run |
 | Android emulator | SwiftShader/host | varies | varies | (to record) | pending |
 
-**Launch / screenshot / pacing rows** (the app-level smoke half) are filled by
-the dual-variant smoke test: launch `libmain-vk.so` on the Pixel Tablet
-(Vulkan-accepted path) and `libmain-gles.so` on the Tab A9 (GLES-fallback
-path), each verified via `spyder`/app-channel screenshot + readback, and
-recorded here.
+**Launch results (app-level smoke):**
+
+| Device | Backend | Launch / render | Source |
+|---|---|---|---|
+| Tab A9 / SM-X110 | **GLES3** (today's path) | ✅ tiltbuggy launches + renders (button, title, playfield, buggy) | ✅ device-verified 2026-06-07 |
+| Pixel Tablet | Vulkan | (pending the plugin + `libgesokol-vk.so`) | — |
+
+The Tab A9 row is the **GLES-fallback half proven on real hardware**: the
+device the probe routes to GLES launches and renders correctly with today's
+binary. The Pixel/Vulkan launch row is filled once the plugin refactor +
+`libgesokol-vk.so` land. (Establishing this baseline also required a FreeType
+link fix — see 🎯T30 commit — since `libge.a`'s `text.o` referenced `FT_*`
+that SDL3_ttf hid privately.)
 
 ## 5. Go / no-go for shipping Vulkan on Android
 
