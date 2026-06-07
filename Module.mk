@@ -729,6 +729,28 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    -allowProvisioningUpdates \
 	    build
 
+# ── iOS physical-device DEVELOPMENT build (deploy to your own devices) ─
+# `make ge/ios-device` builds a Debug, development-signed .app for installing
+# on a developer's own registered test devices. GE_IOS_SIGNING=development makes
+# build_project.rb emit Automatic signing + Apple Development (no match), and
+# `-allowProvisioningUpdates` lets Xcode mint/renew the per-developer dev cert,
+# create the Team Provisioning Profile, and register any connected+trusted
+# device. No shared certs, no match passphrase — each developer signs with their
+# own identity (the ship path stays on match AppStore via ge/ios-device-release).
+.PHONY: ge/ios-device
+ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
+	@if [ ! -d ios ]; then \
+	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
+	    exit 1; \
+	fi
+	GE_IOS_SIGNING=development bundle exec ruby ios/project.rb
+	cd ios && xcodebuild \
+	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
+	    -configuration Debug -destination "generic/platform=iOS" \
+	    -derivedDataPath build-device-dev \
+	    -allowProvisioningUpdates \
+	    build
+
 # (ge player iOS physical-device build target retired in 🎯T73.3 — see
 # the player section above.)
 

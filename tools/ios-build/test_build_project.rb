@@ -59,7 +59,7 @@ class BuildProjectTest < Minitest::Test
     abs
   end
 
-  def build(resources:, engine_mode: :prebuilt)
+  def build(resources:, engine_mode: :prebuilt, signing: nil)
     GE::IOS::ProjectBuilder.new(
       app_name: 'TestApp',
       bundle_id: 'com.example.testapp',
@@ -71,9 +71,16 @@ class BuildProjectTest < Minitest::Test
       ge_root: @ge_root,
       resources: resources,
       engine_mode: engine_mode,
+      signing: signing,
     ).generate
 
     Xcodeproj::Project.open(File.join(@ios_dir, 'TestApp.xcodeproj'))
+  end
+
+  # Build settings for the app target's first build configuration (signing
+  # settings are shared across Debug/Release, so either config carries them).
+  def app_build_settings(project)
+    project.targets.first.build_configurations.first.build_settings
   end
 
   def source_phase_paths(project)
@@ -326,5 +333,34 @@ class BuildProjectTest < Minitest::Test
     assert_includes paths, '../ge/src/debug.cpp'
     assert_includes paths, '../ge/src/SessionHost.mm'
     assert_includes paths, '../ge/vendor/src/sqlpipe.cpp'
+  end
+
+  # 🎯T110: signing modes — ship (default) vs development device install.
+  def test_appstore_signing_is_the_default
+    bs = app_build_settings(build(resources: []))
+    assert_equal 'Manual', bs['CODE_SIGN_STYLE']
+    assert_equal 'Apple Distribution', bs['CODE_SIGN_IDENTITY']
+    assert_equal 'match AppStore com.example.testapp', bs['PROVISIONING_PROFILE_SPECIFIER']
+  end
+
+  def test_development_signing_mode
+    bs = app_build_settings(build(resources: [], signing: :development))
+    assert_equal 'Automatic', bs['CODE_SIGN_STYLE']
+    assert_equal 'Apple Development', bs['CODE_SIGN_IDENTITY']
+    assert_equal '', bs['PROVISIONING_PROFILE_SPECIFIER']
+    # Simulator override is identical in both modes (sim never enforces signing).
+    assert_equal '-', bs['CODE_SIGN_IDENTITY[sdk=iphonesimulator*]']
+  end
+
+  def test_signing_mode_resolves_from_env_when_not_passed
+    ENV['GE_IOS_SIGNING'] = 'development'
+    bs = app_build_settings(build(resources: []))
+    assert_equal 'Automatic', bs['CODE_SIGN_STYLE']
+  ensure
+    ENV.delete('GE_IOS_SIGNING')
+  end
+
+  def test_invalid_signing_mode_raises
+    assert_raises(ArgumentError) { build(resources: [], signing: :bogus) }
   end
 end

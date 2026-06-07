@@ -416,6 +416,26 @@ targets:
     - documentation
     origin: decomposed from T11
     discovered: 2026-04-12
+  T110:
+    name: ge has an IDE-free iOS development build + deploy path (per-developer signing, headless device registration)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - build_project.rb supports a :development signing mode (CODE_SIGN_STYLE=Automatic + Apple Development, no match profile) selectable via GE_IOS_SIGNING=development; the default stays :appstore so the release/match path is unchanged.
+    - '`make ge/ios-device` builds a Debug, development-signed .app and pairs it with `xcodebuild -allowProvisioningUpdates`, so each developer signs with their own cert (no match, no shared secret) and installs on the team''s registered devices.'
+    - A brand-new device can be enrolled into the team headlessly via an App Store Connect API key (fastlane register_devices), so deploying to a never-before-seen device does NOT require the Xcode GUI. (Today this still needs a one-time Xcode 'Run' or a manual portal add.)
+    - 'CLAUDE.md + AGENTS.md document the dev-vs-ship iOS signing split: development = `make ge/ios-device` + automatic per-developer signing; ship = `make ge/ios-device-release` + match AppStore (Distribution). Plus the one-time-per-new-device enrollment step.'
+    - 'Verified: a ge consumer (tiltbuggy) deploys + renders on physical iOS devices via the dev lane (confirmed on iPad mini A17 Pro, iPad Air 5, iPhone 13, iPhone 8, post-🎯T107).'
+    context: 'From the 2026-06-07 dev-vs-ship signing investigation while verifying T107 didn''t break iOS. build_project.rb was ship-only (Manual + CODE_SIGN_IDENTITY ''Apple Distribution'' + PROVISIONING_PROFILE_SPECIFIER ''match AppStore <bundle>''), so it could not produce a build installable on a developer''s own test devices — the device build came out UNSIGNED (match profile not installed) and every install was rejected (''No code signature found''). `-allowProvisioningUpdates` is inert under Manual signing. Added a :development signing mode + a `make ge/ios-device` lane (Debug, Automatic/Apple Development, -allowProvisioningUpdates). Conclusion of the broader discussion: dev = per-developer automatic signing (iOS devices accumulate multiple dev certs fine; no ''cert mixture'' problem at the dev layer; match would be worse here — shared secret, single point of failure); ship = match AppStore (one shared Distribution cert, the only thing that genuinely must be shared). The single remaining IDE dependency is new-DEVICE registration: `-allowProvisioningUpdates` reuses already-registered devices but won''t enroll a brand-new one headlessly; Xcode''s GUI does it on first Run, and the headless equivalent is an ASC-API-key `fastlane register_devices` step — wiring that into the dev tooling is the open piece. iOS deployment floor stays at 16.3 (dropping iOS 15 loses ~2-4% of old/weak/low-spend devices and would cost @available guards around the iOS-16+ orientation-lock stack — not worth it).'
+    tags:
+    - ios
+    - signing
+    - build-tooling
+    - fastlane
+    - dev-workflow
+    origin: manual
+    discovered: 2026-06-07
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved

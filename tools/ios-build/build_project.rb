@@ -106,6 +106,15 @@ module GE
         display_name: nil,
         team_id: ENV.fetch('APPLE_TEAM_ID'),
         signing_profile: nil,
+        # Device signing mode:
+        #   :appstore (default) — Manual + match AppStore profile + Apple
+        #     Distribution (Squz). For release/TestFlight via gym.
+        #   :development — Automatic + Apple Development. For installing on a
+        #     developer's own registered test devices; pair the build with
+        #     `xcodebuild -allowProvisioningUpdates`. Per-developer cert, no
+        #     match. Resolved from GE_IOS_SIGNING when not passed explicitly,
+        #     so the dev make-lane just sets the env (no consumer edit).
+        signing: nil,
         deployment_target: '16.3',
         device_family: '1,2', # 1=iPhone, 2=iPad
         extra_defines: [],
@@ -129,6 +138,10 @@ module GE
         @display_name = display_name || app_name
         @team_id = team_id
         @signing_profile = signing_profile || "match AppStore #{bundle_id}"
+        @signing = (signing || ENV.fetch('GE_IOS_SIGNING', 'appstore')).to_sym
+        unless %i[appstore development].include?(@signing)
+          raise ArgumentError, "signing must be :appstore or :development (got #{@signing})"
+        end
         @deployment_target = deployment_target
         @device_family = device_family
         @extra_defines = extra_defines
@@ -204,16 +217,28 @@ module GE
           # device and sim builds without regenerating.
           'SUPPORTED_PLATFORMS' => @simulator ? 'iphoneos iphonesimulator' : 'iphoneos',
 
-          # Squz signing — Manual + match-installed profile + Apple
-          # Distribution: Squz Pty Ltd. See [[squz-cert-policy]].
-          # Simulator builds don't enforce signing, but Xcode still
-          # respects these settings when targeting iphoneos.
-          'CODE_SIGN_STYLE' => 'Manual',
-          'DEVELOPMENT_TEAM' => @team_id,
-          'CODE_SIGN_IDENTITY' => 'Apple Distribution',
-          'PROVISIONING_PROFILE_SPECIFIER' => @signing_profile,
-          # Simulator code-sign settings: no profile required. Xcode
-          # accepts `--` (any identity) for sim and skips entitlements.
+          # Device signing (iphoneos). @signing picks the mode:
+          #   :appstore    — Manual + match AppStore profile + Apple Distribution
+          #                  (Squz). Release/TestFlight via gym. [[squz-cert-policy]]
+          #   :development — Automatic + Apple Development. Installs on a dev's own
+          #                  registered devices; build with
+          #                  `xcodebuild -allowProvisioningUpdates` so Xcode mints
+          #                  the dev cert + Team Provisioning Profile and registers
+          #                  connected devices. Per-developer cert, no match.
+          **(@signing == :development ?
+            {
+              'CODE_SIGN_STYLE'                => 'Automatic',
+              'DEVELOPMENT_TEAM'               => @team_id,
+              'CODE_SIGN_IDENTITY'             => 'Apple Development',
+              'PROVISIONING_PROFILE_SPECIFIER' => '',
+            } : {
+              'CODE_SIGN_STYLE'                => 'Manual',
+              'DEVELOPMENT_TEAM'               => @team_id,
+              'CODE_SIGN_IDENTITY'             => 'Apple Distribution',
+              'PROVISIONING_PROFILE_SPECIFIER' => @signing_profile,
+            }),
+          # Simulator code-sign settings (both modes): no profile required.
+          # Xcode accepts `--` (any identity) for sim and skips entitlements.
           'CODE_SIGN_IDENTITY[sdk=iphonesimulator*]' => '-',
           'CODE_SIGN_STYLE[sdk=iphonesimulator*]' => 'Automatic',
           'PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]' => '',
