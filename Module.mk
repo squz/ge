@@ -139,7 +139,7 @@ ge/SOKOL_SHDC = $(ge)/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sok
 # SG_BACKEND_METAL_IOS. Without a metal_sim slot the generated
 # <name>_shader_desc() returns NULL for that backend and sg_make_shader
 # aborts ("Assertion failed: (desc)") on the first SpriteBatch::submit.
-ge/SOKOL_SHDC_LANGS ?= metal_macos:metal_ios:metal_sim:glsl300es
+ge/SOKOL_SHDC_LANGS ?= metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk
 
 # Parent defines its shader source directory (default `shaders`).
 ge/SHADER_DIR ?= shaders

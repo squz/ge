@@ -64,8 +64,12 @@ public:
     void onBackground();
     void onForeground();
 
-private:
+    // 🎯T107: opaque pImpl, defined per platform in the matching .cpp/.mm. Public
+    // only so the Android backend implementations (GlesM / VkM) can derive from
+    // it as an abstract base; it stays an incomplete type to consumers.
     struct M;
+
+private:
     std::unique_ptr<M> m;
 };
 

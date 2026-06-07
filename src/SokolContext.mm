@@ -291,11 +291,21 @@ void SokolContext::endFrame() {
     m->currentDrawable = nil;
 }
 
-// Apple lifecycle: the CAMetalLayer survives backgrounding and rendering
-// resumes without a swap-chain rebuild, so these are intentional no-ops.
-// The Android branch (SokolContext_android.cpp) needs real implementations
-// because the SurfaceView's ANativeWindow is destroyed on background.
+// Apple lifecycle: the CAMetalLayer survives backgrounding, but a drawable
+// reference (m->currentDrawable) acquired before the background transition
+// can be stale by the time we foreground — sokol_gfx's swapchain pass
+// then renders into an invalid Metal texture and the first foreground
+// frame comes back black (multimaze2 🎯T29 / ge 🎯T108).
+//
+// onBackground stays a no-op because endFrame already drops the in-flight
+// drawable; onForeground defensively clears it so the next beginFrame's
+// [layer nextDrawable] returns a fresh in-sync drawable rather than reusing
+// a stale ref. The Android branch (SokolContext_android.cpp) needs real
+// teardown because the SurfaceView's ANativeWindow is destroyed on
+// background — different mechanism, same shape.
 void SokolContext::onBackground() {}
-void SokolContext::onForeground() {}
+void SokolContext::onForeground() {
+    m->currentDrawable = nil;
+}
 
 } // namespace ge

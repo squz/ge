@@ -180,9 +180,10 @@ targets:
     discovered: 2026-06-04
   T107:
     name: ge's Android renderer backend selection is production-robust across Vulkan and GLES devices
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 20.0
     acceptance:
     - Research notes document sokol_gfx's Android Vulkan requirements, including required API level, required instance/device extensions, required feature structs, and which requirements can be satisfied via dynamic function loading versus raising minSdk.
     - 'The research output separates two questions: the now-understood sokol Vulkan integration contract (ge owns instance/device/swapchain and feeds sg_desc/sg_pass the Vulkan handles) versus the Android portability policy (which OS/API/device-extension combinations should use Vulkan in production).'
@@ -219,6 +220,41 @@ targets:
     - renderer-robustness
     origin: multimaze2 Android Vulkan compatibility testing, updated 2026-06-05
     discovered: 2026-06-04
+    achieved: 2026-06-07
+  T108:
+    name: ios-bg-fg-recovers-without-black-screen
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - DirectRenderHost iOS DID_ENTER_FOREGROUND handler calls sokolCtx onForeground and syncs width/height from the sokol context (parity with Android FOCUS_GAINED branch lines 736-737).
+    - SokolContext onForeground on Apple drops the held currentDrawable ref so the next beginFrame nextDrawable returns a fresh in-sync drawable.
+    - After release as a new ge tag, consumer apps that bump the submodule pointer and rebuild can launch on physical iOS device, background, wait 30 s, foreground to a live rendered scene with no black screen.
+    - Verified on iPhone and iPad-class device by a consumer; the engine target is satisfied once the change is shipped, on-device verification is the consumer gate.
+    context: 'Root cause traced 2026-06-07 in multimaze2 T29 RCA: black screen after bg to fg on iOS device. The iOS DID_ENTER_FOREGROUND handler in DirectRenderHost.mm lines 703-707 clears the backgrounded flag but never notifies SokolContext that the window has come back. SokolContext onForeground at SokolContext.mm line 299 is a documented no-op. The Android FOCUS_GAINED branch (lines 727-737) by contrast both intends to call sokolCtx onForeground and explicitly syncs width/height from the sokol context. The iOS branch needs the same parity. Fix: (1) DirectRenderHost.mm lines 703-707 add a sokolCtx onForeground call plus width/height sync mirroring lines 736-737; (2) SokolContext.mm line 299 make onForeground clear currentDrawable, matching the same drop in endFrame at line 291. Blocks multimaze2 T29 and T16.'
+    origin: manual
+    discovered: 2026-06-07
+  T109:
+    name: ge's sokol dispatch shim supports interposable instrumentation layers (trace / time / validate / capture) without recompiling a backend
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A wrapper ge_sg_api can be installed over the active backend table (via ge_sokol_set_api) that intercepts any subset of the 150 sg_* calls and delegates the rest to the real backend, with no change to the backend .so or the consumer app.
+    - 'At least one built-in layer ships and is demonstrated on a ge consumer (e.g. tiltbuggy): a call tracer that logs sg_* name + salient args, toggled by an env var (default off).'
+    - 'Layers compose: two wrappers (e.g. trace + per-call timing) can be stacked by chaining ge_sg_api tables, each delegating to the next.'
+    - 'Zero hot-path overhead when disabled: with no layer installed, g_ge_sg_api points straight at the backend table (no trampoline).'
+    - Works on the Android plugin path (Vulkan and GLES backends) where the dispatch table is real; documented as a no-op/inline on Apple (single inlined backend).
+    context: 'The 🎯T107 dispatch architecture routes every sg_* through g_ge_sg_api before it reaches the backend .so (libgesokol-{vk,gles}.so). That indirection is a natural interposition point: a wrapper table can observe and shape every sokol call without touching the backend or the app — generalising the plugin mechanism from "pick a backend" to "instrument the whole sokol API". Uses: perf profiling (per-call timing, draw-call counts), frame capture/replay, a mock/record backend for headless tests, and debug inspection (the kind of shader-desc / limit visibility the VK bring-up needed). User-proposed follow-on to T107; explicitly NOT required to ship the dual-backend selector. Apple keeps SOKOL_IMPL inlined (no dispatch table), so this is Android-only or would require routing Apple through the shim too (see the T107 ''same model across the board'' discussion — deliberately declined).'
+    depends_on:
+    - T107
+    tags:
+    - engine
+    - instrumentation
+    - sokol
+    - android
+    origin: manual
+    discovered: 2026-06-07
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
