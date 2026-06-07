@@ -219,6 +219,84 @@ ge_vk_verdict ge_vk_probe(ge_vk_result* out) {
     return v;
 }
 
+// ── surface half (runs IN-APP, where an ANativeWindow → VkSurfaceKHR exists) ──
+// Completes the contract's surface checks: a present-capable queue, a usable
+// surface format, an OPAQUE composite-alpha mode, and COLOR_ATTACHMENT usage.
+// The caller (GeActivity/native bootstrap) creates instance/physical_device
+// (matching ge_vk_probe's accepted device) + the Android surface, then calls
+// this; the *actual* minimal-swapchain viability is the real in-app swapchain
+// create that follows (a throwaway probe swapchain would only duplicate it).
+// All entry points resolved via vkGetInstanceProcAddr, same as ge_vk_probe.
+typedef struct {
+    int has_present_queue;
+    int has_usable_format;     // R8G8B8A8 or B8G8R8A8 UNORM/SRGB
+    int has_opaque_composite;
+    int has_color_attachment_usage;
+    char reasons[256];
+} ge_vk_surface_result;
+
+int ge_vk_probe_surface(VkInstance inst, VkPhysicalDevice pd,
+                        VkSurfaceKHR surface, ge_vk_surface_result* out) {
+    memset(out, 0, sizeof *out);
+    PFN_vkGetPhysicalDeviceQueueFamilyProperties getQ =
+        (PFN_vkGetPhysicalDeviceQueueFamilyProperties)
+        vkGetInstanceProcAddr(inst, "vkGetPhysicalDeviceQueueFamilyProperties");
+    PFN_vkGetPhysicalDeviceSurfaceSupportKHR surfSupport =
+        (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)
+        vkGetInstanceProcAddr(inst, "vkGetPhysicalDeviceSurfaceSupportKHR");
+    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR surfFormats =
+        (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)
+        vkGetInstanceProcAddr(inst, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR surfCaps =
+        (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)
+        vkGetInstanceProcAddr(inst, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    if (!getQ || !surfSupport || !surfFormats || !surfCaps) {
+        snprintf(out->reasons, sizeof out->reasons, "missing surface entry points");
+        return GE_VK_REJECT;
+    }
+
+    // present-capable queue
+    uint32_t q_n = 0; getQ(pd, &q_n, NULL);
+    for (uint32_t i = 0; i < q_n; ++i) {
+        VkBool32 sup = 0;
+        if (surfSupport(pd, i, surface, &sup) == VK_SUCCESS && sup) {
+            out->has_present_queue = 1; break;
+        }
+    }
+
+    // a usable swapchain format
+    uint32_t f_n = 0; surfFormats(pd, surface, &f_n, NULL);
+    VkSurfaceFormatKHR* fmts = calloc(f_n ? f_n : 1, sizeof *fmts);
+    surfFormats(pd, surface, &f_n, fmts);
+    for (uint32_t i = 0; i < f_n; ++i) {
+        VkFormat f = fmts[i].format;
+        if (f == VK_FORMAT_R8G8B8A8_UNORM || f == VK_FORMAT_R8G8B8A8_SRGB ||
+            f == VK_FORMAT_B8G8R8A8_UNORM || f == VK_FORMAT_B8G8R8A8_SRGB) {
+            out->has_usable_format = 1; break;
+        }
+    }
+    free(fmts);
+
+    // composite alpha + image usage
+    VkSurfaceCapabilitiesKHR caps;
+    if (surfCaps(pd, surface, &caps) == VK_SUCCESS) {
+        out->has_opaque_composite =
+            (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? 1 : 0;
+        out->has_color_attachment_usage =
+            (caps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ? 1 : 0;
+    }
+
+    int ok = out->has_present_queue && out->has_usable_format &&
+             out->has_opaque_composite && out->has_color_attachment_usage;
+    if (!ok) {
+        snprintf(out->reasons, sizeof out->reasons,
+                 "present=%d format=%d opaque=%d colorAttach=%d",
+                 out->has_present_queue, out->has_usable_format,
+                 out->has_opaque_composite, out->has_color_attachment_usage);
+    }
+    return ok ? GE_VK_ACCEPT : GE_VK_REJECT;
+}
+
 int main(void) {
     ge_vk_result r;
     ge_vk_verdict v = ge_vk_probe(&r);
