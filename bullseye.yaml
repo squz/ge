@@ -180,7 +180,7 @@ targets:
     discovered: 2026-06-04
   T107:
     name: ge's Android renderer backend selection is production-robust across Vulkan and GLES devices
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
