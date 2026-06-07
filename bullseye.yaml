@@ -436,6 +436,37 @@ targets:
     - dev-workflow
     origin: manual
     discovered: 2026-06-07
+  T111:
+    name: expose-frame-perf-metrics-via-callback
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Primary surface is a metrics CALLBACK, not a poll. RunConfig::onMetrics is `std::function<void(const ge::Metrics&)>`, opt-in like onBackPressed/onMemoryWarning (unset => no callback; the EMA is still maintained internally for the overlay + accessors). It fires on the game thread between frames — after the per-frame EMA refresh, before onRender — so a quality decision taken in the handler applies to the very next frame's draw. This is the surface apps use to alter their running render path.
+    - 'ge::Metrics is an extensible bundle, fps first: `float fps` (smoothed frames/sec) and `float frameTime` (smoothed frame duration in SECONDS, == 1/fps). Units are seconds, consistent with dt / onUpdate — no millisecond variant. All members default-initialised so future fields (dropped frames, gpu time, RenderBackend, resident memory, …) are non-breaking for existing `const Metrics&` handlers.'
+    - 'Cadence is one knob: SessionHostConfig.metricsReportThreshold (relative fraction, default 0.1). onMetrics fires when smoothed fps deviates from the last REPORTED value by >= the threshold; 0 => every frame. Gated against last-reported (not last-frame) so there is no chatter at a boundary; a baseline report fires on the first frame with a valid reading.'
+    - Single-source EMA. The smoothed value is the existing debug-overlay EMA (identical 0.9/0.1 coefficient), relocated so the host's per-frame refresh (refreshFrame(dt)) updates it every frame regardless of whether the overlay is enabled. The overlay readout, Context::fps(), and Metrics.fps all derive from that one value and agree within a frame. The metric is an EMA of the run-loop dt — no backend telemetry, valid on desktop/wire/iOS/Android alike; reads 0 only before the first timed frame (this resolves the earlier 'fallback' clause — there is no backend-specific path).
+    - 'Display-only accessors retained: `float Context::fps() const` (frames/sec) and `float Context::frameTime() const` (seconds) stay as cheap polled reads for passive display (a HUD counter) and to power the debug overlay. Docs steer ADAPTATION through onMetrics and label the accessors display-only.'
+    - 'Engine boundary unchanged: ge reports, the app decides. The engine steps no quality, shows no UI, disables no visual. The consumer owns stickiness/hysteresis — the documented pattern is a two-threshold band (drop at low fps, restore only above a higher fps) with the simplified-state remembered across reports, so a recovery caused by simplifying does not snap back to the expensive path.'
+    - Documented in include/ge/SessionHost.h (where Context, RunConfig, and SessionHostConfig are declared — there is no Context.h) and in the ge CLAUDE.md / AGENTS.md Public API section, leading with onMetrics + the hysteresis-band example; accessors documented as display-only.
+    - 'Unit test covers: fps == 1/frameTime within epsilon; EMA convergence to a constant dt; the deviation gate (every-frame at threshold 0; baseline-then-gated at 0.1); a fresh Context reports fps()==0; a multi-second dt spike is ignored by the guard.'
+    context: |-
+      Surfaced 2026-06-07 during multimaze2's Android fleet validation on ge v0.55. The fleet split cleanly: Pixel Tablet 60 FPS (Vulkan, 60 Hz panel), ASUS Adreno 830 121 FPS (Vulkan), S24 Xclipse 940 88 FPS (Vulkan), S21 Ultra 44 FPS (GLES), Tab A9 25 FPS (GLES). The lower-end Mali devices (Tab A9 in particular) can't keep up with the production per-ball soft-shadow lighting plus full chrome at gameplay framerate, so apps need to adapt their render path to measured performance.
+
+      The engine already computes a smoothed FPS for the debug-overlay readout (the value rendered top-right in every screenshot captured during the fleet test). The work reuses that same EMA as a single source of truth — not a new computation.
+
+      Design decision (2026-06-08): the surface is a CALLBACK, not a polled accessor. A polled ctx.fps() read inside onRender pushes consumers toward a stateless `if (fps < x) simplify()` that snaps back the instant the now-simplified path lifts fps back over the line. A callback gives a clean between-frames seam for the adaptation state machine and, with threshold-deviation delivery, makes it event-driven (react to changes, not poll every frame). The callback does NOT remove the need for consumer hysteresis — stickiness is app state — but it gives that state machine a home outside the hot draw path. Metrics is a struct (fps first) so the engine can grow what it reports without breaking handlers. Cheap polled accessors are kept for passive display only.
+
+      Engine boundary: ge reports the metric. ge does not pick a quality tier, does not disable any visual, does not show any UI. All adaptation logic lives in the consumer app. Whether the user gets notified or asked to confirm a quality drop is the consumer's call.
+
+      Tag: multimaze-audit. The consumer side (multimaze2 adapts visual quality to measured FPS via onMetrics) is filed separately and pulls this engine surface in.
+
+      No tight coupling to T107: the metric is engine-wide, equally useful on iOS, desktop, and Android. T107 made this surface more obviously needed (the Vulkan/GLES split correlates with the perf split), but the API isn't backend-specific.
+
+      To be released in the next ge version (held for this target) bundled with 🎯T110.
+    origin: manual
+    discovered: 2026-06-08
+    achieved: 2026-06-08
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved
