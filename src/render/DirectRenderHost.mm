@@ -702,6 +702,17 @@ void DirectRenderHost::pumpEvents() {
         }
         if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
             ge::audio::onForeground();
+            // 🎯T108: drop the SokolContext's stale Metal drawable ref so
+            // the first foreground beginFrame acquires a fresh one rather
+            // than reusing a pre-background reference that renders black.
+            // Also re-sync our shadow of the layer dimensions in case the
+            // OS rotated/resized while we were backgrounded (mirrors the
+            // Android FOCUS_GAINED branch's width/height sync below).
+            if (i_->sokolCtx) {
+                i_->sokolCtx->onForeground();
+                i_->width  = i_->sokolCtx->width();
+                i_->height = i_->sokolCtx->height();
+            }
             i_->backgrounded = false;  // 🎯T88 resume rendering
             continue;
         }
