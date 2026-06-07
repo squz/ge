@@ -27,8 +27,8 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/android-arm64/libbox2d.a": "b72375eeed0028cecbcce268f2c16427134e32f461870859f51aa93230864e39",
-    "prebuilt/android-arm64/libge.a": "288bf348182b6122715ef0f329caf13bcf3dd5e19df86283043a9b9ca2f46919",
+    "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
+    "prebuilt/android-arm64/libge.a": "c9b954543d4247dfcaa9d1afff9bc619c91d60ee138ec91df20bc54e2d9e534b",
     "prebuilt/android-arm64/libliteparser.a": "ab444e1270fd03c88ceb27fb93e8185b5a9ecf48c961e03cddae9c2698d5193c",
     "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
@@ -212,7 +212,7 @@
     "src/png.cpp": "ca11dcf761f88dc40d974f445b095b9b58de7c9fc50653b028d28b1fdb3f39a2",
     "src/render/AccelSynth.h": "bf16be9d195d0b09d12f5cddb08094e64c7d028cbdee5f9b1dc0600e74aee22c",
     "src/render/DirectRenderHost.h": "b7ed9cb57759a48b19a58d4ce76acd32f7c292d66e9cc36849afedafdc136a04",
-    "src/render/DirectRenderHost.mm": "9a44c0ba33af5089abb761f2bc17448bfd7ef226e7a39f86aafe2b593c1a1ba8",
+    "src/render/DirectRenderHost.mm": "982e7a107d193073a3bdc7a0906afe64304f5d524d5d5098601f729aa686d794",
     "src/render/LifecycleInject.h": "e79e01571c02a7fa7b0893905a8b939db578521399d71e0fdc27c7325ea649ae",
     "src/render/RefreshRateBoost_android.cpp": "13e32e196be65c90f9cc9438f0d63d570560fa59f6d09b3d2e908fcf59ce029f",
     "src/render/ScreenshotBridge.h": "d50a4f279f2de62a607018283732044e788a0fc1aee17d8b31b64da5f9a524ec",
