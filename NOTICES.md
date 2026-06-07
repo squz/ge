@@ -99,6 +99,27 @@ compiled into the Android player.
 - Copyright: © 2010–2026 Branimir Karadzic.
 - Notice: See `vendor/github.com/bkaradzic/bx/LICENSE`.
 
+### sokol (sokol_gfx)
+- Source: https://github.com/floooh/sokol
+- Licence: zlib/libpng
+- Copyright: © 2018 Andre Weissflog.
+- Notice: ge's rendering backend (🎯T38). Compiled into `libge.a` /
+  `libgesokol-{gles,vk}.so` from `vendor/github.com/floooh/sokol/sokol_gfx.h`.
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to: (1) the origin is not misrepresented, (2) altered
+  source versions are clearly marked, and (3) the notice is not removed.
+  See the licence block at the foot of `sokol_gfx.h`. **ge carries a local
+  patch** to `_sg_vk_init_caps` (🎯T107: clamp unlimited descriptor limits
+  before the `int` cast); altered-source-marked per clause (2).
+
+### sokol-tools-bin (sokol-shdc)
+- Source: https://github.com/floooh/sokol-tools-bin
+- Licence: MIT
+- Copyright: © Andre Weissflog and sokol-tools contributors.
+- Notice: Build-time shader compiler (`sokol-shdc`); not redistributed in
+  shipped binaries. See `vendor/github.com/floooh/sokol-tools-bin/LICENSE`.
+
 ### asio
 - Source: https://github.com/chriskohlhoff/asio
 - Version: commit `55684d42ac` (tag `asio-1-36-0`)
