@@ -219,6 +219,19 @@ targets:
     - renderer-robustness
     origin: multimaze2 Android Vulkan compatibility testing, updated 2026-06-05
     discovered: 2026-06-04
+  T108:
+    name: ios-bg-fg-recovers-without-black-screen
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - DirectRenderHost iOS DID_ENTER_FOREGROUND handler calls sokolCtx onForeground and syncs width/height from the sokol context (parity with Android FOCUS_GAINED branch lines 736-737).
+    - SokolContext onForeground on Apple drops the held currentDrawable ref so the next beginFrame nextDrawable returns a fresh in-sync drawable.
+    - After release as a new ge tag, consumer apps that bump the submodule pointer and rebuild can launch on physical iOS device, background, wait 30 s, foreground to a live rendered scene with no black screen.
+    - Verified on iPhone and iPad-class device by a consumer; the engine target is satisfied once the change is shipped, on-device verification is the consumer gate.
+    context: 'Root cause traced 2026-06-07 in multimaze2 T29 RCA: black screen after bg to fg on iOS device. The iOS DID_ENTER_FOREGROUND handler in DirectRenderHost.mm lines 703-707 clears the backgrounded flag but never notifies SokolContext that the window has come back. SokolContext onForeground at SokolContext.mm line 299 is a documented no-op. The Android FOCUS_GAINED branch (lines 727-737) by contrast both intends to call sokolCtx onForeground and explicitly syncs width/height from the sokol context. The iOS branch needs the same parity. Fix: (1) DirectRenderHost.mm lines 703-707 add a sokolCtx onForeground call plus width/height sync mirroring lines 736-737; (2) SokolContext.mm line 299 make onForeground clear currentDrawable, matching the same drop in endFrame at line 291. Blocks multimaze2 T29 and T16.'
+    origin: manual
+    discovered: 2026-06-07
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
     status: identified
