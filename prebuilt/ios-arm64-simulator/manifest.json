@@ -9,7 +9,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
-    "tools/prebuild.sh": "5a8eb3f85d47ef7ad4a2bf0c4217907772f9585e5e1c9f730b0c9e0ec798fbc4",
+    "tools/prebuild.sh": "40ba417593a708b0eec2b127b70f3e598d49210b0fe812ad5ef2939f34c2bb8a",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
   },
@@ -30,7 +30,7 @@
   },
   "prebuilts": {
     "prebuilt/ios-arm64-simulator/libbox2d.a": "16ef4262a3e3d142fd27b18d511adb2321ea9545504326e52f44f589d9c8efb4",
-    "prebuilt/ios-arm64-simulator/libge.a": "2a2641d40e744cf196aab71a538a9fdf3836de994cd5618076109021b5aae94b",
+    "prebuilt/ios-arm64-simulator/libge.a": "f65a8142561ae8a4684a7b0a29360575c2375f4498fa5b0034c4fb0dc2cdca91",
     "prebuilt/ios-arm64-simulator/libliteparser.a": "815cb6f398c8453e6da65bff17f5dd244237dd7c06bd6bc5b06bdea2cf9e2f46",
     "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
     "prebuilt/ios-arm64-simulator/liblz4_ge.a": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
@@ -168,7 +168,7 @@
     "include/ge/Resource.h": "ea756acd98750bc942f726da7f72b0bad9979df3d7045ae73ad584a58841e281",
     "include/ge/SessionHost.h": "1b0603e1d75c9fd69ee8497a7c1a2083930ff457cba2f8fbcd110f5e0d59b5a6",
     "include/ge/Signal.h": "d4d5297b9edee48ec575e580134aec3b4686c8a0626ca78e19727272403eede4",
-    "include/ge/SokolContext.h": "87fa4581574ffe948a665711925cb944491f824afa9a6da017b5086853e6e612",
+    "include/ge/SokolContext.h": "4783314b183ade1b51a6de8a440e85ae6b097af8cb94d0b1c141ad2674262bf6",
     "include/ge/appchannel.h": "186b974eb5c5cb3e15f89e3c48477f7055853639ecd0e6919400c39ae0d3864e",
     "include/ge/audio.h": "dee9117f73ed76a310cef4af7eed2b18fdbcf7abbb77dad76e852239bbf8f168",
     "include/ge/button.h": "20077fc58a590161b3e879ed3cbd6e793ebf59e8ca5b34500a9b3d67ac60e60d",
@@ -224,7 +224,7 @@
     "src/text.cpp": "74cc358d313bcb52962940ff7ba0380c14d5d895c51813f3a5a4ff9d87735cdb",
     "tools/player_orientation.h": "2ec92259560949274d24612a9be5cd34038a76cdf45f53bb80180f8d8447396d",
     "tools/player_orientation_ios.mm": "11dd2f052afd7db3e657ff72678f5de7d2406a988607c92412fe6abda2ab0f12",
-    "vendor/github.com/floooh/sokol/sokol_gfx.h": "63d9b88aeddd78beaaad65f16e9cdf08a24745a0a60a924b502aece7b4ebfec3",
+    "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
     "vendor/github.com/sqliteai/liteparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
     "vendor/github.com/sqliteai/liteparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",

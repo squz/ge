@@ -370,6 +370,7 @@ GE_INCLUDES=(
   -I vendor/include
   -I vendor/github.com/floooh/sokol
   -I tools/sokol-dispatch/generated   # 🎯T107 dispatch shim header (Android libge)
+  -I tools/vkprobe                    # 🎯T107 ge_vkprobe.h (backend selection)
   -I headers/spdlog/include
   -I headers/asio/include
   -I headers/sdl3/include
@@ -388,7 +389,10 @@ SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
 # metal_sim (🎯T84): the iOS Simulator reports SG_BACKEND_METAL_SIMULATOR,
 # so the headers need a metal_sim slot or sg_make_shader aborts there.
 # Keep this lang list in sync with Module.mk's ge/SOKOL_SHDC_LANGS.
-GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es"
+# 🎯T107: spirv_vk emits the SOKOL_VULKAN variant of ge's internal shaders
+# (ge_sprite.h / ge_debug.h). Without it, sprite_shader_desc(sg_query_backend())
+# returns NULL on a Vulkan-selected device → sg_make_shader(NULL) aborts.
+GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk"
 for sh in ge_sprite ge_debug; do
   "$SOKOL_SHDC" -i "src/render/shaders/$sh.glsl" \
                 -o "$GE_SHADER_OUT_DIR/$sh.h" \

@@ -20600,9 +20600,17 @@ _SOKOL_PRIVATE void _sg_vk_init_caps(void) {
     _sg.limits.max_image_array_layers = (int)l->maxImageArrayLayers;
     _sg.limits.max_vertex_attrs = _sg_min((int)l->maxVertexInputAttributes, SG_MAX_VERTEX_ATTRIBUTES);
     _sg.limits.max_color_attachments = _sg_min((int)l->maxFragmentOutputAttachments, SG_MAX_COLOR_ATTACHMENTS);
-    _sg.limits.max_texture_bindings_per_stage = _sg_min((int)l->maxPerStageDescriptorSampledImages, SG_MAX_VIEW_BINDSLOTS);
-    _sg.limits.max_storage_buffer_bindings_per_stage = _sg_min((int)l->maxPerStageDescriptorStorageBuffers, SG_MAX_VIEW_BINDSLOTS);
-    _sg.limits.max_storage_image_bindings_per_stage = _sg_min((int)l->maxPerStageDescriptorStorageImages, SG_MAX_VIEW_BINDSLOTS);
+    // 🎯T107 ge patch: many drivers (e.g. Samsung Xclipse / AMD, Adreno) report
+    // these maxPerStageDescriptor* limits as 0xFFFFFFFF ("effectively unlimited").
+    // sokol's `(int)` cast turns 0xFFFFFFFF into -1, and _sg_min(-1, 32) = -1, so
+    // _sg.limits go negative — every shader then fails SHADERDESC_TOO_MANY_*
+    // validation (even 0-binding stages, since 0 > -1), shaders/pipelines land in
+    // FAILED state, and nothing renders. Take the min in uint32 space FIRST, then
+    // cast (result is always <= SG_MAX_VIEW_BINDSLOTS, so the cast is safe).
+    // TODO(ge): upstream to floooh/sokol.
+    _sg.limits.max_texture_bindings_per_stage = (int)_sg_min(l->maxPerStageDescriptorSampledImages, (uint32_t)SG_MAX_VIEW_BINDSLOTS);
+    _sg.limits.max_storage_buffer_bindings_per_stage = (int)_sg_min(l->maxPerStageDescriptorStorageBuffers, (uint32_t)SG_MAX_VIEW_BINDSLOTS);
+    _sg.limits.max_storage_image_bindings_per_stage = (int)_sg_min(l->maxPerStageDescriptorStorageImages, (uint32_t)SG_MAX_VIEW_BINDSLOTS);
     _sg.limits.vk_min_uniform_buffer_offset_alignment = (int)l->minUniformBufferOffsetAlignment;
 
     _SG_STRUCT(VkPhysicalDeviceImageFormatInfo2, fmt_info);

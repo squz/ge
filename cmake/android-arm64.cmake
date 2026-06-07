@@ -157,5 +157,11 @@ target_link_libraries(ge INTERFACE
     # in on demand, so consumers that don't use text (e.g. multimaze2) are
     # unaffected. (🎯T30 / 🎯T107 prerequisite.)
     freetype harfbuzz
+    # 🎯T107: libge.a's SokolContext_android (VkM glue) + ge_vkprobe.c reference
+    # Vulkan 1.0 core + KHR_surface/KHR_swapchain + vkGetInstanceProcAddr. Every
+    # such symbol is exported by Android's libvulkan.so loader (mandatory since
+    # API 24, < our minSdk 26), so this costs no minSdk. The 1.1/1.2/1.3 core
+    # sokol's IMPL needs is NOT linked here — it's resolved inside libgesokol-vk.so.
+    vulkan
     android log EGL GLESv3
 )

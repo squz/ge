@@ -35,7 +35,7 @@ SYSROOT="$NDK/toolchains/llvm/prebuilt/$HOST/sysroot"
 OUT="build/ge-vkprobe-arm64"
 mkdir -p build
 "$CC" --target=aarch64-linux-android24 --sysroot="$SYSROOT" \
-  -O2 -Wall -Wextra tools/vkprobe/ge_vkprobe.c -lvulkan -o "$OUT"
+  -DGE_VKPROBE_CLI -O2 -Wall -Wextra tools/vkprobe/ge_vkprobe.c -lvulkan -o "$OUT"
 echo "built $OUT"
 
 [[ "${1:-}" == "--run" ]] || exit 0

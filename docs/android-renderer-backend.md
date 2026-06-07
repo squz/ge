@@ -150,39 +150,74 @@ selected backend, launch result, screenshot/readback status, and frame pacing.
 | Samsung S21 / SM-G9980 | — | **1.1** | n/a | FALLBACK_GLES `[device Vulkan < 1.3]` | experiment (PR #140), not re-run |
 | Android emulator | SwiftShader/host | varies | varies | (to record) | pending |
 
-**Launch results (app-level smoke):**
+**Launch results (app-level smoke) — full dual-backend matrix, all device-verified 2026-06-07:**
 
-| Device | Backend | Launch / render | Source |
-|---|---|---|---|
-| Tab A9 / SM-X110 | **GLES3** (today's path) | ✅ tiltbuggy launches + renders (button, title, playfield, buggy) | ✅ device-verified 2026-06-07 |
-| Pixel Tablet | Vulkan | (pending the plugin + `libgesokol-vk.so`) | — |
+| Device | GPU | Probe → selected | Launch / render | Screenshot |
+|---|---|---|---|---|
+| S24 / SM-S921B | Xclipse 940 | ACCEPT → **Vulkan** | ✅ renders (button, title, playfield, buggy) | screencap ✅ + app-channel readback ✅ |
+| ASUS AI2501C | **Adreno 830** | ACCEPT → **Vulkan** | ✅ renders | screencap ✅ |
+| Pixel Tablet | Tensor G2 | ACCEPT → **Vulkan** | ✅ renders | screencap ✅ |
+| S21 / SM-G9980 | Mali (Vk 1.1) | FALLBACK → **GLES3** | ✅ renders | screencap ✅ |
+| Tab A9 / SM-X110 | Mali (no desc_buffer) | FALLBACK → **GLES3** | ✅ renders | screencap ✅ |
 
-The Tab A9 row is the **GLES-fallback half proven on real hardware**: the
-device the probe routes to GLES launches and renders correctly with today's
-binary. The Pixel/Vulkan launch row is filled once the plugin refactor +
-`libgesokol-vk.so` land. (Establishing this baseline also required a FreeType
-link fix — see 🎯T30 commit — since `libge.a`'s `text.o` referenced `FT_*`
-that SDL3_ttf hid privately.)
+All three ACCEPT devices render correctly on Vulkan; both FALLBACK devices
+correctly select GLES and render. Three integration bugs were found and fixed
+to get the Vulkan path rendering:
 
-## 5. Go / no-go for shipping Vulkan on Android
+1. **Missing `spirv_vk` shader variant.** ge's internal shaders (`ge_sprite.h`,
+   `ge_debug.h`) and the consumer's shaders were generated without `spirv_vk`,
+   so `*_shader_desc(sg_query_backend())` returned NULL on a Vulkan-selected
+   device → `sg_make_shader(NULL)` aborted. Fixed by adding `spirv_vk` to
+   `GE_SHDC_LANGS` in `tools/prebuild.sh`, `Module.mk`, and the consumer
+   `CMakeLists.txt.in`.
+2. **sokol `int`-overflow on "unlimited" descriptor limits.** The Xclipse / AMD
+   (and Adreno) drivers report `maxPerStageDescriptor*` as `0xFFFFFFFF`; sokol's
+   `_sg_min((int)limit, 32)` cast that to `-1`, so every shader failed
+   `SHADERDESC_TOO_MANY_*` validation (even 0-binding stages, since `0 > -1`).
+   Patched in vendored `sokol_gfx.h` (`_sg_vk_init_caps`) to take the min in
+   `uint32` space before casting. **TODO: upstream to floooh/sokol.**
+3. **`VK_EXT_debug_utils` not enabled.** sokol's debug build labels every
+   Vulkan object via `vkSetDebugUtilsObjectNameEXT` and asserts the pointer is
+   non-NULL. Strict loaders (Adreno) return NULL unless the extension is
+   enabled; `SokolContext_android`'s `createInstance` now enables it when
+   present.
 
-GLES3 stays the default-shipped, always-available backend. Vulkan ships as the
-selected path **only** when all hold:
+**The Adreno 830 finding (headline).** `docs/papers/adreno-830-bgfx-vulkan-crash.md`
+records that ge's *bgfx* Vulkan backend crashed the Adreno 830 driver with a
+null-deref on **draw submission** (`vkCmdCopyBuffer2` / `vkCmdPipelineBarrier`
+inside `RendererContextVK::submit`). That doc's open question was whether a
+different renderer's command pattern would avoid the bug. **Answer: yes.**
+sokol's pattern (dynamic-rendering + `synchronization2` +
+`vkCmdPipelineBarrier2` + descriptor-buffers) renders correctly on the same
+device + driver — the bgfx-era crash does not reproduce. The crash doc is
+therefore historical only.
 
-1. The probe correctly **accepts** on a known-good device and **rejects → GLES**
-   on `descriptor_buffer`-less and `<1.3` devices, **before `sg_setup`**, with
-   no `_sg.valid` crash. *(Probe half: ✅ verified on Pixel + Tab A9.)*
-2. The Vulkan variant **launches and renders** on an accepted device with the
-   same visual output as GLES.
-3. **Screenshot / readback parity** — the Vulkan readback path produces output
-   matching the GLES path (so app-channel screenshots and visual-regression
-   baselines hold across backends).
-4. The GLES-fallback variant on a rejected device is **byte-unchanged** from
-   today's shipping Android binary.
+(Establishing the GLES baseline also required a FreeType link fix — see 🎯T30
+commit — since `libge.a`'s `text.o` referenced `FT_*` that SDL3_ttf hid
+privately.)
 
-Until 2–3 are device-proven on the Vulkan path, the production default remains
-**GLES-only**, with the probe + dual-variant plumbing landed but the Vulkan
-variant gated behind an explicit opt-in.
+## 5. Go / no-go for shipping Vulkan on Android — **GO** (all criteria met)
+
+GLES3 stays the always-available fallback; Vulkan is the selected path on
+ACCEPT devices. All ship criteria are now device-proven (2026-06-07):
+
+1. ✅ The probe **accepts** on capable devices and **rejects → GLES** on
+   `descriptor_buffer`-less and `<1.3` devices, **before `sg_setup`**, with no
+   `_sg.valid` crash. Verified on all 5 matrix devices (3 ACCEPT, 2 FALLBACK).
+2. ✅ The Vulkan path **launches and renders** with the same visual output as
+   GLES — on S24, ASUS (Adreno 830), and Pixel Tablet.
+3. ✅ **Screenshot / readback parity** — the Vulkan readback
+   (`VkM::captureSwapchain`, `vkCmdCopyImageToBuffer`) produces correct RGBA8
+   output; verified via app-channel `app_screenshot` on a Vulkan device, so
+   visual-regression baselines hold across backends.
+4. ✅ The GLES-fallback path on a rejected device renders correctly (S21, Tab A9)
+   and is selected by the same runtime probe rather than a separate binary.
+
+**Selection model (as shipped).** Both backend `.so` (`libgesokol-gles.so`,
+`libgesokol-vk.so`) are linked into `libmain.so`; `SokolContext_android` runs
+`ge_vk_probe` at construction and binds exactly one via the dispatch shim, with
+GLES fallback if Vulkan bring-up fails for any reason. App code is unchanged and
+backend-agnostic (it calls `sg_*`, which dispatch to the bound backend).
 
 ## References
 

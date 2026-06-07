@@ -77,11 +77,15 @@ GE_SRC_ANDROID := \
 	src/log_android.cpp \
 	src/SokolContext_android.cpp \
 	src/render/RefreshRateBoost_android.cpp \
-	tools/sokol-dispatch/generated/ge_sokol_dispatch.c
+	tools/sokol-dispatch/generated/ge_sokol_dispatch.c \
+	tools/vkprobe/ge_vkprobe.c
 # 🎯T107: the sokol IMPL is NOT in libge on Android — it lives in
 # libgesokol-{gles,vk}.so. libge instead links the generated dispatch shim
 # (real sg_* → the table a backend .so installs). Apple keeps SOKOL_IMPL inline
 # in SokolContext.mm (one backend), so GE_SRC_APPLE is unchanged.
+# ge_vkprobe.c (compiled WITHOUT GE_VKPROBE_CLI, so no main) is the Vulkan
+# capability probe SokolContext_android calls to pick a backend; it references
+# only vkGetInstanceProcAddr (resolved at the consumer's libmain link).
 
 # ── desktop / no-mobile stubs ──────────────────────────────────────
 # Linux/macOS desktop and Apple platforms that don't have an Immersive

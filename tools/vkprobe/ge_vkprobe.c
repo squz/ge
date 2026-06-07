@@ -32,6 +32,8 @@
 #include <string.h>
 #include <vulkan/vulkan.h>
 
+#include "ge_vkprobe.h"   // ge_vk_verdict, ge_vk_result, ge_vk_surface_result
+
 // Extension name macros may be absent on very old headers; pin literals.
 #ifndef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
 #define VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME "VK_EXT_descriptor_buffer"
@@ -39,24 +41,6 @@
 #ifndef VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 #define VK_EXT_DEBUG_UTILS_EXTENSION_NAME "VK_EXT_debug_utils"
 #endif
-
-typedef enum { GE_VK_ACCEPT = 0, GE_VK_REJECT = 1 } ge_vk_verdict;
-
-// Per-requirement result, accumulated into a human + machine readable log.
-typedef struct {
-    ge_vk_verdict verdict;
-    char          device_name[256];
-    uint32_t      instance_version;
-    uint32_t      device_api_version;
-    int           has_descriptor_buffer_ext;
-    int           feat_descriptor_buffer;
-    int           feat_buffer_device_address;
-    int           feat_dynamic_rendering;
-    int           feat_synchronization2;
-    int           has_graphics_queue;
-    int           has_debug_utils_ext;   // informational: sokol labels objects
-    char          reject_reasons[512];   // empty when ACCEPT
-} ge_vk_result;
 
 static void ver_str(uint32_t v, char* out, size_t n) {
     snprintf(out, n, "%u.%u.%u", VK_API_VERSION_MAJOR(v),
@@ -227,14 +211,6 @@ ge_vk_verdict ge_vk_probe(ge_vk_result* out) {
 // this; the *actual* minimal-swapchain viability is the real in-app swapchain
 // create that follows (a throwaway probe swapchain would only duplicate it).
 // All entry points resolved via vkGetInstanceProcAddr, same as ge_vk_probe.
-typedef struct {
-    int has_present_queue;
-    int has_usable_format;     // R8G8B8A8 or B8G8R8A8 UNORM/SRGB
-    int has_opaque_composite;
-    int has_color_attachment_usage;
-    char reasons[256];
-} ge_vk_surface_result;
-
 int ge_vk_probe_surface(VkInstance inst, VkPhysicalDevice pd,
                         VkSurfaceKHR surface, ge_vk_surface_result* out) {
     memset(out, 0, sizeof *out);
@@ -297,6 +273,9 @@ int ge_vk_probe_surface(VkInstance inst, VkPhysicalDevice pd,
     return ok ? GE_VK_ACCEPT : GE_VK_REJECT;
 }
 
+// Standalone CLI entry point — only when built as the probe tool (build-cli.sh
+// passes -DGE_VKPROBE_CLI). Excluded when ge_vkprobe.c compiles into libge.
+#ifdef GE_VKPROBE_CLI
 int main(void) {
     ge_vk_result r;
     ge_vk_verdict v = ge_vk_probe(&r);
@@ -321,3 +300,4 @@ int main(void) {
         printf("GE_VK_VERDICT=FALLBACK_GLES reasons=[%s]\n", r.reject_reasons);
     return (int)v;   // 0 = accept, 1 = fallback
 }
+#endif // GE_VKPROBE_CLI

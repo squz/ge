@@ -1,10 +1,10 @@
 # Android distribution build for __APP_NAME__ — standalone, no ged / player.
 #
 # Builds the game as a self-contained Android APK that renders directly via
-# sokol_gfx / OpenGL ES 3 (T38). Consumes the ge engine via prebuilt static
-# libs under ge/prebuilt/android-arm64/. Zero ge source files compile here
-# (T73.1) — libge.a already contains the sokol_gfx implementation
-# (src/SokolContext_android.cpp does the SOKOL_IMPL include inside libge.a).
+# sokol_gfx — Vulkan or OpenGL ES 3, chosen at runtime (🎯T107). Consumes the ge
+# engine via prebuilt static libs under ge/prebuilt/android-arm64/. libge.a holds
+# the sokol *dispatch shim* (not the IMPL on Android, 🎯T107); the sokol
+# implementation lives in two per-backend .so built below from ge-owned sources.
 #
 # Gradle's externalNativeBuild only supports CMake or ndk-build, so a
 # CMakeLists.txt is structurally required at this site. Its job is link
@@ -46,7 +46,11 @@ set(SOKOL_SHDC "${GE_ROOT}/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm6
 # header-content drift between platforms. metal_sim (🎯T84) is one of those
 # inert-on-Android slots; it must stay in sync with Module.mk's
 # ge/SOKOL_SHDC_LANGS so the iOS-simulator header content matches.
-set(SOKOL_SHDC_LANGS "metal_macos:metal_ios:metal_sim:glsl300es")
+# 🎯T107: spirv_vk adds the SOKOL_VULKAN variant. On a Vulkan-selected device
+# sg_query_backend() returns SG_BACKEND_VULKAN, so the generated
+# <name>_shader_desc() must carry the spirv_vk bytecode or it returns NULL and
+# sg_make_shader aborts. Keep in sync with Module.mk + tools/prebuild.sh.
+set(SOKOL_SHDC_LANGS "metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk")
 
 file(GLOB APP_SHADERS_GLSL CONFIGURE_DEPENDS "${PROJECT_ROOT}/shaders/*.glsl")
 set(APP_SHADER_HEADERS)
@@ -86,4 +90,30 @@ target_include_directories(main PRIVATE
     "${PROJECT_ROOT}/build/shaders"
 )
 
-target_link_libraries(main PRIVATE ge)
+# 🎯T107: each sokol backend is its own .so — all 150 sg_* hidden, one exported
+# ge_sokol_bind_<backend>(); libge dispatches sg_* to whichever was bound through
+# its shim. Both .so are linked (NEEDED by libmain); ge's SokolContext_android
+# runs ge_vk_probe at startup and binds Vulkan (where the device clears the
+# capability bar) or GLES3 (fallback). Each inherits the 16 KB page-align linker
+# flag from CMAKE_SHARED_LINKER_FLAGS (set by android-arm64.cmake).
+add_library(gesokol-gles SHARED "${GE_ROOT}/src/render/SokolBackendGLES_android.c")
+target_include_directories(gesokol-gles PRIVATE
+    "${GE_ROOT}/vendor/github.com/floooh/sokol"
+    "${GE_ROOT}/tools/sokol-dispatch/generated"
+)
+set_target_properties(gesokol-gles PROPERTIES C_VISIBILITY_PRESET hidden)
+target_link_libraries(gesokol-gles PRIVATE GLESv3 EGL)
+
+# The Vulkan backend .so does NOT link libvulkan: ge_vk_loader.h dlopen()s it and
+# resolves every vk* via vkGetInstanceProcAddr, so the .so has no hard Vulkan
+# symbol dependency and loads even on GLES-only devices (which never bind it).
+add_library(gesokol-vk SHARED "${GE_ROOT}/src/render/SokolBackendVK_android.c")
+target_include_directories(gesokol-vk PRIVATE
+    "${GE_ROOT}/vendor/github.com/floooh/sokol"
+    "${GE_ROOT}/tools/sokol-dispatch/generated"
+    "${GE_ROOT}/src/render"
+)
+set_target_properties(gesokol-vk PROPERTIES C_VISIBILITY_PRESET hidden)
+target_link_libraries(gesokol-vk PRIVATE ${CMAKE_DL_LIBS})
+
+target_link_libraries(main PRIVATE ge gesokol-gles gesokol-vk)
