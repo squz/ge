@@ -87,34 +87,53 @@ ge.renderer: ACCEPT_VULKAN  device="Mali-G710" api=1.4.305 descriptor_buffer=1 .
 ge.renderer: FALLBACK_GLES  device="Mali-G57 MC2" api=1.3.303 reasons=[no VK_EXT_descriptor_buffer]
 ```
 
-## 3. Package design — two `.so` variants, load exactly one
+## 3. Package design — sokol as a per-backend plugin (dispatch layer)
 
 sokol_gfx selects its backend at **compile time** (`SOKOL_VULKAN` *xor*
-`SOKOL_GLES3`); both define the same `sg_*` symbols, so they **cannot coexist
-in one `.so`**. Runtime switching inside one sokol instance is therefore
-impossible. The robust design (matching how this is done elsewhere):
+`SOKOL_GLES3`); both define the same 150 `sg_*` symbols, so they **cannot
+coexist in one `.so`**, and runtime switching inside one sokol instance is
+impossible. Rather than duplicate the *whole* engine + app into two variants
+(which would also force a second NDK-pinned `libge.a` prebuilt, doubling the
+🎯T103/🎯T78 surface forever), the split is confined to **where the backend
+difference actually lives — sokol, one header** — via a thin dispatch layer.
+This is safe because the **public sokol API has zero backend `#ifdef`s**: every
+struct/enum (incl. `sg_vulkan_environment`/`sg_vulkan_swapchain`, which are
+plain `const void*` handles) is ABI-identical across backends, so one shared
+`sokol_gfx.h` describes both.
+
+**Pieces:**
 
 - **`libgevkprobe.so`** — the capability probe (§1), links *only* `libvulkan`,
-  no sokol/SDL. Zero `sg_*`, so it can never conflict with a backend lib.
-- **`libmain-vk.so`** — the app + ge built `SOKOL_VULKAN` + `spirv_vk` shaders.
-- **`libmain-gles.so`** — the app + ge built `SOKOL_GLES3` + `essl` shaders
-  (byte-identical render path to today for fallback devices).
-- Both backend variants `NEEDED libSDL3.so` (shared, backend-agnostic — SDL
-  just creates a GL *or* Vulkan window).
+  no sokol/SDL. Zero `sg_*`, can never conflict.
+- **`libge.a`** (single, backend-agnostic, **one prebuilt**) — includes
+  `sokol_gfx.h` for *types only* (no `SOKOL_IMPL`) and links the generated
+  **forwarder shim** (`tools/sokol-dispatch/gen.py` → 150 real `sg_*` symbols
+  that dispatch through an installed table `g_ge_sg_api`). Every existing
+  `sg_*` call site in ge is unchanged; one indirect call per `sg_*` (a GL/Vulkan
+  loader already costs this).
+- **`libgesokol-gles.so`** / **`libgesokol-vk.so`** — each compiles `SOKOL_IMPL`
+  + its backend `#define` + that backend's device/swapchain/acquire-present
+  glue, `-fvisibility=hidden` so all `sg_*` and the impl are internal. Each
+  exports **exactly one** `visibility("default")` symbol, named per backend:
+  `ge_sokol_bind_gles` / `ge_sokol_bind_vulkan`. Distinct names → co-mapping is
+  collision-free (only one is loaded anyway). The bind function installs the
+  `sg_*` table (`ge_sokol_fill.inc`) **and** returns a small `ge_render_backend`
+  vtable (`init(ANativeWindow*)`, `begin_frame(→ swapchain)`, `end_frame()`,
+  `screenshot()`) — because the acquire/submit/present loop and readback are
+  backend-specific (sokol explicitly does *not* call `vkAcquireNextImageKHR` /
+  `vkQueuePresentKHR`; ge owns them).
+- All `NEEDED libSDL3.so` (shared, backend-agnostic — SDL creates a GL *or*
+  Vulkan window per the runtime choice).
 
-**`GeActivity` chooses before native load.** `getLibraries()` is called by
-SDLActivity *before* it loads the native libs, so it is the natural hook: run
-the probe, then return `{"SDL3", "main-vk"}` **or** `{"SDL3", "main-gles"}`.
-**Exactly one** backend `.so` is ever mapped → no `sg_*` symbol collision, no
-duplicate `_sg` state, no duplicate `SDL_main`. GLES devices keep today's exact
-binary.
+**Selection.** The probe runs before renderer startup; `GeActivity` (or the app
+bootstrap) `dlopen`s the chosen `libgesokol-<backend>.so`, calls its single
+`ge_sokol_bind_*`, which installs the table — so **exactly one** sokol impl is
+ever mapped, with no `sg_*`/`_sg` collision. GLES devices get an
+unchanged render path; `libge` and the app are built **once**.
 
-> Symbol note: ge compiles `-fvisibility=hidden`, and sokol's
-> `SOKOL_GFX_API_DECL` defaults to plain `extern`, so `sg_*` are already hidden
-> in `libge.a`. Even so, co-mapping both variants would collide at the
-> *exported* `SDL_main`/`nativeRunMain` entrypoints and duplicate `_sg`/SDL
-> state — which is why the design loads exactly one, distinguished by `.so`
-> name rather than relying on symbol hiding.
+> On Apple (one backend) the dispatch indirection is optional — `libge` can keep
+> `SOKOL_IMPL` inline. The plugin shape is required only where the duality is:
+> Android.
 
 ## 4. Device-test matrix
 
