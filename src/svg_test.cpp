@@ -190,6 +190,64 @@ TEST_CASE("rasterizeSvgToPixels: <text> renders glyphs via the lazy default font
     CHECK(inkPixels > 20);
 }
 
+TEST_CASE("measureSvgElementBounds: registered-font text width grows with label length") {
+    auto font = ge::resolveFont("system:sans-serif");
+    REQUIRE(ge::registerSvgFontFace("t112-test", false, false, font));
+
+    constexpr std::string_view shortSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="240" height="64">
+  <text id="label" x="8" y="42" font-family="t112-test" font-size="28" fill="#000000">Buy</text>
+</svg>)SVG"sv;
+    constexpr std::string_view longSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="240" height="64">
+  <text id="label" x="8" y="42" font-family="t112-test" font-size="28" fill="#000000">Buy upgrade now</text>
+</svg>)SVG"sv;
+
+    auto shortBounds = ge::measureSvgElementBounds(shortSvg, "label");
+    auto longBounds = ge::measureSvgElementBounds(longSvg, "label");
+
+    REQUIRE_FALSE(shortBounds.isNull());
+    REQUIRE_FALSE(longBounds.isNull());
+    CHECK(shortBounds.width > 0.0f);
+    CHECK(shortBounds.height > 0.0f);
+    CHECK(longBounds.width > shortBounds.width);
+    CHECK(longBounds.height > 0.0f);
+}
+
+TEST_CASE("measureSvgElementBounds: button label can be measured without rasterizing button") {
+    auto font = ge::resolveFont("system:sans-serif");
+    REQUIRE(ge::registerSvgFontFace("t112-button", false, false, font));
+
+    constexpr std::string_view svg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96">
+  <g id="button">
+    <rect x="0" y="0" width="320" height="96" rx="12" fill="#222222"/>
+    <text id="label" x="160" y="58" text-anchor="middle" font-family="t112-button" font-size="28" fill="#FFFFFF">Buy pack - $4.99</text>
+  </g>
+</svg>)SVG"sv;
+
+    auto doc = lunasvg::Document::loadFromData(svg.data(), svg.size());
+    REQUIRE(doc);
+
+    auto buttonBounds = ge::measureSvgElementBounds(*doc, "button");
+    auto labelBounds = ge::measureSvgElementBounds(*doc, "label");
+    auto docBounds = ge::measureSvgBounds(*doc);
+
+    REQUIRE_FALSE(buttonBounds.isNull());
+    REQUIRE_FALSE(labelBounds.isNull());
+    REQUIRE_FALSE(docBounds.isNull());
+    CHECK(buttonBounds.width == doctest::Approx(320.0f));
+    CHECK(buttonBounds.height == doctest::Approx(96.0f));
+    CHECK(labelBounds.width > 80.0f);
+    CHECK(labelBounds.width < buttonBounds.width);
+    CHECK(docBounds.width == doctest::Approx(320.0f));
+}
+
+TEST_CASE("measureSvgElementBounds: missing element and malformed SVG return invalid bounds") {
+    auto missing = ge::measureSvgElementBounds(kRedRectSvg, "missing");
+    CHECK(missing.isNull());
+
+    auto malformed = ge::measureSvgBounds("not an svg"sv);
+    CHECK(malformed.isNull());
+}
+
 TEST_CASE("rasterizeSvgToPixels: 50% alpha rect produces premultiplied pixels") {
     constexpr std::string_view svg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2">
   <rect x="0" y="0" width="2" height="2" fill="#FF0000" fill-opacity="0.5"/>

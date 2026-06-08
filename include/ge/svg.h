@@ -26,6 +26,18 @@ struct SvgPixels {
     constexpr bool isNull() const { return rgba.empty(); }
 };
 
+// Layout-space bounds reported by lunasvg after SVG layout. `valid` is false
+// on parse failure or when a requested element is not present.
+struct SvgBounds {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    bool valid = false;
+
+    constexpr bool isNull() const { return !valid; }
+};
+
 // Rasterize an SVG document string to RGBA8 premultiplied pixels at the
 // requested pixel dimensions. `targetW` / `targetH` of -1 mean "use the
 // SVG's intrinsic size". Background is fully transparent.
@@ -44,6 +56,15 @@ Sprite rasterizeSvg(std::string_view svg, int targetW = -1, int targetH = -1);
 // the returned Sprite's texture and must destroy it before the next
 // re-render to avoid leaks.
 Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH);
+
+// Measure an SVG document or element after lunasvg layout. Bounds are in the
+// SVG document's own coordinate system. Element bounds are global bounds, so
+// parent/element transforms are already applied. No raster texture is created.
+SvgBounds measureSvgBounds(std::string_view svg);
+SvgBounds measureSvgBounds(const lunasvg::Document& doc);
+SvgBounds measureSvgElementBounds(std::string_view svg, const std::string& elementId);
+SvgBounds measureSvgElementBounds(const lunasvg::Document& doc, const std::string& elementId);
+SvgBounds measureSvgElementBounds(const lunasvg::Element& element);
 
 // ─────────────────────────────────────────────────────────────────────
 // SVG font registration
