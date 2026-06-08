@@ -803,7 +803,7 @@ void DirectRenderHost::pumpEvents() {
     }
 }
 
-void DirectRenderHost::refreshFrame() {
+void DirectRenderHost::refreshFrame(float dt) {
     // While the activity is backgrounded the swap chain is gone (Android)
     // and any draw work will reference a stale ANativeWindow and crash on
     // present. Skip everything; SDL3 also blocks the main loop on Android
@@ -865,6 +865,7 @@ void DirectRenderHost::refreshFrame() {
         i_->ctx->setDeviceUiScale(computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
         i_->ctx->setParallax(updateParallax());
         i_->ctx->setPresentationTilt(presentationTilt);
+        i_->ctx->recordFrameTime(dt);  // 🎯T111 frame-time EMA → fps()/onMetrics
     }
 }
 

@@ -23,7 +23,6 @@
 
 #include <spdlog/spdlog.h>
 
-#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -89,10 +88,6 @@ struct State {
     std::vector<TextItem>    texts;
     std::vector<PointItem>   points;
     std::vector<CircleItem>  circles;
-
-    bool fpsStarted = false;
-    std::chrono::steady_clock::time_point lastFpsTime;
-    float frameMs = 0.0f;
 };
 
 State& st() {
@@ -186,26 +181,14 @@ inline uint32_t packAbgr(la::float4 c) {
 inline la::float3 v3(la::float2 p) { return {p.x, p.y, 0.0f}; }
 inline la::float3 v3(la::float3 p) { return p; }
 
-std::string fpsLabel(State& s) {
-    using Clock = std::chrono::steady_clock;
-    const auto now = Clock::now();
-    if (!s.fpsStarted) {
-        s.fpsStarted = true;
-        s.lastFpsTime = now;
-        return "FPS --";
-    }
-
-    const float ms = std::chrono::duration<float, std::milli>(now - s.lastFpsTime).count();
-    s.lastFpsTime = now;
-    if (ms > 0.0f && ms < 1000.0f) {
-        s.frameMs = s.frameMs <= 0.0f ? ms : (s.frameMs * 0.9f + ms * 0.1f);
-    }
-
+// 🎯T111 The smoothed FPS is now owned by Context (fed every frame by the host's
+// per-frame refresh, overlay-independent) — read it rather than keeping a second
+// EMA here, so the readout and ctx.fps() are the same value.
+std::string fpsLabel(const Context& ctx) {
+    const float f = ctx.fps();
     char buf[32];
-    if (s.frameMs > 0.0f)
-        std::snprintf(buf, sizeof(buf), "%.0f FPS", 1000.0f / s.frameMs);
-    else
-        std::snprintf(buf, sizeof(buf), "FPS --");
+    if (f > 0.0f) std::snprintf(buf, sizeof(buf), "%.0f FPS", f);
+    else          std::snprintf(buf, sizeof(buf), "FPS --");
     return buf;
 }
 
@@ -410,7 +393,7 @@ void expandCircle(la::float3 center, float radius, la::float4 wire,
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
     auto& s = st();
     const bool showFps = enabled();
-    const std::string fps = showFps ? fpsLabel(s) : std::string{};
+    const std::string fps = showFps ? fpsLabel(ctx) : std::string{};
     if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty() &&
         s.points.empty() && s.circles.empty() && !showFps)
         return;
