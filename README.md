@@ -65,6 +65,7 @@ Module.mk       Build rules and exported variables
 |--------|-------------|
 | `Mesh.h` | Vertex/index buffer pair with binary stream loader |
 | `Texture.h` | GPU texture loaded from image files via SDL3_image |
+| `svg.h` | SVG rasterization, live-document rendering, hit testing, font registration, and post-layout document/element bounds measurement |
 | `Model.h` | Mesh + texture binding |
 | `ModelFormat.h` | `ge::MeshVertex` — vertex layout (pos3f + uv2f) |
 | `ManifestSchema.h` | JSON-serializable manifest types, templated on app metadata |
