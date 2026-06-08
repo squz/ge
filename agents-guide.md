@@ -214,6 +214,21 @@ static tweak::Tweak<float> speed("buggy.speed", 5.0f);
 Specialized variants: `EnumTweak` (dropdown), `Vec2Tweak`, `AxisTweak`, `Color`. Use
 `tweak::loadOverrides(db)` at startup to reapply saved values.
 
+### SVG rendering and measurement — `include/ge/svg.h`
+
+`ge::rasterizeSvg` and `ge::rasterizeSvgToPixels` render SVG strings through
+lunasvg, including text when the relevant font faces have been registered with
+`ge::registerSvgFontFace`. `ge::renderSvgDocument` renders an existing
+`lunasvg::Document`, which is the right shape for interactive SVG controls that
+mutate attributes or styles before re-rendering.
+
+`ge::measureSvgBounds` and `ge::measureSvgElementBounds` return post-layout
+`SvgBounds` for a whole document or an element id without rasterizing a texture.
+Use these for SVG-backed controls whose layout depends on rendered text width:
+register the font, load or pass the SVG, then measure the `<text id="...">` or
+containing button group. The bounds come from lunasvg's own layout and text
+metrics, so they stay consistent with the pixels `rasterizeSvg` will later draw.
+
 ### Dev-time log streaming over TCP — `include/ge/log.h` (🎯T83)
 
 Apple's unified-logging path (DTX over the RSD tunnel, DDI mount, Developer Mode,

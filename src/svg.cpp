@@ -79,6 +79,16 @@ SvgPixels bitmapToPixels(const lunasvg::Bitmap& bm) {
     return out;
 }
 
+SvgBounds boundsFromBox(const lunasvg::Box& box) {
+    return {
+        .x = box.x,
+        .y = box.y,
+        .width = box.w,
+        .height = box.h,
+        .valid = true,
+    };
+}
+
 Sprite uploadPixels(const SvgPixels& pixels) {
     if (pixels.isNull()) return Sprite{};
     sg_image_desc desc{};
@@ -140,6 +150,47 @@ Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH)
         return Sprite{};
     }
     return uploadPixels(bitmapToPixels(bm));
+}
+
+SvgBounds measureSvgBounds(std::string_view svg) {
+    ensureDefaultFonts();
+
+    auto doc = lunasvg::Document::loadFromData(svg.data(), svg.size());
+    if (!doc) {
+        spdlog::error("ge::measureSvgBounds: failed to parse SVG ({} bytes)", svg.size());
+        return {};
+    }
+    return measureSvgBounds(*doc);
+}
+
+SvgBounds measureSvgBounds(const lunasvg::Document& doc) {
+    ensureDefaultFonts();
+    return boundsFromBox(doc.boundingBox());
+}
+
+SvgBounds measureSvgElementBounds(std::string_view svg, const std::string& elementId) {
+    ensureDefaultFonts();
+
+    auto doc = lunasvg::Document::loadFromData(svg.data(), svg.size());
+    if (!doc) {
+        spdlog::error("ge::measureSvgElementBounds: failed to parse SVG ({} bytes)", svg.size());
+        return {};
+    }
+    return measureSvgElementBounds(*doc, elementId);
+}
+
+SvgBounds measureSvgElementBounds(const lunasvg::Document& doc, const std::string& elementId) {
+    ensureDefaultFonts();
+    if (auto element = doc.getElementById(elementId)) {
+        return measureSvgElementBounds(element);
+    }
+    return {};
+}
+
+SvgBounds measureSvgElementBounds(const lunasvg::Element& element) {
+    ensureDefaultFonts();
+    if (!element) return {};
+    return boundsFromBox(element.getGlobalBoundingBox());
 }
 
 lunasvg::Element hitTestSvgAt(const lunasvg::Document& doc,
