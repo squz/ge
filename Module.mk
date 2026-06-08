@@ -253,6 +253,7 @@ ge/TEST_SRC = \
 	$(ge)/src/iap_local_test.cpp \
 	$(ge)/src/audio_test.cpp \
 	$(ge)/src/debug_test.cpp \
+	$(ge)/src/Context_test.cpp \
 	$(ge)/src/render/RefreshRateBoost_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 

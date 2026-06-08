@@ -412,6 +412,20 @@ public:
     // always-on camera offset that does run on real devices).
     la::float2 presentationTilt() const;
 
+    // 🎯T111 Smoothed frame-rate / frame-time, in frames-per-second and
+    // seconds (frameTime == 1 / fps). An EMA of the run-loop dt — the same
+    // value the debug overlay's FPS readout shows — refreshed every frame
+    // before onRender, like parallax() and the safe rects. Both read 0 until
+    // the first frame is timed.
+    //
+    // These are for PASSIVE DISPLAY (a HUD counter). To adapt the running
+    // render path to performance, use RunConfig::onMetrics instead — a polled
+    // read inside onRender invites a stateless `if (fps < x) simplify()` that
+    // snaps back the moment simplifying lifts fps over the line. ge reports;
+    // the app decides.
+    float fps() const;
+    float frameTime() const;
+
     // The engine-provided database.
     std::shared_ptr<sqlpipe::Database> db() const;
 
@@ -440,6 +454,10 @@ public:
     void setDeviceUiScale(float);
     void setParallax(la::float2);
     void setPresentationTilt(la::float2);
+    // 🎯T111 Feed one frame's wall-clock dt (seconds) into the frame-time EMA
+    // behind fps() / frameTime(). The host calls this each frame from its
+    // per-frame refresh; dt outside (0, 1)s is ignored (0 / multi-frame stall).
+    void recordFrameTime(float dt);
     // 🎯T101 The host installs its swapchain-pass factory here at session
     // start; Context::swapchainPass() invokes it.
     void setSwapchainPassFn(std::function<Pass()>);
@@ -448,6 +466,33 @@ private:
     struct M;
     std::shared_ptr<M> m;
 };
+
+// 🎯T111 Engine-reported performance metrics, delivered via RunConfig::onMetrics.
+// A growing bundle: fps is the first field; later fields (dropped frames, GPU
+// time, render backend, resident memory, …) are added with default initialisers
+// so existing `const Metrics&` handlers keep compiling. All times are in seconds,
+// consistent with dt / onUpdate.
+struct Metrics {
+    float fps       = 0.0f;  // smoothed frames per second
+    float frameTime = 0.0f;  // smoothed frame duration, seconds (== 1 / fps)
+};
+
+// 🎯T111 onMetrics delivery gate (pure). Returns whether a metrics report
+// should fire for `fps`, given the `lastReportedFps` and the relative
+// `threshold`: every frame when threshold <= 0; a baseline on the first valid
+// reading (lastReportedFps <= 0); otherwise when |fps - lastReportedFps| >=
+// threshold * lastReportedFps. Never fires for a non-positive fps. Gating
+// against the last *reported* value (not the last frame) means no chatter at a
+// boundary. The run loop owns lastReportedFps and sets it to `fps` whenever
+// this returns true.
+inline bool shouldReportMetrics(float fps, float lastReportedFps, float threshold) {
+    if (fps <= 0.0f) return false;
+    if (threshold <= 0.0f) return true;        // every frame
+    if (lastReportedFps <= 0.0f) return true;  // baseline report
+    const float dev = fps >= lastReportedFps ? fps - lastReportedFps
+                                             : lastReportedFps - fps;
+    return dev >= threshold * lastReportedFps;
+}
 
 // Render loop callbacks — the game's only interface with the engine.
 //
@@ -485,6 +530,24 @@ struct RunConfig {
     // needed for the next few frames; on Low, only drop genuinely
     // cold caches.
     std::function<void(MemoryPressureLevel)> onMemoryWarning;
+
+    // 🎯T111 Engine performance metrics (fps first). Fires on the game thread,
+    // between frames — after the per-frame refresh, before onRender — so a
+    // quality decision made here applies to the very next frame's draw. It
+    // fires when smoothed fps deviates from the last reported value by at least
+    // SessionHostConfig.metricsReportThreshold (0 => every frame); a baseline
+    // report fires on the first valid reading.
+    //
+    // Use it to adapt the running render path — drop or simplify non-critical
+    // visuals when fps falls — and keep your OWN hysteresis: ge reports, your
+    // app decides; the engine never steps quality itself. A robust consumer
+    // remembers that it simplified and only restores above a *higher* fps (a
+    // two-threshold band), so a recovery caused by simplifying doesn't snap
+    // back to the expensive path.
+    //
+    // Unset (the default) => no callback; the engine still maintains the EMA
+    // behind Context::fps() / frameTime() and the debug overlay.
+    std::function<void(const Metrics&)> onMetrics;
 };
 
 // Configuration for the session host.
@@ -559,6 +622,13 @@ struct SessionHostConfig {
     //     (read by iOS at launch; cannot be toggled at runtime).
     //   * Desktop — no-op.
     bool immersive = false;
+
+    // 🎯T111 RunConfig::onMetrics delivery cadence. The callback fires when
+    // smoothed fps changes from the last reported value by at least this
+    // fraction (0.1 = 10%). 0 => fire every frame. Ignored when onMetrics is
+    // unset. Relative (not absolute) so the same value behaves consistently at
+    // 30 or 120 fps.
+    float metricsReportThreshold = 0.1f;
 };
 
 // Factory receives platform context and returns render loop callbacks.

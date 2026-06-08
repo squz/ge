@@ -57,6 +57,7 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
 
     uint64_t freq = SDL_GetPerformanceFrequency();
     uint64_t last = SDL_GetPerformanceCounter();
+    float lastReportedFps = 0.0f;  // 🎯T111 onMetrics deviation gate state
 
     while (!host.shouldQuit()) {
         host.pumpEvents();
@@ -101,7 +102,23 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
         // sg_begin/end_pass + commit/present (direct) or encode/transmit (wire)
         // live inside that ge::Pass's lifetime, so the loop no longer brackets
         // the frame.
-        host.refreshFrame();
+        host.refreshFrame(dt);
+
+        // 🎯T111 Emit a perf-metrics report when smoothed fps has moved enough
+        // since the last report (or every frame at threshold 0). Opt-in:
+        // nothing happens unless the game set rc.onMetrics. ge reports; the app
+        // decides — no quality stepping here. Feeds the real (pre-time-control)
+        // fps so the reading is the true render rate even when an app-channel
+        // slows game time, and runs after the paused() continue above so paused
+        // frames don't pollute the average.
+        if (rc.onMetrics) {
+            const float f = host.context().fps();
+            if (shouldReportMetrics(f, lastReportedFps, config.metricsReportThreshold)) {
+                lastReportedFps = f;
+                rc.onMetrics(Metrics{.fps = f, .frameTime = host.context().frameTime()});
+            }
+        }
+
         if (rc.onRender) rc.onRender(host.context());
     }
 

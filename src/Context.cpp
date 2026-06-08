@@ -24,6 +24,7 @@ struct Context::M {
     float deviceUiScale = 1.0f;
     la::float2 parallax{0.0f, 0.0f};
     la::float2 presentationTilt{0.0f, 0.0f};
+    float frameTime = 0.0f;  // 🎯T111 EMA of run-loop dt, seconds
     std::shared_ptr<sqlpipe::Database> db;
     std::function<Pass()> swapchainPassFn;  // 🎯T101 installed by the host
 };
@@ -62,6 +63,8 @@ float Context::ptsPerPixel() const  { return 1.0f / m->pixelsPerPt; }
 float Context::deviceUiScale() const { return m->deviceUiScale; }
 la::float2 Context::parallax() const { return m->parallax; }
 la::float2 Context::presentationTilt() const { return m->presentationTilt; }
+float Context::frameTime() const { return m->frameTime; }
+float Context::fps() const { return m->frameTime > 0.0f ? 1.0f / m->frameTime : 0.0f; }
 std::shared_ptr<sqlpipe::Database> Context::db() const { return m->db; }
 
 void Context::setSurfaceDimensions(int surfacePxW, int surfacePxH) {
@@ -76,6 +79,14 @@ void Context::setPixelsPerPt(float v)                { m->pixelsPerPt = v; }
 void Context::setDeviceUiScale(float v)              { m->deviceUiScale = v; }
 void Context::setParallax(la::float2 p)              { m->parallax = p; }
 void Context::setPresentationTilt(la::float2 t)      { m->presentationTilt = t; }
+// 🎯T111 Single-source frame-time EMA (same 0.9/0.1 smoothing the debug overlay
+// used). dt is the run-loop wall-clock delta in seconds; ignore 0 and
+// multi-frame stalls (>= 1s) so a hitch can't blow up the average. fps() /
+// frameTime() and the overlay readout all read this one value.
+void Context::recordFrameTime(float dt) {
+    if (dt > 0.0f && dt < 1.0f)
+        m->frameTime = m->frameTime <= 0.0f ? dt : m->frameTime * 0.9f + dt * 0.1f;
+}
 void Context::setSwapchainPassFn(std::function<Pass()> fn) {
     m->swapchainPassFn = std::move(fn);
 }

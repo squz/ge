@@ -58,14 +58,16 @@ public:
     virtual void pumpEvents() = 0;
 
     // Per-frame pre-render refresh, called once each frame before onUpdate /
-    // onRender. Adopts any staged resize and updates the live Context's
-    // per-frame fields (dimensions, safe-area insets, parallax, presentation
-    // tilt) so the callbacks observe current values. It does NOT open a render
-    // pass (🎯T101): consumers open exactly one swapchain pass per frame via
+    // onRender. `dt` is this frame's wall-clock delta in seconds (🎯T111 — feeds
+    // the Context frame-time EMA behind fps() / frameTime()). Adopts any staged
+    // resize and updates the live Context's per-frame fields (dimensions,
+    // safe-area insets, parallax, presentation tilt, frame timing) so the
+    // callbacks observe current values. It does NOT open a render pass (🎯T101):
+    // consumers open exactly one swapchain pass per frame via
     // Context::swapchainPass() inside onRender, and all sg_begin/end_pass +
     // commit + present (DirectRenderHost) or encode + transmit (ServerWireBridge)
     // live inside that ge::Pass's lifetime, not here.
-    virtual void refreshFrame() = 0;
+    virtual void refreshFrame(float dt) = 0;
 
     // True when the render subsystem has signaled shutdown (window close,
     // wire closed, SIGINT, etc.).
