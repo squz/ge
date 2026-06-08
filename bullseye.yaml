@@ -467,6 +467,26 @@ targets:
     origin: manual
     discovered: 2026-06-08
     achieved: 2026-06-08
+  T112:
+    name: SVG text and element bounds measurement is exposed through GE
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 1.0
+    acceptance:
+    - GE exposes a public helper that can measure an SVG document or a selected SVG element's bounds after layout, including SVG text elements with registered fonts.
+    - The helper uses lunasvg's layout/bounding-box API rather than duplicating text-width heuristics in app code.
+    - The helper has coverage for an SVG containing a registered-font <text id="..."> element and returns a width that grows for a longer label.
+    - A MultiMaze-style button label can be measured without rasterizing the full button image first.
+    context: MultiMaze paywall buy bars need to size themselves from the rendered label instead of using character-count heuristics. GE already vendors lunasvg 3.5.0, whose public API exposes element/document bounding boxes and whose internals measure text with plutovg_font_face_text_extents. Exposing this through GE lets app code size SVG-backed controls from renderer-consistent bounds.
+    tags:
+    - multimaze-audit
+    - svg
+    - text
+    - ui
+    origin: manual
+    discovered: 2026-06-08
+    achieved: 2026-06-08
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved
