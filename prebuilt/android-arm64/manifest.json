@@ -196,7 +196,7 @@
     "src/Pass.cpp": "0950b75c3f6ae57ed1e352c591cd37e26df6d82a5358833fc957841350241eac",
     "src/Resource.cpp": "71ac228dd2219a225a89cc73e01b92ff2f07754bd1ea25871aacf1f8181a0f8d",
     "src/SdlContext_android.cpp": "9877caf9cdad736c025a3c2eb5a519c77ac1cf400fbc604b1bf319927a7ced6a",
-    "src/SessionHost.mm": "a1b8782ced4133e534b006a66c0b22d8feb47d5fba7d268004879984d541df6b",
+    "src/SessionHost.mm": "432e784eb754ce9379ce95cd71d257e2aaeb8f5c78fb6c3e5fa4ea4a7eeca06c",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
     "src/SokolContext_android.cpp": "0d3f747e069b8ce4aeaa52907af7936aea9598f6cd8ddf65f341ce665b330b9a",
     "src/appchannel.cpp": "6d93311ad47963a10f9450ce8772f5ef5f186c5ec18aaa4d19dda3e6a596cb34",

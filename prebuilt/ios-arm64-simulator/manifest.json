@@ -30,7 +30,7 @@
   },
   "prebuilts": {
     "prebuilt/ios-arm64-simulator/libbox2d.a": "16ef4262a3e3d142fd27b18d511adb2321ea9545504326e52f44f589d9c8efb4",
-    "prebuilt/ios-arm64-simulator/libge.a": "963b0ba008825f0cfbe7b32c8dcdf65df2e716e0de3239c862b7567dd69d549f",
+    "prebuilt/ios-arm64-simulator/libge.a": "694dff90690e756a2a7956faa1f69bfb283d2f4279b75e9537789bc9b15e13d1",
     "prebuilt/ios-arm64-simulator/libliteparser.a": "815cb6f398c8453e6da65bff17f5dd244237dd7c06bd6bc5b06bdea2cf9e2f46",
     "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
     "prebuilt/ios-arm64-simulator/liblz4_ge.a": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
@@ -195,7 +195,7 @@
     "src/Immersive_stub.cpp": "a13eec311166436a9cd380351b1664b76a5d41cbd6552a22d47553fe5751902e",
     "src/Pass.cpp": "0950b75c3f6ae57ed1e352c591cd37e26df6d82a5358833fc957841350241eac",
     "src/Resource.cpp": "71ac228dd2219a225a89cc73e01b92ff2f07754bd1ea25871aacf1f8181a0f8d",
-    "src/SessionHost.mm": "a1b8782ced4133e534b006a66c0b22d8feb47d5fba7d268004879984d541df6b",
+    "src/SessionHost.mm": "432e784eb754ce9379ce95cd71d257e2aaeb8f5c78fb6c3e5fa4ea4a7eeca06c",
     "src/Signal.cpp": "046894fcec4714783605a5db81815178fd100994210922c97cc33e90fae4309c",
     "src/SokolContext.mm": "c8b6fae12cc59d1bad3efa58a93d98e1c9d4292dc6d7483b6ab78bdb18319fb1",
     "src/appchannel.cpp": "6d93311ad47963a10f9450ce8772f5ef5f186c5ec18aaa4d19dda3e6a596cb34",
