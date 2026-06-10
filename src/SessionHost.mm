@@ -60,66 +60,84 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
     float lastReportedFps = 0.0f;  // 🎯T111 onMetrics deviation gate state
 
     while (!host.shouldQuit()) {
-        host.pumpEvents();
-        // 🎯T92.5 Run any state-registry tasks the app-channel marshalled onto
-        // the game thread (state_query / save_state / restore_state), so they
-        // see a consistent snapshot. No-op when no channel is active.
-        ge::appchannel::pumpMainThreadTasks();
+        // 🎯T114 Apple: drain autoreleased objects every frame. sokol's Metal
+        // backend autoreleases per-pass objects (MTLRenderPassDescriptor,
+        // attachment arrays, command encoders/buffers, CAMetalDrawable
+        // wrappers); ge runs under SDL_main rather than sokol_app, so nothing
+        // else pops a pool — without this, every per-frame object accumulates
+        // for process lifetime, retained drawables pin their IOSurfaces, and
+        // multi-pass consumers jetsam in minutes (multimaze2 🎯T47: ~65
+        // passes/frame ⇒ ~31 MB/s leaked on an iPhone 13). On Android the
+        // .mm is compiled `-x c++` (no __OBJC__), leaving a plain block.
+#if defined(__OBJC__)
+        @autoreleasepool
+#endif
+        {
+            host.pumpEvents();
+            // 🎯T92.5 Run any state-registry tasks the app-channel marshalled
+            // onto the game thread (state_query / save_state / restore_state),
+            // so they see a consistent snapshot. No-op when no channel is
+            // active.
+            ge::appchannel::pumpMainThreadTasks();
 
-        uint64_t now = SDL_GetPerformanceCounter();
-        float dt = float(now - last) / float(freq);
-        last = now;
-        if (dt > 0.1f) dt = 0.1f;
+            uint64_t now = SDL_GetPerformanceCounter();
+            float dt = float(now - last) / float(freq);
+            last = now;
+            if (dt > 0.1f) dt = 0.1f;
 
-        // While the host is paused, skip the entire render bracket so we
-        // never touch a backgrounded surface. Android: the swap chain is
-        // torn down and SDL blocks the loop anyway. iOS (🎯T88): a
-        // backgrounded scene can't get a Metal command buffer, so
-        // beginFrame would wedge and trip the scene-update watchdog;
-        // pumpEvents has already blocked on SDL_WaitEventTimeout (idle,
-        // not spinning) until the next OS event. onUpdate is skipped while
-        // paused; reset `last` so the first foreground frame doesn't see a
-        // multi-second dt.
-        if (host.paused()) {
-            last = SDL_GetPerformanceCounter();
-            continue;
-        }
-
-        // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf push
-        // accumulator; it emits a {frame_ms, counters} sample ~once per second
-        // when an app-channel is live (no-op otherwise).
-        ge::appchannel::perfTick(dt * 1000.0f);
-
-        // 🎯T92.2 Apply dev time-control (app_pause/resume/step/speed). A
-        // no-op pass-through unless an app-channel is driving it; returns 0
-        // while paused (render + input below still run), kStepDt per stepped
-        // frame, or dt×speed otherwise.
-        if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
-
-        // 🎯T101 Refresh per-frame Context state (resize, insets, parallax,
-        // tilt) before onRender. The game opens this frame's swapchain pass
-        // itself via ctx.swapchainPass() at the top of onRender; all
-        // sg_begin/end_pass + commit/present (direct) or encode/transmit (wire)
-        // live inside that ge::Pass's lifetime, so the loop no longer brackets
-        // the frame.
-        host.refreshFrame(dt);
-
-        // 🎯T111 Emit a perf-metrics report when smoothed fps has moved enough
-        // since the last report (or every frame at threshold 0). Opt-in:
-        // nothing happens unless the game set rc.onMetrics. ge reports; the app
-        // decides — no quality stepping here. Feeds the real (pre-time-control)
-        // fps so the reading is the true render rate even when an app-channel
-        // slows game time, and runs after the paused() continue above so paused
-        // frames don't pollute the average.
-        if (rc.onMetrics) {
-            const float f = host.context().fps();
-            if (shouldReportMetrics(f, lastReportedFps, config.metricsReportThreshold)) {
-                lastReportedFps = f;
-                rc.onMetrics(Metrics{.fps = f, .frameTime = host.context().frameTime()});
+            // While the host is paused, skip the entire render bracket so we
+            // never touch a backgrounded surface. Android: the swap chain is
+            // torn down and SDL blocks the loop anyway. iOS (🎯T88): a
+            // backgrounded scene can't get a Metal command buffer, so
+            // beginFrame would wedge and trip the scene-update watchdog;
+            // pumpEvents has already blocked on SDL_WaitEventTimeout (idle,
+            // not spinning) until the next OS event. onUpdate is skipped while
+            // paused; reset `last` so the first foreground frame doesn't see a
+            // multi-second dt.
+            if (host.paused()) {
+                last = SDL_GetPerformanceCounter();
+                continue;
             }
-        }
 
-        if (rc.onRender) rc.onRender(host.context());
+            // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf
+            // push accumulator; it emits a {frame_ms, counters} sample ~once
+            // per second when an app-channel is live (no-op otherwise).
+            ge::appchannel::perfTick(dt * 1000.0f);
+
+            // 🎯T92.2 Apply dev time-control (app_pause/resume/step/speed). A
+            // no-op pass-through unless an app-channel is driving it; returns 0
+            // while paused (render + input below still run), kStepDt per
+            // stepped frame, or dt×speed otherwise.
+            if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
+
+            // 🎯T101 Refresh per-frame Context state (resize, insets, parallax,
+            // tilt) before onRender. The game opens this frame's swapchain pass
+            // itself via ctx.swapchainPass() at the top of onRender; all
+            // sg_begin/end_pass + commit/present (direct) or encode/transmit
+            // (wire) live inside that ge::Pass's lifetime, so the loop no
+            // longer brackets the frame.
+            host.refreshFrame(dt);
+
+            // 🎯T111 Emit a perf-metrics report when smoothed fps has moved
+            // enough since the last report (or every frame at threshold 0).
+            // Opt-in: nothing happens unless the game set rc.onMetrics. ge
+            // reports; the app decides — no quality stepping here. Feeds the
+            // real (pre-time-control) fps so the reading is the true render
+            // rate even when an app-channel slows game time, and runs after the
+            // paused() continue above so paused frames don't pollute the
+            // average.
+            if (rc.onMetrics) {
+                const float f = host.context().fps();
+                if (shouldReportMetrics(f, lastReportedFps,
+                                        config.metricsReportThreshold)) {
+                    lastReportedFps = f;
+                    rc.onMetrics(Metrics{.fps = f,
+                                         .frameTime = host.context().frameTime()});
+                }
+            }
+
+            if (rc.onRender) rc.onRender(host.context());
+        }
     }
 
     if (rc.onShutdown) rc.onShutdown();

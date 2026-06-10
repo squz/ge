@@ -4,11 +4,16 @@
 #include <ge/sprite.h>
 #include <ge/transform.h>
 
+#include "sprite_internal.h"
+
 #include <doctest.h>
 
-// `submit()` is not tested here because it requires a live bgfx context.
-// The tests below verify the vertex-buffer geometry produced by `addSprite`
-// by reaching into the internal queue via the friend accessor below.
+// The full GPU submit path (drawRun) needs a live sokol context, so it is
+// not exercised here. Its overflow-spreading decision (🎯T113), however, is
+// factored into the pure detail::planSpriteRun, which IS tested below — the
+// same function drawRun executes, so plan coverage == render coverage.
+// The remaining tests verify the vertex-buffer geometry produced by
+// `addSprite` via the friend accessor below.
 
 namespace ge {
 struct SpriteBatchTestAccess {
@@ -129,4 +134,92 @@ TEST_CASE("addSprite accumulates multiple sprites") {
     batch.addSprite(ge::frame(Rect{10, 0, 1, 1}), fakeSprite(2));
     batch.addSprite(ge::frame(Rect{20, 0, 1, 1}), fakeSprite(1));
     CHECK(SpriteBatchTestAccess::quads(batch).size() == 3);
+}
+
+// ── 🎯T113: stream-buffer overflow spreads across pooled buffers ──────────
+
+using ge::detail::planSpriteRun;
+using ge::detail::SpriteRunStep;
+
+// sizeof(SpriteVertex) == 24 → a 256 KB stream buffer holds 10922 verts,
+// 10920 after rounding down to whole quads (1820 quads). This mirrors
+// sprite.cpp's kStreamBufferBytes.
+static constexpr int kFullVerts = 256 * 1024 / 24;
+
+// Replay a plan and assert the universal 🎯T113 invariants: nothing is
+// dropped (chunks sum to the run), every chunk is whole quads and fits the
+// buffer it lands in, and only buffer-spills are flagged `newBuffer`.
+static void checkPlan(const std::vector<SpriteRunStep>& steps,
+                      int totalVerts, int firstFree, int full) {
+    int sum     = 0;
+    int capLeft = firstFree - firstFree % 6;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        const auto& s = steps[i];
+        CHECK(s.verts > 0);
+        CHECK(s.verts % 6 == 0);                 // never split a triangle
+        if (s.newBuffer) capLeft = full - full % 6;  // spilled to a fresh buffer
+        CHECK(s.verts <= capLeft);               // fits the buffer it lands in
+        capLeft -= s.verts;
+        sum     += s.verts;
+    }
+    CHECK(sum == totalVerts);                    // no silent drop
+}
+
+TEST_CASE("planSpriteRun: small run fits the current buffer in one step") {
+    auto steps = planSpriteRun(6, kFullVerts, kFullVerts);  // 1 quad
+    REQUIRE(steps.size() == 1);
+    CHECK(steps[0].newBuffer == false);
+    CHECK(steps[0].verts == 6);
+    checkPlan(steps, 6, kFullVerts, kFullVerts);
+}
+
+TEST_CASE("planSpriteRun: a run larger than one 256 KB buffer is split, not dropped") {
+    const int quads = 6000;            // > 5500; ~864 KB ≫ 256 KB
+    const int verts = quads * 6;
+    auto steps = planSpriteRun(verts, kFullVerts, kFullVerts);
+    CHECK(steps.size() > 1);                      // needed multiple buffers
+    CHECK(steps.front().newBuffer == false);      // first lands in current buffer
+    for (std::size_t i = 1; i < steps.size(); ++i) CHECK(steps[i].newBuffer);
+    checkPlan(steps, verts, kFullVerts, kFullVerts);  // sum == verts: all rendered
+}
+
+TEST_CASE("planSpriteRun: run continues in a partially-filled buffer") {
+    const int firstFree = kFullVerts - 600;       // 100 quads already used
+    auto steps = planSpriteRun(60, firstFree, kFullVerts);  // 10 quads, plenty of room
+    REQUIRE(steps.size() == 1);
+    CHECK(steps[0].newBuffer == false);
+    checkPlan(steps, 60, firstFree, kFullVerts);
+}
+
+TEST_CASE("planSpriteRun: spills the overflow to a fresh buffer") {
+    const int firstFree = 12;                     // room for only 2 quads
+    auto steps = planSpriteRun(60, firstFree, kFullVerts);  // 10 quads
+    REQUIRE(steps.size() == 2);
+    CHECK(steps[0].newBuffer == false);
+    CHECK(steps[0].verts == 12);                  // fills current buffer's 2 quads
+    CHECK(steps[1].newBuffer == true);
+    CHECK(steps[1].verts == 48);                  // remaining 8 quads, fresh buffer
+    checkPlan(steps, 60, firstFree, kFullVerts);
+}
+
+TEST_CASE("planSpriteRun: a full current buffer puts the first step in a fresh buffer") {
+    auto steps = planSpriteRun(60, 0, kFullVerts);  // current buffer full
+    REQUIRE(steps.size() == 1);
+    CHECK(steps[0].newBuffer == true);
+    checkPlan(steps, 60, 0, kFullVerts);
+}
+
+TEST_CASE("planSpriteRun: exact multi-buffer fit leaves no empty trailing step") {
+    const int full = 60;                          // tiny buffers: 10 quads each
+    auto steps = planSpriteRun(180, full, full);  // exactly 3 buffers
+    REQUIRE(steps.size() == 3);
+    CHECK(steps[0].newBuffer == false);
+    CHECK(steps[1].newBuffer == true);
+    CHECK(steps[2].newBuffer == true);
+    for (const auto& s : steps) CHECK(s.verts == 60);
+    checkPlan(steps, 180, full, full);
+}
+
+TEST_CASE("planSpriteRun: empty run produces no steps") {
+    CHECK(planSpriteRun(0, kFullVerts, kFullVerts).empty());
 }
