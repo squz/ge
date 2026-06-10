@@ -13,25 +13,38 @@
 
 #include "sokol_gfx.h"
 #include "ge_sprite.h"  // sokol-shdc generated; -I via Module.mk
+#include "sprite_internal.h"
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace ge {
 
 namespace {
 
-// Stream vertex buffer sized for ~5500 sprite quads per frame. The
-// active scenes in tiltbuggy / multimaze2 are well under 100 quads;
-// this leaves room for future titles without re-tuning.
+// Per-buffer size of each pooled SG_USAGE_STREAM vertex buffer (~1820
+// quads). All Sprite::draw + SpriteBatch::submit calls in a frame share
+// the pool, appending into the current buffer until it fills, then
+// spilling into the next pooled buffer (🎯T113). A frame that needs
+// more than one buffer's worth grows the pool rather than dropping
+// quads — see drawRun + planSpriteRun.
 constexpr int kStreamBufferBytes = 256 * 1024;
 
 struct State {
     sg_pipeline pipeline = {};
     sg_sampler  sampler  = {};
-    sg_buffer   stream   = {};
-    bool        ready    = false;
+    // Pool of per-frame stream buffers. `used[i]` is the byte count
+    // appended to pool[i] so far this frame; `curIdx` is the buffer
+    // currently being filled. The commit listener rewinds both each
+    // frame (sokol independently resets each buffer's own append cursor
+    // on first touch after a commit, so the two stay in lockstep).
+    std::vector<sg_buffer> pool;
+    std::vector<int>       used;
+    std::size_t            curIdx = 0;
+    bool                   ready  = false;
 };
 
 State& globalState() {
@@ -39,12 +52,8 @@ State& globalState() {
     return s;
 }
 
-bool ensureState() {
-    auto& s = globalState();
-    if (s.ready) return true;
-    if (!sg_isvalid()) return false;
-
-    s.stream = sg_make_buffer((sg_buffer_desc){
+sg_buffer makeStreamBuffer() {
+    return sg_make_buffer((sg_buffer_desc){
         .size  = kStreamBufferBytes,
         .usage = (sg_buffer_usage){
             .vertex_buffer = true,
@@ -52,6 +61,25 @@ bool ensureState() {
         },
         .label = "ge.sprite.stream",
     });
+}
+
+// Frame-boundary reset: rewind the pool cursor and zero the per-buffer
+// byte counters so the next frame refills from pool[0]. Registered once
+// via sg_add_commit_listener; fires on every sg_commit (game thread).
+void onSpriteCommit(void* userData) {
+    auto& s = *static_cast<State*>(userData);
+    s.curIdx = 0;
+    std::fill(s.used.begin(), s.used.end(), 0);
+}
+
+bool ensureState() {
+    auto& s = globalState();
+    if (s.ready) return true;
+    if (!sg_isvalid()) return false;
+
+    s.pool.push_back(makeStreamBuffer());
+    s.used.push_back(0);
+    s.curIdx = 0;
 
     s.sampler = sg_make_sampler((sg_sampler_desc){
         .min_filter = SG_FILTER_LINEAR,
@@ -79,6 +107,10 @@ bool ensureState() {
     pd.label = "ge.sprite.pipeline";
     s.pipeline = sg_make_pipeline(&pd);
 
+    sg_add_commit_listener((sg_commit_listener){
+        .func = onSpriteCommit, .user_data = &s,
+    });
+
     s.ready = true;
     return true;
 }
@@ -88,37 +120,98 @@ inline la::float2 applyMatrix(const la::float4x4& m, float x, float y) {
     return {v.x, v.y};
 }
 
+// Draw one same-texture run, spreading it across as many pooled stream
+// buffers as it takes so nothing is dropped on overflow (🎯T113). The
+// split is decided by detail::planSpriteRun; this loop just executes it:
+// each step appends a chunk to the current (or next) pooled buffer and
+// issues a draw.
 void drawRun(sg_view view, const SpriteVertex* verts, int count,
              const la::float4x4& mvp) {
+    if (count <= 0) return;
     if (!ensureState()) return;
     auto& s = globalState();
 
-    const int bytes = int(count * sizeof(SpriteVertex));
-    sg_range r{ .ptr = verts, .size = size_t(bytes) };
-    const int offset = sg_append_buffer(s.stream, &r);
-    if (sg_query_buffer_overflow(s.stream)) {
-        SPDLOG_WARN("ge::sprite: stream buffer overflow ({} bytes)", bytes);
-        return;
+    constexpr int kVBytes   = int(sizeof(SpriteVertex));
+    const int     fullVerts = kStreamBufferBytes / kVBytes;
+    const int     firstFree = (kStreamBufferBytes - s.used[s.curIdx]) / kVBytes;
+
+    const SpriteVertex* p = verts;
+    for (const auto& step : detail::planSpriteRun(count, firstFree, fullVerts)) {
+        if (step.newBuffer) {
+            ++s.curIdx;
+            if (s.curIdx >= s.pool.size()) {
+                s.pool.push_back(makeStreamBuffer());
+                s.used.push_back(0);
+            }
+        }
+        const sg_buffer buf   = s.pool[s.curIdx];
+        const int       bytes = step.verts * kVBytes;
+        const sg_range  r{ .ptr = p, .size = size_t(bytes) };
+        const int       offset = sg_append_buffer(buf, &r);
+        if (sg_query_buffer_overflow(buf)) {
+            // Unreachable by construction: planSpriteRun sizes every
+            // step to fit its buffer. Loud, not silent, if it ever isn't.
+            SPDLOG_ERROR("ge::sprite: unexpected stream overflow ({} bytes)",
+                         bytes);
+            return;
+        }
+        s.used[s.curIdx] += bytes;
+
+        sg_apply_pipeline(s.pipeline);
+
+        sg_bindings b{};
+        b.vertex_buffers[0]        = buf;
+        b.vertex_buffer_offsets[0] = offset;
+        b.views[VIEW_s_tex]        = view;
+        b.samplers[SMP_s_smp]      = s.sampler;
+        sg_apply_bindings(&b);
+
+        vs_params_t vsp;
+        std::memcpy(vsp.u_modelViewProj, &mvp[0][0], sizeof(vsp.u_modelViewProj));
+        const sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
+        sg_apply_uniforms(UB_vs_params, &up);
+
+        sg_draw(0, step.verts, 1);
+        p += step.verts;
     }
-
-    sg_apply_pipeline(s.pipeline);
-
-    sg_bindings b{};
-    b.vertex_buffers[0]        = s.stream;
-    b.vertex_buffer_offsets[0] = offset;
-    b.views[VIEW_s_tex]        = view;
-    b.samplers[SMP_s_smp]      = s.sampler;
-    sg_apply_bindings(&b);
-
-    vs_params_t vsp;
-    std::memcpy(vsp.u_modelViewProj, &mvp[0][0], sizeof(vsp.u_modelViewProj));
-    sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
-    sg_apply_uniforms(UB_vs_params, &up);
-
-    sg_draw(0, count, 1);
 }
 
 } // namespace
+
+namespace detail {
+
+std::vector<SpriteRunStep> planSpriteRun(int totalVerts,
+                                         int firstFreeVerts,
+                                         int fullVerts) {
+    std::vector<SpriteRunStep> steps;
+    if (totalVerts <= 0) return steps;
+
+    // Round both capacities down to whole quads (6 verts) so a chunk
+    // boundary never splits a triangle.
+    const int fullCap = fullVerts > 0 ? fullVerts - fullVerts % 6 : 0;
+    int cap     = firstFreeVerts > 0 ? firstFreeVerts - firstFreeVerts % 6 : 0;
+    int remaining = totalVerts;
+    bool advance  = false;  // first step uses the current buffer...
+
+    while (remaining > 0) {
+        if (cap < 6) {                 // ...unless it can't hold even one quad
+            if (fullCap < 6) {         // degenerate: no buffer fits a quad —
+                steps.push_back({advance, remaining});  // emit rest; drawRun
+                break;                                  // overflow-guards it
+            }
+            cap     = fullCap;
+            advance = true;            // this step starts a fresh buffer
+        }
+        const int take = std::min(remaining, cap);
+        steps.push_back({advance, take});
+        remaining -= take;
+        cap       -= take;
+        advance    = false;           // stay in this buffer until it fills
+    }
+    return steps;
+}
+
+} // namespace detail
 
 // ────────────────────────────────────────────────
 // Sprite
