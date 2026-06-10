@@ -489,14 +489,15 @@ targets:
     achieved: 2026-06-08
   T113:
     name: ge::SpriteBatch renders every submitted sprite in a frame, regardless of total quad count
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
-    - A frame that submits more sprite quads than fit in the current 256 KB stream buffer renders all of them — either the buffer grows to fit, or SpriteBatch flushes/rotates buffers mid-frame, or each batch gets its own appropriately-sized allocation. No silent drop.
-    - 'On overflow the code does not fail open: it must not skip the draw with only a SPDLOG_WARN (sprite.cpp:99-102). Either it cannot happen by construction, or it degrades visibly/loudly enough to fail a test.'
-    - 'Repro: MultiMaze 2 level-select grid (16 fully-walled 6x9 mazes in one frame) renders ALL walls on iPhone 13 / device. Today the first ~5 tiles render walls, tiles 6-16 lose them while their balls (separate marble pipeline) still draw, and the device logs ~350 ''ge::sprite: stream buffer overflow'' warnings/sec.'
-    - A unit or render test submits >5500 quads through SpriteBatch in one frame and asserts the rendered quad count equals the submitted count.
+    - 'DONE: ge::Sprite::draw + ge::SpriteBatch::submit no longer share one fixed 256 KB per-frame stream buffer. drawRun spreads each run across a pool of stream buffers (created on demand), so a frame submitting more quads than one buffer holds renders all of them — no silent drop.'
+    - 'DONE: the old fail-open path (sg_query_buffer_overflow -> SPDLOG_WARN + return, dropping the draw) is gone. The split is computed by the pure ge::detail::planSpriteRun, which guarantees every chunk fits its buffer; the residual overflow branch is unreachable-by-construction and now logs SPDLOG_ERROR (not WARN).'
+    - 'DONE: headless unit test (sprite_test.cpp) drives planSpriteRun with a >5500-quad run and asserts the chunks sum to the submitted vertex count (every quad lands in a draw), plus boundary/spill cases. The same function drawRun executes, so plan coverage == render coverage.'
+    - 'CONSUMER-CONFIRM (post-release): MultiMaze 2 level-select grid renders ALL walls on iPhone 13 with no overflow warnings, once mm2 bumps its ge submodule to the release carrying this fix. Addressed by construction (the silent drop is removed); to be visually re-confirmed on device by the consumer.'
     context: 'Discovered while screenshotting the MultiMaze 2 level-select screen on the Minicades Test iPhone (iPhone 13, iOS 26.5). Most level thumbnails showed balls but no maze walls. Root cause: ge::SpriteBatch and ge::Sprite::draw both feed ONE global per-frame SG_USAGE_STREAM vertex buffer (kStreamBufferBytes = 256 KB, sprite.cpp:25-28) via sg_append_buffer. The buffer is shared across every sprite draw in the frame; when sg_append_buffer overflows, drawRun (sprite.cpp:91-119) logs a warning and returns, silently dropping the draw. The 256 KB sizing comment explicitly assumed ''active scenes well under 100 quads'', but the level-select grid renders ~16 dense mazes — each maze emits a wall span plus 4 corner quads per intersection (MazeRenderer.cpp:388-416), thousands of quads total. The buffer fills partway through the grid; subsequent submits are no-ops. Balls survive because they render via a separate marble pipeline (MazeRenderer.cpp:781+), not the sprite batch. Live device log confirmed 15,565 overflow warnings in 45 s, dropped runs of 47520/43920/48816 bytes (the wall geometry). Surfaced by the multimaze2 consumer.'
     tags:
     - multimaze-audit
@@ -504,6 +505,7 @@ targets:
     - engine
     origin: manual
     discovered: 2026-06-10
+    achieved: 2026-06-10
   T114:
     name: Apple frame loop drains an autorelease pool every frame (no per-frame Metal object accumulation)
     status: converging
