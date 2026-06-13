@@ -508,9 +508,10 @@ targets:
     achieved: 2026-06-10
   T114:
     name: Apple frame loop drains an autorelease pool every frame (no per-frame Metal object accumulation)
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - Every iteration of the per-frame loop on Apple platforms (DirectRenderHost game loop on iOS, and the desktop ge::run loop on macOS) is wrapped in @autoreleasepool, so autoreleased Metal objects (MTLRenderPassDescriptor, render-pass attachment arrays, command buffers, render command encoders, CAMetalDrawable wrappers) are released at frame end instead of accumulating for process lifetime.
     - Instruments → Allocations on a physical iPhone during a ge-consumer gameplay session shows flat persistent counts for MTLRenderPassDescriptor / MTLRenderPassColorAttachment / CAMetalDrawable across a 5+ minute run (counts proportional to in-flight frames, not total frames rendered).
@@ -538,6 +539,34 @@ targets:
     - blocker
     origin: manual
     discovered: 2026-06-10
+    achieved: 2026-06-14
+  T115:
+    name: App-channel state registry is a blessed, documented telemetry/metadata pipe with a standard schema and optional streaming
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - The existing app-channel state registry (`registerStateSlice` / `registerStateSerializer` / `perfEmit`, appchannel.h) is documented as THE telemetry/metadata pipe for ge games — a generic, app-defines / spyder-reads contract — so any ge game gets agent-readable structured state without bespoke transport.
+    - 'A recommended schema convention exists for common slices (e.g. a `geometry`/`physics` slice shape: bodies with position/velocity in world units, constraints with rest/current length, sensors with distance-to-nearest-relevant-body) so spyder can render/compare them uniformly across games.'
+    - Optional periodic-push mode for state slices (not just on-demand pull via `app_state`), so an agent can watch state evolve during an input sequence without polling — or a documented poll pattern if push is deemed unnecessary.
+    - agents-guide.md documents the end-to-end flow (register slice → `LOG_TARGET=appchannel://host:port` → spyder `app_state{slice}` / `app_input`) including the iOS one-time local-network-permission gotcha.
+    - 'Validated by a real consumer: multimaze2''s geometry slice (its target) reads correctly through `spyder app_state` on a physical device.'
+    context: |-
+      Surfaced 2026-06-14 from the multimaze2 Multiball L3 geometry-bug investigation. User framing: "spyder could support this directly through some kind of metadata pipe that ge supports" — it belongs in engine + harness, not per-game.
+
+      CURRENT STATE (verified 2026-06-14 by reading appchannel.cpp): the pipe is ALREADY BUILT and working for pull —
+      - `registerStateSlice(name, getter)` → `state_query` handler returns getter JSON (line 513);
+      - `hello` advertises registered slice names (line 191);
+      - `registerStateSerializer` → save_state/restore_state; `perfEmit`/`perfTick` → periodic `perf` push.
+
+      This target is therefore POLISH on top of a working pipe, NOT a build-from-scratch. Remaining deltas: (1) periodic/streaming PUSH of state slices (today only `perf` streams; slices are pull-only via state_query); (2) a documented standard schema convention for common slices (geometry/physics) so spyder renders them uniformly; (3) agents-guide docs blessing this as the telemetry contract + the iOS local-network-permission gotcha. None of these block a consumer from using the pipe today. Paired: spyder 🎯T80, consumer slice multimaze2 🎯T48.
+    tags:
+    - telemetry
+    - app-channel
+    - dev-tooling
+    - multimaze-audit
+    origin: manual
+    discovered: 2026-06-14
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved
