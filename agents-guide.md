@@ -407,10 +407,34 @@ capture is a spyder-side poller of it, mirroring `log_collect` / `app_perf_get`)
 | `app_state_slices` | discover the slice names the app advertised in `hello` |
 | `app_state {slice}` | pull one slice now (runs the getter on the game thread — a consistent, non-torn snapshot) |
 | `app_state_capture_start {slice, interval_ms}` → `app_state_capture_get` / `_stop` | **watch a slice evolve**: spyder polls `state_query` on a background interval (default 100 ms, min 10 ms) into a timestamped buffer, so an agent can run an `app_input` sequence and read state frame-by-frame without a hand-rolled poll loop |
+| `app_state_describe {slice}` | one `state_query` walked into a types-only sketch (`{"bodies": [{"vel": ["float"]}]}`) — learn a slice's shape without ingesting the full payload (spyder ≥ v0.57.0; app-agnostic) |
+
+Every readout tool also takes an optional `select` jq expression that spyder
+evaluates **server-side** (gojq) and returns only the filtered result — e.g.
+`app_state{slice:"geometry", select:".bodies[0].vel"}`. The jq engine lives
+entirely in spyder; ge embeds no filter logic.
 
 Because `app_pause` keeps render + input alive, `app_input → app_state` /
 `app_state_capture` while paused is **state-correlated** — drive an input, watch
 the exact state it produced.
+
+**Volunteering an example (🎯T116, optional).** `registerStateSlice` takes an
+optional third argument — a representative example payload — that ge advertises
+in the `hello` as a `{name, example}` slice descriptor (spyder ≥ v0.57.0). A
+connected agent then gets a filter-writing template the moment it lists slices,
+skipping a `state_query` round-trip:
+
+```cpp
+ge::appchannel::registerStateSlice("geometry", geometryGetter,
+    nlohmann::json{{"units", "metres"},
+                   {"bodies", {{{"id","buggy"}, {"pos",{0,0}}, {"vel",{0,0}}, {"angle",0}}}}});
+```
+
+Keep it a **one-line snapshot of the shape**, not a multi-screen literal — its
+job is to show the keys and value types, not the live data. Slices that omit it
+still emit the compact bare-string form, and the agent can fall back to
+`app_state_describe`. The example is captured at registration (before `ge::run`),
+so it can be a hand-written literal or the getter's initial output.
 
 **Recommended schema convention — geometry / physics slices.** So spyder can
 render and compare physics state uniformly *across* games, a slice that exposes

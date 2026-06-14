@@ -88,7 +88,17 @@ using StateRestorer = std::function<void(const nlohmann::json&)>;
 
 // A named, queryable slice of app state — spyder's app_state{slice} routes
 // here and returns the getter's JSON.
-void registerStateSlice(std::string name, StateGetter getter);
+//
+// 🎯T116 `example` (optional) is a small, representative snapshot of the slice
+// — its shape, not live data. When non-null it rides in the `hello` as a
+// {name, example} slice descriptor (spyder T81+), so a connected agent gets a
+// filter-writing template at connect time and skips a `state_query` round-trip
+// (it can also fall back to `app_state_describe`). Captured at registration
+// (before ge::run) — pass a one-line literal or a getter's initial output, not
+// a multi-screen dump. Omit it for the compact name-only descriptor; pre-T81
+// spyder builds ignore the example and still see the name.
+void registerStateSlice(std::string name, StateGetter getter,
+                        nlohmann::json example = nullptr);
 
 // Whole-app save/restore — spyder's app_save_state / app_restore_state. `save`
 // returns a JSON snapshot; ge MessagePack+base64-encodes it for the wire and
