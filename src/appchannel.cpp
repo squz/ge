@@ -38,6 +38,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>  // 🎯T92.6 IMG_SavePNG_IO
 
+#include "appchannel_internal.h"      // ge::appchannel::detail::buildSliceDescriptors
 #include "render/LifecycleInject.h"   // ge::detail::injectMemoryWarning
 #include "render/ScreenshotBridge.h"  // ge::detail::captureFrameRGBA
 
@@ -76,6 +77,9 @@ constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
 // ge::run (single-threaded), read by the channel worker thread after — the
 // happens-before is the channel-thread launch in start().
 std::unordered_map<std::string, StateGetter> g_slices;
+// 🎯T116 Optional per-slice example payloads, advertised in the hello as
+// {name, example} descriptors. Same write-once-before-run lifetime as g_slices.
+std::unordered_map<std::string, nlohmann::json> g_sliceExamples;
 StateGetter   g_stateSaver;
 StateRestorer g_stateRestorer;
 
@@ -188,8 +192,18 @@ private:
         // consumers registered (before ge::run).
         nlohmann::json methods = nlohmann::json::array();
         for (const auto& kv : handlers()) methods.push_back(kv.first);
-        nlohmann::json slices = nlohmann::json::array();
-        for (const auto& kv : g_slices) slices.push_back(kv.first);
+        // 🎯T116 Build mixed slice descriptors: bare name, or {name, example}
+        // for slices that volunteered one. buildSliceDescriptors is pure (unit-
+        // tested in appchannel_test.cpp against spyder's SliceDescriptor forms).
+        std::vector<std::pair<std::string, nlohmann::json>> sliceList;
+        sliceList.reserve(g_slices.size());
+        for (const auto& kv : g_slices) {
+            auto ex = g_sliceExamples.find(kv.first);
+            sliceList.emplace_back(
+                kv.first,
+                ex != g_sliceExamples.end() ? ex->second : nlohmann::json(nullptr));
+        }
+        nlohmann::json slices = detail::buildSliceDescriptors(sliceList);
         sendFrame(nlohmann::json{
             {"id", nextId_++},
             {"method", "hello"},
@@ -637,7 +651,24 @@ void perfTick(float frameMs) {
     });
 }
 
-void registerStateSlice(std::string name, StateGetter getter) {
+namespace detail {
+
+nlohmann::json buildSliceDescriptors(
+    const std::vector<std::pair<std::string, nlohmann::json>>& slices) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& [name, example] : slices) {
+        if (example.is_null())
+            out.push_back(name);                                    // bare string
+        else
+            out.push_back({{"name", name}, {"example", example}});  // {name, example}
+    }
+    return out;
+}
+
+} // namespace detail
+
+void registerStateSlice(std::string name, StateGetter getter, nlohmann::json example) {
+    if (!example.is_null()) g_sliceExamples[name] = std::move(example);
     g_slices[std::move(name)] = std::move(getter);
 }
 
@@ -674,7 +705,7 @@ bool active() { return false; }
 float applyTimeControl(float realDt) { return realDt; }
 void perfEmit(const std::string&, double) {}
 void perfTick(float) {}
-void registerStateSlice(std::string, StateGetter) {}
+void registerStateSlice(std::string, StateGetter, nlohmann::json) {}
 void registerStateSerializer(StateGetter, StateRestorer) {}
 void pumpMainThreadTasks() {}
 

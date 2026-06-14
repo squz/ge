@@ -569,6 +569,28 @@ targets:
     origin: manual
     discovered: 2026-06-14
     achieved: 2026-06-14
+  T116:
+    name: ge consumers can volunteer a representative example payload per app-channel state slice, advertised in the hello
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 2.0
+    acceptance:
+    - 'DONE: ge::appchannel::registerStateSlice gained an optional third parameter (nlohmann::json example, default null). Existing two-arg call sites are unchanged (name-only).'
+    - 'DONE: the hello''s `slices` array emits the spyder-T81 mixed form via the pure detail::buildSliceDescriptors — bare msgpack string for a name-only slice, {name, example} map for one with an example. Validated live against spyder v0.57.0: app_state_slices showed `geometry` with the inline example and `scene`/`iap` name-only.'
+    - 'DONE: sample/tiltbuggy''s geometry slice registers a one-line representative example (proving ground).'
+    - 'DONE: no app-side jq/filter logic — jq evaluation stays in spyder (gojq); ge only produces payloads + the optional example. Documented.'
+    - 'DONE: src/appchannel_test.cpp — 4 unit tests mirroring spyder''s TestSliceDescriptor_{BareString,StructForm,Mixed} (+ empty), asserting the to_msgpack wire shape (fixstr vs fixmap) and round-trip. 238/238 pass.'
+    - 'DONE: agents-guide.md documents the optional example field (one-line snapshot, not a dump), app_state_describe, and server-side jq select; CLAUDE.md + AGENTS.md note it; prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/libge.a refreshed (verify-prebuilds.py green).'
+    context: ge-side follow-on to spyder 🎯T81 (spyder v0.57.0). Spyder extended the app-channel protocol so Hello.slices carries richer descriptors — each entry is a bare string (name-only, existing) or {name, example?}. Spyder also added app_state_describe (runtime types-only sketch) and server-side jq `select` filtering — both app-agnostic, no ge change. The only ge work is letting a consumer volunteer an example payload at registerStateSlice time so agents get filter-writing context at hello time, saving a state_query round-trip per slice per session. Builds directly on ge 🎯T115 (the state-slice telemetry pipe). Pairs with spyder repo internal/appchannel/protocol.go (SliceDescriptor) + slice_descriptor_test.go.
+    tags:
+    - telemetry
+    - app-channel
+    - dev-tooling
+    - spyder-t81
+    origin: manual
+    discovered: 2026-06-14
+    achieved: 2026-06-14
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved

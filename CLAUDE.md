@@ -818,7 +818,11 @@ extra app-side method is needed). A recommended geometry/physics slice shape
 (`bodies` with pos/vel, `constraints` with rest/current length, `sensors` with
 distance-to-nearest) lets spyder render/compare physics uniformly across games —
 a convention, not a requirement. `sample/tiltbuggy` ships a `geometry` slice as
-the in-repo proving ground. See `agents-guide.md` → "State slices" for the schema
+the in-repo proving ground. Consumers may also volunteer a representative
+`example` payload per slice (optional third arg to `registerStateSlice`, 🎯T116),
+emitted in the hello as a `{name, example}` descriptor (spyder ≥ v0.57.0) so an
+agent gets a filter-writing template at connect time; slices without one keep the
+compact bare-string form. See `agents-guide.md` → "State slices" for the schema
 and the iOS local-network-permission gotcha.
 
 - **`<ge/appchannel.h>`** — `registerMethod`, `installFromEnv`, `push`,

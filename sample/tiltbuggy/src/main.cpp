@@ -114,6 +114,17 @@ int main(int argc, char* argv[]) {
             {"bodies", std::move(bodies)},
             {"bounds", {{"min", {-e, -e}}, {"max", {e, e}}}},
         };
+    },
+    // 🎯T116 A representative example payload — the slice's shape (one body),
+    // advertised in the hello so a connected agent can write a jq filter (e.g.
+    // `.bodies[0].vel`) without a state_query round-trip. One-line snapshot of
+    // the shape, not live data.
+    nlohmann::json{
+        {"units",  "metres"},
+        {"bodies", nlohmann::json::array({
+            {{"id", "buggy"}, {"pos", {0.0, 0.0}}, {"vel", {0.0, 0.0}}, {"angle", 0.0}},
+        })},
+        {"bounds", {{"min", {-0.625, -0.625}}, {"max", {0.625, 0.625}}}},
     });
     ge::appchannel::registerStateSerializer(
         [&state] {
