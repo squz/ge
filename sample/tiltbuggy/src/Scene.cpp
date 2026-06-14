@@ -152,6 +152,10 @@ Pose Scene::buggyPose() const {
     return { pos.x, pos.y, b2Rot_GetAngle(rot) };
 }
 
+b2Vec2 Scene::buggyVelocity() const {
+    return b2Body_GetLinearVelocity(i_->chassisId);
+}
+
 float Scene::halfExtent() const {
     return i_->halfExtent;
 }

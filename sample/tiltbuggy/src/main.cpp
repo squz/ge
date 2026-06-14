@@ -91,6 +91,30 @@ int main(int argc, char* argv[]) {
     ge::appchannel::registerStateSlice("iap", [] {
         return nlohmann::json{{"pro", ge::iap::owned("pro")}};
     });
+    // 🎯T115 "geometry" slice — the recommended geometry/physics schema: bodies
+    // in world units carrying position + velocity, so spyder renders/compares
+    // physics state uniformly across ge games (and an agent can diff it across
+    // an input sequence). TiltBuggy has one dynamic body; a richer consumer
+    // (multimaze2's marbles + walls) fills in the constraints / sensors arrays.
+    ge::appchannel::registerStateSlice("geometry", [&state] {
+        nlohmann::json bodies = nlohmann::json::array();
+        if (state.scene) {
+            const auto p = state.scene->buggyPose();
+            const auto v = state.scene->buggyVelocity();
+            bodies.push_back({
+                {"id",    "buggy"},
+                {"pos",   {p.x, p.y}},
+                {"vel",   {v.x, v.y}},
+                {"angle", p.angle},
+            });
+        }
+        const float e = state.scene ? state.scene->halfExtent() : 0.0f;
+        return nlohmann::json{
+            {"units",  "metres"},
+            {"bodies", std::move(bodies)},
+            {"bounds", {{"min", {-e, -e}}, {"max", {e, e}}}},
+        };
+    });
     ge::appchannel::registerStateSerializer(
         [&state] {
             return nlohmann::json{

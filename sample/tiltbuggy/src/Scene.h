@@ -36,6 +36,10 @@ public:
     // Pose of the buggy chassis in world coords.
     Pose buggyPose() const;
 
+    // Linear velocity of the buggy chassis in world coords (m/s). Exposed for
+    // the 🎯T115 geometry state slice (bodies carry position + velocity).
+    b2Vec2 buggyVelocity() const;
+
     // Extent of the world (walls at ±halfExtent).
     float halfExtent() const;
 
