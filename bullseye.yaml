@@ -591,6 +591,27 @@ targets:
     origin: manual
     discovered: 2026-06-14
     achieved: 2026-06-14
+  T117:
+    name: ge offers a header-only box2d→state-slice convenience so apps expose physics objects as data without per-body boilerplate
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - <ge/box2d_slice.h> exists, header-only. libge stays physics-agnostic (box2d is APP_LIBS, never compiled into libge); the header is consumed only by apps that already link box2d.
+    - ge::box2d::worldGeometry(b2WorldId) walks EVERY shape via b2World_OverlapAABB over a world-covering AABB, groups shapes by body, and emits the recommended geometry schema { bodies:[{id, pos, vel, angle, shapes:[outline]}] }. `id` is the box2d body name (b2BodyDef.name) when set, else a synthesised id. Zero per-body app code.
+    - ge::box2d::body(label, b2BodyId) and bodyState(b2BodyId) provide the curated single-body form ({id,pos,vel,angle} / {pos,vel,angle}); worldGeometry and body emit the same body shape so an app can mix them.
+    - No appchannel/libge coupling and no app-side jq — the helpers are pure box2d→nlohmann::json; the app drops the result into its own registerStateSlice getter.
+    - 'A ge unit test builds a tiny in-test b2World (a named dynamic circle + an unnamed static box), calls worldGeometry, and asserts the enumeration: both bodies present, name used as id, pos/vel/angle correct, circle + polygon shape outlines emitted.'
+    - sample/tiltbuggy's geometry slice is rewired through ge::box2d (proving ground), replacing its hand-rolled body formatting; agents-guide documents the helper.
+    context: 'Follow-on to 🎯T116 / 🎯T115. User goal: let an agent process physics objects directly (spyder app_state) instead of screenshotting + parsing pixels. ge can''t auto-own the slice (it has no world handle; b2World is app-owned) but box2d DOES know every body — b2World_OverlapAABB over a world-covering AABB calls back with a b2ShapeId for every shape (static/sleeping/dynamic), and b2Shape_GetBody → b2BodyId gives name/pos/vel/angle. So a header-only helper reads the world out into the recommended geometry schema with one line in the app. Light-touch: ge formats, the app composes (can add constraints/sensors/custom fields). Design co-developed with the user 2026-06-14. Released together with T116.'
+    tags:
+    - telemetry
+    - app-channel
+    - box2d
+    - physics
+    - dev-tooling
+    origin: manual
+    discovered: 2026-06-14
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved
