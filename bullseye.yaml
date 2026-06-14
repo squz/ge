@@ -542,15 +542,16 @@ targets:
     achieved: 2026-06-14
   T115:
     name: App-channel state registry is a blessed, documented telemetry/metadata pipe with a standard schema and optional streaming
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
-    - The existing app-channel state registry (`registerStateSlice` / `registerStateSerializer` / `perfEmit`, appchannel.h) is documented as THE telemetry/metadata pipe for ge games — a generic, app-defines / spyder-reads contract — so any ge game gets agent-readable structured state without bespoke transport.
-    - 'A recommended schema convention exists for common slices (e.g. a `geometry`/`physics` slice shape: bodies with position/velocity in world units, constraints with rest/current length, sensors with distance-to-nearest-relevant-body) so spyder can render/compare them uniformly across games.'
-    - Optional periodic-push mode for state slices (not just on-demand pull via `app_state`), so an agent can watch state evolve during an input sequence without polling — or a documented poll pattern if push is deemed unnecessary.
-    - agents-guide.md documents the end-to-end flow (register slice → `LOG_TARGET=appchannel://host:port` → spyder `app_state{slice}` / `app_input`) including the iOS one-time local-network-permission gotcha.
-    - 'Validated by a real consumer: multimaze2''s geometry slice (its target) reads correctly through `spyder app_state` on a physical device.'
+    - 'DONE: the app-channel state registry is documented as THE app-defines / spyder-reads telemetry/metadata pipe for ge games (agents-guide.md → ''State slices — the telemetry/metadata pipe''; CLAUDE.md + AGENTS.md App Channel note). Slices are entirely app-defined via registerStateSlice — ge hard-codes none.'
+    - 'DONE: a recommended geometry/physics slice schema convention is documented (units + bodies[pos/vel/angle] + constraints[rest/current] + sensors[distance-to-nearest] + bounds) so spyder renders/compares physics uniformly across games — explicitly a convention, not a requirement. sample/tiltbuggy ships a conforming `geometry` slice (+ Scene::buggyVelocity) as the in-repo proving ground.'
+    - 'DONE (poll pattern, push deemed unnecessary): spyder v0.56.0''s app_state_capture_* is a spyder-side poller of the existing state_query, giving an agent a timestamped stream of a slice over an input sequence without a hand-rolled loop. An app-side push was prototyped then reverted (no consumer). agents-guide documents the capture/poll flow.'
+    - 'DONE: agents-guide.md documents the end-to-end flow — registerStateSlice → LOG_TARGET=appchannel://host:port → spyder app_state_slices / app_state{slice} / app_state_capture_* / app_input — including the iOS one-time local-network-permission gotcha.'
+    - 'VALIDATED in-repo: tiltbuggy''s geometry slice reads + streams correctly through spyder v0.56.0 on desktop (app_state_slices → app_state → capture_start → app_input{accel} → capture_get shows pos/vel evolving, 593 distinct positions). CONSUMER-CONFIRM: multimaze2''s own geometry slice on a physical device rides multimaze2 🎯T48.'
     context: |-
       Surfaced 2026-06-14 from the multimaze2 Multiball L3 geometry-bug investigation. User framing: "spyder could support this directly through some kind of metadata pipe that ge supports" — it belongs in engine + harness, not per-game.
 
@@ -567,6 +568,7 @@ targets:
     - multimaze-audit
     origin: manual
     discovered: 2026-06-14
+    achieved: 2026-06-14
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved
