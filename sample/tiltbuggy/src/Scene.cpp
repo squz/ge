@@ -51,6 +51,7 @@ struct Scene::Impl {
         {
             b2BodyDef bdef = b2DefaultBodyDef();
             bdef.type = b2_staticBody;
+            bdef.name = "arena";  // 🎯T117 names ride through worldGeometry as ids
             groundId = b2CreateBody(worldId, &bdef);
         }
 
@@ -79,6 +80,7 @@ struct Scene::Impl {
         {
             b2BodyDef bdef = b2DefaultBodyDef();
             bdef.type = b2_dynamicBody;
+            bdef.name = "buggy";  // 🎯T117 → geometry slice id
             bdef.position = {0.0f, 0.0f};
             bdef.linearDamping = 0.5f;
             bdef.angularDamping = 2.0f;
@@ -152,8 +154,8 @@ Pose Scene::buggyPose() const {
     return { pos.x, pos.y, b2Rot_GetAngle(rot) };
 }
 
-b2Vec2 Scene::buggyVelocity() const {
-    return b2Body_GetLinearVelocity(i_->chassisId);
+b2WorldId Scene::worldId() const {
+    return i_->worldId;
 }
 
 float Scene::halfExtent() const {

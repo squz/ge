@@ -459,12 +459,28 @@ it; it just won't get uniform cross-game tooling.
 ```
 
 `bodies` is the only near-universal key; `constraints` / `sensors` appear only
-when the game has them (`sample/tiltbuggy`'s `geometry` slice exposes just the one
-dynamic body; a maze-style consumer fills in walls as `constraints` and goal
-proximity as `sensors`). Validated end-to-end against spyder v0.56.0 on desktop:
-`app_state_slices → app_state{geometry} → app_state_capture_start →
-app_input{accel} → app_state_capture_get` shows the buggy's `pos`/`vel` evolving
-across the captured window.
+when the game has them.
+
+**box2d consumers get the `bodies` array for free (🎯T117).**
+`ge::box2d::worldGeometry(worldId)` (header-only `<ge/box2d_slice.h>`) walks every
+body/shape in a `b2World` via `b2World_OverlapAABB` and emits this schema directly
+— box2d body names (`b2BodyDef.name`) become the `id`s, each body's shape outlines
+ride under a `shapes` key. Drop it into a getter and add the bits box2d can't know
+(`units`, `bounds`, app-specific `constraints`/`sensors`):
+
+```cpp
+ge::appchannel::registerStateSlice("geometry", [&]{
+    auto g = ge::box2d::worldGeometry(state.scene->worldId());
+    g["units"] = "metres";
+    return g;                                   // or ge::box2d::body(label, id) for one
+});
+```
+
+`sample/tiltbuggy`'s `geometry` slice is wired this way — its named `arena`
+(walls + surface patches) and `buggy` bodies. Validated end-to-end against spyder
+v0.57.0 on desktop: `app_state{geometry, select:'.bodies[]|select(.id=="buggy")'}`
+returns the buggy's live `pos`/`vel`/`angle`/`shapes` directly — no screenshot, no
+pixel parsing.
 
 **iOS gotcha — local-network permission (one-time).** On a physical iOS device
 the app dials spyder over the LAN, which trips iOS's Local Network privacy prompt
