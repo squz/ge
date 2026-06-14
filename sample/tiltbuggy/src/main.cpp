@@ -11,6 +11,7 @@
 #include "Scene.h"
 
 #include <ge/appchannel.h>
+#include <ge/box2d_slice.h>
 #include <ge/iap.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
@@ -97,32 +98,29 @@ int main(int argc, char* argv[]) {
     // an input sequence). TiltBuggy has one dynamic body; a richer consumer
     // (multimaze2's marbles + walls) fills in the constraints / sensors arrays.
     ge::appchannel::registerStateSlice("geometry", [&state] {
-        nlohmann::json bodies = nlohmann::json::array();
-        if (state.scene) {
-            const auto p = state.scene->buggyPose();
-            const auto v = state.scene->buggyVelocity();
-            bodies.push_back({
-                {"id",    "buggy"},
-                {"pos",   {p.x, p.y}},
-                {"vel",   {v.x, v.y}},
-                {"angle", p.angle},
-            });
-        }
+        // 🎯T117 The whole physics world as data, read out by
+        // ge::box2d::worldGeometry — no hand-rolled body formatting. It walks
+        // every body/shape (the arena walls, surface patches, and the named
+        // "buggy"); the app just adds the unit + bounds context box2d can't know.
+        nlohmann::json geo = state.scene
+            ? ge::box2d::worldGeometry(state.scene->worldId())
+            : nlohmann::json{{"bodies", nlohmann::json::array()}};
+        geo["units"] = "metres";
         const float e = state.scene ? state.scene->halfExtent() : 0.0f;
-        return nlohmann::json{
-            {"units",  "metres"},
-            {"bodies", std::move(bodies)},
-            {"bounds", {{"min", {-e, -e}}, {"max", {e, e}}}},
-        };
+        geo["bounds"] = {{"min", {-e, -e}}, {"max", {e, e}}};
+        return geo;
     },
-    // 🎯T116 A representative example payload — the slice's shape (one body),
-    // advertised in the hello so a connected agent can write a jq filter (e.g.
-    // `.bodies[0].vel`) without a state_query round-trip. One-line snapshot of
-    // the shape, not live data.
+    // 🎯T116 example — the slice's shape, for filter-writing without a
+    // state_query round-trip. One representative named body with a shape outline
+    // (worldGeometry emits one entry per body, shapes grouped under it).
     nlohmann::json{
         {"units",  "metres"},
         {"bodies", nlohmann::json::array({
-            {{"id", "buggy"}, {"pos", {0.0, 0.0}}, {"vel", {0.0, 0.0}}, {"angle", 0.0}},
+            {{"id", "buggy"}, {"pos", {0.0, 0.0}}, {"vel", {0.0, 0.0}}, {"angle", 0.0},
+             {"shapes", nlohmann::json::array({
+                 {{"type", "polygon"},
+                  {"vertices", {{-0.03, -0.016}, {0.03, -0.016}, {0.03, 0.016}, {-0.03, 0.016}}}},
+             })}},
         })},
         {"bounds", {{"min", {-0.625, -0.625}}, {"max", {0.625, 0.625}}}},
     });

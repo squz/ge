@@ -822,8 +822,14 @@ the in-repo proving ground. Consumers may also volunteer a representative
 `example` payload per slice (optional third arg to `registerStateSlice`, 🎯T116),
 emitted in the hello as a `{name, example}` descriptor (spyder ≥ v0.57.0) so an
 agent gets a filter-writing template at connect time; slices without one keep the
-compact bare-string form. See `agents-guide.md` → "State slices" for the schema
-and the iOS local-network-permission gotcha.
+compact bare-string form. **box2d consumers** populate a physics slice in one
+line with `ge::box2d::worldGeometry(worldId)` (header-only `<ge/box2d_slice.h>`,
+🎯T117) — it walks the whole `b2World` via `b2World_OverlapAABB` and emits the
+geometry schema (body names → `id`s, shape outlines under `shapes`);
+`ge::box2d::body(label, id)` is the curated single-body form. `libge` stays
+box2d-free (the header is consumed only by apps that already link box2d). See
+`agents-guide.md` → "State slices" for the schema and the iOS
+local-network-permission gotcha.
 
 - **`<ge/appchannel.h>`** — `registerMethod`, `installFromEnv`, `push`,
   `active`, `applyTimeControl` (run-loop pacing), `perfEmit` (custom perf

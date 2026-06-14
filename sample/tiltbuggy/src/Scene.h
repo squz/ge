@@ -36,9 +36,9 @@ public:
     // Pose of the buggy chassis in world coords.
     Pose buggyPose() const;
 
-    // Linear velocity of the buggy chassis in world coords (m/s). Exposed for
-    // the 🎯T115 geometry state slice (bodies carry position + velocity).
-    b2Vec2 buggyVelocity() const;
+    // The box2d world — exposed so the 🎯T117 geometry slice can read every body
+    // out via ge::box2d::worldGeometry(scene->worldId()).
+    b2WorldId worldId() const;
 
     // Extent of the world (walls at ±halfExtent).
     float halfExtent() const;
