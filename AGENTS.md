@@ -809,6 +809,18 @@ bare `host:port` keeps the T83 text sink). `ge::run` dials it automatically.
 Entire feature compiled out under `NDEBUG` (same gate as T83) — no socket, no
 msgpack, no handlers in release. **Full reference: `agents-guide.md` → "Agent-drivable app channel".**
 
+**State slices are ge's blessed telemetry/metadata pipe (🎯T115).** Apps
+`registerStateSlice(name, getter)` for any number of app-defined slices (ge
+hard-codes none); spyder ≥ v0.56.0 discovers them (`app_state_slices`), pulls one
+(`app_state{slice}`), or watches a slice evolve over an `app_input` sequence
+(`app_state_capture_*` — a spyder-side poller of the existing `state_query`, so no
+extra app-side method is needed). A recommended geometry/physics slice shape
+(`bodies` with pos/vel, `constraints` with rest/current length, `sensors` with
+distance-to-nearest) lets spyder render/compare physics uniformly across games —
+a convention, not a requirement. `sample/tiltbuggy` ships a `geometry` slice as
+the in-repo proving ground. See `agents-guide.md` → "State slices" for the schema
+and the iOS local-network-permission gotcha.
+
 - **`<ge/appchannel.h>`** — `registerMethod`, `installFromEnv`, `push`,
   `active`, `applyTimeControl` (run-loop pacing), `perfEmit` (custom perf
   counter), `registerStateSlice` / `registerStateSerializer` (consumer state

@@ -508,9 +508,10 @@ targets:
     achieved: 2026-06-10
   T114:
     name: Apple frame loop drains an autorelease pool every frame (no per-frame Metal object accumulation)
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - Every iteration of the per-frame loop on Apple platforms (DirectRenderHost game loop on iOS, and the desktop ge::run loop on macOS) is wrapped in @autoreleasepool, so autoreleased Metal objects (MTLRenderPassDescriptor, render-pass attachment arrays, command buffers, render command encoders, CAMetalDrawable wrappers) are released at frame end instead of accumulating for process lifetime.
     - Instruments → Allocations on a physical iPhone during a ge-consumer gameplay session shows flat persistent counts for MTLRenderPassDescriptor / MTLRenderPassColorAttachment / CAMetalDrawable across a 5+ minute run (counts proportional to in-flight frames, not total frames rendered).
@@ -538,6 +539,36 @@ targets:
     - blocker
     origin: manual
     discovered: 2026-06-10
+    achieved: 2026-06-14
+  T115:
+    name: App-channel state registry is a blessed, documented telemetry/metadata pipe with a standard schema and optional streaming
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 3.0
+    acceptance:
+    - 'DONE: the app-channel state registry is documented as THE app-defines / spyder-reads telemetry/metadata pipe for ge games (agents-guide.md → ''State slices — the telemetry/metadata pipe''; CLAUDE.md + AGENTS.md App Channel note). Slices are entirely app-defined via registerStateSlice — ge hard-codes none.'
+    - 'DONE: a recommended geometry/physics slice schema convention is documented (units + bodies[pos/vel/angle] + constraints[rest/current] + sensors[distance-to-nearest] + bounds) so spyder renders/compares physics uniformly across games — explicitly a convention, not a requirement. sample/tiltbuggy ships a conforming `geometry` slice (+ Scene::buggyVelocity) as the in-repo proving ground.'
+    - 'DONE (poll pattern, push deemed unnecessary): spyder v0.56.0''s app_state_capture_* is a spyder-side poller of the existing state_query, giving an agent a timestamped stream of a slice over an input sequence without a hand-rolled loop. An app-side push was prototyped then reverted (no consumer). agents-guide documents the capture/poll flow.'
+    - 'DONE: agents-guide.md documents the end-to-end flow — registerStateSlice → LOG_TARGET=appchannel://host:port → spyder app_state_slices / app_state{slice} / app_state_capture_* / app_input — including the iOS one-time local-network-permission gotcha.'
+    - 'VALIDATED in-repo: tiltbuggy''s geometry slice reads + streams correctly through spyder v0.56.0 on desktop (app_state_slices → app_state → capture_start → app_input{accel} → capture_get shows pos/vel evolving, 593 distinct positions). CONSUMER-CONFIRM: multimaze2''s own geometry slice on a physical device rides multimaze2 🎯T48.'
+    context: |-
+      Surfaced 2026-06-14 from the multimaze2 Multiball L3 geometry-bug investigation. User framing: "spyder could support this directly through some kind of metadata pipe that ge supports" — it belongs in engine + harness, not per-game.
+
+      CURRENT STATE (verified 2026-06-14 by reading appchannel.cpp): the pipe is ALREADY BUILT and working for pull —
+      - `registerStateSlice(name, getter)` → `state_query` handler returns getter JSON (line 513);
+      - `hello` advertises registered slice names (line 191);
+      - `registerStateSerializer` → save_state/restore_state; `perfEmit`/`perfTick` → periodic `perf` push.
+
+      This target is therefore POLISH on top of a working pipe, NOT a build-from-scratch. Remaining deltas: (1) periodic/streaming PUSH of state slices (today only `perf` streams; slices are pull-only via state_query); (2) a documented standard schema convention for common slices (geometry/physics) so spyder renders them uniformly; (3) agents-guide docs blessing this as the telemetry contract + the iOS local-network-permission gotcha. None of these block a consumer from using the pipe today. Paired: spyder 🎯T80, consumer slice multimaze2 🎯T48.
+    tags:
+    - telemetry
+    - app-channel
+    - dev-tooling
+    - multimaze-audit
+    origin: manual
+    discovered: 2026-06-14
+    achieved: 2026-06-14
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved

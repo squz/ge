@@ -386,6 +386,71 @@ The push half supersedes the T83 text emission in `appchannel://` mode: a typed
 a periodic `perf` push (`{timestamp, samples:{frame_ms, …counters}}`, ~1 Hz) drains
 via `app_perf_get`. Bare `host:port` keeps the text sink.
 
+#### State slices — the telemetry / metadata pipe (🎯T115)
+
+The state registry **is** ge's blessed telemetry/metadata contract: the app
+*defines* named slices of its own state, spyder *reads* them — no bespoke
+transport per game. Slices are entirely app-defined; ge hard-codes none. Register
+any number, with any JSON shape, before `ge::run`:
+
+```cpp
+ge::appchannel::registerStateSlice("geometry", [&]{ return /* any json */; });
+ge::appchannel::registerStateSlice("hud",      [&]{ return /* any json */; });
+```
+
+ge advertises the registered names in the `hello`, and three spyder tools drive
+the pipe — **no new app-side method is needed beyond `state_query`** (spyder's
+capture is a spyder-side poller of it, mirroring `log_collect` / `app_perf_get`):
+
+| spyder tool | What it does |
+|---|---|
+| `app_state_slices` | discover the slice names the app advertised in `hello` |
+| `app_state {slice}` | pull one slice now (runs the getter on the game thread — a consistent, non-torn snapshot) |
+| `app_state_capture_start {slice, interval_ms}` → `app_state_capture_get` / `_stop` | **watch a slice evolve**: spyder polls `state_query` on a background interval (default 100 ms, min 10 ms) into a timestamped buffer, so an agent can run an `app_input` sequence and read state frame-by-frame without a hand-rolled poll loop |
+
+Because `app_pause` keeps render + input alive, `app_input → app_state` /
+`app_state_capture` while paused is **state-correlated** — drive an input, watch
+the exact state it produced.
+
+**Recommended schema convention — geometry / physics slices.** So spyder can
+render and compare physics state uniformly *across* games, a slice that exposes
+geometry should follow this shape (all positions in the game's world units; state
+the unit). It is a **convention, not a requirement** — an app is free to ignore
+it; it just won't get uniform cross-game tooling.
+
+```jsonc
+{
+  "units": "metres",
+  "bodies": [                         // dynamic + relevant static bodies
+    { "id": "buggy", "pos": [x, y], "vel": [vx, vy], "angle": rad }
+  ],
+  "constraints": [                    // joints / springs / walls, if any
+    { "id": "axle", "rest": L0, "current": L }
+  ],
+  "sensors": [                        // proximity / triggers, if any
+    { "id": "goal", "distance_to_nearest": d }
+  ],
+  "bounds": { "min": [x, y], "max": [x, y] }   // optional world extent
+}
+```
+
+`bodies` is the only near-universal key; `constraints` / `sensors` appear only
+when the game has them (`sample/tiltbuggy`'s `geometry` slice exposes just the one
+dynamic body; a maze-style consumer fills in walls as `constraints` and goal
+proximity as `sensors`). Validated end-to-end against spyder v0.56.0 on desktop:
+`app_state_slices → app_state{geometry} → app_state_capture_start →
+app_input{accel} → app_state_capture_get` shows the buggy's `pos`/`vel` evolving
+across the captured window.
+
+**iOS gotcha — local-network permission (one-time).** On a physical iOS device
+the app dials spyder over the LAN, which trips iOS's Local Network privacy prompt
+on **first launch after install**. Until the user taps *Allow* (or it's
+pre-granted via `NSLocalNetworkUsageDescription` + a settings toggle), the
+`appchannel://` connection silently fails and no session appears in
+`app_channel_list`. Accept the prompt once; the grant persists across launches.
+Simulator and desktop are unaffected. (Point `LOG_TARGET` at the Mac's LAN IP, not
+`127.0.0.1`, for a device.)
+
 **Per-platform screenshot readback** (`SokolContext::captureNextFrame`, a one-shot
 sink fired inside `endFrame` after the GPU render): Apple blits the drawable on
 **sokol's own command queue** (`sg_mtl_command_queue`, so the copy is ordered after
