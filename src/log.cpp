@@ -22,29 +22,15 @@
 #include <string>
 #include <vector>
 
-// 🎯T83 Dev-only TCP log sink. The whole feature is compiled out of
-// release builds (NDEBUG) so a misconfigured store binary can never open
-// a socket to a developer's LAN. See NetworkLogSink below.
+// 🎯T119 Dev-only structured log push over spyder's app-channel. The whole
+// feature is compiled out of release builds (NDEBUG) so a misconfigured store
+// binary can never open a socket to a developer's LAN. See AppChannelLogSink.
 #ifndef NDEBUG
-#include <ge/appchannel.h>  // 🎯T92.4 structured log push
+#include <ge/appchannel.h>  // structured log push
 #include <spdlog/sinks/base_sink.h>
-#ifdef _WIN32
-#include <spdlog/details/tcp_client-windows.h>
-#else
-#include <spdlog/details/tcp_client.h>
-#endif
 
-#include <algorithm>
 #include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <deque>
-#include <thread>
-#include <utility>
-
-#if defined(__ANDROID__)
-#include <sys/system_properties.h>  // __system_property_get
-#endif
 #endif  // NDEBUG
 
 namespace ge::log {
@@ -64,137 +50,24 @@ std::string autoDetectSubsystemAndroid();
 #ifndef NDEBUG
 namespace {
 
-// Resolve the dev-log target string. Primary source is the
-// LOG_TARGET environment variable (set via Xcode scheme on iOS,
-// shell env on desktop, or spyder's launch env-passthrough). Android
-// apps aren't shell-launched, so env vars don't reach them; there we
-// also accept the `debug.ge.log_target` system property, settable with
-// `adb shell setprop debug.ge.log_target <host>:<port>` — no Java /
-// Intent plumbing required.
-std::string resolveLogTarget() {
-    if (const char* env = std::getenv("LOG_TARGET"); env && *env)
-        return env;
-#if defined(__ANDROID__)
-    char buf[PROP_VALUE_MAX] = {0};
-    if (__system_property_get("debug.ge.log_target", buf) > 0 && buf[0])
-        return buf;
-#endif
-    return {};
+// True iff spyder's app-channel is configured for this process. The address
+// comes from the SPYDER_APP_CHANNEL environment variable — spyder's launch_app
+// / deploy_app inject it; on Android ge.GeActivity lifts it (and any other
+// launch-Intent string-extras) into the process env via setenv before the
+// native thread starts, so getenv() works the same on every platform. The
+// actual dial + host:port parse live in ge::appchannel; here we only decide
+// whether to attach the structured log sink.
+bool appChannelConfigured() {
+    const char* env = std::getenv("SPYDER_APP_CHANNEL");
+    return env && *env;
 }
 
-// Parse "host:port". Splits on the last colon so bare IPv4 / hostnames
-// work; bracketed IPv6 isn't supported (dev-only, localhost / LAN is the
-// use case). Returns port <= 0 on any parse failure.
-std::pair<std::string, int> parseTarget(const std::string& s) {
-    auto colon = s.rfind(':');
-    if (colon == std::string::npos || colon == 0 || colon + 1 >= s.size())
-        return {"", 0};
-    int port = 0;
-    try {
-        port = std::stoi(s.substr(colon + 1));
-    } catch (...) {
-        return {"", 0};
-    }
-    if (port <= 0 || port > 65535) return {"", 0};
-    return {s.substr(0, colon), port};
-}
-
-// 🎯T83 Dev-only TCP sink: mirrors every spdlog emission to a host:port
-// so a developer can tail logs with `nc -l <port>`, bypassing Apple
-// unified logging (DTX/RSD-tunnel fragility) and Android logcat entirely.
-//
-// Why not spdlog's stock tcp_sink: it attempts a *blocking* reconnect on
-// the calling thread for every log line while the listener is down, and
-// throws on each failure. ge logs from the game thread, so that would
-// hitch rendering and spam the error handler. This sink formats on the
-// caller, hands the line to a dedicated sender thread via a bounded
-// queue, and reconnects with exponential backoff — a downed listener
-// costs nothing on the hot path, and a flood of logs can't grow memory
-// without bound (oldest lines are dropped past kMaxQueued).
-class NetworkLogSink final : public spdlog::sinks::base_sink<std::mutex> {
-public:
-    NetworkLogSink(std::string host, int port)
-        : host_(std::move(host)), port_(port), worker_([this] { run(); }) {}
-
-    ~NetworkLogSink() override {
-        {
-            std::lock_guard<std::mutex> lk(qmu_);
-            stop_ = true;
-        }
-        qcv_.notify_all();
-        if (worker_.joinable()) worker_.join();
-    }
-
-protected:
-    void sink_it_(const spdlog::details::log_msg& msg) override {
-        spdlog::memory_buf_t buf;
-        formatter_->format(msg, buf);
-        {
-            std::lock_guard<std::mutex> lk(qmu_);
-            if (queue_.size() >= kMaxQueued) queue_.pop_front();  // drop oldest
-            queue_.emplace_back(buf.data(), buf.size());
-        }
-        qcv_.notify_one();
-    }
-
-    void flush_() override {}
-
-private:
-    static constexpr std::size_t kMaxQueued = 4096;
-    static constexpr int kConnectTimeoutMs = 200;
-    static constexpr auto kBackoffMin = std::chrono::milliseconds(250);
-    static constexpr auto kBackoffMax = std::chrono::milliseconds(5000);
-
-    void run() {
-        spdlog::details::tcp_client client;
-        auto backoff = kBackoffMin;
-        auto nextRetry = std::chrono::steady_clock::now();
-        for (;;) {
-            std::deque<std::string> batch;
-            {
-                std::unique_lock<std::mutex> lk(qmu_);
-                qcv_.wait(lk, [this] { return stop_ || !queue_.empty(); });
-                if (stop_ && queue_.empty()) return;
-                batch.swap(queue_);
-            }
-            for (auto& line : batch) {
-                if (!client.is_connected()) {
-                    if (std::chrono::steady_clock::now() < nextRetry)
-                        continue;  // in a backoff window — drop, retry later
-                    try {
-                        client.connect(host_, port_, kConnectTimeoutMs);
-                        backoff = kBackoffMin;  // reset on success
-                    } catch (const std::exception&) {
-                        nextRetry = std::chrono::steady_clock::now() + backoff;
-                        backoff = std::min(backoff * 2, kBackoffMax);
-                        continue;
-                    }
-                }
-                try {
-                    client.send(line.data(), line.size());
-                } catch (const std::exception&) {
-                    client.close();
-                    nextRetry = std::chrono::steady_clock::now() + backoff;
-                    backoff = std::min(backoff * 2, kBackoffMax);
-                }
-            }
-        }
-    }
-
-    std::string host_;
-    int port_;
-    std::mutex qmu_;
-    std::condition_variable qcv_;
-    std::deque<std::string> queue_;
-    bool stop_ = false;
-    std::thread worker_;  // declared last: constructed after the state it touches
-};
-
-// 🎯T92.4 Structured-log sink for appchannel:// mode. Instead of the text
-// NetworkLogSink, this pushes a typed {level, subsystem, message} record over
-// the app-channel. The channel's own async sender does the socket I/O, so
-// sink_it_ never blocks; ge::appchannel::push no-ops until the handshake
-// completes (early lines fall back to the always-present native/stderr sink).
+// 🎯T119 Structured-log sink — the only dev-log path. Each spdlog record becomes
+// a typed `log` push over spyder's app-channel (T92). The channel's own async
+// sender does the socket I/O, so sink_it_ never blocks; ge::appchannel::push
+// no-ops until the handshake completes (early lines fall back to the
+// always-present native/stderr sink). Attached only when SPYDER_APP_CHANNEL is
+// set; compiled out of release builds.
 class AppChannelLogSink final : public spdlog::sinks::base_sink<std::mutex> {
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
@@ -205,11 +78,11 @@ protected:
         const auto lvl = spdlog::level::to_string_view(msg.level);
         const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
             msg.time.time_since_epoch()).count();
-        // spyder's app_log_get reads {timestamp, level, subsystem, format}.
-        // spdlog pre-renders the message, so the rendered text rides as
-        // `format` with no separate args.
+        // spyder's LogPush decodes {ts, level, subsystem?, format} (session.go);
+        // `ts` is the on-wire msgpack field name. spdlog pre-renders the message,
+        // so the rendered text rides as `format` with no separate args.
         ge::appchannel::push("log", nlohmann::json{
-            {"timestamp", static_cast<std::int64_t>(ms)},
+            {"ts",        static_cast<std::int64_t>(ms)},
             {"level",     std::string(lvl.data(), lvl.size())},
             {"subsystem", std::string(msg.logger_name.data(), msg.logger_name.size())},
             {"format",    std::string(msg.payload.data(), msg.payload.size())},
@@ -248,24 +121,13 @@ void install(std::string subsystem) {
         sinks.push_back(makeAndroidSink(subsystem));
 #endif
 
-        // 🎯T83 Dev-only TCP mirror. Opt-in at runtime via LOG_TARGET
-        // (host:port); the whole branch is compiled out of release builds.
+        // 🎯T119 Dev-only structured log push over spyder's app-channel.
+        // Opt-in at runtime via SPYDER_APP_CHANNEL; the channel itself is dialed
+        // by ge::appchannel from ge::run. Compiled out of release builds.
 #ifndef NDEBUG
-        const std::string netTarget = resolveLogTarget();
-        std::string netHost;
-        int netPort = 0;
-        // An "appchannel://" target is the structured MessagePack-RPC channel
-        // (🎯T92, ge::appchannel, dialed from ge::run). In that mode logs go
-        // as typed {level,subsystem,message} pushes (🎯T92.4) instead of the
-        // T83 text sink. A bare "host:port" keeps the text NetworkLogSink.
-        const bool isAppChannel = netTarget.rfind("appchannel://", 0) == 0;
-        if (isAppChannel) {
+        const bool appChannel = appChannelConfigured();
+        if (appChannel)
             sinks.push_back(std::make_shared<AppChannelLogSink>());
-        } else if (!netTarget.empty()) {
-            std::tie(netHost, netPort) = parseTarget(netTarget);
-            if (netPort > 0)
-                sinks.push_back(std::make_shared<NetworkLogSink>(netHost, netPort));
-        }
 #endif
 
         // Replace the default logger so SPDLOG_INFO/WARN/ERROR macros
@@ -277,18 +139,11 @@ void install(std::string subsystem) {
         logger->flush_on(spdlog::level::warn);
         spdlog::set_default_logger(std::move(logger));
 
-        // Now that the logger is live, surface the network-sink decision
-        // through it (so the line itself also reaches the TCP listener).
+        // Now that the logger is live, surface the app-channel decision
+        // through it (so the line itself also reaches spyder).
 #ifndef NDEBUG
-        if (isAppChannel) {
-            SPDLOG_INFO("ge::log: structured log push via app-channel (🎯T92.4)");
-        } else if (netPort > 0) {
-            SPDLOG_INFO("ge::log: mirroring to {}:{} via TCP (🎯T83)",
-                        netHost, netPort);
-        } else if (!netTarget.empty()) {
-            SPDLOG_WARN("ge::log: dev-log target '{}' is not host:port — ignored",
-                        netTarget);
-        }
+        if (appChannel)
+            SPDLOG_INFO("ge::log: structured log push via spyder app-channel");
 #endif
     });
 }

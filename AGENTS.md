@@ -804,8 +804,9 @@ app's bundle ID and passes the spdlog-rendered payload as one
 Dev-only bidirectional MessagePack-RPC channel to spyder's `app_*` MCP tools
 (≥ v0.53.0), making every ge app agent-drivable: pause/step/speed, input
 injection, state query + save/restore, screenshot, clean quit, structured
-log + perf push. Activated when `LOG_TARGET` is `appchannel://host:port` (a
-bare `host:port` keeps the T83 text sink). `ge::run` dials it automatically.
+log + perf push. Activated when `SPYDER_APP_CHANNEL` is `host:port` (🎯T119; the
+old `LOG_TARGET` plain-text sink is gone — spyder v0.58.0 dropped its listener,
+and the app-channel is the only log path). `ge::run` dials it automatically.
 Entire feature compiled out under `NDEBUG` (same gate as T83) — no socket, no
 msgpack, no handlers in release. **Full reference: `agents-guide.md` → "Agent-drivable app channel".**
 

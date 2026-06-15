@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // 🎯T92 — dev-only bidirectional MessagePack-RPC channel to spyder's
-// app_channel_* tools. The structured sibling of the T83 text log sink.
+// app_channel_* tools. The single dev path for structured logs (🎯T119: the
+// T83 plain-text sink is gone — spyder dropped the listener in v0.58.0).
 //
-// Activated when LOG_TARGET is "appchannel://host:port" (a bare
-// "host:port" keeps the T83 text NetworkLogSink unchanged). On connect the
-// app sends a `hello` request advertising its app_name / app_version and
-// the method names it has handlers for, and awaits spyder's
-// {spyder_version, accepted_methods} before the channel is live.
+// Activated when SPYDER_APP_CHANNEL is set to "host:port" (🎯T119; spyder's
+// launch_app / deploy_app inject it). On connect the app sends a `hello`
+// request advertising its app_name / app_version and the method names it has
+// handlers for, and awaits spyder's {spyder_version, accepted_methods} before
+// the channel is live.
 //
 // Wire format (spyder T75): length-prefixed frames — [4-byte LE length]
 // [MessagePack body], max 16 MB — with a JSON-RPC-shaped envelope:
@@ -45,9 +46,9 @@ struct Error {
 // method is advertised in `hello`. No-op in release builds.
 void registerMethod(std::string method, Handler handler);
 
-// If LOG_TARGET names an "appchannel://host:port" listener, dial it on a
-// background thread and perform the hello handshake; otherwise no-op.
-// Idempotent. `appName` / `appVersion` are advertised in hello.
+// If SPYDER_APP_CHANNEL names a "host:port" listener, dial it on a background
+// thread and perform the hello handshake; otherwise no-op. Idempotent.
+// `appName` / `appVersion` are advertised in hello.
 void installFromEnv(const std::string& appName, const std::string& appVersion);
 
 // Send an async push (no response): {method, params}. Used by the log /

@@ -77,6 +77,11 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 🎯T119: bridge spyder's launch-Intent string-extras into the process
+        // environment before the native main thread reads getenv(). Must run
+        // after super.onCreate (native libs loaded → nativeSetenv resolvable)
+        // and before SDL starts the native thread.
+        passLaunchEnv();
         getWindow().getDecorView().setOnApplyWindowInsetsListener((v, ins) -> {
             Insets c = ins.getInsets(WindowInsets.Type.displayCutout());
             cutoutInsets = new int[]{c.left, c.right, c.top, c.bottom};
@@ -198,6 +203,23 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
         nativeOnTrimMemory(level);
     }
 
+    // 🎯T119: lift spyder's launch-Intent string-extras (SPYDER_APP_CHANNEL,
+    // GE_IAP_MODE, …) into the process environment via setenv, so native
+    // getenv() sees them on Android the same way iOS receives the process env.
+    // spyder switches from `monkey` to `am start --es KEY VALUE` when env is
+    // supplied; Intent extras aren't environment variables, so the app bridges
+    // them before the native thread reads getenv(). nativeSetenv is a no-op in
+    // release builds, so a shipped app ignores launch extras entirely.
+    private void passLaunchEnv() {
+        if (getIntent() == null) return;
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) return;
+        for (String key : extras.keySet()) {
+            Object v = extras.get(key);
+            if (key != null && v != null) nativeSetenv(key, String.valueOf(v));
+        }
+    }
+
     // JNI exports live in src/render/DirectRenderHost.mm.
     // All are async-safe — they only touch atomics; the engine
     // dispatches the actual game callback on the game thread next pump.
@@ -206,6 +228,9 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     // 🎯T43: audio focus change forwarded from OnAudioFocusChangeListener.
     // focusChange mirrors AudioManager.AUDIOFOCUS_* constants.
     private static native void nativeOnAudioFocusChange(int focusChange);
+    // 🎯T119: bridge launch-Intent string-extras → process env (debug-only on
+    // the native side). Called from passLaunchEnv() in onCreate.
+    private static native void nativeSetenv(String key, String value);
 
     // 🎯T63: High-refresh-rate during press.
     // Called from native (RefreshRateBoost_android.cpp) when a pointer
