@@ -1,0 +1,18 @@
+# 🎯T119 — keep + export ge's JNI entry points from a consumer's libmain.so.
+#
+# ge's JNI functions (ge.GeActivity native methods — nativeOnBackPressed,
+# nativeOnTrimMemory, nativeOnAudioFocusChange) live in the prebuilt static
+# libge.a and are called only from Java at runtime; no C++ references them. The
+# NDK's default `-Wl,--gc-sections` therefore collects them before they reach
+# libmain.so's dynamic symbol table, so the JVM's dlsym() can't find them and
+# the lifecycle hook silently never fires.
+#
+# Listing them here marks them as exported (a GC root), so they survive and are
+# visible to the JVM. The `Java_ge_*` wildcard covers current + future ge JNI so
+# a new native method never silently goes missing. No `local:` clause — this is
+# purely additive, so SDL's own exports (SDL_main, ANativeActivity_onCreate, the
+# org.libsdl.app JNI incl. nativeSetenv) are untouched.
+{
+  global:
+    Java_ge_*;
+};

@@ -165,3 +165,13 @@ target_link_libraries(ge INTERFACE
     vulkan
     android log EGL GLESv3
 )
+
+# 🎯T119: ge's JNI entry points (ge.GeActivity native methods) live in the
+# prebuilt static libge.a and are referenced only from Java, so the NDK's
+# default --gc-sections strips them from the consumer's libmain.so before they
+# reach the dynamic symbol table — the JVM's dlsym() then can't find them. A
+# version script keeps + exports the Java_ge_* set (and is inherited by every
+# consumer via this INTERFACE target). Purely additive — no `local:` clause, so
+# SDL's own exports are untouched. See cmake/ge-android-exports.version.
+target_link_options(ge INTERFACE
+    "LINKER:--version-script=${CMAKE_CURRENT_LIST_DIR}/ge-android-exports.version")

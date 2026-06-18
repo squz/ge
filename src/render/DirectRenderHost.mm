@@ -58,7 +58,6 @@ void removeAppleAudioObservers();
 
 #if defined(__ANDROID__)
 #include <jni.h>
-#include <cstdlib>  // 🎯T119 setenv for nativeSetenv
 #endif
 
 #include <cstdio>
@@ -281,27 +280,9 @@ Java_ge_GeActivity_nativeOnAudioFocusChange(JNIEnv*, jclass, jint focusChange) {
     g_pendingAudioFocusChange.store(focusChange > 0 ? 1 : -1);
 }
 
-// 🎯T119: lift a launch-Intent string-extra into the process environment so
-// native getenv() (e.g. SPYDER_APP_CHANNEL) sees it on Android the same way iOS
-// receives the process env. GeActivity calls this for each extra in onCreate,
-// after the native libs load and before the SDL main thread starts. Debug-only
-// body: in a release build it's a no-op, so a shipped app ignores launch extras
-// entirely (no GE_IAP_MODE / app-channel injection from a hostile `am start
-// --es`). The symbol always exists, so Java's native declaration never trips
-// UnsatisfiedLinkError.
-JNIEXPORT void JNICALL
-Java_ge_GeActivity_nativeSetenv(JNIEnv* env, jclass, jstring key, jstring value) {
-#ifndef NDEBUG
-    if (!key || !value) return;
-    const char* k = env->GetStringUTFChars(key, nullptr);
-    const char* v = env->GetStringUTFChars(value, nullptr);
-    if (k && v) ::setenv(k, v, 1);
-    if (k) env->ReleaseStringUTFChars(key, k);
-    if (v) env->ReleaseStringUTFChars(value, v);
-#else
-    (void)env; (void)key; (void)value;
-#endif
-}
+// 🎯T119 note: ge.GeActivity.passLaunchEnv bridges launch-Intent extras into the
+// process env, but reuses SDL's own SDLActivity.nativeSetenv (exported from
+// libSDL3.so) — ge needs no JNI of its own for it.
 
 } // extern "C"
 #endif
