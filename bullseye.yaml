@@ -614,6 +614,52 @@ targets:
     origin: manual
     discovered: 2026-06-14
     achieved: 2026-06-14
+  T118:
+    name: ge dev builds simulate IAP out of the box — mobile debug defaults to the in-memory stub and simulated purchases persist across relaunch, no sandbox/env-var/.storekit
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'On iOS/Android, a *debug* build (NDEBUG off) with GE_IAP_MODE unset resolves to the `stub` backend, not `platform`; *release* builds still resolve to `platform`. An explicit GE_IAP_MODE always wins. Verifiable: an IDE-free `make ge/ios-device` build (no env reaches the process via spyder/devicectl) logs `ge::iap: mode resolved to ''stub''` and buy() grants with no sandbox sign-in modal. This supersedes the T74 `.storekit-bundled -> stub` hack with a cleaner `debug -> stub` rule.'
+    - 'Simulated entitlements persist across a cold relaunch: buy("pro") in a debug/stub build, kill, relaunch -> owned("pro") still true. StubStore''s entitlement set is backed by ge::Context::db() (sqlpipe) or an on-disk file instead of a process-lifetime std::unordered_set; testing::clearAll / DebugPanel.onResetAll wipe it.'
+    - 'Final sandbox testing is still one step away on a debug build: launching with GE_IAP_MODE=platform routes to real StoreKit/Play Billing without any code change. (Optional: a programmatic ge::iap::setMode() / SessionHostConfig field so the backend can be chosen without env vars at all.)'
+    - 'CLAUDE.md + agents-guide.md document the dev-IAP simulation flow: debug defaults to stub, simulated purchases persist, DebugPanel toggles entitlements, and GE_IAP_MODE=platform opts into the sandbox for final testing.'
+    - 'sample/tiltbuggy wires its `pro` unlock + ge::iap::DebugPanel as the proving ground: a fresh dev build grants `pro` via buy() (or the panel) with no sandbox, and the unlock survives relaunch.'
+    context: 'Surfaced 2026-06-15 with the user. They run IDE-free iOS dev builds (make ge/ios-device -> spyder/devicectl deploy, T110) and hit the StoreKit sandbox sign-in modal every time — fine for final testing, annoying before then. ge ALREADY has the stub they want (GE_IAP_MODE=stub -> StubStore, iap.cpp:62): buy() grants instantly + fires ok=true, owned() reflects it, plus testing::setOwned and the in-engine ge::iap::DebugPanel (T65.6). The two real gaps: (1) you can''t select stub on a non-Xcode device launch — GE_IAP_MODE comes from env, which devicectl/spyder don''t pass, so the auto-default resolves to platform (sandbox); (2) StubStore is in-memory, so a simulated buy resets on every relaunch. Immediate consumer workaround (no ge change): add `#ifndef NDEBUG ::setenv(\"GE_IAP_MODE\",\"stub\",0); #endif` before the first ge::iap call. User wants this filed, not built now (mid consumer release/testing). Pairs with T65 (IAP floor), T65.4 (local/.storekit mode — the non-viable SKTestSession path), T65.6 (DebugPanel), T65.7 (tiltbuggy pro), T74 (iOS auto-mode), T110 (IDE-free deploy).'
+    tags:
+    - iap
+    - dev-tooling
+    - storekit
+    - play-billing
+    - ios
+    - android
+    origin: manual
+    discovered: 2026-06-15
+  T119:
+    name: ge dev logging is folded entirely into SPYDER_APP_CHANNEL — the text LOG_TARGET sink and appchannel:// scheme are gone, iOS/Android reach it at parity
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 3.0
+    acceptance:
+    - 'DONE: no LOG_TARGET, appchannel:// scheme, or debug.ge.log_target anywhere in ge. The text NetworkLogSink (log.cpp) + its spdlog tcp_client include are deleted; the single dev-logging mechanism is SPYDER_APP_CHANNEL=host:port (bare) feeding the MessagePack app-channel. Compiled out under NDEBUG.'
+    - 'DONE: ge::log pushes each spdlog record as {method:"log", params:{ts, level, subsystem, format}} when SPYDER_APP_CHANNEL is set. The wire timestamp field is `ts` (spyder LogPush msgpack:"ts") — the prior `timestamp` that silently failed to decode is fixed in BOTH the log push (log.cpp) and the perf push (appchannel.cpp PerfPush).'
+    - 'DONE: iOS/Android parity — ge.GeActivity bridges the launch Intent''s string-extras into the process env via a nativeSetenv JNI (DirectRenderHost.mm) before the native thread starts, so getenv works the same as iOS. The native setenv is a release no-op (shipped apps ignore launch extras; no GE_IAP_MODE/channel injection from `am start --es`).'
+    - 'DONE: src/appchannel_test.cpp contract test asserts the log-push envelope encodes {ts, level, subsystem, format} (round-trips through msgpack; checks `ts` not `timestamp`). 241/241 unit tests pass.'
+    - 'DONE: agents-guide.md + CLAUDE.md + AGENTS.md document SPYDER_APP_CHANNEL as the only dev-logging path; LOG_TARGET / appchannel:// / log_collect_* removed (log_collect_* -> app_log_get); the Android Intent shim + iOS local-network prompt documented. prebuilt/*/libge.a refreshed (verify-prebuilds green).'
+    - 'VALIDATED on desktop against spyder v0.59.0: SPYDER_APP_CHANNEL=127.0.0.1:port dials the channel (handshake ok), app_log_get drains structured {format, level, subsystem, ts} lines with real ts timestamps. CONSUMER-CONFIRM: multimaze2 validates the iOS + Android device launch path on device.'
+    context: 'Spyder removed the plain-text log path: v0.58.0 deleted log_collect_* + the internal/logcollect TCP-newline listener (app-channel is the only logging path); v0.59.0 renamed the env convention LOG_TARGET -> SPYDER_APP_CHANNEL (bare host:port, no appchannel:// scheme). ge already has the full MessagePack app-channel client (src/appchannel.cpp, T92) and a structured AppChannelLogSink (log.cpp) that pushes {method:log} — so this is almost exclusively deletion (drop the T83 NetworkLogSink text path) + a rename + one wire-field fix (timestamp -> ts; spyder LogPush is msgpack:\"ts\"). User decisions 2026-06-15: (1) clean break, no LOG_TARGET fallback; (2) iOS+Android at parity, so add the GeActivity Intent-extra->setenv shim (spyder passes env as `am start --es` extras on Android, and ge::run reads getenv on the native thread); (3) user validates via multimaze2. Pairs with spyder T75 (app-channel protocol), v0.58/v0.59. Supersedes T83 (text sink) + the T92.4 appchannel:// scheme discriminator. Android shim relates to T41 (ge.GeActivity).'
+    tags:
+    - logging
+    - app-channel
+    - spyder
+    - dev-tooling
+    - android
+    - ios
+    - cleanup
+    origin: manual
+    discovered: 2026-06-15
+    achieved: 2026-06-15
   T12:
     name: ge's render subsystem synthesises ⌥WASD accelerometer events uniformly across all host contexts
     status: achieved

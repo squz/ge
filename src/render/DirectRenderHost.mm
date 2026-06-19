@@ -280,6 +280,10 @@ Java_ge_GeActivity_nativeOnAudioFocusChange(JNIEnv*, jclass, jint focusChange) {
     g_pendingAudioFocusChange.store(focusChange > 0 ? 1 : -1);
 }
 
+// 🎯T119 note: ge.GeActivity.passLaunchEnv bridges launch-Intent extras into the
+// process env, but reuses SDL's own SDLActivity.nativeSetenv (exported from
+// libSDL3.so) — ge needs no JNI of its own for it.
+
 } // extern "C"
 #endif
 

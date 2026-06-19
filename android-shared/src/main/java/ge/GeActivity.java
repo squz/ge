@@ -28,6 +28,7 @@ package ge;
 
 import android.content.ComponentCallbacks2;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.graphics.Insets;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -77,6 +78,11 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 🎯T119: bridge spyder's launch-Intent string-extras into the process
+        // environment before the native main thread reads getenv(). Must run
+        // after super.onCreate (native libs loaded → nativeSetenv resolvable)
+        // and before SDL starts the native thread.
+        passLaunchEnv();
         getWindow().getDecorView().setOnApplyWindowInsetsListener((v, ins) -> {
             Insets c = ins.getInsets(WindowInsets.Type.displayCutout());
             cutoutInsets = new int[]{c.left, c.right, c.top, c.bottom};
@@ -196,6 +202,25 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         nativeOnTrimMemory(level);
+    }
+
+    // 🎯T119: lift spyder's launch-Intent string-extras (SPYDER_APP_CHANNEL,
+    // GE_IAP_MODE, …) into the process environment, so native getenv() sees them
+    // on Android the same way iOS receives the process env. spyder switches from
+    // `monkey` to `am start --es KEY VALUE` when env is supplied; Intent extras
+    // aren't environment variables, so the app bridges them before the native
+    // thread reads getenv(). Uses SDL's own nativeSetenv (public, exported from
+    // libSDL3.so). Debug-only: a release build ignores launch extras, so a
+    // shipped app can't be coerced via `am start --es GE_IAP_MODE …`.
+    private void passLaunchEnv() {
+        if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
+        if (getIntent() == null) return;
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) return;
+        for (String key : extras.keySet()) {
+            Object v = extras.get(key);
+            if (key != null && v != null) nativeSetenv(key, String.valueOf(v));
+        }
     }
 
     // JNI exports live in src/render/DirectRenderHost.mm.

@@ -31,10 +31,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#if defined(__ANDROID__)
-#include <sys/system_properties.h>
-#endif
-
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>  // 🎯T92.6 IMG_SavePNG_IO
 
@@ -349,29 +345,28 @@ private:
     bool senderStop_ = false;
 };
 
-// "appchannel://host:port" → {host, port}; port <= 0 if not that scheme.
-std::pair<std::string, int> parseAppchannel(const std::string& target) {
-    static constexpr char kScheme[] = "appchannel://";
-    if (target.rfind(kScheme, 0) != 0) return {"", 0};
-    const std::string hp = target.substr(sizeof(kScheme) - 1);
-    const auto colon = hp.rfind(':');
-    if (colon == std::string::npos || colon == 0 || colon + 1 >= hp.size()) return {"", 0};
+// "host:port" → {host, port}; port <= 0 on any parse failure. Splits on the
+// last colon so bare IPv4 / hostnames work (bracketed IPv6 isn't supported —
+// dev-only, localhost / LAN is the use case).
+std::pair<std::string, int> parseTarget(const std::string& target) {
+    const auto colon = target.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= target.size()) return {"", 0};
     int port = 0;
     try {
-        port = std::stoi(hp.substr(colon + 1));
+        port = std::stoi(target.substr(colon + 1));
     } catch (...) {
         return {"", 0};
     }
     if (port <= 0 || port > 65535) return {"", 0};
-    return {hp.substr(0, colon), port};
+    return {target.substr(0, colon), port};
 }
 
+// 🎯T119 Spyder's app-channel address: SPYDER_APP_CHANNEL=host:port. spyder's
+// launch_app / deploy_app inject it; on Android ge.GeActivity lifts the launch
+// Intent's string-extras into the process env via setenv before the native
+// thread starts, so getenv() works the same on every platform.
 std::string resolveTarget() {
-    if (const char* e = std::getenv("LOG_TARGET"); e && *e) return e;
-#if defined(__ANDROID__)
-    char buf[PROP_VALUE_MAX] = {0};
-    if (__system_property_get("debug.ge.log_target", buf) > 0 && buf[0]) return buf;
-#endif
+    if (const char* e = std::getenv("SPYDER_APP_CHANNEL"); e && *e) return e;
     return {};
 }
 
@@ -605,11 +600,11 @@ void registerMethod(std::string method, Handler handler) {
 }
 
 void installFromEnv(const std::string& appName, const std::string& appVersion) {
-    auto [host, port] = parseAppchannel(resolveTarget());
+    auto [host, port] = parseTarget(resolveTarget());
     if (port <= 0) return;
     registerBuiltins();
     Channel::instance().start(host, port, appName, appVersion);
-    SPDLOG_INFO("appchannel: dialing appchannel://{}:{} (app={})", host, port, appName);
+    SPDLOG_INFO("appchannel: dialing spyder app-channel {}:{} (app={})", host, port, appName);
 }
 
 float applyTimeControl(float realDt) {
@@ -646,8 +641,8 @@ void perfTick(float frameMs) {
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     Channel::instance().push("perf", nlohmann::json{
-        {"timestamp", static_cast<std::int64_t>(ms)},
-        {"samples",   std::move(samples)},
+        {"ts",      static_cast<std::int64_t>(ms)},  // 🎯T119 spyder PerfPush is msgpack:"ts"
+        {"samples", std::move(samples)},
     });
 }
 

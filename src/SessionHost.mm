@@ -153,7 +153,7 @@ void run(Factory factory, const SessionHostConfig& config) {
     ge::log::install();
 
     // 🎯T92 Dev-only bidirectional RPC channel to spyder (app_channel_*),
-    // activated when LOG_TARGET is "appchannel://host:port". No-op otherwise
+    // activated when SPYDER_APP_CHANNEL is "host:port" (🎯T119). No-op otherwise
     // and compiled out in release. ge-internal method handlers (ping today;
     // lifecycle/time/input in later leaves) are registered inside this call
     // before the hello handshake advertises them.

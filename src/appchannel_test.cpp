@@ -13,6 +13,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
+
 using nlohmann::json;
 using ge::appchannel::detail::buildSliceDescriptors;
 
@@ -82,4 +84,30 @@ TEST_CASE("buildSliceDescriptors: empty registry yields an empty array") {
     const auto arr = buildSliceDescriptors({});
     CHECK(arr.is_array());
     CHECK(arr.empty());
+}
+
+// ── 🎯T119: log-push envelope matches spyder's LogPush wire shape ──────────
+// Mirrors src/log.cpp's AppChannelLogSink and spyder's
+// internal/appchannel/session.go LogPush (msgpack tags). The timestamp field
+// is `ts`, NOT `timestamp` — the latter silently failed to decode on spyder's
+// side, which is the regression this guards.
+TEST_CASE("log push envelope encodes the {ts, level, subsystem, format} shape") {
+    const json params = {
+        {"ts",        std::int64_t{1718000000000}},
+        {"level",     "info"},
+        {"subsystem", "ge"},
+        {"format",    "hello world"},
+    };
+    const json push = {{"method", "log"}, {"params", params}};  // {method, params}, no id
+
+    const json rt = json::from_msgpack(json::to_msgpack(push));  // survives the wire
+    CHECK(rt["method"] == "log");
+    REQUIRE(rt.contains("params"));
+    const auto& p = rt["params"];
+    CHECK(p.contains("ts"));               // spyder LogPush is msgpack:"ts"
+    CHECK_FALSE(p.contains("timestamp"));  // the pre-T119 field that didn't decode
+    CHECK(p["ts"].get<std::int64_t>() == 1718000000000);
+    CHECK(p["level"]     == "info");
+    CHECK(p["subsystem"] == "ge");
+    CHECK(p["format"]    == "hello world");
 }
