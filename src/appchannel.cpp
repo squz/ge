@@ -12,6 +12,7 @@
 #ifndef NDEBUG
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -110,22 +111,41 @@ std::unordered_map<std::string, Handler>& handlers() {
     return h;
 }
 
-int dialTCP(const std::string& host, int port) {
+// dialTCP attempts a single TCP connect to host:port. On failure the
+// last errno is captured in *outErrno (when non-null) so callers can
+// surface a useful diagnostic — the historical one-line
+// "appchannel: connect to {}:{} failed" gave no signal whether the
+// failure was ECONNREFUSED (listener down), EHOSTUNREACH (LAN
+// unreachable / iOS local-network permission denial), ETIMEDOUT
+// (network blip), or anything else.
+int dialTCP(const std::string& host, int port, int* outErrno) {
+    if (outErrno) *outErrno = 0;
     addrinfo hints{};
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* res = nullptr;
-    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0)
+    int gai = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
+    if (gai != 0) {
+        // getaddrinfo doesn't set errno; surface the gai-specific code
+        // in outErrno (negative to disambiguate from POSIX errno values).
+        if (outErrno) *outErrno = -gai;
         return -1;
+    }
     int fd = -1;
+    int lastErr = 0;
     for (addrinfo* a = res; a; a = a->ai_next) {
         fd = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (fd < 0) continue;
-        if (::connect(fd, a->ai_addr, a->ai_addrlen) == 0) break;
+        if (fd < 0) { lastErr = errno; continue; }
+        if (::connect(fd, a->ai_addr, a->ai_addrlen) == 0) {
+            lastErr = 0;
+            break;
+        }
+        lastErr = errno;
         ::close(fd);
         fd = -1;
     }
     freeaddrinfo(res);
+    if (fd < 0 && outErrno) *outErrno = lastErr;
     return fd;
 }
 
@@ -177,10 +197,40 @@ public:
     }
 
 private:
+    // Bounded retry across the dial — the first attempt can lose to a
+    // race (spyder listener up but routed late after device wake), or
+    // to the iOS local-network permission prompt (silent EHOSTUNREACH
+    // until the user taps Allow). Schedule: 0/200/700/1700/3700/8700ms,
+    // total ~9s. errno is logged per attempt so the failure mode is
+    // diagnosable instead of "connect failed" with no signal.
     void run() {
-        fd_ = dialTCP(host_, port_);
+        static constexpr int kBackoffsMs[] = {200, 500, 1000, 2000, 5000};
+        constexpr int kAttempts = sizeof(kBackoffsMs) / sizeof(kBackoffsMs[0]) + 1;
+        int lastErr = 0;
+        for (int attempt = 0; attempt < kAttempts; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(kBackoffsMs[attempt - 1]));
+            }
+            fd_ = dialTCP(host_, port_, &lastErr);
+            if (fd_ >= 0) break;
+            const char* reason = lastErr < 0
+                ? gai_strerror(-lastErr)
+                : std::strerror(lastErr);
+            SPDLOG_WARN("appchannel: connect to {}:{} failed (attempt {}/{}, errno={}: {})",
+                        host_, port_, attempt + 1, kAttempts, lastErr, reason);
+        }
         if (fd_ < 0) {
-            SPDLOG_WARN("appchannel: connect to {}:{} failed", host_, port_);
+            const char* reason = lastErr < 0
+                ? gai_strerror(-lastErr)
+                : std::strerror(lastErr);
+            SPDLOG_WARN(
+                "appchannel: giving up after {} attempts (last errno={}: {}). "
+                "If this is iOS, check that NSLocalNetworkUsageDescription is "
+                "declared in Info.plist and the local-network permission was "
+                "granted; otherwise check that spyder is up and the listener "
+                "address matches SPYDER_APP_CHANNEL.",
+                kAttempts, lastErr, reason);
             stopSender();
             return;
         }
