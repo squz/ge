@@ -37,6 +37,12 @@ public:
     void drawFrame(const Scene& scene, const ge::Context& c,
                    float tiltX = 0.f, float tiltY = 0.f);
 
+    // 🎯T124 The 🎯T89 render-liveness spin advances the buggy a hair each frame
+    // — great for spotting a stalled loop, fatal for deterministic snapshots.
+    // Turn it off for headless render-to-PNG so the same state yields the same
+    // pixels. On by default.
+    void setDiagnosticSpin(bool on);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> i_;

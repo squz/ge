@@ -36,6 +36,12 @@ public:
     // Pose of the buggy chassis in world coords.
     Pose buggyPose() const;
 
+    // 🎯T124 Set the buggy chassis to a saved pose (and zero its velocity) so a
+    // serialized state can be reconstructed for a headless render. The static
+    // arena is rebuilt deterministically by the ctor; only the dynamic body's
+    // transform needs restoring.
+    void applyPose(const Pose& pose);
+
     // The box2d world — exposed so the 🎯T117 geometry slice can read every body
     // out via ge::box2d::worldGeometry(scene->worldId()).
     b2WorldId worldId() const;

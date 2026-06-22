@@ -19,9 +19,15 @@
 #include <SDL3/SDL.h>
 #include <ge/appchannel.h>
 #include <ge/log.h>
+#include <ge/png.h>
 #include <spdlog/spdlog.h>
 
+#include "render/ScreenshotBridge.h"
+
+#include <cstdint>
+#include <exception>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -164,6 +170,51 @@ void run(Factory factory, const SessionHostConfig& config) {
     } else {
         runDirect(factory, config);
     }
+}
+
+// ── renderBatch / renderToPng — 🎯T124 headless render ─────────────
+int renderBatch(Factory factory, SessionHostConfig config,
+                const std::vector<RenderItem>& items) {
+    ge::log::install();
+    config.headless = false;   // direct host, no ged / wire
+    config.hidden   = true;    // unmapped window — nothing shown
+    DirectRenderHost host(config);
+    applyImmersive(false);
+    RunConfig rc = factory(host.context());
+    host.setEventHandler(rc.onEvent);
+
+    int ok = 0;
+    for (const auto& item : items) {
+        try {
+            if (item.prepare) item.prepare();
+            std::vector<std::uint8_t> rgba;
+            int w = 0, h = 0;
+            const bool captured = ge::detail::captureFrameRGBASync(
+                [&] {
+                    host.refreshFrame(0.0f);
+                    if (rc.onRender) rc.onRender(host.context());
+                },
+                rgba, w, h);
+            if (captured && w > 0 && h > 0 &&
+                ge::writePng(item.outPath, rgba.data(), w, h)) {
+                ++ok;
+                SPDLOG_INFO("renderBatch: {}x{} -> {}", w, h, item.outPath);
+            } else {
+                SPDLOG_ERROR("renderBatch: no frame for '{}'", item.outPath);
+            }
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("renderBatch: '{}' threw: {}", item.outPath, e.what());
+        }
+    }
+    if (rc.onShutdown) rc.onShutdown();
+    return ok;
+}
+
+bool renderToPng(Factory factory, SessionHostConfig config,
+                 const std::function<void()>& prepare,
+                 const std::string& outPath) {
+    return renderBatch(std::move(factory), std::move(config),
+                       {{prepare, outPath}}) == 1;
 }
 
 } // namespace ge

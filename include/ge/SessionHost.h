@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -558,6 +559,11 @@ struct SessionHostConfig {
     int height = 0;
     bool headless = true;  // true = H.264 server, false = native window
 
+    // 🎯T124 Headless render-to-PNG: create the host window unmapped
+    // (SDL_WINDOW_HIDDEN). Set automatically by ge::renderToPng; you rarely set
+    // it directly. No effect in headless (server) mode.
+    bool hidden = false;
+
     // App identity for persistent DB path (via SDL_GetPrefPath).
     // Bundled (non-headless) mode opens a persistent file; headless
     // (server) mode always uses :memory: — persistence is owned by
@@ -636,5 +642,29 @@ using Factory = std::function<RunConfig(Context)>;
 
 // Blocks until SIGINT or all sessions end.
 void run(Factory factory, const SessionHostConfig& config = {});
+
+// 🎯T124 Headless one-shot render. Builds a hidden-window direct host (no ged,
+// no run loop, nothing shown), runs `factory`, invokes `prepare` (restore your
+// State here — it runs after the factory and before the single onRender),
+// renders exactly one frame, and writes it to `outPath` as a PNG. Returns true
+// on success. The app's onRender must open ctx.swapchainPass() as usual.
+bool renderToPng(Factory factory, SessionHostConfig config,
+                 const std::function<void()>& prepare,
+                 const std::string& outPath);
+
+// 🎯T124 One item in a headless render batch: a state-restore callback and the
+// PNG it should produce.
+struct RenderItem {
+    std::function<void()> prepare;   // restore this item's State (after the factory)
+    std::string           outPath;   // PNG output path
+};
+
+// 🎯T124 Render many states against ONE host (one sokol setup; the factory runs
+// once), amortising startup across a corpus. Each item's prepare() restores its
+// State, then a frame is rendered and written. A failing or throwing item is
+// logged and skipped — one bad fixture doesn't zero the run. Returns the count
+// of items successfully written. This is what `render --batch` drives.
+int renderBatch(Factory factory, SessionHostConfig config,
+                const std::vector<RenderItem>& items);
 
 } // namespace ge

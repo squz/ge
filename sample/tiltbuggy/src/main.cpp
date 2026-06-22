@@ -21,8 +21,13 @@
 #include <SDL3/SDL_main.h>  // required on iOS/Android; no-op on desktop
 #include <spdlog/spdlog.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -35,6 +40,22 @@ struct State {
     bool rendererInited = false;
     bool proPurchaseInFlight = false;   // debounce: drop taps while Apple modal is up
 };
+
+// 🎯T124 Apply a serialized state to the live game — shared by the app-channel
+// restore and the headless render path. The static arena is rebuilt by the
+// Scene ctor; only the dynamic buggy pose + gravity + entitlement round-trip.
+void applyState(State& state, const nlohmann::json& j) {
+    if (j.contains("gravity")) {
+        state.gravity.x = j["gravity"].value("x", 0.0f);
+        state.gravity.y = j["gravity"].value("y", 0.0f);
+    }
+    if (j.contains("buggy") && state.scene) {
+        const auto& b = j["buggy"];
+        state.scene->applyPose({b.value("x", 0.0f), b.value("y", 0.0f),
+                                b.value("angle", 0.0f)});
+    }
+    ge::iap::testing::setOwned("pro", j.value("pro", false));
+}
 
 } // namespace
 
@@ -57,9 +78,21 @@ int main(int argc, char* argv[]) {
     //               adb shell setprop debug.ge.log_target 127.0.0.1:9999
     // Debug builds only — the sink is compiled out under NDEBUG.
 
-    bool brokered = false;  // default: direct/distribution modality
+    bool brokered = false;     // default: direct/distribution modality
+    bool renderMode = false;   // 🎯T124 headless render-to-PNG: `tiltbuggy render ...`
+    bool isolate = false;      // --batch --isolate: re-exec a fresh process per fixture
+    std::string stateFile, batchFile;
+    std::string outFile = "frame.png";
+    int renderW = 1024, renderH = 768;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--brokered") == 0) brokered = true;
+        else if (std::strcmp(argv[i], "render") == 0) renderMode = true;
+        else if (std::strcmp(argv[i], "--state") == 0 && i + 1 < argc) stateFile = argv[++i];
+        else if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) outFile = argv[++i];
+        else if (std::strcmp(argv[i], "--batch") == 0 && i + 1 < argc) batchFile = argv[++i];
+        else if (std::strcmp(argv[i], "--isolate") == 0) isolate = true;
+        else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc)
+            std::sscanf(argv[++i], "%dx%d", &renderW, &renderH);
     }
 
     State state;
@@ -126,20 +159,19 @@ int main(int argc, char* argv[]) {
     });
     ge::appchannel::registerStateSerializer(
         [&state] {
-            return nlohmann::json{
+            nlohmann::json j{
                 {"pro",     ge::iap::owned("pro")},
                 {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
             };
-        },
-        [&state](const nlohmann::json& j) {
-            if (j.contains("gravity")) {
-                state.gravity.x = j["gravity"].value("x", 0.0f);
-                state.gravity.y = j["gravity"].value("y", 0.0f);
+            if (state.scene) {
+                const auto p = state.scene->buggyPose();
+                j["buggy"] = {{"x", p.x}, {"y", p.y}, {"angle", p.angle}};
             }
-            ge::iap::testing::setOwned("pro", j.value("pro", false));
-        });
+            return j;
+        },
+        [&state](const nlohmann::json& j) { applyState(state, j); });
 
-    ge::run([&](ge::Context ctx) -> ge::RunConfig {
+    auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
@@ -203,7 +235,76 @@ int main(int argc, char* argv[]) {
                 SPDLOG_INFO("TiltBuggy shutdown");
             },
         };
-    }, {
+    };
+
+    // 🎯T124 Headless render mode: `tiltbuggy render --out <png> [--state <f>] [--size WxH]`.
+    // Renders one frame of the given state to a PNG with no window, no ged — the
+    // hermetic primitive an agent uses to eyeball a state after a code change.
+    if (renderMode) {
+        // 🎯T124 batch: `render --batch <manifest.json>`, manifest =
+        // [{"state": "<file>", "out": "<png>"}, ...]. One process, one host.
+        if (!batchFile.empty()) {
+            std::ifstream bin(batchFile);
+            if (!bin) { SPDLOG_ERROR("render: cannot open batch manifest '{}'", batchFile); return 1; }
+            nlohmann::json manifest;
+            try { bin >> manifest; }
+            catch (const std::exception& e) { SPDLOG_ERROR("render: bad manifest: {}", e.what()); return 1; }
+
+            // --isolate: re-exec a fresh process per fixture (hard-crash safe).
+            if (isolate) {
+                int fails = 0;
+                for (const auto& e : manifest) {
+                    const std::string sf = e.value("state", std::string());
+                    const std::string of = e.value("out", std::string());
+                    std::string cmd = std::string(argv[0]) + " render --out '" + of + "'"
+                        + (sf.empty() ? "" : " --state '" + sf + "'")
+                        + " --size " + std::to_string(renderW) + "x" + std::to_string(renderH);
+                    if (std::system(cmd.c_str()) != 0) { ++fails; SPDLOG_ERROR("isolate: failed {}", of); }
+                }
+                return fails == 0 ? 0 : 1;
+            }
+
+            // Default: one host, every fixture in-process (amortised startup).
+            std::vector<ge::RenderItem> items;
+            for (const auto& e : manifest) {
+                const std::string of = e.value("out", std::string());
+                nlohmann::json sj;
+                if (e.contains("state")) {
+                    std::ifstream sin(e["state"].get<std::string>());
+                    if (sin) { try { sin >> sj; } catch (...) {} }
+                }
+                items.push_back({[&state, sj] {
+                    if (state.renderer) state.renderer->setDiagnosticSpin(false);
+                    if (!sj.is_null()) applyState(state, sj);
+                }, of});
+            }
+            const int ok = ge::renderBatch(factory,
+                {.width = renderW, .height = renderH, .appName = "tiltbuggy"}, items);
+            SPDLOG_INFO("batch: {}/{} rendered", ok, static_cast<int>(items.size()));
+            return ok == static_cast<int>(items.size()) ? 0 : 1;
+        }
+
+        nlohmann::json stateJson;
+        if (!stateFile.empty()) {
+            std::ifstream in(stateFile);
+            if (!in) { SPDLOG_ERROR("render: cannot open state file '{}'", stateFile); return 1; }
+            try { in >> stateJson; }
+            catch (const std::exception& e) {
+                SPDLOG_ERROR("render: bad state JSON in '{}': {}", stateFile, e.what());
+                return 1;
+            }
+        }
+        auto prepare = [&] {
+            if (state.renderer) state.renderer->setDiagnosticSpin(false);  // determinism
+            if (!stateJson.is_null()) applyState(state, stateJson);
+        };
+        const bool ok = ge::renderToPng(factory,
+            {.width = renderW, .height = renderH, .appName = "tiltbuggy"},
+            prepare, outFile);
+        return ok ? 0 : 1;
+    }
+
+    ge::run(factory, {
         .width = brokered ? 0 : 1024,
         .height = brokered ? 0 : 768,
         .headless = brokered,

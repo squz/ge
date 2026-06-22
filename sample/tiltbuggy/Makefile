@@ -39,3 +39,5 @@ update-baselines:
 	VR_UPDATE_MODE=1 $(ge)/tools/matrix-cell.sh ios-sim-tablet-dist
 	VR_UPDATE_MODE=1 GE_ANDROID_TABLET_AVD=$(GE_ANDROID_TABLET_AVD) \
 	    $(ge)/tools/matrix-cell.sh android-emu-tablet-dist
+
+include fixtures/render.mk

@@ -14,6 +14,9 @@
 
 #include <cstdint>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 namespace ge {
 
 namespace {
@@ -113,6 +116,19 @@ Sprite loadImage(const std::string& path) {
     }
 
     return imageFromSurface(raw);
+}
+
+// 🎯T124 Write RGBA8 (top-down, tightly packed, w*h*4) to a PNG file.
+bool writePng(const std::string& path, const std::uint8_t* rgba, int w, int h) {
+    if (rgba == nullptr || w <= 0 || h <= 0) {
+        spdlog::error("ge::writePng: bad args ({}x{})", w, h);
+        return false;
+    }
+    if (stbi_write_png(path.c_str(), w, h, 4, rgba, w * 4) == 0) {
+        spdlog::error("ge::writePng: failed to write \"{}\"", path);
+        return false;
+    }
+    return true;
 }
 
 } // namespace ge

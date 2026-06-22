@@ -187,6 +187,48 @@ concrete implementations are selected at runtime:
 Player-side split: `PlayerWireBridge` owns the wire (WebSocket, H.264 decode) while `PlayerRender`
 owns all SDL state (window, texture, display). Not a `RenderHost` — it wraps `DirectRenderHost`.
 
+### Headless render to PNG — `ge::renderToPng` / `ge::renderBatch` (🎯T124)
+
+The hermetic counterpart to the app channel: render a saved **State** to a PNG on the
+dev box — no device, no ged, no spyder, no window. Where the app channel drives a
+*live* app, this replays a *serialized* one. An agent uses it to (a) see what a State
+looks like with no device in the loop and (b) run a fast pixel-regression against
+committed goldens.
+
+- `ge::renderToPng(factory, config, prepare, outPath)` — builds a hidden
+  `DirectRenderHost` (`SokolConfig.hidden` → off-screen drawable, `framebufferOnly = NO`),
+  runs the factory once, calls `prepare()` to mutate the game State into the frame you
+  want, renders one frame, reads the swapchain back to RGBA, writes a PNG via
+  `ge::writePng`. `onRender` is unchanged — the same `c.swapchainPass()` path captures
+  instead of presenting.
+- `ge::renderBatch(factory, config, items)` — host + factory built **once**, then loops
+  `RenderItem{prepare, outPath}` with per-item try/catch (one bad fixture doesn't sink the
+  run). Returns the count rendered. The reused host is leak-free: a batch-rendered frame is
+  byte-identical to a fresh single render of the same State.
+- `config.hidden` and the render size both live on `SessionHostConfig`.
+
+Determinism is a contract: same State + same size ⇒ byte-stable PNG. Kill any
+render-liveness animation (frame-counter spins, time wobble) behind a flag the render path
+disables — tiltbuggy's `Renderer::setDiagnosticSpin(false)` is the model.
+
+**Consumer CLI.** An app exposes this by parsing argv before `ge::run`. tiltbuggy's
+`render` verb is the reference:
+
+```bash
+# one State -> one PNG  (State on stdin with --state -)
+bin/tiltbuggy render --state fixtures/tilted.json --out /tmp/tilted.png [--size 512x384]
+# many in one process (amortised host); --isolate re-execs per fixture for crash isolation
+bin/tiltbuggy render --batch fixtures/manifest.json [--isolate]
+```
+
+The manifest is a `[{"state": "...", "out": "..."}]` array. State JSON is whatever the app's
+`registerStateSerializer` restore understands (tiltbuggy: gravity + buggy pose + pro flag).
+
+**Regression loop.** `sample/tiltbuggy` ships committed `fixtures/*.json` + small
+`fixtures/golden/*.png`; `make render-test` batch-renders and `imgdiff`s each vs its golden
+(RMS threshold absorbs cross-GPU drift), `make update-render-goldens` re-blesses after a
+deliberate visual change.
+
 ### `BgfxContext` — `include/ge/BgfxContext.h`
 
 RAII bgfx device lifecycle. Handles Metal (Apple) and Vulkan (Android) init, frame begin/end, and
