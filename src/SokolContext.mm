@@ -103,7 +103,9 @@ SokolContext::SokolContext(const SokolConfig& config)
     // this flag on the same path.
     const Uint64 windowFlags = SDL_WINDOW_METAL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #endif
-    m->window = SDL_CreateWindow(title, config.width, config.height, windowFlags);
+    Uint64 flags = windowFlags;
+    if (config.hidden) flags |= SDL_WINDOW_HIDDEN;  // 🎯T124 headless render
+    m->window = SDL_CreateWindow(title, config.width, config.height, flags);
     if (!m->window) {
         SPDLOG_ERROR("SDL_CreateWindow failed: {}", SDL_GetError());
         return;

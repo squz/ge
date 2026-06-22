@@ -21,8 +21,11 @@
 #include <SDL3/SDL_main.h>  // required on iOS/Android; no-op on desktop
 #include <spdlog/spdlog.h>
 
+#include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <memory>
+#include <string>
 
 namespace {
 
@@ -57,9 +60,18 @@ int main(int argc, char* argv[]) {
     //               adb shell setprop debug.ge.log_target 127.0.0.1:9999
     // Debug builds only — the sink is compiled out under NDEBUG.
 
-    bool brokered = false;  // default: direct/distribution modality
+    bool brokered = false;     // default: direct/distribution modality
+    bool renderMode = false;   // 🎯T124 headless render-to-PNG: `tiltbuggy render ...`
+    std::string stateFile;
+    std::string outFile = "frame.png";
+    int renderW = 1024, renderH = 768;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--brokered") == 0) brokered = true;
+        else if (std::strcmp(argv[i], "render") == 0) renderMode = true;
+        else if (std::strcmp(argv[i], "--state") == 0 && i + 1 < argc) stateFile = argv[++i];
+        else if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) outFile = argv[++i];
+        else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc)
+            std::sscanf(argv[++i], "%dx%d", &renderW, &renderH);
     }
 
     State state;
@@ -139,7 +151,7 @@ int main(int argc, char* argv[]) {
             ge::iap::testing::setOwned("pro", j.value("pro", false));
         });
 
-    ge::run([&](ge::Context ctx) -> ge::RunConfig {
+    auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
@@ -203,7 +215,20 @@ int main(int argc, char* argv[]) {
                 SPDLOG_INFO("TiltBuggy shutdown");
             },
         };
-    }, {
+    };
+
+    // 🎯T124 Headless render mode: `tiltbuggy render --out <png> [--state <f>] [--size WxH]`.
+    // Renders one frame of the given state to a PNG with no window, no ged — the
+    // hermetic primitive an agent uses to eyeball a state after a code change.
+    if (renderMode) {
+        const bool ok = ge::renderToPng(factory,
+            {.width = renderW, .height = renderH, .appName = "tiltbuggy"},
+            [] {},  // TODO(T124): restore state from stateFile
+            outFile);
+        return ok ? 0 : 1;
+    }
+
+    ge::run(factory, {
         .width = brokered ? 0 : 1024,
         .height = brokered ? 0 : 768,
         .headless = brokered,

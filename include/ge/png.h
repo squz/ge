@@ -5,6 +5,7 @@
 
 #include <ge/sprite.h>
 
+#include <cstdint>
 #include <string>
 
 struct SDL_Surface;
@@ -37,5 +38,10 @@ Sprite loadImage(const std::string& path);
 // failure modes log via `spdlog::error` and return null. `bgfx` must
 // be initialized before calling.
 Sprite imageFromSurface(SDL_Surface* surface);
+
+// 🎯T124 Write RGBA8 pixels (top-down, tightly packed, `w*h*4` bytes) to a PNG
+// file at `path`. Returns false on bad args or write failure (logged). Used by
+// the headless render-state path; needs no GPU context.
+bool writePng(const std::string& path, const std::uint8_t* rgba, int w, int h);
 
 } // namespace ge

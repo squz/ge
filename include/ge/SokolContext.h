@@ -23,6 +23,7 @@ struct SokolConfig {
     int         width  = 820;
     int         height = 1180;
     const char* title  = nullptr;
+    bool        hidden = false;  // 🎯T124 create the SDL window unmapped (headless render)
 };
 
 class SokolContext {

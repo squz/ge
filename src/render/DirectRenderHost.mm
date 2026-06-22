@@ -245,6 +245,31 @@ bool captureFrameRGBA(std::vector<std::uint8_t>& rgba, int& w, int& h) {
     }
     return fut.get();
 }
+
+// 🎯T124 Synchronous one-shot capture for the headless render-state path. Arms
+// a request, runs `renderOneFrame` inline (it must render exactly one frame on
+// this thread, opening a swapchain pass so endFrame services the arm), and
+// returns the delivered pixels — no cross-thread wait. False if no pass opened.
+bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
+                          std::vector<std::uint8_t>& rgba, int& w, int& h) {
+    ScreenshotRequest req;
+    req.rgba = &rgba;
+    req.w    = &w;
+    req.h    = &h;
+    auto fut = req.done.get_future();
+    {
+        std::lock_guard<std::mutex> lk(g_ssMu);
+        if (g_ssReq) return false;       // another capture in flight
+        g_ssReq = &req;
+    }
+    g_ssArmed.store(true);
+    renderOneFrame();                    // renders + delivers inline
+    if (fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        return fut.get();
+    std::lock_guard<std::mutex> lk(g_ssMu);
+    if (g_ssReq == &req) { g_ssReq = nullptr; g_ssArmed.store(false); }
+    return false;
+}
 } // namespace detail
 
 #if defined(__ANDROID__)
@@ -357,7 +382,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                 config.disableScreenSaver ? "0" : "1");
 
     i_->sokolCtx = std::make_unique<SokolContext>(
-        SokolConfig{i_->width, i_->height, config.appName});
+        SokolConfig{i_->width, i_->height, config.appName, config.hidden});
 
     // On platforms where the actual surface size differs from the
     // caller's hint (notably Android fullscreen, and Retina on macOS),

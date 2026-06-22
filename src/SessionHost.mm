@@ -19,9 +19,14 @@
 #include <SDL3/SDL.h>
 #include <ge/appchannel.h>
 #include <ge/log.h>
+#include <ge/png.h>
 #include <spdlog/spdlog.h>
 
+#include "render/ScreenshotBridge.h"
+
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -164,6 +169,37 @@ void run(Factory factory, const SessionHostConfig& config) {
     } else {
         runDirect(factory, config);
     }
+}
+
+// ── renderToPng — 🎯T124 headless one-shot render ─────────────────
+bool renderToPng(Factory factory, SessionHostConfig config,
+                 const std::function<void()>& prepare,
+                 const std::string& outPath) {
+    ge::log::install();
+    config.headless = false;   // direct host, no ged / wire
+    config.hidden   = true;    // unmapped window — nothing shown
+    DirectRenderHost host(config);
+    applyImmersive(false);
+    RunConfig rc = factory(host.context());
+    host.setEventHandler(rc.onEvent);
+    if (prepare) prepare();
+
+    std::vector<std::uint8_t> rgba;
+    int w = 0, h = 0;
+    const bool captured = ge::detail::captureFrameRGBASync(
+        [&] {
+            host.refreshFrame(0.0f);
+            if (rc.onRender) rc.onRender(host.context());
+        },
+        rgba, w, h);
+    if (rc.onShutdown) rc.onShutdown();
+    if (!captured || w <= 0 || h <= 0) {
+        SPDLOG_ERROR("renderToPng: no frame captured — did onRender open a "
+                     "swapchain pass?");
+        return false;
+    }
+    SPDLOG_INFO("renderToPng: {}x{} -> {}", w, h, outPath);
+    return ge::writePng(outPath, rgba.data(), w, h);
 }
 
 } // namespace ge

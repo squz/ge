@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace ge::detail {
@@ -23,6 +24,12 @@ namespace ge::detail {
 // untouched — if nothing was captured (timeout, no render host, or the app is
 // backgrounded so endFrame isn't running). Single in-flight request at a time.
 bool captureFrameRGBA(std::vector<std::uint8_t>& rgba, int& w, int& h);
+
+// 🎯T124 One-shot synchronous capture for the headless render path: arm, render
+// one frame inline via `renderOneFrame`, return the delivered pixels. No
+// cross-thread wait. False if the frame opened no swapchain pass.
+bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
+                          std::vector<std::uint8_t>& rgba, int& w, int& h);
 
 // True while a capture is armed. DirectRenderHost::endFrame polls this to
 // decide whether to arm SokolContext::captureNextFrame for the current frame.
