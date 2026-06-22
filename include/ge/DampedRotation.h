@@ -28,23 +28,31 @@ public:
         orientation_ = linalg::normalize(orientation_);
     }
 
-    // Apply rotation from screen-space drag delta
-    // dx: horizontal mouse movement (rotates around world Z axis)
-    // dy: vertical mouse movement (rotates around camera-right axis)
-    void applyDrag(float dx, float dy, float sensitivity = 1.0f) {
-        // Horizontal drag -> rotate around Z (world up)
+    // Apply rotation from a screen-space drag delta, in the consumer's camera
+    // basis (🎯T122/T123). Horizontal drag rotates about the screen-up axis;
+    // vertical drag about the screen-right axis. Both are world-space unit
+    // vectors from the consumer's camera (view) basis. The defaults are the
+    // Z-up convention (tiltbuggy: camera at (0,-3,0), up +Z) so existing callers
+    // are unaffected; a Y-up consumer (esfera: up +Y) passes
+    // screenUp = {0,1,0}, screenRight = {1,0,0}.
+    void applyDrag(float dx, float dy, float sensitivity = 1.0f,
+                   float3 screenUp = {0.0f, 0.0f, 1.0f},
+                   float3 screenRight = {1.0f, 0.0f, 0.0f}) {
         if (dx != 0.0f) {
-            rotate(float3{0.0f, 0.0f, 1.0f}, dx * sensitivity);
+            rotate(screenUp, dx * sensitivity);
         }
-        // Vertical drag -> rotate around X (camera right, roughly)
         if (dy != 0.0f) {
-            rotate(float3{1.0f, 0.0f, 0.0f}, dy * sensitivity);
+            rotate(screenRight, dy * sensitivity);
         }
     }
 
-    // Update angular velocity from drag speed (smoothed for inertia on release)
-    void updateVelocityFromDrag(float dx, float dy, float sensitivity = 1.0f) {
-        float3 instantVel = float3{dy * sensitivity, 0.0f, dx * sensitivity};
+    // Update angular velocity from drag speed (smoothed for inertia on release).
+    // Same camera basis as applyDrag: horizontal speed spins about screenUp,
+    // vertical about screenRight. Defaults to the Z-up convention.
+    void updateVelocityFromDrag(float dx, float dy, float sensitivity = 1.0f,
+                                float3 screenUp = {0.0f, 0.0f, 1.0f},
+                                float3 screenRight = {1.0f, 0.0f, 0.0f}) {
+        float3 instantVel = screenUp * (dx * sensitivity) + screenRight * (dy * sensitivity);
         // Exponential moving average to smooth out jitter on release
         constexpr float smoothing = 0.3f;
         angularVelocity_ = linalg::lerp(angularVelocity_, instantVel, smoothing);

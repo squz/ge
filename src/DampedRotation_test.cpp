@@ -73,3 +73,44 @@ TEST_CASE("drag sequence is deterministic") {
     CHECK(qa.y == doctest::Approx(qb.y));
     CHECK(qa.z == doctest::Approx(qb.z));
 }
+
+// 🎯T122/T123 — the camera basis parameterises the rotation axes; the default
+// is the Z-up convention so the cases above (no basis arg) are unchanged.
+
+TEST_CASE("default basis matches explicit Z-up basis") {
+    DampedRotation a;
+    DampedRotation b;
+    a.applyDrag(0.3f, 0.2f);
+    b.applyDrag(0.3f, 0.2f, 1.0f, float3{0, 0, 1}, float3{1, 0, 0});
+    CHECK(a.orientation().x == doctest::Approx(b.orientation().x));
+    CHECK(a.orientation().y == doctest::Approx(b.orientation().y));
+    CHECK(a.orientation().z == doctest::Approx(b.orientation().z));
+    CHECK(a.orientation().w == doctest::Approx(b.orientation().w));
+}
+
+TEST_CASE("Y-up basis: horizontal drag rotates around Y") {
+    DampedRotation rot;
+    rot.applyDrag(0.5f, 0.0f, 1.0f, float3{0, 1, 0}, float3{1, 0, 0});
+    auto q = rot.orientation();
+    CHECK(q.y != doctest::Approx(0.0f));
+    CHECK(q.x == doctest::Approx(0.0f));
+    CHECK(q.z == doctest::Approx(0.0f));
+}
+
+TEST_CASE("Y-up basis: vertical drag rotates around X") {
+    DampedRotation rot;
+    rot.applyDrag(0.0f, 0.5f, 1.0f, float3{0, 1, 0}, float3{1, 0, 0});
+    auto q = rot.orientation();
+    CHECK(q.x != doctest::Approx(0.0f));
+    CHECK(q.y == doctest::Approx(0.0f));
+    CHECK(q.z == doctest::Approx(0.0f));
+}
+
+TEST_CASE("velocity basis: Y-up horizontal drag yields Y-axis angular velocity") {
+    DampedRotation rot;
+    rot.updateVelocityFromDrag(1.0f, 0.0f, 1.0f, float3{0, 1, 0}, float3{1, 0, 0});
+    auto v = rot.angularVelocity();
+    CHECK(v.y != doctest::Approx(0.0f));
+    CHECK(v.x == doctest::Approx(0.0f));
+    CHECK(v.z == doctest::Approx(0.0f));
+}
