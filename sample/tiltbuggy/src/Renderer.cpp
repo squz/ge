@@ -222,9 +222,13 @@ struct Renderer::Impl {
     ge::Sprite  pond;
     ge::Sprite  title;
     ge::Sprite  buyPro;
+    float       diagSpin       = 0.f;   // 🎯T89 render-liveness accumulator
+    bool        diagnosticSpin = true;  // 🎯T124 off for deterministic renders
 };
 
 Renderer::Renderer() : i_(std::make_unique<Impl>()) {}
+
+void Renderer::setDiagnosticSpin(bool on) { i_->diagnosticSpin = on; }
 
 Renderer::~Renderer() {
     if (i_->pipeline.id != SG_INVALID_ID) sg_destroy_pipeline(i_->pipeline);
@@ -374,11 +378,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // per rendered frame. If the buggy stops turning, the render loop has
     // stalled (e.g. a Metal command-buffer wedge) — an at-a-glance signal
     // that beats reattaching a logger. Purely visual; does not touch physics.
-    static float diagSpin = 0.f;
-    diagSpin += 0.01f;   // ~one revolution per ~10s at 60fps
+    if (i_->diagnosticSpin) i_->diagSpin += 0.01f;  // ~one rev/~10s at 60fps
     pushRotatedRect(verts,
         ge::Rect{pose.x - hw, pose.y - hh, 2.f * hw, 2.f * hh},
-        pose.angle + diagSpin,
+        pose.angle + i_->diagSpin,
         buggyColor);
 
     // --- Submit the solid-color mesh ---
@@ -480,7 +483,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         const uint16_t quad[6] = {0, 1, 2, 0, 2, 3};
 
         // Buggy chassis quad — same rotated quad the solid-colour pass drew.
-        const float a = pose.angle + diagSpin;
+        const float a = pose.angle + i_->diagSpin;
         const float ca = std::cos(a), sa = std::sin(a);
         auto corner = [&](float ox, float oy) {
             return ge::la::float2{pose.x + ox * ca - oy * sa,

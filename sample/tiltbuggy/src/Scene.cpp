@@ -154,6 +154,13 @@ Pose Scene::buggyPose() const {
     return { pos.x, pos.y, b2Rot_GetAngle(rot) };
 }
 
+void Scene::applyPose(const Pose& pose) {
+    b2Body_SetTransform(i_->chassisId, {pose.x, pose.y}, b2MakeRot(pose.angle));
+    b2Body_SetLinearVelocity(i_->chassisId, {0.0f, 0.0f});
+    b2Body_SetAngularVelocity(i_->chassisId, 0.0f);
+    b2Body_SetAwake(i_->chassisId, true);
+}
+
 b2WorldId Scene::worldId() const {
     return i_->worldId;
 }

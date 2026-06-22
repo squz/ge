@@ -39,6 +39,22 @@ struct State {
     bool proPurchaseInFlight = false;   // debounce: drop taps while Apple modal is up
 };
 
+// 🎯T124 Apply a serialized state to the live game — shared by the app-channel
+// restore and the headless render path. The static arena is rebuilt by the
+// Scene ctor; only the dynamic buggy pose + gravity + entitlement round-trip.
+void applyState(State& state, const nlohmann::json& j) {
+    if (j.contains("gravity")) {
+        state.gravity.x = j["gravity"].value("x", 0.0f);
+        state.gravity.y = j["gravity"].value("y", 0.0f);
+    }
+    if (j.contains("buggy") && state.scene) {
+        const auto& b = j["buggy"];
+        state.scene->applyPose({b.value("x", 0.0f), b.value("y", 0.0f),
+                                b.value("angle", 0.0f)});
+    }
+    ge::iap::testing::setOwned("pro", j.value("pro", false));
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -138,18 +154,17 @@ int main(int argc, char* argv[]) {
     });
     ge::appchannel::registerStateSerializer(
         [&state] {
-            return nlohmann::json{
+            nlohmann::json j{
                 {"pro",     ge::iap::owned("pro")},
                 {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
             };
-        },
-        [&state](const nlohmann::json& j) {
-            if (j.contains("gravity")) {
-                state.gravity.x = j["gravity"].value("x", 0.0f);
-                state.gravity.y = j["gravity"].value("y", 0.0f);
+            if (state.scene) {
+                const auto p = state.scene->buggyPose();
+                j["buggy"] = {{"x", p.x}, {"y", p.y}, {"angle", p.angle}};
             }
-            ge::iap::testing::setOwned("pro", j.value("pro", false));
-        });
+            return j;
+        },
+        [&state](const nlohmann::json& j) { applyState(state, j); });
 
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
@@ -221,10 +236,23 @@ int main(int argc, char* argv[]) {
     // Renders one frame of the given state to a PNG with no window, no ged — the
     // hermetic primitive an agent uses to eyeball a state after a code change.
     if (renderMode) {
+        nlohmann::json stateJson;
+        if (!stateFile.empty()) {
+            std::ifstream in(stateFile);
+            if (!in) { SPDLOG_ERROR("render: cannot open state file '{}'", stateFile); return 1; }
+            try { in >> stateJson; }
+            catch (const std::exception& e) {
+                SPDLOG_ERROR("render: bad state JSON in '{}': {}", stateFile, e.what());
+                return 1;
+            }
+        }
+        auto prepare = [&] {
+            if (state.renderer) state.renderer->setDiagnosticSpin(false);  // determinism
+            if (!stateJson.is_null()) applyState(state, stateJson);
+        };
         const bool ok = ge::renderToPng(factory,
             {.width = renderW, .height = renderH, .appName = "tiltbuggy"},
-            [] {},  // TODO(T124): restore state from stateFile
-            outFile);
+            prepare, outFile);
         return ok ? 0 : 1;
     }
 
