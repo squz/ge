@@ -1,0 +1,5 @@
+[
+  {"state": "fixtures/default.json", "out": "build/render/default.png"},
+  {"state": "fixtures/tilted.json",  "out": "build/render/tilted.png"},
+  {"state": "fixtures/pro.json",     "out": "build/render/pro.png"}
+]

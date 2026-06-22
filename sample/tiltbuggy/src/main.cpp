@@ -22,10 +22,12 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -78,7 +80,8 @@ int main(int argc, char* argv[]) {
 
     bool brokered = false;     // default: direct/distribution modality
     bool renderMode = false;   // 🎯T124 headless render-to-PNG: `tiltbuggy render ...`
-    std::string stateFile;
+    bool isolate = false;      // --batch --isolate: re-exec a fresh process per fixture
+    std::string stateFile, batchFile;
     std::string outFile = "frame.png";
     int renderW = 1024, renderH = 768;
     for (int i = 1; i < argc; i++) {
@@ -86,6 +89,8 @@ int main(int argc, char* argv[]) {
         else if (std::strcmp(argv[i], "render") == 0) renderMode = true;
         else if (std::strcmp(argv[i], "--state") == 0 && i + 1 < argc) stateFile = argv[++i];
         else if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) outFile = argv[++i];
+        else if (std::strcmp(argv[i], "--batch") == 0 && i + 1 < argc) batchFile = argv[++i];
+        else if (std::strcmp(argv[i], "--isolate") == 0) isolate = true;
         else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc)
             std::sscanf(argv[++i], "%dx%d", &renderW, &renderH);
     }
@@ -236,6 +241,49 @@ int main(int argc, char* argv[]) {
     // Renders one frame of the given state to a PNG with no window, no ged — the
     // hermetic primitive an agent uses to eyeball a state after a code change.
     if (renderMode) {
+        // 🎯T124 batch: `render --batch <manifest.json>`, manifest =
+        // [{"state": "<file>", "out": "<png>"}, ...]. One process, one host.
+        if (!batchFile.empty()) {
+            std::ifstream bin(batchFile);
+            if (!bin) { SPDLOG_ERROR("render: cannot open batch manifest '{}'", batchFile); return 1; }
+            nlohmann::json manifest;
+            try { bin >> manifest; }
+            catch (const std::exception& e) { SPDLOG_ERROR("render: bad manifest: {}", e.what()); return 1; }
+
+            // --isolate: re-exec a fresh process per fixture (hard-crash safe).
+            if (isolate) {
+                int fails = 0;
+                for (const auto& e : manifest) {
+                    const std::string sf = e.value("state", std::string());
+                    const std::string of = e.value("out", std::string());
+                    std::string cmd = std::string(argv[0]) + " render --out '" + of + "'"
+                        + (sf.empty() ? "" : " --state '" + sf + "'")
+                        + " --size " + std::to_string(renderW) + "x" + std::to_string(renderH);
+                    if (std::system(cmd.c_str()) != 0) { ++fails; SPDLOG_ERROR("isolate: failed {}", of); }
+                }
+                return fails == 0 ? 0 : 1;
+            }
+
+            // Default: one host, every fixture in-process (amortised startup).
+            std::vector<ge::RenderItem> items;
+            for (const auto& e : manifest) {
+                const std::string of = e.value("out", std::string());
+                nlohmann::json sj;
+                if (e.contains("state")) {
+                    std::ifstream sin(e["state"].get<std::string>());
+                    if (sin) { try { sin >> sj; } catch (...) {} }
+                }
+                items.push_back({[&state, sj] {
+                    if (state.renderer) state.renderer->setDiagnosticSpin(false);
+                    if (!sj.is_null()) applyState(state, sj);
+                }, of});
+            }
+            const int ok = ge::renderBatch(factory,
+                {.width = renderW, .height = renderH, .appName = "tiltbuggy"}, items);
+            SPDLOG_INFO("batch: {}/{} rendered", ok, static_cast<int>(items.size()));
+            return ok == static_cast<int>(items.size()) ? 0 : 1;
+        }
+
         nlohmann::json stateJson;
         if (!stateFile.empty()) {
             std::ifstream in(stateFile);

@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -650,5 +651,20 @@ void run(Factory factory, const SessionHostConfig& config = {});
 bool renderToPng(Factory factory, SessionHostConfig config,
                  const std::function<void()>& prepare,
                  const std::string& outPath);
+
+// 🎯T124 One item in a headless render batch: a state-restore callback and the
+// PNG it should produce.
+struct RenderItem {
+    std::function<void()> prepare;   // restore this item's State (after the factory)
+    std::string           outPath;   // PNG output path
+};
+
+// 🎯T124 Render many states against ONE host (one sokol setup; the factory runs
+// once), amortising startup across a corpus. Each item's prepare() restores its
+// State, then a frame is rendered and written. A failing or throwing item is
+// logged and skipped — one bad fixture doesn't zero the run. Returns the count
+// of items successfully written. This is what `render --batch` drives.
+int renderBatch(Factory factory, SessionHostConfig config,
+                const std::vector<RenderItem>& items);
 
 } // namespace ge
