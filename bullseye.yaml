@@ -748,9 +748,10 @@ targets:
     discovered: 2026-06-21
   T122:
     name: GlobeController drag-to-rotate is coordinate-system-agnostic (arcball), not hardwired Z-up
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - 'GlobeController gives intuitive trackball rotation for ANY camera orientation: horizontal swipe rotates the globe about the on-screen vertical axis, vertical swipe about the on-screen horizontal axis — verified for both a Z-up consumer (tiltbuggy: camera at (0,-3,0), view axis -Y) and a Y-up consumer (esfera: camera at (0,0,+d), up +Y).'
     - 'The hardcoded Z-up axes are gone: DampedRotation::applyDrag no longer maps horizontal drag to world Z (0,0,1), and GlobeController''s pinch-twist no longer hardcodes {0,1,0}. Rotation axes derive from the camera/view basis (screen-right, screen-up, screen-normal) supplied by the consumer.'
@@ -774,11 +775,13 @@ targets:
     - esfera2-audit
     origin: manual
     discovered: 2026-06-21
+    achieved: 2026-06-22
   T123:
     name: GlobeController is camera-orientation-agnostic (arcball), not hardwired Z-up
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - Horizontal swipe rotates the globe about the on-screen vertical axis and vertical swipe about the on-screen horizontal axis for BOTH a Z-up camera (tiltbuggy) and a Y-up camera (esfera) — no per-app axis literals.
     - DampedRotation::applyDrag / GlobeController no longer hardcode world Z for horizontal drag or {0,1,0} for pinch-twist; axes derive from the consumer's camera basis.
@@ -792,6 +795,7 @@ targets:
     - esfera2-audit
     origin: manual
     discovered: 2026-06-22
+    achieved: 2026-06-22
   T124:
     name: ge apps render a given State headlessly to a PNG via a one-shot `render` CLI (single + `--batch`) — no device, ged, or spyder in the loop
     status: achieved
@@ -830,6 +834,28 @@ targets:
     origin: manual
     discovered: 2026-06-22
     achieved: 2026-06-22
+  T125:
+    name: GlobeController drag is arcball (point-under-finger), not incremental axis-angle
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - GlobeController drag computes a SINGLE quaternion from two virtual-sphere points (press + current normalised screen coords mapped onto z=sqrt(1-x^2-y^2); q = {axis = a x b, w = a . b}), transformed into world space via the camera basis already wired by T122/T123 — so the point under the finger stays under the finger (exact, not the small-angle two-rotation axis-angle approximation shipped in T122/T123).
+    - Inertia / flick-to-spin still works (angular velocity derived from the per-frame incremental quaternion); both tiltbuggy (Z-up) and esfera (Y-up) behave correctly with no regression vs the T122/T123 camera-basis incremental drag.
+    - GlobeController is given the surface size so it can normalise mouse pixel coords to NDC for the sphere projection (SDL finger coords are already [0,1]); aspect ratio is handled so the sphere isn't skewed on non-square viewports.
+    context: |-
+      Follow-up to T122/T123 (retired 2026-06-22, v0.64.0). Those shipped the camera-basis *incremental axis-angle* drag — T122 criterion 6's explicitly-accepted "fold in the camera basis" alternative — which fixes the substantive bug (esfera's Y-up camera saw horizontal swipes spin CW/CCW about the screen-normal). This target is the "preferred" arcball refinement called out in T122 criterion 3 / T123 criterion 3 but deliberately deferred: exact point-under-finger tracking instead of the two-rotation Euler approximation.
+
+      Lower priority — the correctness bug is already fixed; this is a UX/precision upgrade. Scope: arcball sphere-projection of press+current points, eye->world axis transform via the camera basis (already present on GlobeController via setCameraBasis), surface-size plumbing for pixel->NDC, and reworking the inertia derivation to come from the per-frame incremental quaternion rather than the current dx/dy decomposition. No in-repo GlobeController consumer exists (tiltbuggy doesn't use it; esfera2 is a separate repo), so validation is unit-test math + the esfera2 port. Reference arcball math + camera-basis factoring is in the esfera2 session discussion.
+    tags:
+    - input
+    - globecontroller
+    - arcball
+    - camera
+    - ux
+    - esfera2-audit
+    origin: manual
+    discovered: 2026-06-22
   T13:
     name: ⌥-gated mouse movement simulates accelerometer (replaces or supplements ⌥WASD)
     status: achieved

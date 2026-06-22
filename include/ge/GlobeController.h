@@ -74,13 +74,13 @@ public:
                     float newAngle = std::atan2(dy, dx);
                     if (lastPinchDist_ > 0.1f)
                         pinchDelta_ += std::log(newDist / lastPinchDist_);
-                    // Apply two-finger rotation around camera view axis (Y).
-                    // Original rotates around Z (screen-normal in Y-up); our camera
-                    // is at (0,-3,0) looking at origin in Z-up, so the view axis is -Y.
+                    // Two-finger twist rotates about the camera view axis
+                    // (🎯T122/T123), supplied via setCameraBasis; the default is
+                    // the Z-up convention's view axis {0,1,0} (tiltbuggy).
                     float angleDiff = newAngle - lastPinchAngle_;
                     if (angleDiff > float(M_PI)) angleDiff -= 2.0f * float(M_PI);
                     if (angleDiff < -float(M_PI)) angleDiff += 2.0f * float(M_PI);
-                    rotation_.rotate({0.0f, 1.0f, 0.0f}, angleDiff);
+                    rotation_.rotate(viewAxis_, angleDiff);
                     lastPinchDist_ = newDist;
                     lastPinchAngle_ = newAngle;
                     return true;
@@ -99,7 +99,7 @@ public:
                 }
                 float dx = e.tfinger.x - lastX_;
                 float dy = e.tfinger.y - lastY_;
-                rotation_.applyDrag(dx, dy, sensitivity_);
+                rotation_.applyDrag(dx, dy, sensitivity_, screenUp_, screenRight_);
                 accumX_ += dx;
                 accumY_ += dy;
                 lastX_ = e.tfinger.x;
@@ -121,7 +121,7 @@ public:
                 }
                 float dx = e.motion.x - lastX_;
                 float dy = e.motion.y - lastY_;
-                rotation_.applyDrag(dx, dy, sensitivity_);
+                rotation_.applyDrag(dx, dy, sensitivity_, screenUp_, screenRight_);
                 accumX_ += dx;
                 accumY_ += dy;
                 lastX_ = e.motion.x;
@@ -168,7 +168,7 @@ public:
         if (dragging_ && dt > 0.001f) {
             // Always update velocity — even when accum is zero, so the EMA
             // decays toward zero and doesn't carry stale momentum into release.
-            rotation_.updateVelocityFromDrag(accumX_ / dt, accumY_ / dt, sensitivity_);
+            rotation_.updateVelocityFromDrag(accumX_ / dt, accumY_ / dt, sensitivity_, screenUp_, screenRight_);
             accumX_ = accumY_ = 0.0f;
         }
         if (!dragging_) {
@@ -182,6 +182,18 @@ public:
     bool pinching() const { return pinching_; }
     void setSensitivity(float s) { sensitivity_ = s; }
     void setDamping(float d) { rotation_.setDamping(d); }
+
+    // Set the consumer's camera (view) basis as world-space unit vectors
+    // (🎯T122/T123). Horizontal drag rotates about screenUp, vertical about
+    // screenRight, two-finger twist about viewAxis. Defaults to the Z-up
+    // convention (tiltbuggy: right={1,0,0}, up={0,0,1}, view={0,1,0}); a Y-up
+    // consumer (esfera: eye (0,0,+d), up +Y, looking -Z) sets
+    // right={1,0,0}, up={0,1,0}, view={0,0,-1}.
+    void setCameraBasis(const float3& screenRight, const float3& screenUp, const float3& viewAxis) {
+        screenRight_ = screenRight;
+        screenUp_ = screenUp;
+        viewAxis_ = viewAxis;
+    }
 
     // Returns accumulated log-scale pinch delta since last call, then resets.
     // Positive = fingers spreading (zoom in), negative = fingers closing (zoom out).
@@ -201,6 +213,13 @@ private:
 
     DampedRotation rotation_;
     float sensitivity_;
+
+    // Camera (view) basis, world-space unit vectors. Default = Z-up convention
+    // (🎯T122/T123); consumers with a different camera call setCameraBasis.
+    float3 screenRight_ = {1.0f, 0.0f, 0.0f};
+    float3 screenUp_    = {0.0f, 0.0f, 1.0f};
+    float3 viewAxis_    = {0.0f, 1.0f, 0.0f};
+
     InputSource inputSource_ = InputSource::None;
     bool dragging_ = false;
     bool thresholdReached_ = false;
