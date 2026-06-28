@@ -858,9 +858,10 @@ targets:
     discovered: 2026-06-22
   T126:
     name: StoreKit entitlement cache prunes revoked/cleared entitlements (owned() goes false after revocation)
-    status: identified
+    status: achieved
     value: 5.0
     cost: 2.0
+    actual_cost: 3.0
     acceptance:
     - After a non-consumable entitlement is revoked, refunded, or cleared (no longer returned by Transaction.currentEntitlements), ge::iap::owned(id) returns false once the post-launch currentEntitlements walk completes.
     - The currentEntitlements walk rebuilds the entitled set from only the IDs StoreKit currently credits (clear-then-populate), instead of accumulating onto the Keychain-primed set.
@@ -880,6 +881,7 @@ targets:
     - multimaze2
     origin: manual
     discovered: 2026-06-28
+    achieved: 2026-06-28
   T13:
     name: ⌥-gated mouse movement simulates accelerometer (replaces or supplements ⌥WASD)
     status: achieved
