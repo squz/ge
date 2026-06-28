@@ -882,6 +882,168 @@ targets:
     origin: manual
     discovered: 2026-06-28
     achieved: 2026-06-28
+  T127:
+    name: make ge/player links successfully in a direct-only (GE_DIRECT_ONLY) consumer configuration
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - From a consumer that sets ge/SRC = ge/SRC_DIRECT (GE_DIRECT_ONLY), `make ge/player` builds bin/player with no undefined-symbol link errors.
+    - PlayerRender (ge/src/render/PlayerRender.cpp) and PlayerWireBridge (ge/src/bridge/PlayerWireBridge.cpp) symbols resolve when linking the player tool — either by adding the brokered sources/objects to the player link line, or by including them in libge.a.
+    - The fix does not pull brokered/streaming code into the direct-only app's libge.a unless intended.
+    context: 'Discovered building multimaze2 (a GE_DIRECT_ONLY consumer). `make ge/player` fails to link: libge.a is built from ge/SRC = ge/SRC_DIRECT only, so PlayerRender/PlayerWireBridge (which live in GE_SRC_BROKERED) are absent, and the player rule (ge/PLAYER_SRC = tools/player.cpp + player_core.cpp + player_orientation_stub.cpp) links only PLAYER_SRC + libge.a — neither path compiles the brokered player classes. Net: the desktop player is unbuildable from a direct-only consumer, blocking desktop visual testing (e.g. eyeballing a shader change).'
+    tags:
+    - build
+    - module-mk
+    - player
+    - multimaze-audit
+    origin: manual
+    discovered: 2026-06-28
+  T128:
+    name: ge can carry a session as a serialized command stream to a replay player, chosen per session as an alternative to the H.264 video transport
+    status: converging
+    value: 8.0
+    cost: 20.0
+    acceptance:
+    - A ge session can be served over a command-stream transport (serialized sokol commands + ge protocol framing) instead of H.264 video, negotiated per session; the H.264 video transport remains available as the fallback for high-temporal-churn content.
+    - The replay player renders ge content from the command stream on its own GPU and stays app-agnostic (no game-specific code — it knows ge primitives, not the game's logic).
+    - tiltbuggy runs end-to-end over the command-stream transport with parity to its video-streamed appearance.
+    context: 'Umbrella for the command-stream transport (see docs/command-stream-transport.md). sokol_gfx (~159 POD-descriptor calls) + the T107 dispatch shim (g_ge_sg_api — one installable function table every sg_* flows through) make a serializing "remoting backend" cheap to insert: structurally identical to the GLES/VK backends already shipped, and the production instance of T109''s interposable capture layer. The bet: for ge''s vector/text-heavy, geometrically simple content this is plausibly the better default, with video kept as the churn fallback. Headline architectural win: in command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec — it deletes the encode subsystem rather than adding one. Convergence is the MVP set (T128.3–T128.6); verbs (T128.7) are a fast-follow and block compression (T128.8) is deferred.'
+    depends_on:
+    - T128.3
+    - T128.4
+    - T128.5
+    - T128.6
+    origin: manual
+    discovered: 2026-06-29
+  T128.1:
+    name: A command-stream-transport design note is committed as the contract for the work
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'docs/command-stream-transport.md exists and captures: the ge-API-over-sokol protocol model + the graceful-degradation invariant (every verb optional with a mandatory sokol-flatten fallback); the three transport priority classes (ephemeral / durable-required / durable-refinement) + epoch barriers + frame-1-working-set delivery; stable-handle progressive resource delivery + texture mip-first + meshes-whole; the player/server caching split bridged by content-addressing; the recipe-verb roadmap (SVG/text/image); the compressed-texture decision; the recovered Dawn-era prior art (what lifts, what dies); and the spike spec with its headline metric (time-to-first-coarse-frame).'
+    context: Contract-first node. Written 2026-06-29 from the design conversation; satisfied on creation by docs/command-stream-transport.md. Everything downstream depends on it.
+    origin: manual
+    discovered: 2026-06-29
+    achieved: 2026-06-29
+  T128.2:
+    name: A command-stream spike measures the transport against video and yields a go/no-go
+    status: identified
+    value: 8.0
+    cost: 5.0
+    acceptance:
+    - A serializing null sokol backend on the server and a minimal replay loop on the player, behind a session-negotiated capability, round-trip one tiltbuggy frame with the shipping video path untouched.
+    - Time-to-first-coarse-frame (the headline metric), bandwidth vs the H.264 stream on tiltbuggy (diagnostic spin + parallax + button churn) and esfera, reconnect cost (warm vs cold asset cache), and flow-control under a janky/slow player are measured and recorded in the design note.
+    - A go/no-go decision on the implementation fan-out (T128.3–T128.6) is recorded in docs/command-stream-transport.md.
+    context: Spike-then-decide gate. The serializing backend binds g_ge_sg_api directly via the T107 mechanism (does not hard-depend on T109's full composable-layer framework, though it is the production instance of T109's capture layer). The dispatch shim isolates the experiment from the shipping video path. Only measurement can settle the crossover (where ge's real content lands on bandwidth) and the flow-control behaviour under backpressure.
+    depends_on:
+    - T128.1
+    origin: manual
+    discovered: 2026-06-29
+  T128.3:
+    name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - Per-frame draw lists (class A) are droppable under backpressure; resource creation + coarse mips + dynamic-texture updates + geometry/shaders/pipelines (class B) are ordered and never dropped; finer mips and later-frame resources (class C) are deferrable with zero correctness impact.
+    - Frames unblock on a class-B epoch barrier at coarse detail and never gate on class C; required-channel delivery is ordered by the frame-1 working set so startup lag is independent of total content size.
+    - A large class-C refinement upload does not head-of-line-block class-B or class-A traffic (separate streams or chunked yield).
+    context: The command stream is stateful/cumulative, so it cannot be treated like a homogeneous video stream. This node establishes the priority-class model that the resource (T128.4) and caching (T128.5) work build on. Frame-1 working set is observable directly from sg_apply_bindings — no structural understanding of buffer data needed.
+    depends_on:
+    - T128.2
+    origin: manual
+    discovered: 2026-06-29
+  T128.4:
+    name: Textures stream coarse-mip-first behind stable handles; geometry ships whole
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - Textures are delivered as raw-RGBA mip levels, coarsest-first, populated behind a stable sg_image handle so the game and the recorded draw commands are unaware of the deferred refinement (no block compression in MVP).
+    - immutable images are LOD-eligible; dynamic/stream images deliver at full rate — classified from sg_image_desc.usage with no game cooperation.
+    - Meshes, buffers, shaders, and pipelines ship whole on the required channel; generic mesh LOD/decimation is explicitly not attempted (the sokol seam gives a typed blob, not safely-decimatable structure).
+    - The asset-registration boundary carries a recipe handle, not just bytes, so recipe verbs (T128.7) can attach later without reshaping the asset path.
+    context: Stable-handle + progressive-backing is invisible at the API level because sokol resources are handle-identified, write-only (no sg_read_image), and usage-tagged. Memory is explicitly NOT a concern — startup latency is the sole objective — so raw RGBA (universal, no transcode, no block-alignment) is the right MVP choice; coarse-mip-first nails startup latency regardless of format. Textures are the only resource big enough to gate startup and the only one with a free coarse proxy.
+    depends_on:
+    - T128.2
+    origin: manual
+    discovered: 2026-06-29
+  T128.5:
+    name: The transport has a content-addressed player transmission cache and a server computation-memoization cache
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - The player caches delivered artifacts by content hash and skips re-receiving them across sessions; reconnect against a warm cache transfers only the delta (reactive hit/miss baseline, reviving the Dawn-era hash-probe protocol over the sokol command stream).
+    - The server memoizes expensive derivations (mip-gen, per-backend format/transcode) keyed by (source + derivation params), computed once and amortized across all players of a backend class; static assets are served from the offline bake (TextureEncoder/.getex) so the server cache is warm at boot.
+    - Both caches are content-addressed immutable stores requiring GC, not invalidation; a changed source or bumped encoder version lands as a new entry and stale outputs are never served.
+    context: 'Two orthogonal caches bridged by content-addressing: the output content-hash is simultaneously the server''s stored-artifact identity and the player''s dedup/probe key. Work migrates server-side (the Dawn era transcoded on-device; the server knows the player''s backend and derives the right format once for everyone). Cold-server first-connect pays derivation on the critical path — mitigated by pre-baked static assets (warm at boot) and cheap-coarse-inline/expensive-derivation-deferred. T3 (preemptive mip-cache manifest) layers on top of this baseline.'
+    depends_on:
+    - T128.3
+    origin: manual
+    discovered: 2026-06-29
+  T128.6:
+    name: In command-stream mode the streaming server runs with no GPU context and no video encoder
+    status: identified
+    value: 5.0
+    cost: 5.0
+    acceptance:
+    - A server streaming over the command-stream transport instantiates no GPU drawable and no VideoToolbox/MediaCodec encoder — it runs the game, emits sg_* through a serializing null backend, and ships bytes.
+    - The GPU-render + H.264 encode path remains compiled and is used only for the video fallback transport and the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff).
+    - A command-stream server builds and runs on a host with no GPU (the Apple-only encode .mm and headless-GPU-context dependencies are off the streaming path).
+    context: 'The headline architectural payoff: subtraction, not addition. In command-stream mode the server needs neither a GPU nor a hardware encoder, severing the VideoToolbox/MediaCodec dependency from the streaming path and making the server portable to GPU-less hosts. The video pipeline stays for the fallback transport and the offline pixel-producing paths.'
+    depends_on:
+    - T128.3
+    origin: manual
+    discovered: 2026-06-29
+  T128.7:
+    name: ge rendering primitives ride the wire as recipe verbs (SVG, text, image) with a sokol-flatten fallback
+    status: identified
+    value: 5.0
+    cost: 8.0
+    acceptance:
+    - rasterizeSvg / renderSvgDocument (including a document plus a mutation stream re-rasterized at native resolution on the player), rasterizeText (with font delivered as a cacheable asset), and loadImage (encoded PNG/JPEG decoded on the player) are carried as ge protocol verbs and executed natively on the player.
+    - Each verb is negotiated per session; a player that does not advertise it receives the server-side sokol-flattened equivalent (rasterize-then-stream) with an identical visible result — the verb is never required for correctness.
+    - An SVG/text verb produces native-resolution output on the player (crisper than the video transport) and a smaller wire footprint than shipping the rasterized texture.
+    context: Fast-follow, not MVP. ge's largest textures are rasterized vector/text, whose source recipe is tiny and resolution-independent — shipping the recipe and rasterizing on the player is both the smallest wire cost and the native-res crispness win that motivated the whole transport. The interactive SVG document (document + mutation stream) is the highest-value first verb. Requires the recipe-carrying asset boundary from T128.4 and the asset/cache machinery from T128.5.
+    depends_on:
+    - T128.4
+    - T128.5
+    origin: manual
+    discovered: 2026-06-29
+  T128.8:
+    name: Block-compressed textures stream with delayed-LOD (deferred until VRAM is a felt constraint)
+    status: set_aside
+    value: 2.0
+    cost: 8.0
+    set_aside_reason: 'Deferred: gated on a constraint this design has retired. Memory is explicitly not a concern and startup latency is the sole objective, so raw-RGBA mip-first (T128.4) covers the MVP and nails startup latency regardless of format. Re-open only when VRAM or total wire bandwidth becomes a measured problem; the KTX2/BasisU-vs-bespoke decision and the in-tree astc-encoder/etcpak revival basis are captured for that day.'
+    acceptance:
+    - 'GPU block-compressed textures (per the advertised backend: BC on desktop/Windows/macOS, ASTC on iOS/modern-Android, ETC2 baseline) stream coarse-first with correct 4x4 block-alignment handling, server-side per-backend derivation, and content-addressed caching.'
+    - A decision between KTX2/Basis Universal (one universal source transcoded to any GPU format, native progressive mips) and reviving the bespoke ASTC+ETC2 container (extended with BC) is recorded, accounting for the broader sokol backend matrix vs the Dawn-era ASTC+ETC2 pair.
+    context: 'Deferred. Block-compression complexity (block granularity, degenerate mips, block-aligned updates, per-backend transcode) exists in service of VRAM and on-device upload efficiency — a constraint this design has retired (memory is not a concern; startup latency is the sole objective). Raw-RGBA mip-first (T128.4) covers the MVP and nails startup latency regardless of format. Set aside until VRAM or total-bandwidth becomes a measured problem. Revival basis: the Dawn-era transcode/cache/block-alignment logic (commit 0c4d1e5 etc.) and the still-in-tree astc-encoder submodule + etcpak sources.'
+    depends_on:
+    - T128.4
+    origin: manual
+    discovered: 2026-06-29
+  T129:
+    name: ge provides an audio clip-player API (sfx + looping music) for direct-mode apps
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'ge exposes a clip-playback API usable by direct-mode (in-process) apps: load a file to an id, play(id), stop(id), with per-clip loop + volume options.'
+    - Decodes at minimum WAV (sound effects) and a compressed music format (MP3 or OGG) for looping background tracks — the vendored SDL3 set currently has neither SDL_mixer nor an mp3 decoder.
+    - Integrates with the existing ge::audio pause/resume lifecycle (registerDevice) so playback auto-pauses on background / audio-focus loss.
+    - Works on macOS desktop and iOS. A consuming game can play 4 short SFX plus 2 looping music tracks at independent volumes.
+    - Public surface documented in ge CLAUDE.md under Audio.
+    context: 'ge''s bgfx->sokol migration (v0.36) dropped the former ge::Audio clip player; only the ge::audio pause/resume lifecycle (registerDevice / FocusState) remains. The vendored SDL3 set (SDL3 + image + ttf + freetype + harfbuzz + plutosvg/plutovg) has no SDL_mixer and no mp3/ogg decoder, so a consuming game cannot play audio without bringing its own decoder. Surfaced during the yourworld2 sokol migration + gameplay recovery: yourworld2''s audio parity (its 🎯T27) is blocked on this — the original game has 4 SFX (pickup/drop/miss/win) + 2 looping music tracks with per-clip volume. A reusable clip player belongs in the engine, not the game.'
+    tags:
+    - audio
+    - yourworld2-audit
+    origin: manual
+    discovered: 2026-06-29
   T13:
     name: ⌥-gated mouse movement simulates accelerometer (replaces or supplements ⌥WASD)
     status: achieved
@@ -905,6 +1067,26 @@ targets:
     origin: user suggestion during tiltbuggy architecture validation
     discovered: 2026-04-16
     achieved: 2026-04-19
+  T130:
+    name: sample/tiltcal builds on sokol (or is retired) — its iOS CMake build is bgfx-era
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - sample/tiltcal/ios/CMakeLists.txt no longer builds bgfx (no add_library(bgfx)/bx/bimg, no BGFX_CONFIG_RENDERER_METAL, no src/BgfxContext.mm in its GE_SOURCES) — it either builds against sokol_gfx (SokolContext.mm + the sokol-shdc shaders + dispatch) or the sample is retired.
+    - grep -ri bgfx over sample/tiltcal/ returns nothing (or only historical comments). The tiltcal iOS CMakeLists currently references the now-deleted src/BgfxContext.mm.
+    - 'Decision recorded: if tiltcal is superseded by the Ruby xcodeproj builder (tools/ios-build/build_project.rb) the CMake path is removed rather than ported.'
+    context: 'Carved out of 🎯T98 (bgfx remnant cleanup, 2026-06-29). T98 deleted src/BgfxContext.mm, but sample/tiltcal/ios/CMakeLists.txt is a whole bgfx-era CMake build — it builds bgfx from vendor (add_library(bgfx), links bx/bimg, BGFX_CONFIG_RENDERER_METAL=1) and lists src/BgfxContext.mm in GE_SOURCES (now a dangling reference to a deleted file). Porting it to sokol (SokolContext.mm + sokol-shdc shaders + the dispatch shim) or deleting it is a build-system task, not a comment scrub, so it was split out. Likely moot: the live iOS build moved to the Ruby xcodeproj-gem builder (tools/ios-build/build_project.rb), which lists ge sources in build_project.rb''s GE_DIRECT_SOURCES — the sample iOS CMakeLists may be dead cruft. Resolve by confirming tiltcal''s build path and either porting or removing the CMake build. Low priority — tiltcal is a secondary sample (tiltbuggy is the maintained reference); the dangling reference is harmless because nothing runs the stale CMake build.'
+    tags:
+    - cleanup
+    - sokol
+    - bgfx
+    - T38-followup
+    - sample
+    - ios
+    - build
+    origin: manual
+    discovered: 2026-06-29
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
@@ -1287,6 +1469,8 @@ targets:
     acceptance:
     - On connect, player sends all cached mip hash values to the server (via ge) before the first wire command. Server skips texture upload commands for any mip already cached on the device. Rendering pipeline is only mutated for uncached textures. Reconnection with a fully-cached device produces no texture upload wire commands.
     context: Currently the server sends all texture data and the player reactively checks its local mip cache (hit/miss). This still mutates the rendering pipeline with large WriteTexture commands even when the player already has the data. For ~270MB of initial textures, this dominates reconnection time. A preemptive cache manifest exchange would let the server skip cached uploads entirely.
+    depends_on:
+    - T128.5
     origin: migrated from docs/targets.md
     discovered: 2026-04-12
   T30:
@@ -1688,9 +1872,10 @@ targets:
     achieved: 2026-05-24
   T38:
     name: ge engine has migrated from bgfx to sokol_gfx
-    status: identified
+    status: achieved
     value: 13.0
     cost: 13.0
+    actual_cost: 13.0
     acceptance:
     - ge's rendering layer compiles and runs against sokol_gfx on iOS, Android (GLES path), and macOS desktop dev
     - All .sc shaders have been ported to sokol-shdc + GLSL source with generated MSL/GLSL/WGSL outputs
@@ -1698,7 +1883,13 @@ targets:
     - Adreno 830 hardware renders correctly without backend-switch escape hatches
     - View-state reuse class of bugs is verified gone — same scenes that previously needed one-view-per-concept partitioning work without it
     - bgfx and .sc shader tooling have been removed from ge's vendor tree and build system
-    context: 'DEFERRED — do not begin until all three gating releases have shipped: esfera2 T1 (App Store v2.1), multimaze2 T1 (desktop polished + feature-complete), and yourworld2''s first store submission. Mid-flight renderer migration would destabilise active release branches. Reverses the 2026-04-20 stay-with-bgfx decision after accumulated bgfx-shaped friction (view-state reuse sensitivity, backend leakage on coordinate flips and view defaults, Adreno Vulkan hazard) crossed a threshold. sokol_gfx was identified as the runner-up at the time of the original evaluation; it remains the target. Full reasoning in docs/rendering-library-choice.md (Reversal 2026-05-04 section). Why sokol_gfx specifically: pass-descriptor-per-frame model eliminates the view-state-reuse bug class structurally; GLES-first on Android sidesteps Adreno Vulkan; ~10K LOC vs ~200K means we can fork and patch if needed; sokol-shdc + SPIRV-Cross gives clean MSL/GLSL/WGSL outputs from GLSL source. Estimated cost: 2-4 focused weeks across ge + consumers, by analogy with T53 (Dawn to bgfx). Needs a real scoping pass before starting. Affected repos: ge, yourworld2, multimaze2, esfera2, ge-t30.1, plus sample/test programs.'
+    context: |-
+      RECONCILED 2026-06-29: the engine migration is DONE and T38 is retired. sokol_gfx is the live renderer on Apple (Metal, src/SokolContext.mm) and Android (Vulkan with GLES3 fallback — 🎯T107, achieved; validated on Adreno 830 / Xclipse 940 / Tensor G2 / Mali). The bgfx/bx/bimg vendor COMPILE is retired (Module.mk: empty BGFX_* shims, no bgfx static libs linked), shaders run through sokol-shdc from .glsl source, and the T101 pass-descriptor-per-frame model structurally eliminated the view-state-reuse bug class that motivated the reversal. Direct-mode followups T84/T87/T107 are achieved.
+
+      The residual is folded into three live targets: 🎯T98 (delete the vestigial src/BgfxContext.{h,mm} + the dead bgfx-era .sc shaders, scrub remnant bgfx references in code + docs, drop the empty Module.mk BGFX_* shims), 🎯T90 (make the public render context backend-neutral — no sokol/bgfx name on the API), and 🎯T34 (sokol-port the dormant brokered/wire path under src/bridge/ — the last live bgfx consumer; the bgfx/bx/bimg vendor submodule tree comes out with it). Cross-repo consumer validation (esfera2 / multimaze2 / yourworld2 / ge-t30.1 build+run on the sokol ge) lives in those repos' bullseyes.
+
+      --- original ---
+      DEFERRED — do not begin until all three gating releases have shipped: esfera2 T1, multimaze2 T1, yourworld2's first store submission. Reverses the 2026-04-20 stay-with-bgfx decision after accumulated bgfx-shaped friction (view-state reuse sensitivity, backend leakage, Adreno Vulkan hazard) crossed a threshold. sokol_gfx chosen: pass-descriptor-per-frame eliminates the view-state-reuse bug class; GLES-first on Android sidesteps Adreno Vulkan; ~10K LOC vs ~200K. Full reasoning in docs/rendering-library-choice.md (Reversal 2026-05-04).
     tags:
     - rendering
     - migration
@@ -1707,6 +1898,7 @@ targets:
     - deferred
     origin: 2026-05-04 think session — reversal of T53-era bgfx commitment after accumulated friction
     discovered: 2026-05-04
+    achieved: 2026-06-29
   T39:
     name: Vertex colours render correctly under bgfx Vulkan on the Android emulator
     status: achieved
@@ -3942,15 +4134,16 @@ targets:
     discovered: 2026-06-03
   T98:
     name: ge has no live bgfx references — bgfx survives only as historical mentions
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 5.0
     acceptance:
-    - include/ge/BgfxContext.h and src/BgfxContext.mm are deleted (the sokol migration, T38, made them vestigial; no live render path references them)
-    - No file under src/, include/, tools/, sample/ references bgfx symbols, includes, or BGFX_* macros except in comments explicitly marked as historical/migration notes
-    - Module.mk's empty bgfx shim variables (ge/BGFX_LIBS, ge/BGFX_ALL_INCLUDES, ge/BGFX_* etc.) are removed, or retained only with a one-line comment stating they are empty back-compat shims — prefer removal unless a named external consumer still expands them
-    - CLAUDE.md describes the sokol_gfx backend throughout (BgfxContext references, 'bgfx draw calls in onRender', Metal/Vulkan-via-bgfx wording, etc. updated to sokol); bgfx appears only as clearly-historical migration context
-    - grep -ri bgfx over the repo (excluding vendor/, .git/) returns only historical references
+    - include/ge/BgfxContext.h and src/BgfxContext.mm are deleted (vestigial post-T38, in no ge build source list); the dead bgfx-era ShaderC shaders are deleted too — ge's src/render/shaders/ge_*.sc + varying.def.sc AND sample/tiltbuggy's simple_*.sc + varying.def.sc (replaced by the sokol-shdc .glsl sources).
+    - 'No file under src/, include/, tools/, sample/ — EXCEPT the carve-outs below — references bgfx symbols, includes, or BGFX_* macros except in comments explicitly marked as historical/migration notes. Carve-outs (each tracked elsewhere): the dormant brokered/wire path src/bridge/ and its lifted vendor-header dependency (tools/lift-headers.sh''s bgfx/bx/bimg lift + the headers/{bgfx,bx,bimg} trees) — 🎯T34; sample/tiltcal''s bgfx-era iOS CMake build — 🎯T130.'
+    - Module.mk's empty bgfx shim variables (ge/BGFX_*, BX_*, BIMG_*) are removed, along with their now-empty link/compile-line expansions and the dead -DBX_CONFIG_DEBUG flag. tools/prebuild.sh's dead bgfx scaffolding (BGFX_AS_OBJC, BGFX_DEFINES, BX_COMPAT_DIR, the unused BX_DIR/BIMG_DIR/BGFX_DIR) is removed.
+    - CLAUDE.md, AGENTS.md, and agents-guide.md describe the sokol_gfx backend throughout (SokolContext not BgfxContext, sg_* draw calls, the T101 Pass model, sg_image/sg_destroy_image, draw(mvp)); bgfx appears only as clearly-historical migration context. CLAUDE.md and AGENTS.md stay in sync (only their 4 deliberate self-references differ).
+    - grep -ri bgfx over the repo, EXCLUDING vendor/, headers/{bgfx,bx,bimg}/, src/bridge/, tools/lift-headers.sh, sample/tiltcal/, and .git/, returns only historical/migration references (incl. the test_build_project.rb assertions that bgfx is gone). The bgfx/bx/bimg vendor submodule tree + its lifted copies come out with 🎯T34 when the brokered path is ported.
     context: 'T38 migrated ge from bgfx to sokol_gfx and most followups (T84/T87/T90) are done, but vestigial bgfx remnants persist: src/BgfxContext.{h,mm} (compiled but unused per render-path exploration 2026-06-03), empty BGFX_* shim vars in Module.mk, and a CLAUDE.md still written largely in bgfx terms (e.g. ''bgfx draw calls'', Sprite::draw(0) view-index examples that no longer match the sokol sg_view signature). User directive 2026-06-03: ''There should be no mention of bgfx beyond historical references.'' This is the cleanup pass to make that true.'
     tags:
     - cleanup
@@ -3960,6 +4153,7 @@ targets:
     - docs
     origin: manual
     discovered: 2026-06-03
+    achieved: 2026-06-29
   T99:
     name: ge offers an opt-in ge::app&lt;App&gt; wrapper binding a State-first App class to the run loop, with optional fixed-step simulation
     status: identified
