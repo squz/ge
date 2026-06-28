@@ -28,7 +28,7 @@
   },
   "prebuilts": {
     "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
-    "prebuilt/android-arm64/libge.a": "ee0e85eb349b66618293bc0f10754d879d29072d3e3e8d86ec02851f78cabb3c",
+    "prebuilt/android-arm64/libge.a": "38f7fd9e0d262386e90086e8fcd26e3a458dacf6087acd386c782569897b4162",
     "prebuilt/android-arm64/libliteparser.a": "ab444e1270fd03c88ceb27fb93e8185b5a9ecf48c961e03cddae9c2698d5193c",
     "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
@@ -205,7 +205,8 @@
     "src/button.cpp": "af18d5a78606daf530e94cdaecc397331a8a7b9a4e1285cb7dc69de8c0d6aad4",
     "src/debug.cpp": "88ad4752c6727fcc86448e55de06933661557ab3631cee73af07ae17b4bcd95d",
     "src/iap.cpp": "d9743376b98f20068e39eca1313c6f4b5b810f7ca310d274ec6c62efdd41d995",
-    "src/iap_android.cpp": "097e1318d460443b1556250e407049ed7a596ccd3979a7a68e41f1f8e40c9cae",
+    "src/iap_android.cpp": "21cd067f691c8c9689cce54836afa95f65ad2fef24d64aecf4a6333a8cb6f87a",
+    "src/iap_entitlement_cache.h": "b6c50c980ac00c4a8f6576aa764f8fe858cd2a141a821e0aa03cdb8accd88b9c",
     "src/iap_internal.h": "87d94f03e82157d821df52eb260daded665304fa70755ac4aa42106542e5a28f",
     "src/log.cpp": "caf8b9483650c432556c049e7c3fcd48992e28759c7c7dacecb8e31795388bd8",
     "src/log_android.cpp": "3e6e9b17262ea9d743ce958d22734bbbf68bf7db5a04d3ce73f90d52d2f4f446",
