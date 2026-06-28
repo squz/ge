@@ -856,6 +856,32 @@ targets:
     - esfera2-audit
     origin: manual
     discovered: 2026-06-22
+  T126:
+    name: StoreKit entitlement cache prunes revoked/cleared entitlements (owned() goes false after revocation)
+    status: achieved
+    value: 5.0
+    cost: 2.0
+    actual_cost: 3.0
+    acceptance:
+    - After a non-consumable entitlement is revoked, refunded, or cleared (no longer returned by Transaction.currentEntitlements), ge::iap::owned(id) returns false once the post-launch currentEntitlements walk completes.
+    - The currentEntitlements walk rebuilds the entitled set from only the IDs StoreKit currently credits (clear-then-populate), instead of accumulating onto the Keychain-primed set.
+    - The post-walk Keychain save (T65.5) persists exactly that reconciled set, so revoked IDs are dropped from the cache and do not survive into the next launch (Keychain items persist across app reinstall).
+    - restore() (AppStore.sync + re-walk) likewise drops revoked entitlements.
+    - 'A test covers the prune path: prime the cache with {A,B}, run a walk that credits only {A}, then assert owned("B") == false and the persisted cache == {A}.'
+    context: |-
+      The T65.5 Keychain entitlement cache primes AppleStore::entitled from Keychain at construction (so owned() is correct on frame 0), and the async Transaction.currentEntitlements walk is meant to reconcile. But the walk only INSERTS — onCurrentEntitlement() does `entitled.insert(localId)` and never clears the primed set first; onCurrentEntitlementsFinished() then saves the union back to Keychain (src/iap_apple.mm, AppleStore ctor ~L257 primes; onCurrentEntitlement ~L421 inserts; onCurrentEntitlementsFinished ~L434 saves). So an entitlement StoreKit no longer credits is never pruned: it stays in `entitled` and is re-persisted to the Keychain, which survives app reinstall. The ctor comment (~L254) claims the post-walk save "will drop any IDs that StoreKit no longer credits (revoked, refunded, etc.)" — but the code does not.
+
+      Surfaced by MultiMaze2 GH46 buy-prompt testing (2026-06): after clearing all sandbox purchases in App Store Connect, owned() stayed true and the buy gate never reappeared — even after Restore Purchases — because the stale Keychain set was re-saved on every launch. dev::forcePaywall in the consumer masked it for gate testing but couldn't surface the real purchase sheet. Affects production: a refund or Family-Sharing revocation would leave a user permanently entitled.
+
+      Fix sketch: accumulate the walk into a fresh local set and, in onCurrentEntitlementsFinished, replace `entitled` with it (under lock) before saving; keep the Keychain prime for frame-0 behaviour. Mirror the same reconcile for the Android store if it shares the pattern.
+    tags:
+    - iap
+    - bug
+    - storekit
+    - multimaze2
+    origin: manual
+    discovered: 2026-06-28
+    achieved: 2026-06-28
   T13:
     name: ⌥-gated mouse movement simulates accelerometer (replaces or supplements ⌥WASD)
     status: achieved

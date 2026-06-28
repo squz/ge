@@ -29,6 +29,7 @@
 // the right behaviour — apps wanting Mac IAP would extend this path.
 
 #include "iap_internal.h"
+#include "iap_entitlement_cache.h"
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -160,7 +161,7 @@ void saveKeychainEntitlements(const std::unordered_set<std::string>& entitled) {
 struct AppleStore : Store {
     mutable std::mutex                                  mu;
     std::unordered_map<std::string, Product>            catalogue;          // local id -> spec
-    std::unordered_set<std::string>                     entitled;           // local ids
+    EntitlementCache                                    cache;              // 🎯T126 (replaces the raw `entitled` set)
     std::unordered_map<std::string, LocalisedProduct>   localised;          // local id -> price/title
     std::unordered_map<std::string, BuyCallback>        pendingBuys;        // local id -> cb
     std::unordered_map<std::string, std::string>        platformSkuByLocal; // T67
@@ -250,13 +251,13 @@ namespace ge::iap::detail {
 
 AppleStore::AppleStore() {
     // 🎯T65.5: prime the entitlement set from Keychain so owned() returns
-    // the right answer on frame 0. The async StoreKit walk
-    // (loadCurrentEntitlements below) reconciles when it completes —
-    // additions land in the set, and the post-walk save will drop any
-    // IDs that StoreKit no longer credits (revoked, refunded, etc.).
-    entitled = loadKeychainEntitlements();
-    if (!entitled.empty()) {
-        SPDLOG_INFO("AppleStore: primed {} entitlements from Keychain cache", entitled.size());
+    // the right answer on frame 0. 🎯T126: the async StoreKit walk
+    // (loadCurrentEntitlements below) then clear-then-populates the cache —
+    // additions land, and IDs StoreKit no longer credits (revoked, refunded,
+    // Family-Sharing removed) are pruned and dropped from the Keychain save.
+    cache.prime(loadKeychainEntitlements());
+    if (!cache.set().empty()) {
+        SPDLOG_INFO("AppleStore: primed {} entitlements from Keychain cache", cache.set().size());
     }
 
     // 🎯T65.4: GE_IAP_MODE=local uses SKTestSession via
@@ -284,6 +285,7 @@ AppleStore::AppleStore() {
     listener = l;
     bridge.listener = l;
     [bridge start];
+    cache.beginWalk();   // 🎯T126: reconcile (clear-then-populate) when the walk completes
     [bridge loadCurrentEntitlements];
 }
 
@@ -316,7 +318,7 @@ void AppleStore::setCatalogue(std::vector<Product> next) {
 
 bool AppleStore::owned(const std::string& id) const {
     std::lock_guard lock(mu);
-    return entitled.contains(id);
+    return cache.owned(id);
 }
 
 std::vector<LocalisedProduct> AppleStore::products() const {
@@ -389,12 +391,9 @@ void AppleStore::onTransactionUpdate(const std::string& sku, bool ok, const std:
         localId = skuIt->second;
         auto pIt = catalogue.find(localId);
         if (pIt != catalogue.end()) isConsumable = pIt->second.type == Type::Consumable;
-        if (ok && !isConsumable) {
-            auto [_, inserted] = entitled.insert(localId);
-            if (inserted) {
-                persist = true;
-                snapshot = entitled;  // copy under lock for off-lock write
-            }
+        if (ok && !isConsumable && cache.creditPurchase(localId)) {
+            persist = true;
+            snapshot = cache.set();  // copy under lock for off-lock write
         }
         auto cbIt = pendingBuys.find(localId);
         if (cbIt != pendingBuys.end()) {
@@ -418,37 +417,36 @@ void AppleStore::onCurrentEntitlement(const std::string& sku) {
         SPDLOG_INFO("StoreKit 2 currentEntitlements: unmapped {} — will pick up after setCatalogue", sku);
         return;
     }
-    entitled.insert(it->second);
+    cache.creditFromWalk(it->second);   // 🎯T126: accumulate; swapped in at finish
 }
 
 void AppleStore::onCurrentEntitlementsFinished() {
-    // Phase marker — the entitlement cache is now populated for SKUs
-    // we know about. 🎯T65.5: persist the reconciled set so the next
-    // launch primes from Keychain with whatever StoreKit confirms now
-    // (including any subset/superset changes vs. the Keychain prime).
+    // 🎯T126: clear-then-populate — replace the cache with exactly what
+    // StoreKit credited in this walk (pruning revoked / refunded IDs), then
+    // persist that reconciled set so the prune survives into the next launch.
     std::unordered_set<std::string> snapshot;
     {
         std::lock_guard lock(mu);
-        snapshot = entitled;
+        snapshot = cache.finishWalk();
     }
     saveKeychainEntitlements(snapshot);
     SPDLOG_INFO("AppleStore: currentEntitlements walk complete ({} entitled)", snapshot.size());
 }
 
 void AppleStore::onRestoreFinished(bool ok, const std::string& error) {
+    // 🎯T126: AppStore.sync() refreshed StoreKit's records but doesn't touch
+    // our cache. Re-run the currentEntitlements walk so the cache reconciles
+    // (clear-then-populate) — restore drops revoked entitlements exactly like a
+    // fresh launch. That re-walk's onCurrentEntitlementsFinished persists the
+    // result, so there is nothing to save here.
     RestoreCallback cb;
-    std::unordered_set<std::string> snapshot;
-    bool persist = false;
     {
         std::lock_guard lock(mu);
         cb = std::move(pendingRestore);
         pendingRestore = {};
-        if (ok) {
-            persist = true;
-            snapshot = entitled;
-        }
+        if (ok) cache.beginWalk();
     }
-    if (persist) saveKeychainEntitlements(snapshot);
+    if (ok) [bridge loadCurrentEntitlements];
     if (cb) cb({.ok = ok, .id = {}, .error = error});
 }
 

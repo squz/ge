@@ -26,6 +26,7 @@
 // semantics, PENDING handling, and the JNI attach lifecycle).
 
 #include "iap_internal.h"
+#include "iap_entitlement_cache.h"
 
 #if defined(__ANDROID__)
 
@@ -86,7 +87,7 @@ struct AndroidStore : Store {
     // completes. Until then, owned() returns false for the first ~1 s
     // after Android process launch (BillingClient queryPurchases async
     // latency).
-    std::unordered_set<std::string>                     entitled;
+    EntitlementCache                                    cache;   // 🎯T126 (replaces the raw `entitled` set)
     std::unordered_map<std::string, LocalisedProduct>   localised;
     std::unordered_map<std::string, BuyCallback>        pendingBuys;
     // 🎯T67 SKU-mapping support — same shape as AppleStore. Populated
@@ -254,7 +255,7 @@ void AndroidStore::setCatalogue(std::vector<Product> next) {
 
 bool AndroidStore::owned(const std::string& id) const {
     std::lock_guard lock(mu);
-    return entitled.contains(id);
+    return cache.owned(id);
 }
 
 std::vector<LocalisedProduct> AndroidStore::products() const {
@@ -302,6 +303,7 @@ void AndroidStore::restore(RestoreCallback cb) {
     {
         std::lock_guard lock(mu);
         pendingRestore = std::move(cb);
+        cache.beginWalk();   // 🎯T126: clear-then-populate so revoked purchases are pruned
     }
     jclass bridgeCls = env.env->GetObjectClass(bridge);
     jmethodID m = env.env->GetMethodID(bridgeCls, "queryPurchases", "()V");
@@ -321,7 +323,12 @@ void AndroidStore::onPurchaseUpdate(const std::string& localId, bool ok, const s
         std::lock_guard lock(mu);
         auto pIt = catalogue.find(localId);
         if (pIt != catalogue.end()) isConsumable = pIt->second.type == Type::Consumable;
-        if (ok && !isConsumable) entitled.insert(localId);
+        // 🎯T126: during a queryPurchases walk (restore), accumulate so the
+        // finish can clear-then-populate; a fresh purchase credits directly.
+        if (ok && !isConsumable) {
+            if (cache.walking()) cache.creditFromWalk(localId);
+            else                 cache.creditPurchase(localId);
+        }
         auto cbIt = pendingBuys.find(localId);
         if (cbIt != pendingBuys.end()) {
             cb = std::move(cbIt->second);
@@ -337,6 +344,12 @@ void AndroidStore::onRestoreFinished(bool ok, const std::string& error) {
         std::lock_guard lock(mu);
         cb = std::move(pendingRestore);
         pendingRestore = {};
+        // 🎯T126: a successful queryPurchases walk swaps the freshly-queried
+        // set in (pruning revoked purchases); a failed one is abandoned.
+        if (cache.walking()) {
+            if (ok) cache.finishWalk();
+            else    cache.abortWalk();
+        }
     }
     if (cb) cb({.ok = ok, .id = {}, .error = error});
 }
