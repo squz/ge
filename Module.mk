@@ -253,6 +253,7 @@ ge/TEST_SRC = \
 	$(ge)/src/long_press_test.cpp \
 	$(ge)/src/sdl_input_test.cpp \
 	$(ge)/src/iap_test.cpp \
+	$(ge)/src/iap_entitlement_cache_test.cpp \
 	$(ge)/src/iap_local_test.cpp \
 	$(ge)/src/audio_test.cpp \
 	$(ge)/src/debug_test.cpp \

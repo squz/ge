@@ -917,6 +917,8 @@ Game-side code keeps using the local id everywhere — `owned("allpacks")`, `buy
 
 **Server-side receipt validation is intentionally not provided.** Modern frameworks return signature-verified transactions (StoreKit 2 JWS, Play Billing signed receipts); ge writes only verified entitlements to the cache. The JWS floor covers replay, bundle-ID-binding, and account-binding for the threat model that paid non-consumable unlocks against casual game audiences actually face. Add server-side validation when shipping subscriptions or high-value-currency consumables.
 
+**Revoked entitlements are pruned (🎯T126).** The entitlement cache reconciles *clear-then-populate*: the post-launch StoreKit `currentEntitlements` walk — and Restore Purchases, which re-walks after `AppStore.sync()` — rebuilds the cached set from only what the store currently credits. So a non-consumable that was refunded, revoked, or Family-Sharing-removed makes `owned()` return false once the walk completes, and the reconciled set is what gets persisted, so the revocation doesn't survive into the next launch (the Apple Keychain item outlives app reinstall, which is exactly why a stale insert-only cache was a bug). The platform-agnostic reconciliation lives in `src/iap_entitlement_cache.h` (`EntitlementCache`, unit-tested on desktop since the platform stores don't compile off-device); the Android in-memory cache mirrors the same reconcile on Restore.
+
 **Apple backend uses StoreKit 2 (🎯T68).** `iap_apple.mm` (C++) drives a Swift worker (`iap_apple.swift`, class `GEStoreKit2BridgeImpl`) via the Obj-C protocols declared in `iap_apple_bridge.h`. The Swift side handles:
 
 | StoreKit 2 surface | What ge gets |
