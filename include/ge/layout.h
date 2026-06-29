@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Small layout helpers for fixed-row / fixed-column grids — menus,
-// dialogs, panel rows. Pure math; no SDL or bgfx dependency.
+// dialogs, panel rows. Pure math; no SDL or render dependency.
 //
 // Helpers return *positions* (the leading edge of row `i`); the
 // caller decides whether to interpret as top-edge or center

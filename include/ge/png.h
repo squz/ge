@@ -21,8 +21,8 @@ namespace ge {
 // expects premultiplied).
 //
 // On failure (file missing, unsupported format, OOM), returns a null
-// `Sprite` and logs the error via `spdlog::error`. `bgfx` must be
-// initialized before calling.
+// `Sprite` and logs the error via `spdlog::error`. The render backend
+// must be initialized before calling.
 Sprite loadImage(const std::string& path);
 
 // Same as `loadImage` but starts from an in-memory SDL_Surface — useful
@@ -31,12 +31,12 @@ Sprite loadImage(const std::string& path);
 // embedded asset decoded at runtime, image data fetched over the wire).
 //
 // Converts to RGBA8 if needed, premultiplies alpha in-place, and
-// uploads as a bgfx texture. *Takes ownership* of `surface` —
+// uploads as a sokol texture. *Takes ownership* of `surface` —
 // destroys it before returning, regardless of success.
 //
 // `nullptr` input returns a null `Sprite` without crashing. Other
-// failure modes log via `spdlog::error` and return null. `bgfx` must
-// be initialized before calling.
+// failure modes log via `spdlog::error` and return null. The render
+// backend must be initialized before calling.
 Sprite imageFromSurface(SDL_Surface* surface);
 
 // 🎯T124 Write RGBA8 pixels (top-down, tightly packed, `w*h*4` bytes) to a PNG

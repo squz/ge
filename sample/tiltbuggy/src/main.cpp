@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // TiltBuggy — a ge sample driving a 2D buggy with tilt gravity.
-// Stage 2: Box2D physics + bgfx rendering. On a real device the
+// Stage 2: Box2D physics + sokol rendering. On a real device the
 // accelerometer drives gravity. On desktop/simulator/emulator
 // AccelSynth synthesises SDL_EVENT_SENSOR_UPDATE events from
 // Shift-gated mouse drag — hold Shift and drag to tilt the world.

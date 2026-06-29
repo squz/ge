@@ -14,7 +14,7 @@ namespace ge {
 // = (rect.w, 0), y-basis = (0, rect.h). Maps the unit square (0..1)² in
 // local space to the rect in parent space.
 //
-// Use as a model-to-parent transform — `bgfx::setTransform(&frame(r)[0][0])`.
+// Use as a model-to-parent transform — the float4x4 feeds a draw's MVP uniform.
 // Apply `la::inverse(frame(r))` to map parent points back into local
 // (unit-square) space; useful for hit testing.
 //

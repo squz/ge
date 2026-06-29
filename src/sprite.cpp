@@ -6,8 +6,7 @@
 // One global pipeline (created lazily), one sampler, and one
 // SG_USAGE_STREAM vertex buffer fed via sg_append_buffer. sokol's
 // "one update per frame, many appends per frame" model maps cleanly
-// onto how SpriteBatch sliced its bgfx::TransientVertexBuffer
-// allocations.
+// onto how SpriteBatch streams its per-frame quad-vertex runs.
 
 #include <ge/sprite.h>
 

@@ -9,8 +9,8 @@ namespace ge {
 // SessionHost.h (T52). Out-of-line definitions removed.
 
 struct Context::M {
-    // Render-surface size in pixels (the GPU-facing unit passed to bgfx).
-    // Stored in pixels because that is the unit bgfx/SDL work in; all
+    // Render-surface size in pixels (the GPU-facing unit passed to sokol).
+    // Stored in pixels because that is the unit sokol/SDL work in; all
     // outward-facing rect accessors convert to pt via pixelsPerPt.
     int surfacePxW;
     int surfacePxH;

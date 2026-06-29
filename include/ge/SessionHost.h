@@ -1,7 +1,7 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Manages the server lifecycle: bgfx context, ged sideband connection,
+// Manages the server lifecycle: sokol context, ged sideband connection,
 // H.264 encode pipeline, and per-session state. The game provides a
 // factory that creates session state and returns render loop callbacks.
 #pragma once
@@ -46,7 +46,7 @@ enum class MemoryPressureLevel : uint8_t {
 // framebuffer boundary. Game logic — layout math, animation,
 // transforms, physics — is float-native, and forcing apps to cast
 // every read/write back to their float pipeline costs more than the
-// engine pays to convert once at the SDL/bgfx boundary. The integer
+// engine pays to convert once at the SDL/sokol boundary. The integer
 // values are preserved exactly (a 1080-pixel surface stores 1080.0f).
 //
 // Corner accessors return la::float2 (linalg's vec<float,2>,
@@ -137,7 +137,7 @@ struct Rect {
         return Rect{nx, ny, nw, nh};
     }
 
-    // Half-open hit-test: includes [x, x+w) × [y, y+h). Matches SDL/bgfx
+    // Half-open hit-test: includes [x, x+w) × [y, y+h). Matches SDL/sokol
     // pixel coord convention so adjacent rects tile without overlap.
     constexpr bool contains(la::float2 p) const {
         return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
@@ -285,7 +285,7 @@ constexpr bool operator!=(const Rect& a, const Rect& b) { return !(a == b); }
 // Per-edge insets of a safe-area-style boundary within the render
 // surface. Direction-agnostic: `y0` is the inset on the smaller-y
 // edge, `y1` on the larger-y edge, similarly for x. In the engine's
-// screen-coord (y-down per SDL/bgfx), `y0` is the top inset and `y1`
+// screen-coord (y-down per SDL/sokol), `y0` is the top inset and `y1`
 // is the bottom inset; the rename is a deliberate move away from
 // y-axis-named field labels.
 //
@@ -336,7 +336,7 @@ public:
     // glows don't take input.
     // Returned in point space (🎯T60). All three rect accessors are in
     // points; multiply by pixelsPerPt() to convert to pixel coords for
-    // bgfx viewport / viewport calls.
+    // sokol viewport calls.
     Rect drawSafeRectInPts() const;
     // The largest rectangle in which interactive UI is safe — excludes
     // display cutouts AND OS-reserved gesture / tappable zones (back-
@@ -344,11 +344,11 @@ public:
     // sliders, drag handles**: anything that takes input. Smaller
     // than drawSafeRectInPts() on devices with system gestures.
     Rect uiSafeRectInPts() const;
-    // The full bgfx backbuffer rectangle — origin (0,0), full surface
+    // The full sokol swapchain rectangle — origin (0,0), full surface
     // size in points. Use when you genuinely want to bleed past every
     // safe area (full-surface backgrounds, decorative imagery that
     // surrounds chrome). On desktop this is identical to the other two
-    // rects. Multiply by pixelsPerPt() for bgfx pixel coords.
+    // rects. Multiply by pixelsPerPt() for sokol pixel coords.
     Rect fullRectInPts() const;
 
     // Per-edge safe-area insets in pt (🎯T37 + 🎯T60 unified). Most
@@ -370,7 +370,7 @@ public:
     // pixels wide.
     float pixelsPerPt() const;
     // Reciprocal of pixelsPerPt — for translating raw pixel coords
-    // (touch events, bgfx viewport) back into pt for layout math.
+    // (touch events, sokol viewport) back into pt for layout math.
     float ptsPerPixel() const;
     // Form-factor multiplier, sublinear in screen size: sqrt of the
     // device's short-side mm relative to a reference phone (65mm,

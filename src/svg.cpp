@@ -51,7 +51,7 @@ void ensureDefaultFonts() {
 
 // lunasvg returns ARGB32 premultiplied. On little-endian (the only target
 // ge supports) that's bytes B,G,R,A per pixel in memory.
-// bgfx::TextureFormat::RGBA8 expects R,G,B,A. Swap byte 0 and byte 2 in
+// sokol's SG_PIXELFORMAT_RGBA8 expects R,G,B,A. Swap byte 0 and byte 2 in
 // each pixel; keep premultiplication.
 SvgPixels bitmapToPixels(const lunasvg::Bitmap& bm) {
     SvgPixels out;

@@ -1,14 +1,14 @@
 # ge agent guide
 
-**ge** is a reusable C++ rendering and streaming engine built on bgfx + SDL3, consumed as a git
+**ge** is a reusable C++ rendering and streaming engine built on sokol_gfx + SDL3 (migrated from bgfx — 🎯T38), consumed as a git
 submodule via `-include $(ge)/Module.mk`. It targets pre-1.0, so the interaction surface is still
 settling — check `STABILITY.md` for stability annotations before modifying public headers.
 
 The engine supports two operating modalities. In **brokered (server/player) mode** the app renders
-headless into a bgfx framebuffer, encodes frames as H.264 (VideoToolbox on Apple, FFmpeg on
+headless via sokol_gfx, encodes frames as H.264 (VideoToolbox on Apple, FFmpeg on
 Android), and transmits them to a player over a WebSocket managed by the **ged** daemon. The player
 decodes the stream, displays it in an SDL window, and relays input back to the server over the same
-channel. In **direct mode** the app owns a real SDL window; bgfx draws straight to it with no
+channel. In **direct mode** the app owns a real SDL window; sokol_gfx draws straight to it with no
 encoding and no ged involvement. Both modes share the same `ge::run()` entry point — the `RenderHost`
 abstraction hides which modality is active.
 
@@ -20,7 +20,7 @@ created inside it.
 
 ## When to change what
 
-**ge/** is for reusable engine code — protocol, rendering infrastructure, bgfx lifecycle, player
+**ge/** is for reusable engine code — protocol, rendering infrastructure, sokol_gfx/SokolContext lifecycle, player
 binaries, SDK headers, Module.mk. If the change would be useful to any app built on ge, it belongs
 here.
 
@@ -47,7 +47,7 @@ If unsure, ask before creating: see `CLAUDE.md` §"When to change what" for the 
 | `sample/tiltbuggy/` | In-tree sample app — canonical test vehicle for `make check` |
 | `ged/` | Go daemon (broker, dashboard, MCP server) |
 | `web/` | ged React/Vite dashboard |
-| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | bgfx libraries (vendored) |
+| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | Former bgfx libraries (vendored; retained as historical reference — migrated to sokol_gfx in 🎯T38) |
 
 ### Key interfaces
 
@@ -55,14 +55,13 @@ If unsure, ask before creating: see `CLAUDE.md` §"When to change what" for the 
   Concrete implementations: `DirectRenderHost` (direct mode) and `ServerWireBridge` (brokered mode).
 - **`PlayerWireBridge`** — player-side counterpart of `ServerWireBridge`. Wraps a `DirectRenderHost`,
   intercepts events for wire transmission, and feeds decoded frames as textures.
-- **`SessionHost`** / `ge::run()` — server-side lifecycle: bgfx init, ged sideband connection,
+- **`SessionHost`** / `ge::run()` — server-side lifecycle: sokol_gfx init (via `SokolContext`), ged sideband connection,
   per-session factory invocation, frame loop, graceful shutdown.
 
-### bgfx backends
+### sokol_gfx backends (🎯T38 / 🎯T107)
 
-- **Apple (macOS, iOS)**: Metal via `CAMetalLayer`.
-- **Android**: Vulkan (`bgfx::RendererType::Vulkan`). Not GLES — the Apple EGL translator caps at
-  GLES 3.0, which breaks shaderc on modern Adreno 830 AVDs.
+- **Apple (macOS, iOS)**: Metal via `CAMetalLayer` (`SokolContext.mm`).
+- **Android**: Vulkan with GLES3 fallback — runtime-selected per device by `SokolContext_android.cpp`. See the "Android renderer backend: Vulkan with GLES fallback (🎯T107)" section in CLAUDE.md for the full dispatch-shim architecture.
 
 ### ged daemon
 
@@ -229,10 +228,11 @@ The manifest is a `[{"state": "...", "out": "..."}]` array. State JSON is whatev
 (RMS threshold absorbs cross-GPU drift), `make update-render-goldens` re-blesses after a
 deliberate visual change.
 
-### `BgfxContext` — `include/ge/BgfxContext.h`
+### `SokolContext` — `src/SokolContext.mm` (Apple) / `src/SokolContext_android.cpp` (Android)
 
-RAII bgfx device lifecycle. Handles Metal (Apple) and Vulkan (Android) init, frame begin/end, and
-headless vs. windowed mode. Used internally by `SessionHost`; apps submit bgfx draw calls directly.
+RAII sokol_gfx device lifecycle. Handles Metal (Apple) and Vulkan-or-GLES3 (Android) init, pass
+management, and headless vs. windowed mode. Used internally by `SessionHost` and `DirectRenderHost`;
+apps issue `sg_*` draw calls through the `ge::Pass` RAII surface.
 
 ### Wire protocol — `include/ge/Protocol.h`
 
@@ -567,7 +567,7 @@ iOS; the Android GLES path is `glReadPixels`-based.
 1. Create `include/ge/ClassName.h`.
 2. Create `src/ClassName.cpp` (or `.mm` for ObjC++).
 3. Add to `ge/SRC` in `Module.mk`.
-4. Use pImpl for classes that pull in bgfx/SDL/asio headers (keeps consuming app compile times sane).
+4. Use pImpl for classes that pull in sokol/SDL/asio headers (keeps consuming app compile times sane).
 5. Update `CLAUDE.md` §"Public API".
 
 ### Adding a matrix-test cell
@@ -590,17 +590,14 @@ go there.
 
 ## Gotchas
 
-- **bgfx fork lives at `squz/bgfx`, branch `ge-fork-upgrade`.** Three commits ahead of upstream
-  (mobile-crashes guard, drawable-as-truth patch, shaderc CMake build). Don't rebase onto upstream
-  without verifying all three patches still apply.
+- **The bgfx fork at `squz/bgfx` is historical only.** ge migrated off bgfx in 🎯T38. The
+  vendored `vendor/github.com/bkaradzic/` tree is retained as a reference but is no longer
+  compiled into `libge.a`. Do not reintroduce bgfx dependencies.
 
-- **Android dual-renderer: Vulkan on emulator, OpenGL ES 3.1 on real devices.** From v0.2.0,
-  bgfx compiles both backends and `BgfxContext.mm` runtime-selects via `ro.kernel.qemu` /
-  `ro.hardware`. Vulkan on the Apple-Silicon AVD (its EGL translator caps at GLES 3.0; a 3.1
-  request trips `EGL_BAD_CONFIG`); OpenGL ES on real Adreno/Mali devices (the Vulkan path
-  silently stalls after the first present — see `docs/papers/adreno-830-bgfx-vulkan-crash.md`).
-  Single-threaded mode (`BGFX_CONFIG_MULTITHREADED=0`) is non-negotiable on Android so the
-  swap-chain teardown on background can be gated by SDL3's `WINDOW_FOCUS_LOST` handler.
+- **Android dual-renderer: Vulkan preferred, GLES3 fallback.** `SokolContext_android.cpp`
+  runtime-selects via `ge_vk_probe`. Vulkan on emulators and capable real devices; GLES3 on
+  devices that fail the probe. The old bgfx Vulkan path that silently stalled on Adreno 830 is
+  gone — see `docs/papers/adreno-830-bgfx-vulkan-crash.md` (historical) for background.
 
 - **iOS / iPad orientation lock needs BOTH `Info.plist` and `SessionHostConfig.orientation`.**
   iPadOS 26+ ignores plist orientation alone (multitasking treats every iPad app as resizable).

@@ -43,10 +43,10 @@ struct SvgBounds {
 // SVG's intrinsic size". Background is fully transparent.
 SvgPixels rasterizeSvgToPixels(std::string_view svg, int targetW = -1, int targetH = -1);
 
-// Rasterize an SVG document string and upload to a bgfx texture, returning
+// Rasterize an SVG document string and upload to a sokol texture, returning
 // the result as a `Sprite`. Sprite is null on failure.
 //
-// `bgfx` must be initialized before calling.
+// The render backend must be initialized before calling.
 Sprite rasterizeSvg(std::string_view svg, int targetW = -1, int targetH = -1);
 
 // Render an existing `lunasvg::Document` into a Sprite. Use for the
