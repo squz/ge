@@ -1106,6 +1106,8 @@ targets:
       Surfaced by multimaze2: its menu, level-picker, and solved-level screens are genuinely static yet redraw at full refresh every frame — needless GPU and battery/thermal cost on the iOS launch target (multimaze2 🎯T16). A game-driven, opt-in render-on-demand mode lets the consumer declare a frame unchanged so ge skips draw/encode/present until input or an explicit redraw arrives.
 
       Adjacent features that already shipped but are NOT this: 🎯T88 (background render pause — lifecycle-driven, not scene-driven) and 🎯T111 (onMetrics fps callback — adapts quality, still renders every frame). Design choice to settle during the work: per-frame "unchanged" return value vs. a requestRedraw()/invalidate handshake on Context. Original discussion lived only in a ge Codex session (2026-06-01); mnemo does not index Codex, so this target is the canonical record going forward.
+    depends_on:
+    - T132
     tags:
     - render
     - run-loop
@@ -1116,6 +1118,34 @@ targets:
     - ios
     - android
     - streaming
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-06-30
+  T132:
+    name: A ge consumer can stop and start the render loop; ge idles (blocks, never busy-spins) when stopped and wakes on input or an explicit redraw request
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A public ge API lets a consumer toggle the active session's render loop between continuous and on-demand/idle (e.g. ge::Context::setContinuousRendering(bool), or pause/resume), plus request a single frame (requestRedraw() / setNeedsDisplay()).
+    - 'When idle and no redraw is pending, ge''s loop BLOCKS on its event source rather than spinning: measured loop-thread CPU drops to ~0 and onUpdate/onRender are not invoked.'
+    - An input event (touch/mouse/key) wakes the loop, is delivered to onEvent, and renders the frame(s) the consumer asks for, then the loop idles again.
+    - requestRedraw() called from any thread (async/IAP/timer callback) wakes a blocked loop promptly and renders one frame.
+    - 'Works on the platforms ge supports: desktop (SDL wait-event), iOS direct-mode (CADisplayLink pause/resume or equivalent), Android direct-mode. The ged-brokered/streaming path may remain continuous — explicitly out of scope here.'
+    - 'Opt-in and backward compatible: consumers that never call it keep rendering every frame unconditionally; existing apps are unchanged.'
+    - The opt-in surface is documented in one sentence at its declaration site (Context / RunConfig).
+    context: |-
+      The minimal engine primitive underneath 🎯T131 (freeze-when-static rendering). ge's run loop currently "renders every frame unconditionally (not on-demand)" (🎯T96 context) — there is no way for a consumer to halt it, so an app on a static screen either busy-loops or sleeps inside the render callback (an ugly stopgap). The consumer can own the *policy* of when a screen is static (e.g. multimaze2's Menu/Levels are static except for touch-driven button-state changes, gated by an app-side dirty flag), but it needs an engine *hook* to actually stop the loop spinning and to be woken again.
+
+      Deliberately scoped down from 🎯T131: this is just the stop/start + wake mechanism (loop blocks on its event source; input or requestRedraw() resumes it). The full policy — measured presents-drop, the streaming-path encode skip, cross-platform verification, docs — stays in 🎯T131, which this unblocks. Surfaced by multimaze2 (iOS launch target 🎯T16): Menu/Levels redraw at full refresh today, needless GPU/battery while the user reads a static screen.
+    tags:
+    - render
+    - run-loop
+    - render-on-demand
+    - power
+    - api
+    - ios
+    - android
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-06-30
