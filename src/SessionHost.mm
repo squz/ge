@@ -46,7 +46,7 @@ void runBrokered(Factory factory, const SessionHostConfig& config);
 // ── runDirect: standalone / distribution modality ─────────────────
 //
 // Render + engine in one process, no ged, no wire. Uses DirectRenderHost
-// for window + bgfx + input. The host owns the session Context (db
+// for window + sokol + input. The host owns the session Context (db
 // setup, dimensions, safe-area); the run loop just relays it.
 static void runDirect(Factory factory, const SessionHostConfig& config) {
     DirectRenderHost host(config);
@@ -153,7 +153,7 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
 
 void run(Factory factory, const SessionHostConfig& config) {
     // Install the cross-platform spdlog sink (🎯T66) before any other
-    // engine logging — SDL/bgfx/IAP startup all emit SPDLOG_INFO and
+    // engine logging — SDL/sokol/IAP startup all emit SPDLOG_INFO and
     // we want those visible on iOS/Android logs without per-app
     // sink wiring. Idempotent if a consumer has already installed.
     ge::log::install();

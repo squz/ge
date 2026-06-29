@@ -15,7 +15,7 @@
 # it for ge source/header edits, not vendor/submodule bumps.
 #
 # Per-platform differences are confined to the case statement at the top
-# (toolchain, flags, output dir, bgfx defines, ge source list). The compile
+# (toolchain, flags, output dir, ge source list). The compile
 # body below is identical across platforms — same vendor lib calls, same
 # manifest writer.
 #
@@ -73,9 +73,6 @@ fi
 # Everything that differs across platforms lives here. The compile body
 # below uses these variables and doesn't branch further.
 COMMON_FLAGS=(-O2 -fvisibility=hidden -fno-color-diagnostics)
-BGFX_AS_OBJC=false
-BGFX_DEFINES=()
-BX_COMPAT_DIR=
 GE_PLATFORM_DEFINE=
 GE_PLATFORM_SOURCES=()
 SDL_STUB_NEEDED=false   # Android needs a stub SDL_revision.h; Apple gets real one from headers/sdl3.
@@ -96,9 +93,6 @@ case "$PLATFORM" in
     AR="$(xcrun --sdk "$SDK" -f libtool)"
     AR_FLAGS=(-static -o)
     COMMON_FLAGS+=(-isysroot "$SDK_PATH")
-    BGFX_AS_OBJC=true   # Metal backend needs ObjC++ for the amalgamated unit.
-    BGFX_DEFINES=(-DBGFX_CONFIG_RENDERER_METAL=1)
-    BX_COMPAT_DIR=ios
     GE_PLATFORM_DEFINE=-DGE_IOS
     GE_MANIFEST_TARGET=print-direct-ios
     ;;
@@ -160,12 +154,6 @@ case "$PLATFORM" in
       --sysroot="$NDK_SYSROOT"
       -fPIC -DANDROID -D__ANDROID__
     )
-    BGFX_DEFINES=(
-      -DBGFX_CONFIG_MULTITHREADED=0
-      -DBGFX_CONFIG_RENDERER_VULKAN=1
-      -DBGFX_CONFIG_RENDERER_OPENGLES=31
-    )
-    BX_COMPAT_DIR=linux
     GE_PLATFORM_DEFINE=-DGE_ANDROID
     GE_MANIFEST_TARGET=print-direct-android
     SDL_STUB_NEEDED=true
@@ -208,16 +196,13 @@ CXX17_STD=(-std=c++17)
 DEPFLAGS=(-MMD -MP)
 
 VENDOR="vendor/github.com"
-BX_DIR="$VENDOR/bkaradzic/bx"
-BIMG_DIR="$VENDOR/bkaradzic/bimg"
-BGFX_DIR="$VENDOR/bkaradzic/bgfx"
 BOX2D_DIR="$VENDOR/erincatto/box2d"
 LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
 LITEPARSER_DIR="$VENDOR/sqliteai/liteparser/src"
 
-# Sanity check — submodules must be initialised. T38: bx/bimg/bgfx
-# no longer required (ge uses sokol_gfx, vendored as a single header).
+# Sanity check — the vendored submodules this prebuild compiles must be
+# initialised. (sokol_gfx is a vendored single header, not a submodule.)
 for d in "$BOX2D_DIR" "$LUNASVG_DIR"; do
   if [[ ! -f "$d/.git" && ! -d "$d/.git" ]]; then
     echo "error: $d is not initialised. Run: git submodule update --init --recursive" >&2

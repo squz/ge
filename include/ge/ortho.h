@@ -23,8 +23,8 @@
 // letterboxed projection.
 //
 // All three are constexpr. Top-left origin / +Y down convention
-// matches bgfx clip-space when the renderer is HLSL / Metal / Vulkan
-// (the default for ge's targets).
+// matches sokol_gfx clip-space on the Metal / Vulkan / GLES backends
+// (ge's targets).
 
 #pragma once
 

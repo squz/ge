@@ -32,7 +32,7 @@ GE::IOS::ProjectBuilder.new(
     # (preserved by build_project.rb's per-parent Copy Files phases,
     # 🎯T72). Example:
     #   'data',
-    #   'shaders/bgfx/metal',
+    #   'shaders/metal',
   ],
   simulator: simulator,
 ).generate

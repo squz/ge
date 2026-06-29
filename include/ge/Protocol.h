@@ -11,7 +11,7 @@
 static_assert(std::endian::native == std::endian::little, "Little-endian required");
 
 // Wire protocol for the H.264 streaming dev mode.
-// The server renders headless via bgfx, encodes H.264 frames, and streams them
+// The server renders headless via sokol_gfx, encodes H.264 frames, and streams them
 // to the player over a ged-brokered WebSocket. The player decodes and displays
 // frames, and forwards SDL input back to the server over the same channel.
 //

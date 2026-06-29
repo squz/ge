@@ -16,7 +16,7 @@
 #       'data/menu',
 #       'data/fonts',
 #       'data/audio',
-#       'shaders/bgfx/metal',
+#       'shaders/metal',
 #     ],
 #   ).generate
 #
@@ -55,7 +55,7 @@ module GE
     ].freeze
     GE_ENGINE_MODES = %i[prebuilt source].freeze
 
-    # iOS frameworks ge needs: SDL3 + bgfx/Metal + audio + StoreKit etc.
+    # iOS frameworks ge needs: SDL3 + sokol/Metal + audio + StoreKit etc.
     FRAMEWORKS = %w[
       Foundation UIKit
       Metal MetalKit

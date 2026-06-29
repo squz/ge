@@ -10,7 +10,7 @@
 #
 # Creates $APP_DIR/android/ (where $APP_DIR is the current working directory)
 # with a complete Gradle project that builds a standalone APK (direct
-# rendering via bgfx/Vulkan).
+# rendering via sokol/Vulkan).
 
 set -euo pipefail
 

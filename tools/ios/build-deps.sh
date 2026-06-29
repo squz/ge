@@ -3,7 +3,7 @@
 # When both device and simulator are built, creates xcframeworks.
 # Run once (or after updating library versions).
 #
-# Dawn build removed — engine uses bgfx now. This script only builds SDL3.
+# Dawn build removed — engine uses sokol_gfx now. This script only builds SDL3.
 #
 # Usage: cd ge/tools/ios && bash build-deps.sh [--device|--simulator|--all]
 #   --device      Build for iOS device only (default)

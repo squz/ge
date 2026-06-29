@@ -58,17 +58,10 @@ ge/INCLUDES = \
 
 # sokol_gfx (vendored single-header — no separate compile step;
 # SokolContext.mm / SokolContext_android.cpp do the SOKOL_IMPL include).
-# T38: bgfx/bx/bimg vendor compile retired. Empty shims kept so any
-# external Makefile that still references $(ge/BGFX_LIBS) etc. expands
-# to nothing rather than failing.
-ge/BGFX_ALL_INCLUDES =
-ge/BGFX_LIBS =
-ge/BX_OBJ =
-ge/BX_LIB =
-ge/BIMG_OBJ =
-ge/BIMG_LIB =
-ge/BGFX_OBJ =
-ge/BGFX_LIB =
+# T38: bgfx/bx/bimg vendor compile retired; the empty ge/BGFX_* shim
+# variables were removed in the 🎯T98 cleanup (an undefined make variable
+# expands to nothing, so any external Makefile that still referenced them
+# is unaffected).
 
 # SDL3 libraries (static, vendored)
 ge/SDL3_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libSDL3.a
@@ -80,7 +73,7 @@ ge/PLUTOSVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutosvg.a
 ge/PLUTOVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutovg.a
 ge/SDL_LIBS = $(ge/SDL3_LIB) $(ge/SDL3_IMAGE_LIB) $(ge/SDL3_TTF_LIB) $(ge/FREETYPE_LIB) $(ge/HARFBUZZ_LIB) $(ge/PLUTOSVG_LIB) $(ge/PLUTOVG_LIB)
 
-# macOS frameworks needed by any ge desktop app (SDL3 + bgfx + VideoToolbox +
+# macOS frameworks needed by any ge desktop app (SDL3 + sokol/Metal + VideoToolbox +
 # CoreMotion). Apps can extend via FRAMEWORKS += ... after the include.
 ge/FRAMEWORKS = \
     -framework Metal -framework MetalKit -framework QuartzCore \
@@ -317,9 +310,9 @@ APP_LIBS    ?= $(ge/BOX2D_OBJ)
 all: $(APP)
 
 # Default link rule. Parent can override by declaring its own $(APP) rule.
-$(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(ge/BGFX_LIBS) $(APP_LIBS)
+$(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
 	@mkdir -p $(@D)
-	$(CXX) $(APP_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) $(APP_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 # App objects — .cpp files under src/ compile into $(BUILD_DIR)/src/*.o.
 $(BUILD_DIR)/src/%.o: src/%.cpp
@@ -428,9 +421,9 @@ $(BUILD_DIR)/ge/shaders/%.h: $(ge/RENDER_SHADER_DIR)/%.glsl $(ge/SOKOL_SHDC)
 .PHONY: ge/player
 ge/player: $(ge/PLAYER)
 
-$(ge/PLAYER): $(ge/PLAYER_SRC) $(ge/LIB) $(ge/BGFX_LIBS)
+$(ge/PLAYER): $(ge/PLAYER_SRC) $(ge/LIB)
 	@mkdir -p $(@D)
-	$(CXX) -std=c++20 -DGE_DESKTOP $(ge/INCLUDES) $(ge/BGFX_ALL_INCLUDES) $(ge/PLAYER_SRC) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) -std=c++20 -DGE_DESKTOP $(ge/INCLUDES) $(ge/PLAYER_SRC) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 # imgdiff helper — used by matrix-test.sh for reference-image checks.
 .PHONY: ge/imgdiff
@@ -442,16 +435,17 @@ $(ge/IMGDIFF): $(ge)/tools/imgdiff.cpp
 
 # icon-gen — build-time app-icon expander (🎯T50). Takes a single source SVG
 # and writes both platforms' icon resource layouts via ge::rasterizeSvgToPixels.
-# Same link line as the player ($(ge/PLAYER) above) since SvgRasterizer.cpp
-# pulls in bgfx symbols even when only the CPU path is called.
+# Same link line as the player ($(ge/PLAYER) above): linking libge.a pulls in
+# its sokol / SDL render symbols even though icon-gen only calls the CPU
+# rasterization path.
 ge/ICON_GEN = bin/ge-icon-gen
 
 .PHONY: ge/icon-gen
 ge/icon-gen: $(ge/ICON_GEN)
 
-$(ge/ICON_GEN): $(ge)/tools/icon-gen.cpp $(ge/LIB) $(ge/BGFX_LIBS)
+$(ge/ICON_GEN): $(ge)/tools/icon-gen.cpp $(ge/LIB)
 	@mkdir -p $(@D)
-	$(CXX) -std=c++20 -O2 $(ge/INCLUDES) $(ge/BGFX_ALL_INCLUDES) $< $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) -std=c++20 -O2 $(ge/INCLUDES) $< $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 # app-icons — convention-driven invocation of icon-gen. Reads icons/icon.svg
 # from the consuming project's root and writes into the existing ios/ and
@@ -489,9 +483,9 @@ ge/app-icons: $(ge/ICON_GEN) $(ge/APP_ICON_SVG)
 #
 # `make unit-test` builds bin/ge-test from $(ge/TEST_SRC) and runs it.
 # Tests link against libge.a, so they have access to all engine headers
-# and engine-defined classes. The runner reaches into bgfx/SDL only at
+# and engine-defined classes. The runner reaches into sokol / SDL only at
 # link time (libge.a's references resolve through them); the tests
-# themselves don't initialize bgfx, so they're side-effect free.
+# themselves don't initialize the render backend, so they're side-effect free.
 # ────────────────────────────────────────────────
 
 ge/TEST_BIN = bin/ge-test
@@ -500,9 +494,9 @@ ge/TEST_BIN = bin/ge-test
 unit-test: $(ge/TEST_BIN)
 	$(ge/TEST_BIN)
 
-$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(ge/BGFX_LIBS) $(APP_LIBS)
+$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS)
 	@mkdir -p $(@D)
-	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 # ────────────────────────────────────────────────
 # Mobile targets
@@ -683,14 +677,14 @@ ged-test:
 APP_DEBUG     ?= bin/$(APP_NAME)-debug
 APP_DEBUG_OBJ ?= $(patsubst %.cpp,$(BUILD_DIR)/debug/%.o,$(APP_SRC))
 
-ge/CXXFLAGS_DEBUG = -std=c++20 -O0 -g -DDEBUG $(ge/INCLUDES) $(ge/BGFX_ALL_INCLUDES) -DBX_CONFIG_DEBUG=1
+ge/CXXFLAGS_DEBUG = -std=c++20 -O0 -g -DDEBUG $(ge/INCLUDES)
 
 .PHONY: ge/debug
 ge/debug: $(APP_DEBUG)
 
-$(APP_DEBUG): $(APP_DEBUG_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(ge/BGFX_LIBS) $(APP_LIBS)
+$(APP_DEBUG): $(APP_DEBUG_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
 	@mkdir -p $(@D)
-	$(CXX) $(APP_DEBUG_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) $(APP_DEBUG_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 $(BUILD_DIR)/debug/src/%.o: src/%.cpp
 	@mkdir -p $(dir $@)

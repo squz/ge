@@ -9,9 +9,9 @@
 // viewport-tilt composite when Shift-mouse accelerometer synthesis is
 // active (symmetric with DirectRenderHost's composite pass).
 //
-// No bgfx — the player just blits a decoded video texture, optionally
+// No render backend — the player just blits a decoded video texture, optionally
 // through a subdivided-mesh perspective pass via SDL_RenderGeometry.
-// This keeps mobile player builds small and avoids a bgfx port there.
+// This keeps mobile player builds small and avoids a render-backend port there.
 #pragma once
 
 #include <ge/Linalg.h>

@@ -121,17 +121,17 @@ class BuildProjectTest < Minitest::Test
     assert_includes files_at_data_menu_icons, 'play.png'
   end
 
-  # Deeply nested declaration like ge's own `shaders/bgfx/metal`.
+  # Deeply nested declaration like ge's own `shaders/metal`.
   def test_deeply_nested_directory
-    make_resource('shaders/bgfx/metal/vs_sprite.bin')
-    make_resource('shaders/bgfx/metal/fs_sprite.bin')
-    project = build(resources: ['shaders/bgfx/metal'])
+    make_resource('shaders/metal/vs_sprite.bin')
+    make_resource('shaders/metal/fs_sprite.bin')
+    project = build(resources: ['shaders/metal'])
 
     by_dst = copy_files_phases(project).each_with_object({}) { |p, h| h[p.dst_path] = p }
-    assert by_dst.key?('shaders/bgfx/metal'),
-           "expected Copy Files phase with dst_path 'shaders/bgfx/metal', got: #{by_dst.keys.inspect}"
+    assert by_dst.key?('shaders/metal'),
+           "expected Copy Files phase with dst_path 'shaders/metal', got: #{by_dst.keys.inspect}"
 
-    files = by_dst['shaders/bgfx/metal'].files.map { |bf| File.basename(bf.file_ref.path) }
+    files = by_dst['shaders/metal'].files.map { |bf| File.basename(bf.file_ref.path) }
     assert_includes files, 'vs_sprite.bin'
     assert_includes files, 'fs_sprite.bin'
   end

@@ -22,11 +22,11 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Called once after bgfx is initialized. `shaderDir` is the directory
+    // Called once after the render backend is initialized. `shaderDir` is the directory
     // containing compiled `.bin` files (e.g. "build/shaders").
     void init(const char* shaderDir);
 
-    // Clear + draw the scene. Call per frame under bgfx view 0
+    // Clear + draw the scene. Call per frame in the swapchain Pass
     // covering the full surface. The playfield is placed at
     // `c.drawSafeRectInPts()` (display-cutout-safe — visuals here aren't
     // physically obscured) and the renderer is free to draw anywhere

@@ -17,7 +17,7 @@
 //
 // The formula used in LoadTexture.cpp for each channel C and alpha A:
 //   out = (C * A + 127) / 255
-// Test it in isolation — no bgfx required.
+// Test it in isolation — no render backend required.
 // ─────────────────────────────────────────────────────────────────────
 
 namespace {
@@ -66,8 +66,8 @@ TEST_CASE("loadImage premul: premultiplied invariant R <= A holds") {
 // ─────────────────────────────────────────────────────────────────────
 // SDL pixel round-trip: load a minimal in-memory PNG and verify that
 // SDL_ConvertSurface + premultiplication produces the expected bytes.
-// bgfx is NOT initialized in this test binary, so we test only the
-// SDL/pixel layer — not the bgfx::createTexture2D call.
+// the render backend is NOT initialized in this test binary, so we test only
+// the SDL/pixel layer — not the sokol texture-upload call.
 // ─────────────────────────────────────────────────────────────────────
 
 TEST_CASE("loadImage pixel layer: 2x2 half-alpha red PNG premultiplies correctly") {
@@ -124,8 +124,8 @@ TEST_CASE("loadImage pixel layer: 2x2 half-alpha red PNG premultiplies correctly
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Error path: non-existent file returns BGFX_INVALID_HANDLE without
-// crashing. No bgfx init required — the error exits before any bgfx call.
+// Error path: non-existent file returns a null Sprite without crashing.
+// No render-backend init required — the error exits before any GPU call.
 // ─────────────────────────────────────────────────────────────────────
 
 TEST_CASE("loadImage: non-existent file returns null Sprite") {
@@ -143,9 +143,9 @@ TEST_CASE("imageFromSurface: nullptr input returns null Sprite without crashing"
 }
 
 // The conversion + premultiplication path inside `imageFromSurface`
-// ends in `bgfx::createTexture2D`, which would crash without bgfx
-// initialized. The premul formula is covered above by the
+// ends in a sokol texture upload, which would crash without the render
+// backend initialized. The premul formula is covered above by the
 // `loadImage premul:` cases; the SDL conversion via
 // `SDL_ConvertSurface` is exercised by the `loadImage pixel layer:`
-// case. Full integration is exercised in tests with a live bgfx
+// case. Full integration is exercised in tests with a live sokol
 // context.

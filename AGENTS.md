@@ -5,14 +5,14 @@ agent runtimes. Keep them in sync when changing repo guidance.
 
 **IMPORTANT: When creating any artefact — code, targets, documentation, plans, tests — always consider whether it belongs in `ge/` (general-purpose engine, usable by any app) or in the parent project (game-specific logic). If unsure, ask before creating it.** Anything concerning the player, ged, wire protocol, engine infrastructure, or engine design belongs in `ge/`, not the consuming project.
 
-Reusable rendering and streaming engine built on bgfx + SDL3. Consumed as a git submodule; build integration via `Module.mk`.
+Reusable rendering and streaming engine built on sokol_gfx + SDL3 (migrated from bgfx — 🎯T38). Consumed as a git submodule; build integration via `Module.mk`.
 
 homebrew_tap: disabled
 <!-- ge is a library consumed via git submodule; no binary to ship through brew. -->
 profile: game
 <!-- interactive rendering + streaming; "tests pass" doesn't guarantee visual correctness. -->
 
-Apps built on ge use a **server/player architecture**: the app (server) renders headless via bgfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
+Apps built on ge use a **server/player architecture**: the app (server) renders headless via sokol_gfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
 
 ## ge Claude Code Plugin
 
@@ -99,9 +99,9 @@ APP := bin/myapp
 
 COMPILE_DB_DEPS += $(SRC) Makefile
 
-$(APP): $(OBJ) $(ge/LIB) $(ge/BGFX_LIBS)
+$(APP): $(OBJ) $(ge/LIB)
 	@mkdir -p $(@D)
-	$(CXX) $(OBJ) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) $(OBJ) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 player: $(ge/PLAYER)
 
@@ -124,7 +124,7 @@ The ged daemon manages player connections, QR codes, and session routing. Game s
 
 | Concern | ge handles it | You write |
 |---------|--------------|-----------|
-| Rendering backend | bgfx Metal (macOS) / Vulkan (Android) | bgfx draw calls in `onRender` |
+| Rendering backend | sokol_gfx — Metal on Apple, Vulkan with GLES3 fallback on Android (🎯T107) | sokol_gfx (`sg_*`) draw calls in `onRender` |
 | H.264 encoding | `VideoEncoder_apple.mm` (VideoToolbox) | Nothing |
 | H.264 decoding | `VideoDecoder_apple.mm` (VideoToolbox) | Nothing |
 | Frame loop | `ge::run` with delta timing + signal handling | `onUpdate(dt)` + `onRender(const Context&)` callbacks |
@@ -132,7 +132,7 @@ The ged daemon manages player connections, QR codes, and session routing. Game s
 | Reconnection | `ge::run` spawns new session per player | Separate State from App |
 | Session routing | ged daemon manages connections + QR codes | Nothing |
 | Asset loading | `ge::loadManifest<T>()` for meshes + metadata | manifest.json + data files |
-| Mobile builds | iOS/Android player projects in `ge/tools/` (TODO: bgfx port) | Nothing (shared player) |
+| Mobile builds | iOS/Android player projects in `ge/tools/` (player port dormant — 🎯T34) | Nothing (shared player) |
 
 ## Module.mk Integration
 
@@ -173,10 +173,9 @@ Engine-internal variables use the `ge/` prefix. These are read-only — the pare
 
 | Variable | Contents |
 |----------|----------|
-| `ge/INCLUDES` | `-I` flags for engine + vendor headers (bgfx, bx, bimg, SDL3, spdlog, asio, etc.) |
+| `ge/INCLUDES` | `-I` flags for engine + vendor headers (sokol, SDL3, spdlog, asio, etc.) |
 | `ge/SRC`, `ge/OBJ` | Engine source files and derived objects |
 | `ge/LIB` | Static library path (`$(BUILD_DIR)/libge.a`) |
-| `ge/BGFX_LIBS` | bgfx static libraries (`libbgfx.a`, `libbimg.a`, `libbx.a`) |
 | `ge/SDL_LIBS` | SDL3 static libraries (SDL3, SDL3_image, SDL3_ttf, freetype, harfbuzz, etc.) |
 | `ge/TEST_SRC`, `ge/TEST_OBJ` | Unit test sources and objects |
 | `ge/TRIANGLE_OBJ` | Triangle library object — **opt-in; not linked into `libge.a`**. Commercial builds should not reference this without first reading NOTICES.md's Triangle section (restrictive license; commercial distribution requires arrangement with the author). |
@@ -207,8 +206,8 @@ Module.mk defines these targets so the parent doesn't need to:
 | `clean` | `rm -rf $(CLEAN)` |
 | `compile_commands.json` | Generate clangd compile database from `$(COMPILE_DB_DEPS)` |
 | `ged` | Build the ged daemon (`bin/ged`), compiling the dashboard first |
-| `ge/ios` | Generate the iOS Xcode project (TODO: needs bgfx port) |
-| `ge/android` | Build the Android debug APK (TODO: needs bgfx port) |
+| `ge/ios` | Generate the iOS Xcode project |
+| `ge/android` | Build the Android debug APK |
 | `ge/app-icons` | Expand `icons/icon.svg` into iOS + Android icon resources (🎯T50) |
 
 ### App icons (🎯T50)
@@ -300,11 +299,11 @@ init: ge/init
 
 ### Linking
 
-Link the app against `$(ge/LIB)`, the bgfx libraries, and SDL:
+Link the app against `$(ge/LIB)` and SDL:
 
 ```makefile
-$(APP): $(APP_OBJ) $(ge/LIB) $(ge/BGFX_LIBS)
-	$(CXX) $(APP_OBJ) $(ge/LIB) $(ge/BGFX_LIBS) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+$(APP): $(APP_OBJ) $(ge/LIB)
+	$(CXX) $(APP_OBJ) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 ```
 
 The `FRAMEWORKS` variable should include VideoToolbox, CoreMedia, CoreVideo, Metal, QuartzCore, and Foundation on macOS/iOS.
@@ -322,9 +321,9 @@ player: $(ge/PLAYER)
 | `include/` | Public headers (one per class) |
 | `src/` | Implementation files + test files (`*_test.cpp`) |
 | `tools/` | Player entry point (`player.cpp`), capture backend (`player_capture_apple.mm`) |
-| `tools/ios/` | iOS player: Xcode project, build scripts (TODO: bgfx port) |
-| `tools/android/` | Android player: Gradle project (TODO: bgfx port) |
-| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | bgfx rendering libraries (vendored, compiled from source) |
+| `tools/ios/` | iOS player: Xcode project, build scripts (player port dormant — 🎯T34) |
+| `tools/android/` | Android player: Gradle project (player port dormant — 🎯T34) |
+| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | Former bgfx rendering libraries (vendored; retained as historical reference — migrated to sokol_gfx in 🎯T38) |
 | `vendor/` | Other third-party dependencies: spdlog, linalg.h, earcut.hpp, doctest, Triangle, asio, SQLite3 |
 
 **Note:** SQLite3 is compiled into `libge.a` (from the vendored amalgamation `vendor/src/sqlite3.c`). Do not add `-lsqlite3` to link lines — it's already included.
@@ -336,7 +335,7 @@ player: $(ge/PLAYER)
 | `ge/src/Resource.cpp` | Asset path resolution |
 | `ge/src/FileIO.cpp` | Platform-agnostic file I/O |
 | `ge/src/WebSocketClient.cpp` | WebSocket client (ged connection) |
-| `ge/src/BgfxContext.mm` | bgfx device setup and frame management |
+| `ge/src/SokolContext.mm` | sokol_gfx device setup and frame management (Apple); `ge/src/SokolContext_android.cpp` on Android |
 | `ge/src/Signal.cpp` | SIGINT / graceful shutdown |
 | `ge/src/SessionHost.mm` | `ge::run()` — sideband connect, session lifecycle |
 | `ge/src/sprite.cpp` | `ge::Sprite::draw` + `ge::SpriteBatch` (lazy textured-quad program) |
@@ -462,7 +461,7 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to ged at `localhost:42069
 
 ### Mobile Builds
 
-**iOS and Android player builds are currently broken** — they still reference Dawn/WebGPU and need to be ported to bgfx + H.264 decode. The CMakeLists files and build scripts have been scrubbed of Dawn references and marked TODO.
+**iOS and Android player builds are currently dormant** — the player port to sokol_gfx + H.264 decode is pending 🎯T34. The CMakeLists files and build scripts have been scrubbed of the old Dawn/WebGPU references and marked TODO.
 
 ### iOS code signing — development vs ship (🎯T110)
 
@@ -531,7 +530,7 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 
 ### Session Host
 
-- **`ge::run(Factory, SessionHostConfig)`** (`SessionHost.h`) — Blocks until SIGINT or all sessions end. Connects to ged via sideband WebSocket, sets up bgfx rendering (headless H.264 encode by default, or native window when `headless=false`), and calls the factory for each attaching player. The factory receives a `ge::Context` and returns a `RunConfig`. `SessionHostConfig` controls default dimensions, headless mode, and app identity for the persistent database path.
+- **`ge::run(Factory, SessionHostConfig)`** (`SessionHost.h`) — Blocks until SIGINT or all sessions end. Connects to ged via sideband WebSocket, sets up sokol_gfx rendering (headless H.264 encode by default, or native window when `headless=false`), and calls the factory for each attaching player. The factory receives a `ge::Context` and returns a `RunConfig`. `SessionHostConfig` controls default dimensions, headless mode, and app identity for the persistent database path.
 - **`ge::renderToPng(Factory, SessionHostConfig, prepare, outPath)` / `ge::renderBatch(Factory, SessionHostConfig, items)`** (`SessionHost.h`, 🎯T124) — Headless one-shot render of a restored game State to a PNG, with no device, ged, spyder, or window in the loop. Builds a hidden `DirectRenderHost` (`SessionHostConfig.hidden` → off-screen drawable), runs the factory once, calls `prepare()` to set up the frame's State, renders one frame through the **unchanged** `onRender` / `swapchainPass()` path (capturing the swapchain to RGBA instead of presenting), and writes the PNG via `ge::writePng`. `renderBatch` amortises host + factory across many `RenderItem{prepare, outPath}` with per-item error capture (one bad fixture doesn't sink the run) and returns the count rendered; `renderToPng` is the single-item case. The reused host is leak-free — a batch frame is byte-identical to a fresh single render of the same State. **Determinism contract:** same State + same `SessionHostConfig` size ⇒ byte-stable PNG — gate any render-liveness animation behind a flag the render path disables (`sample/tiltbuggy`'s `Renderer::setDiagnosticSpin(false)`). Consumer apps parse their own `render` verb before `ge::run`; tiltbuggy is the reference (`render --state <file|-> --out <png> [--batch <manifest>] [--isolate] [--size WxH]`, plus a `make render-test` / `make update-render-goldens` golden loop over committed `fixtures/`). `ge::writePng(path, rgba, w, h)` (`png.h`) is the standalone RGBA8 → PNG writer.
 - **`ge::Context`** — Platform context passed to the factory once at session start and to `onRender` each frame. Provides `drawSafeRectInPts()` / `uiSafeRectInPts()` / `fullRectInPts()` (rect accessors in point space, 🎯T60, see `ge::Rect`), `drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (per-edge `SafeAreaInsets` in pt — 🎯T37 — reach for these only when aligning against a specific chrome edge), `deviceClass()`, `pixelsPerPt()` / `ptsPerPixel()` / `deviceUiScale()` (sizing scalars, below), `parallax()` (device-tilt parallax, see `SessionHostConfig.parallaxFactor`), and `db()` (the engine-managed sqlpipe database). The safe rect is *advisory*, not a clip region — games are free to draw anywhere on the surface but should keep the gameplay grid inside the safe rect so chrome doesn't intrude on it. Cheaply copyable (shared_ptr internals); accessors return live values that the engine updates before each callback. **🎯T60 migration**: pre-T60 `drawSafeRect()` / `uiSafeRect()` / `fullRect()` were renamed to `*InPts()` — consumers must update at compile time; no silent fallback exists.
 - **Sizing scalars on `Context`** — Two distinct axes for cross-device sizing:
@@ -542,7 +541,7 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 - **OS memory-pressure warnings (`RunConfig::onMemoryWarning`, 🎯T45)** — Fires when iOS sends `UIApplicationDidReceiveMemoryWarningNotification` (always Critical) or Android sends `onTrimMemory(level)` (mapped to `Low` / `Moderate` / `Critical` via the engine's collapse of the five Android buckets — `RUNNING_MODERATE`→Low, `RUNNING_LOW`/`UI_HIDDEN`/`BACKGROUND`/`MODERATE`→Moderate, `RUNNING_CRITICAL`/`COMPLETE`→Critical). The engine drops its own caches first; the game's response is layered on top. Recommended action: drop high-cost caches (texture mips, audio decoders, font glyph atlases) in proportion to the level. Both events fire on the game thread (the engine drains a pending atomic in `pumpEvents`, same pattern as back-press).
 - **Performance metrics (`RunConfig::onMetrics` + `ge::Metrics`, 🎯T111)** — Opt-in callback for adapting the running render path to measured performance. `ge::Metrics` is an extensible bundle — `float fps` (smoothed frames/sec) first, `float frameTime` (seconds, `== 1/fps`) second; future fields (dropped frames, GPU time, render backend, resident memory) join it with default initialisers, so existing `const Metrics&` handlers keep compiling. Fires on the game thread *between frames* (after the per-frame refresh, before `onRender`) so a decision taken in the handler applies to the next frame's draw. Cadence is one knob — `SessionHostConfig.metricsReportThreshold` (relative fraction, default `0.1`): fire when smoothed fps deviates from the last *reported* value by ≥ the threshold; `0` ⇒ every frame; a baseline report fires on the first valid reading (gating against the last *reported* value, not the last frame, means no chatter at a boundary). The metric is an EMA of the run-loop `dt` — the same value the debug overlay's FPS readout shows — so it reads validly on desktop / wire / iOS / Android alike, `0` only before the first timed frame. **ge reports, the app decides:** the engine never steps quality, shows UI, or disables a visual; the consumer owns the decision *and the hysteresis*. The correct sticky pattern is a two-threshold band — drop at a low fps, restore only above a *higher* fps, and remember you simplified — so a recovery caused by simplifying doesn't snap back to the expensive path. For passive display only, `Context::fps()` / `Context::frameTime()` poll the same EMA (e.g. a HUD counter); don't drive adaptation off a polled read inside `onRender` — that stateless `if (fps < x) simplify()` is exactly the snap-back antipattern the callback exists to avoid.
 - **Device-tilt parallax (`parallax()` + `SessionHostConfig.parallaxFactor`, 🎯T9)** — Reproduces the Apple Spatial Scenes effect: subtle device tilt drives a parallax offset that the game applies to its scene. Set `SessionHostConfig.parallaxFactor` > 0 to opt in (the same float controls both opt-in and sensitivity, scaling the engine's screen-XY delta before exposure). The engine maintains a 1.0 s EMA baseline so sustained tilts settle to the new neutral; `Context::parallax()` returns the recent delta as `la::float2{rotX, rotY}` in radians, suitable for `cameraOffset += ctx.parallax() * depth;` or feeding a small rotation matrix. Sensor source: iOS `CMMotionManager.deviceMotion.attitude` (sensor-fused, captures vertical-axis twist that gravity alone misses); Android `Sensor.TYPE_GAME_ROTATION_VECTOR` via JNI to the activity's `getAttitude()` (gyro+accel, no magnetometer — the EMA absorbs whatever heading reference Android picks). Desktop is a no-op (returns `{0, 0}`). Wire-mode parallax (player→server attitude streaming) is deferred until the player port lands.
-- **`ge::Rect`** — `{ x, y, w, h }` float rectangle. Returned by `Context::drawSafeRectInPts()`, `Context::uiSafeRectInPts()`, and `Context::fullRectInPts()` (all in point space per 🎯T60; +y points down per SDL/bgfx convention). The Rect type is **direction-agnostic** (caller decides what +y means) and **sign-honest** (methods compute their formulas as written; signed-area rects produce well-defined non-conventional results rather than asserting). Corner accessors are direction-agnostic: `x0y0()`, `x1y0()`, `x0y1()`, `x1y1()` — first index is position along x (0 = origin, 1 = far), second along y.
+- **`ge::Rect`** — `{ x, y, w, h }` float rectangle. Returned by `Context::drawSafeRectInPts()`, `Context::uiSafeRectInPts()`, and `Context::fullRectInPts()` (all in point space per 🎯T60; +y points down per SDL screen-coord convention). The Rect type is **direction-agnostic** (caller decides what +y means) and **sign-honest** (methods compute their formulas as written; signed-area rects produce well-defined non-conventional results rather than asserting). Corner accessors are direction-agnostic: `x0y0()`, `x1y0()`, `x0y1()`, `x1y1()` — first index is position along x (0 = origin, 1 = far), second along y.
   - **Constructors:**
     - `Rect{x, y, w, h}` — 4 floats directly.
     - `Rect{{.origin = {1, 2}, .size = {3, 4}}}` — `OriginSize` tagged ctor.
@@ -556,7 +555,7 @@ ged can run as a launchd agent for auto-start on login and restart-on-crash.
 - **`ge::Button` and `ge::ButtonGroup`** (`<ge/button.h>`) — Standard touch/click button interactor with iOS-style press semantics: tap down inside highlights, drag outside un-highlights, drag back in re-highlights, release inside fires, release outside doesn't. `Button` is rendering-agnostic — consumer supplies a `hitTest` predicate (`ge::rectHitTest(rect)` for the common case, or a lambda wrapping `lunasvg::Document::elementFromPoint`, or anything else) and queries `highlighted()` from the render loop (or wires `onHighlightChange` for one-shot side effects). `tracking()` reports whether a press is in flight. `ButtonGroup` borrows a `vector<Button*>` and routes `PointerEvent`s through them with single-button-lock semantics: once a button starts tracking, all subsequent events for any finger are claimed by the group until that button returns to idle. `ge::PointerEvent` is the engine's pre-converted pointer event (`{kind, pos, id}`); SDL → PointerEvent conversion is done by `ge::input::fromSdl` (see next).
 - **`ge::input::sdlPointerEventConverter(const Context&)`** + **`ge::input::fromSdl(const SDL_Event&, la::float2)`** (🎯T59, 🎯T60, `<ge/sdl_input.h>`) — Convert SDL pointer events to `ge::PointerEvent` in **point space** (🎯T60). The primary surface is `sdlPointerEventConverter(ctx)` — returns a callable bound to `ctx` that reads `ctx.fullRectInPts().size()` per call so surface-size changes (resize, orientation) are picked up automatically. `fromSdl` is the underlying free function (used by tests and callers without a Context); its second arg is `surfaceSizePts`. Returns `std::optional` — `nullopt` for non-pointer events and for touch-synthetic mouse events (`SDL_TOUCH_MOUSEID`) that duplicate a finger event. Mouse coords come from SDL in window-point space and are passed through as-is; touch coords are denormalized against `surfaceSizePts`. Mouse synthesizes a single virtual finger ID (`ge::kMouseId`); touch propagates `SDL_TouchFingerEvent::fingerID` verbatim. Consumers wiring `ge::Button` / `ge::ButtonGroup` use this once at their dispatch site instead of rewriting the SDL boilerplate.
 - **`ge::LongPressWatcher`** (🎯T65.6, `<ge/long_press.h>`) — Long-press gesture detector for "secret" / debug triggers (e.g. a long-press in the top-right corner reveals the IAP debug panel). Rect-region + threshold + onFire callback. `handleEvent(PointerEvent)` from the dispatch site, `update(dt)` each frame; fires exactly once per held press after `thresholdSec`. Single-touch by design (mirrors `ge::Button`). Re-press after fire fires again on the next threshold crossing. Drift-out cancels without firing — the discipline is "hold still", not "drift in". Wiring for the IAP debug panel is a few lines in the consumer's `#ifndef NDEBUG` block: instantiate watcher + `ge::iap::DebugPanel`, route pointer events through both, render the panel's `rows()` with the game's own UI primitives.
-- **`ge::SafeAreaInsets`** — Direction-agnostic per-edge insets (`y0`, `y1`, `x0`, `x1`, in **point space** after 🎯T60) describing the device chrome (camera notch, Dynamic Island, system gestures, home indicator). In ge's SDL/bgfx screen-coord (y-down), `y0` = top, `y1` = bottom, `x0` = left, `x1` = right. Most games consume `Context::drawSafeRectInPts()` / `uiSafeRectInPts()` instead — the rect API is the natural shape. Reach for `Context::drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (🎯T37 + 🎯T60) only when the task is "align flush with a specific chrome edge". All four edges are 0 on platforms with no safe-area concept (desktop) and on wire-mode sessions until the player→server safe-area plumbing lands (🎯T37 follow-up). On iOS / Android, populated from `SDL_GetWindowSafeArea` in `DirectRenderHost` (SDL returns pts; no conversion needed).
+- **`ge::SafeAreaInsets`** — Direction-agnostic per-edge insets (`y0`, `y1`, `x0`, `x1`, in **point space** after 🎯T60) describing the device chrome (camera notch, Dynamic Island, system gestures, home indicator). In ge's SDL screen-coord (y-down), `y0` = top, `y1` = bottom, `x0` = left, `x1` = right. Most games consume `Context::drawSafeRectInPts()` / `uiSafeRectInPts()` instead — the rect API is the natural shape. Reach for `Context::drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (🎯T37 + 🎯T60) only when the task is "align flush with a specific chrome edge". All four edges are 0 on platforms with no safe-area concept (desktop) and on wire-mode sessions until the player→server safe-area plumbing lands (🎯T37 follow-up). On iOS / Android, populated from `SDL_GetWindowSafeArea` in `DirectRenderHost` (SDL returns pts; no conversion needed).
 - **`ge::RunConfig`** — Render loop callbacks: `onUpdate(dt)`, `onRender(const Context&)`, `onEvent(SDL_Event)`, `onShutdown()`.
 - **`ge::Factory`** — `std::function<RunConfig(Context)>`.
 
@@ -595,8 +594,8 @@ ge has a small, unified surface for "rasterize/load → texture → draw". One `
 
 #### `Sprite` and `ge::frame` — the universal pair
 
-- **`ge::Sprite`** (`<ge/sprite.h>`) — `{ bgfx::TextureHandle tex; int width, height; }`. The output of every "X to texture" factory in ge: SVG (one-shot or live document), PNG, text, anything else. Caller owns `tex` and must `bgfx::destroy` it. Sprite's model space is the unit square `(0..1, 0..1)` with the source image filling it (u=v=0 at top-left, u=v=1 at bottom-right).
-- **`Sprite::draw(view)`** — pushes a unit-square quad to `view`. Premultiplied-alpha blend state is set automatically. Caller has set `bgfx::setTransform` to a model-to-world matrix — typically `ge::frame(rect)`. Compose with linalg rotation / scaling matrices for non-axis-aligned placement.
+- **`ge::Sprite`** (`<ge/sprite.h>`) — `{ sg_image tex; sg_view view; int width, height; }`. The output of every "X to texture" factory in ge: SVG (one-shot or live document), PNG, text, anything else. Caller owns `tex` and must `sg_destroy_image` it. Sprite's model space is the unit square `(0..1, 0..1)` with the source image filling it (u=v=0 at top-left, u=v=1 at bottom-right).
+- **`Sprite::draw(mvp)`** — submits a unit-square quad covering the sprite. `mvp` is the model-view-projection matrix (unit square → clip space, e.g. `la::mul(worldToClip, ge::frame(rect))`). Premultiplied-alpha blend is baked into the pipeline. The frame's `ge::Pass` (🎯T101) must already be open; the draw submits into the active sokol pass. Compose with linalg rotation / scaling matrices for non-axis-aligned placement.
 - **`ge::frame(Rect)`** (`<ge/transform.h>`) — returns a `la::float4x4` that maps the unit-square local space to the rect in parent space. Origin in the translation column, `Rect.w` / `Rect.h` as the x / y basis. **Negative `h` flips the y basis** — that is how a y-up parent space tells `frame` to put unit y=0 at the top. No separate y-up / y-down API.
 - **`ge::frameCentered(center, size)`** / **`ge::frameRotated(center, size, angle)`** (🎯T56, `<ge/transform.h>`) — sister builders parameterised by center + size. `frameCentered` is `constexpr` and matches `frame(Rect::centered(c, s))`. `frameRotated` adds a rotation by `angle` radians around `center` (positive = standard 2D-math CCW; CW on-screen with top-left origin); non-`constexpr` because `std::sin/cos` aren't `constexpr` until C++26 — same caveat as `DampedRotation::matrix()`.
 - **Rect-to-rect mapping** is just composition — `la::mul(frame(b), la::inverse(frame(a)))`. Use `la::mul`, not `operator*`; linalg deprecates the latter for matrices.
@@ -629,15 +628,15 @@ auto pondSvg = R"SVG(<svg xmlns="..." width="384" height="256">…</svg>)SVG";
 ge::Sprite pond = ge::rasterizeSvg(pondSvg, 384, 256);
 
 // Per frame, in y-up world:
+auto p = c.swapchainPass();  // open at top of onRender
 const auto m = ge::frame(ge::Rect{
     -0.24f, +0.45f,   // x = left, y = top in y-up (larger y)
      0.48f, -0.20f,   // w positive, h NEGATIVE for y-up
 });
-bgfx::setTransform(&m[0][0]);
-pond.draw(0);
+pond.draw(la::mul(worldToClip, m));   // mvp = the game's world-to-clip ∘ model
 
 // Shutdown:
-if (bgfx::isValid(pond.tex)) bgfx::destroy(pond.tex);
+if (pond.tex.id != SG_INVALID_ID) sg_destroy_image(pond.tex);
 ```
 
 **Interactive SVG panel (CSS + hit testing):**
@@ -647,7 +646,7 @@ auto doc = lunasvg::Document::loadFromData(svgBytes);
 doc->applyStyleSheet("button.active { fill: #FFA000 }");
 auto sprite = ge::renderSvgDocument(*doc, 1024, 256);
 
-// Per frame: bgfx::setTransform(...) + sprite.draw(view) as above.
+// Per frame: auto p = c.swapchainPass(); sprite.draw(la::mul(worldToClip, panelModelToWorld)); as above.
 
 // On tap (parent-space coords → unit-square via inverse, then to image pixels):
 const auto inv     = la::inverse(panelModelToWorld);
@@ -658,7 +657,7 @@ if (el && el.getAttribute("id") == "btn-play") { /* … */ }
 
 // On state change:
 doc->getElementById("btn-play").setAttribute("class", "active");
-if (bgfx::isValid(sprite.tex)) bgfx::destroy(sprite.tex);
+if (sprite.tex.id != SG_INVALID_ID) sg_destroy_image(sprite.tex);
 sprite = ge::renderSvgDocument(*doc, 1024, 256);
 ```
 
@@ -976,7 +975,7 @@ make && make player
 
 ### Modifying the player
 
-The player entry point is `ge/tools/player.cpp`. The Apple capture backend is `ge/tools/player_capture_apple.mm`. Mobile entry points in `ge/tools/ios/` and `ge/tools/android/` are currently broken (need bgfx port).
+The player entry point is `ge/tools/player.cpp`. The Apple capture backend is `ge/tools/player_capture_apple.mm`. Mobile player ports (`ge/tools/ios/`, `ge/tools/android/`) are dormant pending 🎯T34 (sokol_gfx rewrite).
 
 The player is app-agnostic — it decodes and displays whatever H.264 stream it receives. Avoid adding app-specific logic to the player.
 
@@ -988,7 +987,7 @@ Protocol changes require updating both `SessionHost.mm` (server side) and `playe
 
 1. Header in `include/ge/ClassName.h`
 2. Implementation in `src/ClassName.cpp` (or `.mm` for ObjC++)
-3. Use pImpl for classes that pull in bgfx/SDL/asio headers (see parent project's AGENTS.md for pImpl guidelines)
+3. Use pImpl for classes that pull in sokol/SDL/asio headers (see parent project's AGENTS.md for pImpl guidelines)
 4. Add to `ge/SRC` in `Module.mk` if it's a new source file
 5. Update this AGENTS.md's Public API section
 

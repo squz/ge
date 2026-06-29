@@ -5,20 +5,20 @@
 // subsystem.
 //
 // The engine subsystem (game logic + ge::run) is platform-agnostic: it
-// receives abstract events and submits bgfx draw calls. It does not know
-// whether the render output is going to a local window or being captured
-// and streamed to a remote player.
+// receives abstract events and submits sokol_gfx (sg_*) draw calls. It does
+// not know whether the render output is going to a local window or being
+// captured and streamed to a remote player.
 //
 // Two concrete implementations:
 //
-//   DirectRenderHost — owns a real SDL window + Metal/Vulkan surface; bgfx
-//     draws straight to it; SDL events come from local input. Used by
-//     distribution builds (one binary, no ged, no wire).
+//   DirectRenderHost — owns a real SDL window + Metal/Vulkan surface;
+//     sokol_gfx draws straight to it; SDL events come from local input. Used
+//     by distribution builds (one binary, no ged, no wire).
 //
 //   ServerWireBridge — owns a headless framebuffer + H.264 encoder + per-
-//     session WebSocket wire to a remote player; bgfx draws into the
-//     framebuffer; encoded frames stream out; SDL events arrive from
-//     the wire. Used by the brokered (ged + player) modality.
+//     session WebSocket wire to a remote player; encoded frames stream out;
+//     SDL events arrive from the wire. Used by the brokered (ged + player)
+//     modality — dormant, bgfx-era, pending 🎯T34's rewrite + sokol port.
 //
 // The PlayerWireBridge (player-side counterpart of ServerWireBridge) is
 // not a RenderHost — it wraps a DirectRenderHost, intercepts its events
@@ -75,8 +75,8 @@ public:
 
     // True while the render path is suspended (Android: activity in
     // background, swap chain torn down). The engine's run loop must
-    // skip beginFrame / onRender / bgfx::frame / endFrame while this
-    // is true — bgfx::frame() against a dead Android swap chain crashes.
+    // skip onRender (and the swapchain Pass it opens, 🎯T101) while this is
+    // true — rendering against a dead Android swap chain crashes.
     // Default false; only DirectRenderHost on Android ever returns true.
     virtual bool paused() const { return false; }
 

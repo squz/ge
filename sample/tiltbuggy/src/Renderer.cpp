@@ -294,7 +294,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     }
 
     // The host's beginFrame/endFrame handles viewport + clear (sokol has
-    // no per-view-state equivalent of bgfx::setViewRect / setViewClear).
+    // no per-view-state equivalent of the old bgfx setViewRect / setViewClear).
     // The host's composite pass applies viewport tilt; this renderer just
     // draws a flat top-down view.
 
