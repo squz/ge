@@ -1,5 +1,10 @@
 # Upstreaming the iOS orientation-change fix to bgfx
 
+> **OBSOLETE (2026-06-30, 🎯T34):** ge no longer uses bgfx — the renderer
+> migrated to sokol_gfx (🎯T38), and the bgfx/bx/bimg submodules + the
+> `bgfx-drawable-as-truth` patch were removed from the tree. This plan is kept
+> only as a historical record; there is nothing left to upstream.
+
 **Status:** draft plan — no issue raised yet, no fork yet.
 
 **Goal:** get the fix in `vendor/patches/bgfx-drawable-as-truth.patch`
