@@ -28,9 +28,6 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 VENDOR="vendor/github.com"
-BX_DIR="$VENDOR/bkaradzic/bx"
-BIMG_DIR="$VENDOR/bkaradzic/bimg"
-BGFX_DIR="$VENDOR/bkaradzic/bgfx"
 BOX2D_DIR="$VENDOR/erincatto/box2d"
 LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
@@ -42,7 +39,7 @@ SPDLOG_DIR="$VENDOR/gabime/spdlog"
 ASIO_DIR="$VENDOR/chriskohlhoff/asio"
 
 # Sanity check — submodules must be initialized (liteparser is plain files).
-for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR" "$SDL_DIR" "$FREETYPE_INC" "$SPDLOG_DIR" "$ASIO_DIR"; do
+for d in "$BOX2D_DIR" "$LUNASVG_DIR" "$SDL_DIR" "$FREETYPE_INC" "$SPDLOG_DIR" "$ASIO_DIR"; do
   if [[ ! -d "$d/include" && "$d" != "$BOX2D_DIR" && "$d" != "$FREETYPE_INC" ]]; then
     echo "error: $d/include missing. Run: git submodule update --init --recursive" >&2
     exit 1
@@ -53,18 +50,6 @@ for d in "$BX_DIR" "$BIMG_DIR" "$BGFX_DIR" "$BOX2D_DIR" "$LUNASVG_DIR" "$SDL_DIR
     exit 1
   fi
 done
-
-# ─── bx ────────────────────────────────────────────────────────────────
-mkdir -p "$OUT/bx/include"
-rsync -a "$BX_DIR/include/" "$OUT/bx/include/"
-
-# ─── bimg ──────────────────────────────────────────────────────────────
-mkdir -p "$OUT/bimg/include"
-rsync -a "$BIMG_DIR/include/" "$OUT/bimg/include/"
-
-# ─── bgfx ──────────────────────────────────────────────────────────────
-mkdir -p "$OUT/bgfx/include"
-rsync -a "$BGFX_DIR/include/" "$OUT/bgfx/include/"
 
 # ─── box2d ─────────────────────────────────────────────────────────────
 mkdir -p "$OUT/box2d/include"

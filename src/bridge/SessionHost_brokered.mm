@@ -7,9 +7,13 @@
 // (which define GE_DIRECT_ONLY) can omit this file and avoid pulling in
 // the bridge subsystem (ServerWireBridge, WebSocketClient, VideoEncoder,
 // FrameLog with thread dependencies, etc.).
+//
+// 🎯T34 (sokol port): dormant and not built (GE_SRC_BROKERED is excluded).
+// The render init (was BgfxContext) and the per-frame submit (was bgfx::frame())
+// are stubbed bgfx-free; the sideband / session / pacing / run-loop logic is
+// intact. The sokol revival uses SokolContext + the offscreen Pass model.
 
 #include <ge/SessionHost.h>
-#include <ge/BgfxContext.h>
 #include <ge/Signal.h>
 #include <ge/Protocol.h>
 #include <ge/VideoEncoder.h>
@@ -18,7 +22,6 @@
 
 #include "ServerWireBridge.h"
 
-#include <bgfx/bgfx.h>
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
 
@@ -54,7 +57,7 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
     const char* name = (config.appName && *config.appName) ? config.appName : "server";
 
     // Initial screen-saver policy — must be set before SDL_Init
-    // (BgfxContext does that). Games can toggle at runtime.
+    // (the render context does that). Games can toggle at runtime.
     SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER,
                 config.disableScreenSaver ? "0" : "1");
 
@@ -71,8 +74,9 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
         + std::to_string(wire::kProtocolVersion) + "}";
     sideband->sendText(hello);
 
-    // bgfx context — deferred until the first session's DeviceInfo arrives.
-    std::unique_ptr<BgfxContext> bgfxCtx;
+    // Render context — deferred until the first session's DeviceInfo arrives.
+    // 🎯T34: was std::unique_ptr<BgfxContext>; a SokolContext goes here.
+    bool renderInited = false;
 
     // Active sessions: each owns a ServerWireBridge (wire + capture + encode).
     std::unordered_map<std::string, BrokeredSession> sessions;
@@ -147,8 +151,8 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
         lastTime = now;
         if (dt > 0.1f) dt = 0.1f;
 
-        // Local SDL events (only after bgfx/SDL init).
-        if (bgfxCtx) {
+        // Local SDL events (only after render/SDL init).
+        if (renderInited) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_EVENT_QUIT) break;
@@ -159,14 +163,14 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
         for (auto& [id, bs] : sessions) {
             bs.bridge->pumpWire();
 
-            // Lazy init: when DeviceInfo has arrived, init bgfx (once,
-            // shared across all sessions) and the per-session capture.
+            // Lazy init: when DeviceInfo has arrived, init the render system
+            // (once, shared across all sessions) and the per-session capture.
             if (!bs.bridge->isReady() && bs.bridge->hasDimensions()) {
-                if (!bgfxCtx) {
-                    bgfxCtx = std::make_unique<BgfxContext>(
-                        BgfxConfig{bs.bridge->width(), bs.bridge->height(),
-                                   config.headless});
-                    SPDLOG_INFO("bgfx initialized at {}x{}",
+                if (!renderInited) {
+                    // 🎯T34: construct a headless SokolContext at
+                    // bs.bridge->width()×height() here — was BgfxContext.
+                    renderInited = true;
+                    SPDLOG_INFO("render system initialized at {}x{}",
                                 bs.bridge->width(), bs.bridge->height());
                 }
                 bs.bridge->initialize();
@@ -182,7 +186,11 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
             bs.bridge->beginFrame();
             if (bs.config.onRender) bs.config.onRender(bs.bridge->context());
             uint64_t t2 = SDL_GetPerformanceCounter();
-            uint32_t frameNum = bgfx::frame();
+            // 🎯T34: submit + advance the render frame here (was bgfx::frame(),
+            // whose return value synced the readback). The sokol path
+            // commits/presents via the offscreen Pass; frameIndex stands in as
+            // the sync counter while stubbed.
+            uint32_t frameNum = uint32_t(frameIndex);
             uint64_t t3 = SDL_GetPerformanceCounter();
             bs.bridge->endFrame(frameNum);
             uint64_t t4 = SDL_GetPerformanceCounter();
@@ -212,8 +220,8 @@ void runBrokered(Factory factory, const SessionHostConfig& config) {
             serverLog.record({t0, t1, t2, t3, t4});
         }
 
-        // Keep bgfx alive when no sessions are rendering.
-        if (bgfxCtx && sessions.empty()) bgfx::frame();
+        // 🎯T34: keep the render system ticking when no sessions are rendering
+        // (was bgfx::frame()). No-op while stubbed.
 
         // Reap disconnected sessions.
         for (auto it = sessions.begin(); it != sessions.end(); ) {

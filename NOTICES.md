@@ -76,29 +76,6 @@ compiled into the Android player.
 - Notice: Licensed under the Apache License, Version 2.0. See
   `vendor/github.com/ARM-software/astc-encoder/LICENSE.txt`.
 
-### bgfx
-- Source: https://github.com/bkaradzic/bgfx
-- Version: commit `dbdf48207a` (branch `ge-fork-upgrade` of `squz/bgfx`)
-- Licence: BSD 2-Clause
-- Copyright: © 2010–2026 Branimir Karadzic.
-- Notice: Redistributions in source or binary form must retain the
-  copyright notice and conditions. See
-  `vendor/github.com/bkaradzic/bgfx/LICENSE`.
-
-### bimg
-- Source: https://github.com/bkaradzic/bimg
-- Version: commit `9114b47f53` (branch `master`)
-- Licence: BSD 2-Clause
-- Copyright: © 2010–2026 Branimir Karadzic.
-- Notice: See `vendor/github.com/bkaradzic/bimg/LICENSE`.
-
-### bx
-- Source: https://github.com/bkaradzic/bx
-- Version: commit `c6131ec676` (branch `master`)
-- Licence: BSD 2-Clause
-- Copyright: © 2010–2026 Branimir Karadzic.
-- Notice: See `vendor/github.com/bkaradzic/bx/LICENSE`.
-
 ### sokol (sokol_gfx)
 - Source: https://github.com/floooh/sokol
 - Licence: zlib/libpng

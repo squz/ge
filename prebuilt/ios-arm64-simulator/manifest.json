@@ -8,7 +8,7 @@
     "sdk_version": "26.5"
   },
   "scripts": {
-    "tools/lift-headers.sh": "e13c31fd55a6550441d7ec5c3c76ce9a85e3bdca4649af8b07087df16d31c019",
+    "tools/lift-headers.sh": "4731cac565774344da9616a4edfa022f5b2a6d605b80fb069a9f8b2e4cfebcad",
     "tools/prebuild.sh": "e6bbbac2e5c96e28c718688b7e76663e3085a54145f0c2fb6bc01a337fc5dd99",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
@@ -16,9 +16,6 @@
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
     "vendor/github.com/FFmpeg/FFmpeg": "56b97c03d4e68aa7ed42b5bfd470166a7235e1aa",
-    "vendor/github.com/bkaradzic/bgfx": "dbdf48207a2afc18d6d012f8e826228271c7e0a3",
-    "vendor/github.com/bkaradzic/bimg": "9114b47f532ce59cd0c6c9f8932df2c48888d4c1",
-    "vendor/github.com/bkaradzic/bx": "c6131ec6761abf4b5b8e83a9fd0348023c86028e",
     "vendor/github.com/chriskohlhoff/asio": "55684d42ac00021b4c31ba8571aca414c863ead5",
     "vendor/github.com/erincatto/box2d": "8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3",
     "vendor/github.com/floooh/sokol-tools-bin": "8ac9f1240fc72c5cf405845bb6afdf9bf3f69ea4",

@@ -16,15 +16,6 @@
 [submodule "vendor/github.com/erincatto/box2d"]
 	path = vendor/github.com/erincatto/box2d
 	url = https://github.com/erincatto/box2d.git
-[submodule "vendor/github.com/bkaradzic/bgfx"]
-	path = vendor/github.com/bkaradzic/bgfx
-	url = https://github.com/squz/bgfx.git
-[submodule "vendor/github.com/bkaradzic/bx"]
-	path = vendor/github.com/bkaradzic/bx
-	url = https://github.com/bkaradzic/bx.git
-[submodule "vendor/github.com/bkaradzic/bimg"]
-	path = vendor/github.com/bkaradzic/bimg
-	url = https://github.com/bkaradzic/bimg.git
 [submodule "vendor/github.com/FFmpeg/FFmpeg"]
 	path = vendor/github.com/FFmpeg/FFmpeg
 	url = https://github.com/FFmpeg/FFmpeg.git

@@ -54,13 +54,13 @@ struct ServerWireBridge::Impl {
     DeviceClass deviceClass = DeviceClass::Desktop;
     float pixelsPerPt = 1.0f;
 
-    // Capture framebuffer + double-buffered readback.
-    bgfx::FrameBufferHandle fb = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle renderTex = BGFX_INVALID_HANDLE;
-
+    // Capture render target + double-buffered CPU readback staging.
+    // 🎯T34: the GPU render target + readback textures were bgfx
+    // (FrameBufferHandle / TextureHandle); a sokol offscreen target +
+    // captureFrameRGBASync (🎯T124) replaces them. The CPU-side staging
+    // buffers below are render-API-agnostic and kept as-is.
     static constexpr int kNumReadback = 3;
     struct ReadbackSlot {
-        bgfx::TextureHandle tex = BGFX_INVALID_HANDLE;
         std::vector<uint8_t> buf;
         uint32_t readyFrame = 0;
         bool pending = false;
@@ -75,13 +75,10 @@ struct ServerWireBridge::Impl {
     std::function<void(const SDL_Event&)> eventHandler;
 
     void submitCaptureBlit() {
-        auto& slot = readback[submitIdx];
-        if (slot.pending) return;
-        bgfx::setViewFrameBuffer(255, BGFX_INVALID_HANDLE);
-        bgfx::blit(255, slot.tex, 0, 0, renderTex);
-        slot.readyFrame = bgfx::readTexture(slot.tex, slot.buf.data());
-        slot.pending = true;
-        submitIdx = (submitIdx + 1) % kNumReadback;
+        // 🎯T34: kick off the GPU→CPU readback of the just-rendered frame
+        // into readback[submitIdx].buf, then mark it pending. Was a bgfx
+        // blit + readTexture; the sokol path is SokolContext::captureNextFrame /
+        // captureFrameRGBASync (🎯T124). Stubbed (no-op) while dormant.
     }
 
     bool readCapturedFrame(uint32_t frameNum) {
@@ -110,7 +107,6 @@ ServerWireBridge::~ServerWireBridge() {
 }
 
 const std::string& ServerWireBridge::id() const { return i_->id; }
-bgfx::FrameBufferHandle ServerWireBridge::framebuffer() const { return i_->fb; }
 
 int ServerWireBridge::width() const  { return i_->width; }
 int ServerWireBridge::height() const { return i_->height; }
@@ -196,19 +192,12 @@ void ServerWireBridge::pumpEvents() {
 void ServerWireBridge::initialize() {
     if (!i_->dimensionsKnown) return;
 
-    i_->renderTex = bgfx::createTexture2D(
-        i_->width, i_->height, false, 1,
-        bgfx::TextureFormat::BGRA8,
-        BGFX_TEXTURE_RT | BGFX_TEXTURE_BLIT_DST);
-    bgfx::TextureHandle attachments[] = { i_->renderTex };
-    i_->fb = bgfx::createFrameBuffer(1, attachments, false);
-
+    // 🎯T34: create the session's offscreen render target (BGRA8, w×h) and the
+    // readback textures here — was bgfx createTexture2D / createFrameBuffer; the
+    // sokol equivalent is the offscreen sg_image + sg_attachments the T124
+    // headless render already builds. Only the CPU staging is set up now.
     size_t frameBytes = size_t(i_->width) * i_->height * 4;
     for (auto& slot : i_->readback) {
-        slot.tex = bgfx::createTexture2D(
-            i_->width, i_->height, false, 1,
-            bgfx::TextureFormat::BGRA8,
-            BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
         slot.buf.resize(frameBytes);
     }
     i_->pixelBuf.resize(frameBytes);
@@ -256,10 +245,9 @@ void ServerWireBridge::initialize() {
 
 void ServerWireBridge::beginFrame() {
     if (!i_->ready) return;
-    // All bgfx views render into this session's framebuffer.
-    for (bgfx::ViewId v = 0; v < 16; ++v) {
-        bgfx::setViewFrameBuffer(v, i_->fb);
-    }
+    // 🎯T34: bind this session's offscreen render target so the engine's draws
+    // land in it (was bgfx setViewFrameBuffer on all views; the sokol path opens
+    // an offscreen ge::Pass / sg_pass for the session target).
     // Refresh per-frame Context state. Insets are zero in wire mode
     // until the player→server SafeAreaUpdate plumbing lands (🎯T37
     // follow-up); apps still consume the rect accessors identically
@@ -271,30 +259,18 @@ void ServerWireBridge::beginFrame() {
     }
 }
 
-void ServerWireBridge::endFrame(uint32_t bgfxFrameNumber) {
+void ServerWireBridge::endFrame(uint32_t frameNumber) {
     if (!i_->ready) return;
     i_->submitCaptureBlit();
-    if (i_->readCapturedFrame(bgfxFrameNumber)) {
+    if (i_->readCapturedFrame(frameNumber)) {
         i_->encoder->encode(i_->pixelBuf.data(), i_->width * 4);
     }
 }
 
 void ServerWireBridge::shutdown() {
     if (i_->encoder) i_->encoder->flush();
-    for (auto& slot : i_->readback) {
-        if (bgfx::isValid(slot.tex)) {
-            bgfx::destroy(slot.tex);
-            slot.tex = BGFX_INVALID_HANDLE;
-        }
-    }
-    if (bgfx::isValid(i_->fb)) {
-        bgfx::destroy(i_->fb);
-        i_->fb = BGFX_INVALID_HANDLE;
-    }
-    if (bgfx::isValid(i_->renderTex)) {
-        bgfx::destroy(i_->renderTex);
-        i_->renderTex = BGFX_INVALID_HANDLE;
-    }
+    // 🎯T34: destroy the session's offscreen render target + readback textures
+    // here (was bgfx::destroy of the fb + textures).
     i_->ready = false;
 }
 
