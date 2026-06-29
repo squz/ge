@@ -1123,9 +1123,10 @@ targets:
     discovered: 2026-06-30
   T132:
     name: A ge consumer can stop and start the render loop; ge idles (blocks, never busy-spins) when stopped and wakes on input or an explicit redraw request
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - A public ge API lets a consumer toggle the active session's render loop between continuous and on-demand/idle (e.g. ge::Context::setContinuousRendering(bool), or pause/resume), plus request a single frame (requestRedraw() / setNeedsDisplay()).
     - 'When idle and no redraw is pending, ge''s loop BLOCKS on its event source rather than spinning: measured loop-thread CPU drops to ~0 and onUpdate/onRender are not invoked.'
@@ -1149,6 +1150,7 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
