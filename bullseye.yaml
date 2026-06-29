@@ -1087,6 +1087,38 @@ targets:
     - build
     origin: manual
     discovered: 2026-06-29
+  T131:
+    name: ge apps can suspend rendering while the scene is static, so a still screen costs ~no GPU/encode/present work
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A consumer opts into render-on-demand and signals "scene unchanged" (e.g. an onRender/onUpdate no-change result, or a Context::requestRedraw()/setNeedsDisplay() handshake). When unchanged, ge skips the draw + present for that frame instead of rendering it.
+    - On a static screen with no input, measured GPU submits and swapchain presents fall to ~0/sec (verifiable via a present counter or onMetrics), versus continuous full-rate rendering today.
+    - The first input event (touch/mouse/key) or an explicit redraw request resumes rendering on the very next frame — no dropped first interaction and no added latency on the first post-idle frame.
+    - In the ged-brokered streaming path a static scene stops emitting H.264 frames on the wire (no encode, no present) and resumes on change; the player holds the last frame meanwhile.
+    - 'Opt-in and backward compatible: consumers that don''t adopt it keep rendering every frame unconditionally — no behaviour change for existing apps.'
+    - 'Works on every platform ge supports: desktop, iOS direct-mode, and Android direct-mode.'
+    - The opt-in surface is documented in one sentence at its declaration site in ge's public headers (RunConfig / Context).
+    context: |-
+      Realises the "future freeze-when-static rendering mode" referenced (but explicitly deferred) in 🎯T96's removal decision (2026-06-01): "The run loop renders every frame unconditionally (not on-demand), so a ge app presents drawables continuously even on a static menu." That unconditional render is the status quo today.
+
+      Surfaced by multimaze2: its menu, level-picker, and solved-level screens are genuinely static yet redraw at full refresh every frame — needless GPU and battery/thermal cost on the iOS launch target (multimaze2 🎯T16). A game-driven, opt-in render-on-demand mode lets the consumer declare a frame unchanged so ge skips draw/encode/present until input or an explicit redraw arrives.
+
+      Adjacent features that already shipped but are NOT this: 🎯T88 (background render pause — lifecycle-driven, not scene-driven) and 🎯T111 (onMetrics fps callback — adapts quality, still renders every frame). Design choice to settle during the work: per-frame "unchanged" return value vs. a requestRedraw()/invalidate handshake on Context. Original discussion lived only in a ge Codex session (2026-06-01); mnemo does not index Codex, so this target is the canonical record going forward.
+    tags:
+    - render
+    - run-loop
+    - render-on-demand
+    - power
+    - battery
+    - gpu
+    - ios
+    - android
+    - streaming
+    - surfaced-by:multimaze2
+    origin: manual
+    discovered: 2026-06-30
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
@@ -1705,7 +1737,10 @@ targets:
     - 'tools/AudioPlayer.h/.cpp moves into the player''s app code (or is deleted if ge''s audio surface absorbs it). The dormancy noted in 🎯T7''s PR #43 (AudioPlayer not currently compiled into any build target) resolves naturally: the player either uses ge''s audio path or carries AudioPlayer as part of its own sources.'
     - ge's server-side bgfx-encode path (the headless modality that turns onRender output into an H.264 stream) is unchanged. A player app instance running in headless server mode will encode whatever its onRender drew — i.e. the upstream video stream — and emit it. This is the precondition for 🎯T34.1's recursion test-bed; no changes are needed to ge's server side to make it work.
     - 'CLAUDE.md''s ''Server/player architecture'' section is rewritten to describe the new shape: ge apps can run in either server mode (headless, encoding for streaming) or windowed mode (rendering locally); the player happens to be a ge app whose onRender blits a video texture and whose app code handles the wire/decoder. The ''two parallel rendering frameworks'' framing goes away.'
-    context: 'Filed 2026-04-26 after a design conversation. The player is currently a bespoke application: tools/player.cpp + tools/player_core.cpp + tools/ios/main.mm + tools/android/.../main.cpp + src/render/PlayerRender.cpp + include/ge/PlayerRender.h. It has its own SDL window setup, its own SDL_Renderer-based drawing path, its own per-platform entry points, its own tilt-composite math (parallel to DirectRenderHost.mm), its own event coordinate mapping, and its own iOS/Android bootstrap.\n\nThe insight: that''s an enormous amount of plumbing that ge already provides to every other consumer. tiltbuggy / multimaze2 / yourworld and any future ge consumer get window + frame loop + bgfx + tilt composite + event delivery + per-platform mobile builds for free, because ge is exactly the framework designed to make app authoring easy across iOS / Android / desktop. The player is just another ge app whose onRender happens to draw a video texture instead of simulated geometry, and whose app code happens to manage a wire connection and an H.264 decoder instead of a physics simulation.\n\nWhat changes:\n- The player''s main() becomes a ~50-line ge app that calls ge::run(Factory) the same way tiltbuggy does.\n- The bespoke parts (network, decoder, wire framing, pairing-artifact handling, upstream event forwarding) stay bespoke. They live in the player''s app code, not in ge. ge has no notion of ''player mode'' — the player is just a ge app whose onUpdate pumps the wire and whose onRender blits a texture.\n- The platform-specific bootstrap (tools/ios/main.mm, tools/android/app/src/main/cpp/main.cpp) goes away. The player gets iOS xcframework + Android add_subdirectory(ge) builds for free, the same way every ge consumer does.\n- src/render/PlayerRender.cpp and the SDL_Renderer-based path go away. bgfx is the rendering layer.\n- The tilt composite stops being duplicated between PlayerRender.cpp and DirectRenderHost.mm. ge''s existing render-side tilt composite (used by direct-mode samples) serves the player too.\n- The YUV multi-plane texture upload from 🎯T32 lives natively in the player''s onRender (since bgfx is now the renderer, not SDL_Renderer).\n\nNon-goals:\n- ge does NOT gain a ''client mode'' or ''player mode'' role. ge::run is unchanged. The player is a regular ge app, period.\n- The wire protocol, decoder, and connection logic are NOT moved into ge. They''re app code, owned by the player''s source tree.\n- Performance characteristics stay the same or improve — the bgfx path replaces SDL_Renderer, which means the YUV-on-shader and tilt-composite paths get the engine''s normal performance instead of the player-specific bypass.\n\nRelation to other in-flight targets:\n- 🎯T7 audio-pause: AudioPlayer is currently dormant (per PR #43). Resolution: AudioPlayer either folds into the player''s app code, or ge''s audio surface absorbs the lifecycle, or AudioPlayer is deleted in favour of whichever path makes the player''s audio the same as any other ge app''s audio. T34 settles this naturally.\n- 🎯T11 pigeon migration: when ge''s transport switches to pigeon, the player picks it up automatically because the player''s bespoke wire code consumes whichever transport ge surfaces. The pigeon migration becomes simpler — there''s no separate ''now port the player'' phase.\n- 🎯T30 single-path-integration: the player retiring its bespoke entry points and consuming ge via add_subdirectory(ge) is exactly the principle T30 closed for tiltbuggy applied to the player. T34 inherits T30''s plumbing for free.\n- 🎯T32 YUV-on-shader: the player gains the YUV path natively when SDL_Renderer goes away.\n\nSequencing: substantial refactor; comparable in scope to T30''s single-path work or larger. Probably best landed after the 🎯T33 test-infrastructure family is in (so the new player can be exercised by the new spyder-driven matrix cells immediately), but before any pigeon migration so the pigeon work has only one player-shape to reason about.'
+    context: |-
+      Filed 2026-04-26: the player is currently a bespoke app (tools/player.cpp + per-platform entry points + src/render/PlayerRender.cpp + a SDL_Renderer video path + its own tilt-composite + event mapping). The insight: that's plumbing ge already gives every other consumer (window, frame loop, render backend, tilt composite, event delivery, per-platform mobile builds). The player is just another ge app whose onRender draws a video texture and whose app code manages the wire + H.264 decoder. So: the player's main() becomes a thin ge::run(Factory) app like sample/tiltbuggy; the bespoke surfaces (network, decoder, wire framing, pairing, upstream-event forwarding) stay as the player's app code; the per-platform bootstrap + PlayerRender.cpp + the SDL_Renderer path are deleted; the tilt composite stops being duplicated with DirectRenderHost; the T32 YUV upload lives in the player's onRender. Non-goals: ge gains NO 'player mode' (ge::run unchanged); the wire/decoder/connection logic is NOT moved into ge. Relations: T7 (AudioPlayer dormancy resolves), T11 (pigeon — player picks up whatever transport ge surfaces), T30 (player consumes ge via add_subdirectory like tiltbuggy), T32 (YUV path lands natively). Sequencing: large refactor, best after the T33 test infra, before pigeon.
+
+      UPDATE 2026-06-30 (the bgfx purge, a separate PR): **bgfx is now fully removed from the repo** — the bgfx/bx/bimg vendor submodules, lifted headers/{bgfx,bx,bimg}, the ShaderC binaries, the NOTICES entries, and the upstream-bgfx plan are gone, and the brokered/wire path (ServerWireBridge, SessionHost_brokered) is stubbed bgfx-free with 🎯T34 markers. So T34 no longer contains ANY 'remove bgfx' work. The acceptance below predates 🎯T38 (the sokol migration, since done) and is written in bgfx terms — read every 'bgfx' there as the sokol_gfx reality: the player's render is a sokol offscreen Pass + texture upload (not a 'bgfx textured-quad pass'); ge owns the SokolContext (not a 'bgfx context'); the server-side encode reads the frame back via SokolContext::captureFrameRGBASync — the headless sokol render+readback already built for 🎯T124 — instead of a bgfx framebuffer blit/readTexture. T34's remaining scope is therefore: (1) wire that existing sokol readback into the stubbed ServerWireBridge encode path (the WireWriter / VideoEncoder / wire-protocol / Context logic there is intact and bgfx-free), (2) construct a headless SokolContext in SessionHost_brokered's run loop (the BgfxContext slot is stubbed to a `renderInited` bool), (3) port the player main()/entry-points to a regular sokol ge app and delete the bespoke surfaces per the acceptance. PlayerRender.h's 'no bgfx' comment is already reworded.
     tags:
     - player
     - architecture
@@ -3432,9 +3467,10 @@ targets:
     achieved: 2026-06-21
   T77:
     name: iOS arm64 prebuilt libge.a regenerated against sokol_gfx
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 2.0
     acceptance:
     - ge/prebuilt/ios-arm64/libge.a contains zero bgfx symbol references (`nm | grep bgfx | wc -l` == 0)
     - ge/prebuilt/ios-arm64/manifest.json's submodule_shas no longer lists bkaradzic/bgfx, bkaradzic/bx, bkaradzic/bimg
@@ -3447,6 +3483,7 @@ targets:
     - T38
     origin: multimaze2-audit
     discovered: 2026-05-30
+    achieved: 2026-06-30
   T78:
     name: Prebuilt-staleness verifier catches T38-class prebuilt skew
     status: achieved
