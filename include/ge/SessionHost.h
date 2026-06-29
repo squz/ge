@@ -438,6 +438,24 @@ public:
     // swapchain pass per frame.
     Pass swapchainPass() const;
 
+    // 🎯T132 Render-on-demand (opt-in; default is continuous, every frame).
+    // setContinuousRendering(false) tells ge to stop drawing a static screen:
+    // the run loop renders only when input arrives or requestRedraw() is called,
+    // and idles (blocks on its event source, never busy-spins) in between —
+    // saving GPU, present, and battery on a still screen. requestRedraw() is
+    // thread-safe (call it from a timer / async / IAP callback) and renders
+    // exactly one frame. Const because they mutate shared per-session state, not
+    // the handle, so they work on the `const Context&` onRender/onUpdate receive.
+    // Direct-mode (desktop / iOS / Android) only; the brokered/streaming path is
+    // unaffected (🎯T34).
+    void setContinuousRendering(bool on) const;
+    bool continuousRendering() const;
+    void requestRedraw() const;
+
+    // SDL_EVENT_USER code identifying ge's redraw-wake event — requestRedraw()
+    // pushes it to wake an idle loop; the host filters it out before onEvent.
+    static constexpr int32_t kRedrawEventCode = 0x47455244;  // 'GERD'
+
     // Engine-internal: refresh per-frame state. Apps should not call
     // these — the run loop wires them up before each onUpdate /
     // onRender pair so accessors above always read live values.
@@ -462,6 +480,14 @@ public:
     // 🎯T101 The host installs its swapchain-pass factory here at session
     // start; Context::swapchainPass() invokes it.
     void setSwapchainPassFn(std::function<Pass()>);
+
+    // 🎯T132 Engine-internal redraw bookkeeping. markRedraw() sets the pending
+    // flag without a wake (the host calls it while already draining events);
+    // redrawPending() peeks; takeRedraw() reads-and-clears for the loop's
+    // render decision.
+    void markRedraw() const;
+    bool redrawPending() const;
+    bool takeRedraw() const;
 
 private:
     struct M;

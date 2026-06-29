@@ -105,6 +105,17 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
                 continue;
             }
 
+            // 🎯T132 Render-on-demand: when the consumer opted out of continuous
+            // rendering and nothing requested a redraw (input + requestRedraw()
+            // mark it), skip the whole draw+present for this frame. pumpEvents
+            // has already idled the thread (SDL_WaitEventTimeout, ~0% CPU), so
+            // this just avoids GPU/encode/present work on a static screen. Reset
+            // `last` so the next rendered frame doesn't see a multi-tick dt.
+            if (!host.context().continuousRendering() && !host.context().takeRedraw()) {
+                last = SDL_GetPerformanceCounter();
+                continue;
+            }
+
             // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf
             // push accumulator; it emits a {frame_ms, counters} sample ~once
             // per second when an app-channel is live (no-op otherwise).

@@ -7,6 +7,8 @@
 #include <doctest.h>
 #include <ge/SessionHost.h>
 
+#include <SDL3/SDL.h>
+
 #include <cmath>
 
 using ge::Context;
@@ -84,4 +86,37 @@ TEST_CASE("shouldReportMetrics gates sub-threshold deviations") {
     CHECK(shouldReportMetrics(66.0f, 60.0f, 0.1f));         // +10% exactly (>=)
     CHECK(shouldReportMetrics(54.0f, 60.0f, 0.1f));         // -10% exactly
     CHECK(shouldReportMetrics(80.0f, 60.0f, 0.1f));         // well above
+}
+
+// 🎯T132 render-on-demand flag logic. The loop/host integration (idle-block,
+// wake) is exercised at runtime; here we pin the Context state machine.
+TEST_CASE("Context render-on-demand: continuous flag + redraw set/take (🎯T132)") {
+    Context ctx = makeContext();
+    // Default is continuous; nothing pending.
+    CHECK(ctx.continuousRendering());
+    CHECK_FALSE(ctx.redrawPending());
+
+    // Opt out → on-demand. The host marks a redraw on input; the loop drains it.
+    ctx.setContinuousRendering(false);
+    CHECK_FALSE(ctx.continuousRendering());
+    CHECK_FALSE(ctx.redrawPending());
+    ctx.markRedraw();
+    CHECK(ctx.redrawPending());
+    CHECK(ctx.takeRedraw());          // loop consumes...
+    CHECK_FALSE(ctx.takeRedraw());    // ...and it's cleared
+    CHECK_FALSE(ctx.redrawPending());
+
+    // requestRedraw() sets the flag (the SDL wake is best-effort; init events so
+    // the push has a queue to land in).
+    SDL_InitSubSystem(SDL_INIT_EVENTS);
+    ctx.requestRedraw();
+    CHECK(ctx.redrawPending());
+    CHECK(ctx.takeRedraw());
+
+    // Resuming continuous requests a redraw so the next frame always draws.
+    (void)ctx.takeRedraw();
+    ctx.setContinuousRendering(true);
+    CHECK(ctx.continuousRendering());
+    CHECK(ctx.takeRedraw());
+    SDL_QuitSubSystem(SDL_INIT_EVENTS);
 }

@@ -3,6 +3,10 @@
 
 #include <ge/SessionHost.h>
 
+#include <SDL3/SDL_events.h>
+
+#include <atomic>
+
 namespace ge {
 
 // Rect::intersect / bbox are now defined inline as constexpr in
@@ -12,14 +16,14 @@ struct Context::M {
     // Render-surface size in pixels (the GPU-facing unit passed to sokol).
     // Stored in pixels because that is the unit sokol/SDL work in; all
     // outward-facing rect accessors convert to pt via pixelsPerPt.
-    int surfacePxW;
-    int surfacePxH;
-    DeviceClass deviceClass;
+    int surfacePxW = 0;
+    int surfacePxH = 0;
+    DeviceClass deviceClass = DeviceClass::Unknown;
     // Insets in pt (the consumer-facing unit). Render hosts convert from
     // pixel insets at the boundary before calling setDrawSafeInsets /
     // setUiSafeInsets; consumers never see raw pixel insets.
-    SafeAreaInsets drawInsetsPt;  // display cutouts only
-    SafeAreaInsets uiInsetsPt;    // cutouts + gesture / tappable zones
+    SafeAreaInsets drawInsetsPt{};  // display cutouts only
+    SafeAreaInsets uiInsetsPt{};    // cutouts + gesture / tappable zones
     float pixelsPerPt = 1.0f;
     float deviceUiScale = 1.0f;
     la::float2 parallax{0.0f, 0.0f};
@@ -27,17 +31,24 @@ struct Context::M {
     float frameTime = 0.0f;  // 🎯T111 EMA of run-loop dt, seconds
     std::shared_ptr<sqlpipe::Database> db;
     std::function<Pass()> swapchainPassFn;  // 🎯T101 installed by the host
+    // 🎯T132 render-on-demand. `continuous` is touched only on the game thread
+    // (consumer toggles it in onUpdate/onRender; the loop reads it). `redraw` is
+    // the pending one-shot, set from any thread via requestRedraw().
+    bool continuous = true;
+    std::atomic<bool> redraw{false};
 };
 
 Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
                  const std::string& dbPath,
                  const std::string& schemaDdl)
-    : m(std::make_shared<M>(M{
-        .surfacePxW = surfaceWidth,
-        .surfacePxH = surfaceHeight,
-        .deviceClass = deviceClass,
-        .db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl),
-    })) {}
+    : m(std::make_shared<M>()) {
+    // 🎯T132: M holds a std::atomic (non-movable), so build it in place rather
+    // than moving a designated-initializer temporary in.
+    m->surfacePxW = surfaceWidth;
+    m->surfacePxH = surfaceHeight;
+    m->deviceClass = deviceClass;
+    m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
+}
 
 Rect Context::drawSafeRectInPts() const {
     const auto& s = m->drawInsetsPt;
@@ -98,5 +109,28 @@ Pass Context::swapchainPass() const {
     if (m->swapchainPassFn) return m->swapchainPassFn();
     return makePass(nullptr);
 }
+
+// 🎯T132 Render-on-demand. const methods that mutate the shared per-session M
+// (not the Context handle), so a consumer can call them on the const Context&
+// passed to onRender / onUpdate.
+void Context::setContinuousRendering(bool on) const {
+    m->continuous = on;
+    if (on) requestRedraw();  // resuming continuous: guarantee the next frame draws
+}
+bool Context::continuousRendering() const { return m->continuous; }
+
+void Context::requestRedraw() const {
+    m->redraw.store(true, std::memory_order_relaxed);
+    // Wake a loop idling in pumpEvents' SDL_WaitEventTimeout. SDL's event queue
+    // is thread-safe, so this is safe from any thread; the host filters this
+    // sentinel out before delivering to onEvent.
+    SDL_Event e{};
+    e.type = SDL_EVENT_USER;
+    e.user.code = kRedrawEventCode;
+    SDL_PushEvent(&e);
+}
+void Context::markRedraw() const { m->redraw.store(true, std::memory_order_relaxed); }
+bool Context::redrawPending() const { return m->redraw.load(std::memory_order_relaxed); }
+bool Context::takeRedraw() const { return m->redraw.exchange(false, std::memory_order_relaxed); }
 
 } // namespace ge

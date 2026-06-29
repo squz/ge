@@ -706,13 +706,27 @@ void DirectRenderHost::pumpEvents() {
     // event clears `blocking` so the remaining queue drains non-blocking.
     // Desktop/Android: paused() is false, so this is always a plain poll.
     constexpr int kPausedWaitMs = 250;
-    bool blocking = paused();
+    // 🎯T88 paused (backgrounded) OR 🎯T132 idle (consumer opted out of
+    // continuous rendering and no redraw is pending): block on the event source
+    // instead of spinning. SDL_WaitEventTimeout idles at ~0% CPU and bounds the
+    // shouldQuit re-check; the first delivered event clears `blocking` so the
+    // rest of the queue drains non-blocking.
+    const bool onDemandIdle = i_->ctx && !i_->ctx->continuousRendering() &&
+                              !i_->ctx->redrawPending();
+    bool blocking = paused() || onDemandIdle;
+    bool sawRealEvent = false;
     SDL_Event e;
     for (;;) {
         bool have = blocking ? SDL_WaitEventTimeout(&e, kPausedWaitMs)
                              : SDL_PollEvent(&e);
         if (!have) break;
         blocking = false;
+        // 🎯T132 Drop the redraw-wake sentinel — requestRedraw() already set the
+        // pending flag; this event exists only to wake a blocked WaitEvent.
+        if (e.type == SDL_EVENT_USER && e.user.code == Context::kRedrawEventCode) {
+            continue;
+        }
+        sawRealEvent = true;  // 🎯T132 any real event resumes rendering
         if (e.type == SDL_EVENT_QUIT) {
             i_->quit = true;
             continue;
@@ -830,6 +844,10 @@ void DirectRenderHost::pumpEvents() {
         }
         if (i_->eventHandler) i_->eventHandler(e);
     }
+    // 🎯T132 Any real event (input, resize, lifecycle) resumes rendering: mark a
+    // redraw so the run loop's on-demand skip renders the next frame. No-op in
+    // continuous mode (the loop never consumes the flag there).
+    if (sawRealEvent && i_->ctx) i_->ctx->markRedraw();
 }
 
 void DirectRenderHost::refreshFrame(float dt) {
