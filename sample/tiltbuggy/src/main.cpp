@@ -1,26 +1,22 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// TiltBuggy — a ge sample, a faithful port of the 2013 Chipmunk/iOS TiltBuggy
-// (🎯T137). Tilt the device and a steering buggy drives in arcs across an
-// asphalt arena; ice and dirt patches rob traction. On a real device the
-// accelerometer drives gravity; on desktop/simulator/emulator AccelSynth
-// synthesises SDL_EVENT_SENSOR_UPDATE from Shift-gated mouse drag (hold Shift
-// and drag to tilt the world).
+// TiltBuggy — a ge sample, an exact-match port of the 2013 Chipmunk/iOS
+// TiltBuggy (🎯T137): a tiled-asphalt arena with ice + dirt patches and the
+// buggy, driven by device tilt. Tilt the device (or, on desktop/sim/emu, hold
+// Shift and drag — AccelSynth) and the buggy drives across the arena; ice and
+// dirt rob traction. No title, no buttons, no recolour — the screen matches the
+// original.
 //
-// CORE GAME (the 2013 parity port): tilt→gravity, the vehicle-dynamics model
-// (Scene.cpp), the surface traps, the follow camera, and the textured art
-// (Renderer.cpp).
+// CORE GAME: tilt→gravity, the vehicle-dynamics model (Scene.cpp), the surface
+// traps, the camera, and the original textures (Renderer.cpp).
 //
-// ge ENGINE SHOWCASES layered on top — each opt-in / off-by-default, present to
-// exercise an engine capability, NOT part of the original game (🎯T137.6):
-//   • IAP (🎯T65.7): the BUY PRO button + yellow→cyan buggy recolour.
-//   • App channel (🎯T92/T115): state slices (scene/iap/geometry) + perf counters.
-//   • Render-on-demand (🎯T131/T132): GE_RENDER_ON_DEMAND idles a settled buggy.
-//   • Debug overlay (🎯T97): GE_DEBUG_OVERLAY draws wireframes/HUD over the scene.
-//   • Headless render (🎯T124): the `render` verb → deterministic PNG + goldens.
-//   • SVG decals (🎯T42): the icy-pond + title art are lunasvg rasterisations.
-//   • Presentation-tilt (🎯T94): AccelSynth tilts the playfield in perspective.
+// ge ENGINE SHOWCASES remain wired but INVISIBLE / off-by-default (the visible
+// ones — BUY PRO, title, recolour, SVG decals — were stripped for parity;
+// reintroduce later, 🎯T137.6): app-channel state slices + perf counters
+// (🎯T92/T115), GE_RENDER_ON_DEMAND idle (🎯T131/T132), GE_DEBUG_OVERLAY
+// (🎯T97), the headless `render` verb + goldens (🎯T124), presentation-tilt on
+// synth platforms (🎯T94), and the dormant ge::iap catalogue (🎯T65.7).
 
 #include "Renderer.h"
 #include "Scene.h"
@@ -63,7 +59,6 @@ struct State {
     b2Vec2 gravity{0, 0};
     bool rendererInited = false;
     bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
-    bool proPurchaseInFlight = false;   // debounce: drop taps while Apple modal is up
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -211,13 +206,10 @@ int main(int argc, char* argv[]) {
 
         // 🎯T131.5 Render-on-demand demo (opt-in via GE_RENDER_ON_DEMAND). The
         // buggy is a physics body: render every frame while it's moving (box2d
-        // island-awake trigger), idle once the whole world sleeps. The render-
-        // liveness diagnostic spin changes the frame every tick, so it would
-        // defeat idle — turn it off in this mode.
+        // island-awake trigger), idle once the whole world sleeps.
         if (state.renderOnDemand) {
             ctx.setContinuousRendering(false);
             ge::box2d::renderWhileAwake(ctx, state.scene->worldId());
-            state.renderer->setDiagnosticSpin(false);
             SPDLOG_INFO("tiltbuggy: render-on-demand ON (box2d-awake trigger)");
         }
 
@@ -280,22 +272,9 @@ int main(int argc, char* argv[]) {
                                 state.gravity.x, state.gravity.y);
                     return;
                 }
-
-                // BUY PRO button tap (🎯T65.7): convert SDL pointer events
-                // to ge::PointerEvent in pt space (🎯T60), then hit-test
-                // against the same screen rect Renderer draws at.
-                auto pe = ge::input::fromSdl(e, ctx.fullRectInPts().size());
-                if (pe && pe->kind == ge::PointerEvent::Down
-                       && !ge::iap::owned("pro")
-                       && !state.proPurchaseInFlight
-                       && tiltbuggy::proButtonRect(ctx).contains(pe->pos)) {
-                    state.proPurchaseInFlight = true;
-                    SPDLOG_INFO("iap: tapping BUY PRO");
-                    ge::iap::buy("pro", [&state](ge::iap::Result r) {
-                        state.proPurchaseInFlight = false;
-                        SPDLOG_INFO("iap: buy pro complete ok={} error={}", r.ok, r.error);
-                    });
-                }
+                // (The IAP buy-button is an engine showcase, not part of the
+                // 2013 game — reintroduce later, 🎯T137.6. The catalogue stays
+                // registered below so ge::iap is exercised, just not drawn.)
             },
             .onShutdown = [&] {
                 state.scene.reset();
@@ -341,9 +320,7 @@ int main(int argc, char* argv[]) {
                     std::ifstream sin(e["state"].get<std::string>());
                     if (sin) { try { sin >> sj; } catch (...) {} }
                 }
-                items.push_back({[&state, sj] {
-                    if (state.renderer) state.renderer->setDiagnosticSpin(false);
-                    if (!sj.is_null()) applyState(state, sj);
+                items.push_back({[&state, sj] {                    if (!sj.is_null()) applyState(state, sj);
                 }, of});
             }
             const int ok = ge::renderBatch(factory,
@@ -362,9 +339,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        auto prepare = [&] {
-            if (state.renderer) state.renderer->setDiagnosticSpin(false);  // determinism
-            if (!stateJson.is_null()) applyState(state, stateJson);
+        auto prepare = [&] {            if (!stateJson.is_null()) applyState(state, stateJson);
         };
         const bool ok = ge::renderToPng(factory,
             {.width = renderW, .height = renderH, .appName = "tiltbuggy"},
