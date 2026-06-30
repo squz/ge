@@ -43,14 +43,35 @@ constexpr float kSteerClampRad  = 0.3f;   // ± steer-angle limit (orig -0.3..0.
 constexpr float kSteerSpringHz  = 2.5f;   // self-centring stiffness (cycles/s)
 constexpr float kSteerSpringZ   = 0.7f;   // self-centring damping ratio
 
-// Tire friction. kBaseGrip is the asphalt lateral-traction cap (m/s²): high
-// enough that the buggy tracks its heading. Ice/dirt drop the axle over them
-// (🎯T137.2). kRollResist is mild forward drag so the buggy coasts to rest
-// instead of gliding forever.
-constexpr float kBaseGrip   = 400.0f;     // m/s² lateral grip on asphalt
+// Tire friction. Both axles act on the chassis at their wheel points: box2d v3
+// has no groove joint, and the original front groove (on the light steering
+// body) doesn't translate to a mass-scaled impulse, so the front grip is applied
+// to the chassis at the front axle — the steering body stays as the cosmetic
+// self-centring caster (🎯T16).
+//
+// Each axle removes a *fraction* (0..1) of its sideways velocity per frame — a
+// proportional cornering force, not a hard cancel. This is what makes the buggy
+// turn to track its travel: rear grip > front grip puts the net lateral force
+// behind the centre of mass (like a dart's fin), so the heading weathervanes
+// onto the velocity. A hard symmetric cancel produces zero net torque from a
+// clean sideslip (both axles cancel equally) — the buggy would just slide
+// sideways and never turn; equal-and-saturating grip oversteers and spins out on
+// a fast release. Ice/dirt scale the axle's fraction down (🎯T137.2).
+constexpr float kFrontGrip  = 0.12f;      // fraction of front sideways vel / frame
+constexpr float kRearGrip   = 0.28f;      // fraction of rear sideways vel / frame
 constexpr float kRollResist = 0.6f;       // forward rolling drag, per second
+constexpr float kFrontAxleX  =  0.65f;    // chassis-local front axle
 constexpr float kRearWheelX  = -0.65f;    // chassis-local rear axle (orig -0.65)
-constexpr float kFrontWheelX = -0.10f;    // steering-local front axle (orig -0.1)
+constexpr float kMaxSpin     = 6.0f;      // rad/s yaw clamp — kills wild spins
+constexpr float kRefHz       = 60.0f;     // grip fractions are calibrated at 60fps
+
+// 🎯T16 Heading-alignment assist. The grip imbalance alone gives only a weak
+// weathervane (grip removes the sideways velocity that would drive it), so an
+// explicit restoring torque noses the buggy onto its travel direction: snappy at
+// speed, quiet at rest, and stable by construction (a damped restoring torque
+// can't spin out). kAlign is the stiffness; the body's angularDamping damps it.
+constexpr float kAlign         = 5.0f;    // heading-alignment stiffness
+constexpr float kMinAlignSpeed = 0.4f;    // m/s below which we don't align (anti-jitter)
 
 // ----------------------------------------------------------------------------
 // Surface traps (🎯T137.2)
@@ -75,10 +96,11 @@ constexpr uint64_t kCatBuggy  = 0x2;  // chassis body
 constexpr uint64_t kCatProbe  = 0x4;  // tread probes (detection only)
 constexpr uint64_t kCatSensor = 0x8;  // ice / dirt sensor patches
 
-// Cancel a wheel's lateral (sideways) velocity, capped by `gripAccel`, and
-// apply a little forward rolling resistance. Applied at the wheel's world point
-// so the impulse also yields the correct turning moment about the body's COM.
-void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripAccel,
+// Remove a fraction `gripFrac` (0..1) of a wheel's sideways velocity, plus a
+// little forward rolling resistance. Applied at the wheel's world point so the
+// impulse also yields the turning moment about the body's COM — the source of
+// the weathervane alignment.
+void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripFrac,
                        float rollResist, float dt) {
     const b2Vec2 fwd = b2Body_GetWorldVector(body, b2Vec2{1.0f, 0.0f});
     const b2Vec2 lat = b2Body_GetWorldVector(body, b2Vec2{0.0f, 1.0f});
@@ -86,15 +108,30 @@ void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripAccel,
     const b2Vec2 v   = b2Body_GetWorldPointVelocity(body, p);
     const float  m   = b2Body_GetMass(body);
 
-    // Lateral: cancel sideways velocity, capped at gripAccel·m·dt.
-    float jLat = -b2Dot(v, lat) * m;
-    const float cap = gripAccel * m * dt;
-    jLat = std::clamp(jLat, -cap, cap);
+    // Lateral: remove gripFrac of the sideways velocity (calibrated at 60fps,
+    // scaled to the actual dt, clamped so a long frame can't over-correct).
+    const float frac = std::clamp(gripFrac * dt * kRefHz, 0.0f, 1.0f);
+    const float jLat = -b2Dot(v, lat) * m * frac;
     b2Body_ApplyLinearImpulse(body, b2MulSV(jLat, lat), p, true);
 
     // Forward: gentle rolling resistance.
     const float jFwd = -rollResist * b2Dot(v, fwd) * m * dt;
     b2Body_ApplyLinearImpulse(body, b2MulSV(jFwd, fwd), p, true);
+}
+
+// 🎯T16 Torque the chassis so its heading tracks its travel direction. Restoring
+// (∝ sideslip) and speed-scaled, so the buggy noses into a turn at speed and
+// sits still at rest; the body's angularDamping provides the damping.
+void applyAlignment(b2BodyId body) {
+    const b2Vec2 vel = b2Body_GetLinearVelocity(body);
+    const float speed = b2Length(vel);
+    if (speed < kMinAlignSpeed) return;
+    const float velAngle = std::atan2(vel.y, vel.x);
+    const float heading  = b2Rot_GetAngle(b2Body_GetRotation(body));
+    const float slip = std::atan2(std::sin(velAngle - heading),
+                                  std::cos(velAngle - heading));
+    // A torque (not impulse) — box2d integrates it over the step.
+    b2Body_ApplyTorque(body, kAlign * slip * speed * b2Body_GetMass(body), true);
 }
 
 } // namespace
@@ -123,10 +160,10 @@ struct Scene::Impl {
     b2ShapeId frontProbeId;
     b2ShapeId rearProbeId;
 
-    // Live per-axle grip (m/s² lateral cap). Asphalt = kBaseGrip; 🎯T137.2 will
-    // drop the axle over an ice / dirt patch and restore it on exit.
-    float frontGrip = kBaseGrip;
-    float rearGrip  = kBaseGrip;
+    // Live per-axle grip (m/s² lateral cap). Asphalt = base; 🎯T137.2 drops the
+    // axle over an ice / dirt patch and restores it on exit.
+    float frontGrip = kFrontGrip;
+    float rearGrip  = kRearGrip;
 
     // Remembered surface bounds (y-up world rects) for surfaces().
     ge::Rect iceRect;
@@ -287,9 +324,8 @@ struct Scene::Impl {
             else if (b2Shape_IsValid(sensor) && B2_ID_EQUALS(sensor, dirtShapeId))
                 factor = kDirtGripFactor;
         }
-        const float grip = kBaseGrip * factor;
-        if (B2_ID_EQUALS(visitor, frontProbeId))      frontGrip = grip;
-        else if (B2_ID_EQUALS(visitor, rearProbeId))  rearGrip  = grip;
+        if (B2_ID_EQUALS(visitor, frontProbeId))      frontGrip = kFrontGrip * factor;
+        else if (B2_ID_EQUALS(visitor, rearProbeId))  rearGrip  = kRearGrip  * factor;
     }
 
     b2ShapeId makeSensorPatch(const ge::Rect& r) {
@@ -321,18 +357,27 @@ Scene::~Scene() = default;
 void Scene::step(float dt, b2Vec2 gravity) {
     b2World_SetGravity(i_->worldId, gravity);
 
-    // 🎯T137.1 Tire friction — front (steering body) + rear (chassis) — applied
-    // before the solve, like the original's per-step wheel update. This is what
-    // makes the buggy drive in arcs instead of sliding like a frictionless box.
-    // 🎯T137.2 will fold sensor-driven grip changes into i_->front/rearGrip.
+    // 🎯T137.1/T16 Tire friction — front + rear axles, both on the chassis —
+    // applied before the solve, like the original's per-step wheel update. This
+    // is what makes the buggy drive in arcs instead of sliding like a box; rear
+    // grip > front grip keeps it from spinning out (understeer).
+    // 🎯T137.2 folds sensor-driven grip changes into i_->front/rearGrip.
     if (dt > 0.0f) {
-        applyTireFriction(i_->chassisId,  {kRearWheelX, 0.0f},
-                          i_->rearGrip,  kRollResist, dt);
-        applyTireFriction(i_->steeringId, {kFrontWheelX, 0.0f},
+        applyTireFriction(i_->chassisId, {kFrontAxleX, 0.0f},
                           i_->frontGrip, kRollResist, dt);
+        applyTireFriction(i_->chassisId, {kRearWheelX, 0.0f},
+                          i_->rearGrip,  kRollResist, dt);
+        applyAlignment(i_->chassisId);
     }
 
     b2World_Step(i_->worldId, dt, 4);
+
+    // 🎯T16 Yaw clamp — a hard cap on chassis spin so a fast release / glancing
+    // wall hit can't send the buggy into an unrecoverable pirouette. Normal
+    // turning (~2–3 rad/s) is well under the cap, so it only catches blow-ups.
+    const float w = b2Body_GetAngularVelocity(i_->chassisId);
+    if (w >  kMaxSpin) b2Body_SetAngularVelocity(i_->chassisId,  kMaxSpin);
+    else if (w < -kMaxSpin) b2Body_SetAngularVelocity(i_->chassisId, -kMaxSpin);
 
     // 🎯T137.2 Fold this step's surface overlaps into next step's grip.
     i_->updateSurfaceGrip();
