@@ -17,10 +17,54 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
 namespace ge {
+
+// ── ge::Sprite RAII (🎯T135) ──────────────────────────────────────
+//
+// Owning move-only semantics: the destructor and move-assignment release the
+// underlying sg_image + sg_view so a re-rasterized slot can't orphan its prior
+// resources into sokol's small pools. Release is guarded on sg_isvalid() — a
+// Sprite outliving the sokol context (post-shutdown, or a headless unit test)
+// frees nothing rather than asserting inside a dead pool.
+
+namespace detail {
+namespace {
+std::atomic<uint64_t> g_spriteReleases{0};
+}  // namespace
+uint64_t spriteReleaseCount() { return g_spriteReleases.load(std::memory_order_relaxed); }
+}  // namespace detail
+
+void Sprite::destroy() {
+    if (view.id != SG_INVALID_ID || tex.id != SG_INVALID_ID) {
+        detail::g_spriteReleases.fetch_add(1, std::memory_order_relaxed);
+        if (sg_isvalid()) {
+            if (view.id != SG_INVALID_ID) sg_destroy_view(view);
+            if (tex.id  != SG_INVALID_ID) sg_destroy_image(tex);
+        }
+        tex = {}; view = {}; width = 0; height = 0;
+    }
+}
+
+Sprite::~Sprite() { destroy(); }
+
+Sprite::Sprite(Sprite&& o) noexcept
+    : tex(o.tex), view(o.view), width(o.width), height(o.height) {
+    o.tex = {}; o.view = {}; o.width = 0; o.height = 0;
+}
+
+Sprite& Sprite::operator=(Sprite&& o) noexcept {
+    if (this != &o) {
+        destroy();  // release this slot's prior resources before adopting o's
+        tex = o.tex; view = o.view; width = o.width; height = o.height;
+        o.tex = {}; o.view = {}; o.width = 0; o.height = 0;
+    }
+    return *this;
+}
 
 namespace {
 

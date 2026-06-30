@@ -595,7 +595,7 @@ ge has a small, unified surface for "rasterize/load → texture → draw". One `
 
 #### `Sprite` and `ge::frame` — the universal pair
 
-- **`ge::Sprite`** (`<ge/sprite.h>`) — `{ sg_image tex; sg_view view; int width, height; }`. The output of every "X to texture" factory in ge: SVG (one-shot or live document), PNG, text, anything else. Caller owns `tex` and must `sg_destroy_image` it. Sprite's model space is the unit square `(0..1, 0..1)` with the source image filling it (u=v=0 at top-left, u=v=1 at bottom-right).
+- **`ge::Sprite`** (`<ge/sprite.h>`) — `{ sg_image tex; sg_view view; int width, height; }`, **move-only and owning (🎯T135)**: the destructor frees `tex` + `view`, and move-assignment frees the slot's previous resources before adopting the new ones — so re-rasterizing a slot (`m->badge = rasterizeSvg(...)`) releases the old image/view instead of orphaning them into sokol's small pools (image 128 / view 256). An orphan-per-reassign is what eventually exhausted the pool and aborted in `sg_make_view` — multimaze2's tap-correlated iPhone-13 SIGABRT. Copying is **deleted** (prevents a double-free of the shared handles); pass by `const&` (`draw` / `SpriteBatch::addSprite` do) and `std::move` to transfer ownership. Release is guarded on `sg_isvalid()`, so a Sprite outliving the sokol context (post-`sg_shutdown`, or a headless unit test) is a safe no-op. The output of every "X to texture" factory in ge: SVG (one-shot or live document), PNG, text, anything else. Sprite's model space is the unit square `(0..1, 0..1)` with the source image filling it (u=v=0 at top-left, u=v=1 at bottom-right).
 - **`Sprite::draw(mvp)`** — submits a unit-square quad covering the sprite. `mvp` is the model-view-projection matrix (unit square → clip space, e.g. `la::mul(worldToClip, ge::frame(rect))`). Premultiplied-alpha blend is baked into the pipeline. The frame's `ge::Pass` (🎯T101) must already be open; the draw submits into the active sokol pass. Compose with linalg rotation / scaling matrices for non-axis-aligned placement.
 - **`ge::frame(Rect)`** (`<ge/transform.h>`) — returns a `la::float4x4` that maps the unit-square local space to the rect in parent space. Origin in the translation column, `Rect.w` / `Rect.h` as the x / y basis. **Negative `h` flips the y basis** — that is how a y-up parent space tells `frame` to put unit y=0 at the top. No separate y-up / y-down API.
 - **`ge::frameCentered(center, size)`** / **`ge::frameRotated(center, size, angle)`** (🎯T56, `<ge/transform.h>`) — sister builders parameterised by center + size. `frameCentered` is `constexpr` and matches `frame(Rect::centered(c, s))`. `frameRotated` adds a rotation by `angle` radians around `center` (positive = standard 2D-math CCW; CW on-screen with top-left origin); non-`constexpr` because `std::sin/cos` aren't `constexpr` until C++26 — same caveat as `DampedRotation::matrix()`.
@@ -799,6 +799,37 @@ app's bundle ID and passes the spdlog-rendered payload as one
   Empty `subsystem` auto-detects: `[[NSBundle mainBundle] bundleIdentifier]`
   on iOS, `Activity.getPackageName()` via SDL's JNI bridge on Android,
   falls back to `"ge"` otherwise.
+
+### Crash diagnostics (🎯T136)
+
+When a consumer's callback crashes inside the direct run loop, ge emits a
+last-gasp record through the **same app-channel logger spyder drains**
+(`app_log_get` / log capture) before the process dies — so the failure mode is
+visible without pulling and hand-symbolicating device IPS crash files (the
+archaeology that diagnosing 🎯T135's SIGABRT required). Two halves, both
+enabled by default and installed by `runDirect`:
+
+- **Uncaught exceptions** out of `onUpdate` / `onRender` / `onEvent` are caught,
+  logged via the app-channel logger (`SPDLOG_CRITICAL` → `AppChannelLogSink`,
+  flushed), and **re-thrown** — so the OS crash report (→ `std::terminate` → the
+  SIGABRT handler below) is unchanged; ge adds the trace, it doesn't swallow the
+  crash. The wrap is `ge::guardCallback` (`<ge/Signal.h>`).
+- **Fatal signals** — `SIGSEGV` / `SIGABRT` / `SIGBUS` / `SIGILL` / `SIGFPE` —
+  get a handler (`ge::installCrashHandlers`) that writes the signal + a
+  best-effort `backtrace_symbols_fd` dump to stderr (async-signal-safe first),
+  forwards it through the app-channel logger, then restores the default handler
+  and **re-raises** so the OS still writes its own crash report (`.ips` on
+  Apple, tombstone on Android, core on Linux). Unlike the SIGINT/SIGTERM
+  graceful-quit handlers (desktop-only), these are active on iOS/Android too —
+  exactly where the only trace otherwise is an IPS file.
+
+**Opt-out:** `SessionHostConfig.crashDiagnostics` (default `true`). Set `false`
+for a tool/test that wants raw aborts and untouched exception propagation;
+`runDirect` gates both halves on it via `ge::setCrashDiagnosticsEnabled`. The
+brokered/streaming path is out of scope (it has its own try/catch). Not gated by
+`NDEBUG`: the exception wrap is zero-cost when nothing throws, and the native
+`os_log` / `logcat` / stderr sinks make the report useful in release too even
+though the app-channel push itself compiles out.
 
 ### App Channel (🎯T92)
 

@@ -59,6 +59,12 @@ void push(std::string method, nlohmann::json params);
 // True once the hello handshake has completed and the channel is live.
 bool active();
 
+// 🎯T136 Block up to `timeoutMs` until queued pushes drain to the socket, so a
+// last-gasp crash / uncaught-exception log reaches spyder before the process
+// exits. Bounded — a crash reporter must never hang. No-op when no channel is
+// active and compiled out in release builds.
+void flush(int timeoutMs = 200);
+
 // 🎯T92.2 Dev time-control. The SessionHost run loop calls this once per
 // frame with the real (clamped) frame dt; it returns the dt to hand to
 // onUpdate after applying the pause / resume / step / speed state driven by

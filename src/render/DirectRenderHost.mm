@@ -847,7 +847,9 @@ void DirectRenderHost::pumpEvents() {
                 i_->refreshRateBoost.releasePress();
             }
         }
-        if (i_->eventHandler) i_->eventHandler(e);
+        if (i_->eventHandler) {
+            ge::guardCallback("onEvent", [&] { i_->eventHandler(e); });  // 🎯T136
+        }
     }
     // 🎯T132 Any real event (input, resize, lifecycle) resumes rendering: mark a
     // redraw so the run loop's on-demand skip renders the next frame. No-op in

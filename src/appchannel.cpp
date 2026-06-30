@@ -196,6 +196,14 @@ public:
         std::lock_guard<std::mutex> sl(sendMu_);
     }
 
+    // 🎯T136 Bounded flush for the crash path: drain within `timeoutMs` and
+    // return, never blocking indefinitely (a last-gasp reporter must not hang).
+    void flushFor(int timeoutMs) {
+        std::unique_lock<std::mutex> lk(queueMu_);
+        drainedCv_.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                            [this] { return sendQueue_.empty(); });
+    }
+
 private:
     // Bounded retry across the dial — the first attempt can lose to a
     // race (spyder listener up but routed late after device wake), or
@@ -741,12 +749,15 @@ void push(std::string method, nlohmann::json params) {
 
 bool active() { return Channel::instance().active(); }
 
+void flush(int timeoutMs) { Channel::instance().flushFor(timeoutMs); }
+
 #else  // NDEBUG — feature compiled out entirely.
 
 void registerMethod(std::string, Handler) {}
 void installFromEnv(const std::string&, const std::string&) {}
 void push(std::string, nlohmann::json) {}
 bool active() { return false; }
+void flush(int) {}
 float applyTimeControl(float realDt) { return realDt; }
 void perfEmit(const std::string&, double) {}
 void perfTick(float) {}
