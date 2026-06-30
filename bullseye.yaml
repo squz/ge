@@ -1153,9 +1153,10 @@ targets:
     achieved: 2026-06-30
   T133:
     name: Android swapchain provides a depth buffer (Vulkan + GLES3) so depth testing works
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 5.0
     acceptance:
     - 'The Android swapchain pass exposes a real depth(-stencil) attachment on BOTH backends: SokolContext_android sets desc.environment.defaults.depth_format and pass.swapchain.depth_format to a concrete format (e.g. SG_PIXELFORMAT_DEPTH or DEPTH_STENCIL), not SG_PIXELFORMAT_NONE; the GLES path requests SDL_GL_DEPTH_SIZE>=24 (currently 0); the Vulkan path (VkM) creates a per-frame/per-image depth VkImage+view and binds it into the sokol swapchain descriptor.'
     - A pipeline with depth.compare=LESS_EQUAL + depth.write_enabled correctly occludes later-submitted geometry behind nearer earlier-submitted geometry on-device, on a Vulkan device (Mali-G710) and on a GLES3 fallback device.
@@ -1172,6 +1173,7 @@ targets:
     - esfera2-audit
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T134:
     name: Render-on-demand idles a static screen even while an accelerometer/sensor stream is active
     status: achieved
