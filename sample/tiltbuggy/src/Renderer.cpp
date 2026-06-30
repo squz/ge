@@ -141,6 +141,11 @@ struct PosColorVertex {
 // under 4096, but the headroom keeps future surface-density bumps cheap.
 constexpr int kStreamBufferBytes = 4096 * int(sizeof(PosColorVertex));
 
+// 🎯T137.3 Phone follow-camera zoom: show this fraction of the arena half-extent
+// around the buggy (orig iPhone showed half the view = 2× zoom). Tablets/desktop
+// show the whole arena.
+constexpr float kPhoneViewFrac = 0.5f;
+
 // Append two triangles forming an axis-aligned rect (world space).
 void pushRect(std::vector<PosColorVertex>& verts, ge::Rect r, uint32_t abgr) {
     const float x0 = r.x;
@@ -295,50 +300,57 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // draws a flat top-down view.
 
     auto surf = c.fullRectInPts();
+    const float aspect = (surf.h > 0)
+        ? static_cast<float>(surf.w) / static_cast<float>(surf.h) : 1.0f;
 
-    // Orthographic projection: fit [-he,+he] in the shorter axis of
-    // the FULL surface, so world-space coords map uniformly across the
-    // whole backbuffer (including chrome).
-    const float he     = scene.halfExtent();
-    const float aspect = static_cast<float>(surf.w) / static_cast<float>(surf.h);
-    float orthoW, orthoH;
-    if (aspect >= 1.0f) {
-        orthoH = he;
-        orthoW = he * aspect;
-    } else {
-        orthoW = he;
-        orthoH = he / aspect;
-    }
+    // 🎯T137.1 Buggy pose drives both the camera and the chassis draw.
+    const Pose pose = scene.buggyPose();
 
+    // 🎯T137.3 Camera. Phones follow the buggy zoomed-in (orig iPhone: 2× +
+    // translate-by-buggy-pos); tablets/desktop show the whole arena (orig iPad).
+    // The scene layer (ground, surfaces, buggy) rides the follow projection; the
+    // UI layer (BUY PRO, title) rides a static whole-arena projection so it
+    // stays put on screen.
+    const float he        = scene.halfExtent();
+    const bool  followCam = c.deviceClass() == ge::DeviceClass::Phone;
+    const float viewHe    = followCam ? he * kPhoneViewFrac : he;
+
+    // Fit a world half-extent to the shorter surface axis.
+    auto orthoHalf = [aspect](float halfExtent, float& ow, float& oh) {
+        if (aspect >= 1.0f) { oh = halfExtent; ow = halfExtent * aspect; }
+        else                { ow = halfExtent; oh = halfExtent / aspect; }
+    };
+
+    float orthoW, orthoH;                        // scene (follow) view
+    orthoHalf(viewHe, orthoW, orthoH);
+    const float camX = followCam ? pose.x : 0.0f;
+    const float camY = followCam ? pose.y : 0.0f;
     const ge::la::float4x4 proj = orthoMetal(
-        -orthoW, orthoW,
-        -orthoH, orthoH,
-        -1.0f, 1.0f);
+        camX - orthoW, camX + orthoW, camY - orthoH, camY + orthoH, -1.0f, 1.0f);
 
-    // 🎯T94 Tilt the *playfield* in perspective as a surrogate for physical
-    // device tilt. presentationTilt() is AccelSynth's contribution — nonzero
-    // only on synth platforms (desktop / sim / emu), {0,0} on a real device
-    // (whose screen is already physically tilted, so this is identity there).
-    // Composed onto the base projection; the GPU's w-divide does the
-    // foreshortening. Applied to the scene (field, buggy, pond, title) but NOT
-    // the BUY PRO button — that stays axis-aligned so it lines up with its
-    // screen-space hit-test in main.cpp.
+    // 🎯T94 presentation-tilt perspective, composed onto the follow projection.
+    // Nonzero only on synth platforms (desktop / sim / emu); identity on device.
     const ge::la::float4x4 projTilt =
         ge::la::mul(ge::ortho::tilt(aspect, c.presentationTilt()), proj);
+
+    // Static whole-arena projection for screen-space UI (no follow, no tilt) so
+    // the BUY PRO button and title stay anchored to the screen.
+    float uiW, uiH;
+    orthoHalf(he, uiW, uiH);
+    const ge::la::float4x4 uiProj = orthoMetal(-uiW, uiW, -uiH, uiH, -1.0f, 1.0f);
+    const float uiPxToWorldX = (surf.w > 0) ? (2.0f * uiW / float(surf.w)) : 0.0f;
+    const float uiPxToWorldY = (surf.h > 0) ? (2.0f * uiH / float(surf.h)) : 0.0f;
 
     std::vector<PosColorVertex> verts;
     verts.reserve(6 * (2 + scene.surfaces().size()));
 
-    // Brown playfield placed at c.drawSafeRectInPts() — tiltbuggy is
-    // touch-free, so the maze can extend into gesture zones (the wider
-    // rect). World maps [-orthoW, +orthoW] to [0, surf.w] in pts.
-    auto safeRect = c.drawSafeRectInPts();
-    const float pxToWorldX = (surf.w > 0) ? (2.f * orthoW / float(surf.w)) : 0.f;
-    const float pxToWorldY = (surf.h > 0) ? (2.f * orthoH / float(surf.h)) : 0.f;
-    const float bgL = -orthoW + safeRect.x                * pxToWorldX;
-    const float bgR = -orthoW + (safeRect.x + safeRect.w) * pxToWorldX;
-    const float bgB =  orthoH - (safeRect.y + safeRect.h) * pxToWorldY;
-    const float bgT =  orthoH - safeRect.y                * pxToWorldY;
+    // Asphalt ground — fill the camera's visible world box (inflated to cover
+    // the presentation-tilt bleed), drawn with the follow projection so it
+    // scrolls with the buggy. Full-bleed under chrome (tiltbuggy is touch-free).
+    const float bgM     = 1.4f;
+    const float bgHalfW = orthoW * bgM, bgHalfH = orthoH * bgM;
+    const float bgL = camX - bgHalfW, bgR = camX + bgHalfW;
+    const float bgB = camY - bgHalfH, bgT = camY + bgHalfH;
     pushRect(verts, ge::Rect{bgL, bgB, bgR - bgL, bgT - bgB}, rgb(0xAA, 0x66, 0x44));
 
     // 2. Surface rects (excluding ice — drawn as a textured sprite below).
@@ -364,7 +376,6 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // shrunk to speed up physics, the rendered chassis tracks it).
     // Pro entitlement (🎯T65.7) flips the chassis paint from default
     // yellow to a chromed cyan — the visible gate for the IAP demo.
-    const Pose pose = scene.buggyPose();
     // 🎯T137.1 Draw the buggy at the physics chassis size (single source of
     // truth via Scene::chassisHalfExtents), not a fraction of the arena.
     const auto che = scene.chassisHalfExtents();
@@ -451,7 +462,9 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
             titleWidth,
             -titleHeight,                             // h NEGATIVE for y-up
         });
-        i_->title.draw(ge::la::mul(projTilt, model));
+        // 🎯T137.3 Title rides the static UI projection so it stays anchored to
+        // the screen top under the follow-camera, not scrolling with the scene.
+        i_->title.draw(ge::la::mul(uiProj, model));
     }
 
     // BUY PRO button — only when pro isn't owned. Positioned in screen-
@@ -462,12 +475,14 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // Screen → world conversion uses the same pxToWorldX/Y as the
         // background math above. World is y-up (frame() takes y=top with
         // h NEGATIVE to flip the basis); convert each axis accordingly.
-        const float wL =  -orthoW + btn.x                  * pxToWorldX;
-        const float wT =   orthoH - btn.y                  * pxToWorldY;  // y=top in y-up
-        const float wW =                btn.w              * pxToWorldX;
-        const float wH =                btn.h              * pxToWorldY;
+        // 🎯T137.3 Screen-space, on the static UI projection so it never moves
+        // with the follow camera — keeping it aligned to its pt-space hit-test.
+        const float wL =  -uiW + btn.x         * uiPxToWorldX;
+        const float wT =   uiH - btn.y         * uiPxToWorldY;  // y=top in y-up
+        const float wW =          btn.w        * uiPxToWorldX;
+        const float wH =          btn.h        * uiPxToWorldY;
         const auto model = ge::frame(ge::Rect{wL, wT, wW, -wH});
-        i_->buyPro.draw(ge::la::mul(proj, model));
+        i_->buyPro.draw(ge::la::mul(uiProj, model));
     }
 
     // ── 🎯T97 debug-overlay demo ────────────────────────────────────────
@@ -495,9 +510,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // classic "debug shape" look, both layers in one mesh() call.
         ge::debug::mesh(chassis, quad, ge::debug::kWireColor, ge::debug::kFillColor);
 
-        // Playfield border via box(), buggy position marker via circle() —
-        // the convenience shapes, wire-only (default colour).
-        ge::debug::box(ge::Rect{bgL, bgB, bgR - bgL, bgT - bgB});
+        // Arena border via box(), buggy position marker via circle() — the
+        // convenience shapes, wire-only (default colour). Border = the walls
+        // (±halfExtent), so it rides the follow camera with the scene.
+        ge::debug::box(ge::Rect{-he, -he, 2.0f * he, 2.0f * he});
         ge::debug::circle({pose.x, pose.y}, hw * 1.6f);
 
         const auto t = c.presentationTilt();
