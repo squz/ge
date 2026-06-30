@@ -132,7 +132,7 @@ struct GlesM final : SokolContext::M {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);  // 🎯T133: swapchain depth buffer
         SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   8);
         SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
         SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  8);
@@ -157,7 +157,7 @@ struct GlesM final : SokolContext::M {
 
         sg_desc desc{};
         desc.environment.defaults.color_format = SG_PIXELFORMAT_RGBA8;  // T39
-        desc.environment.defaults.depth_format = SG_PIXELFORMAT_NONE;
+        desc.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH;   // 🎯T133
         desc.environment.defaults.sample_count = 1;
         desc.logger.func = sokolLog;
         ge_sokol_set_api(ge_sokol_bind_gles());
@@ -197,13 +197,16 @@ struct GlesM final : SokolContext::M {
         act.colors[0].clear_value  = clearColor
             ? sg_color{clearColor[0], clearColor[1], clearColor[2], clearColor[3]}
             : sg_color{0.f, 0.f, 0.f, 1.f};
+        act.depth.load_action  = SG_LOADACTION_CLEAR;   // 🎯T133: clear depth to far
+        act.depth.store_action = SG_STOREACTION_DONTCARE;
+        act.depth.clear_value  = 1.0f;
 
         auto& sc = pass.swapchain;
         sc.width        = width;
         sc.height       = height;
         sc.sample_count = 1;
         sc.color_format = SG_PIXELFORMAT_RGBA8;
-        sc.depth_format = SG_PIXELFORMAT_NONE;
+        sc.depth_format = SG_PIXELFORMAT_DEPTH;   // 🎯T133: matches EGL 24-bit depth
         sc.gl.framebuffer = 0;  // FBO 0 == default EGL window framebuffer
         sg_begin_pass(&pass);
     }
@@ -267,6 +270,18 @@ struct VkM final : SokolContext::M {
     std::vector<VkImage>       images;
     std::vector<VkImageView>   views;
 
+    // 🎯T133: per-image depth attachment. sokol's swapchain pass needs a
+    // depth-stencil image/view when depth_format != NONE; without it the
+    // consumer's depth.compare/write are silently no-ops (sokol-metal is
+    // lenient and tests anyway, but GLES/Vulkan honour NONE). VK_FORMAT_D32_SFLOAT
+    // is what sokol maps SG_PIXELFORMAT_DEPTH to, and is a guaranteed-supported
+    // depth attachment format. One per swapchain image so frames in flight don't
+    // share a depth buffer.
+    static constexpr VkFormat  kDepthFormat = VK_FORMAT_D32_SFLOAT;
+    std::vector<VkImage>        depthImages;
+    std::vector<VkDeviceMemory> depthMemories;
+    std::vector<VkImageView>    depthViews;
+
     struct Sync {
         VkSemaphore presentComplete = VK_NULL_HANDLE;
         VkSemaphore renderFinished  = VK_NULL_HANDLE;
@@ -299,7 +314,7 @@ struct VkM final : SokolContext::M {
 
         sg_desc desc{};
         desc.environment.defaults.color_format = sgFormat(swapchainFormat);
-        desc.environment.defaults.depth_format = SG_PIXELFORMAT_NONE;
+        desc.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH;   // 🎯T133
         desc.environment.defaults.sample_count = 1;
         desc.environment.vulkan.instance           = instance;
         desc.environment.vulkan.physical_device    = physicalDevice;
@@ -446,8 +461,70 @@ struct VkM final : SokolContext::M {
             if (view) vkDestroyImageView(device, view, nullptr);
         views.clear();
         images.clear();
+        // 🎯T133: tear down the depth attachments alongside the color images.
+        for (VkImageView v : depthViews)    if (v) vkDestroyImageView(device, v, nullptr);
+        for (VkImage img : depthImages)     if (img) vkDestroyImage(device, img, nullptr);
+        for (VkDeviceMemory m : depthMemories) if (m) vkFreeMemory(device, m, nullptr);
+        depthViews.clear();
+        depthImages.clear();
+        depthMemories.clear();
         if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
         swapchain = VK_NULL_HANDLE;
+    }
+
+    // 🎯T133: pick a DEVICE_LOCAL memory type for the depth image.
+    uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags want) {
+        VkPhysicalDeviceMemoryProperties mp;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &mp);
+        for (uint32_t i = 0; i < mp.memoryTypeCount; ++i)
+            if ((typeBits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & want) == want)
+                return i;
+        return UINT32_MAX;
+    }
+
+    // 🎯T133: one depth image + view per swapchain image, at the current extent.
+    // Called from createSwapchain after the color views exist.
+    bool createDepthResources(uint32_t count) {
+        depthImages.resize(count, VK_NULL_HANDLE);
+        depthMemories.resize(count, VK_NULL_HANDLE);
+        depthViews.resize(count, VK_NULL_HANDLE);
+        for (uint32_t i = 0; i < count; ++i) {
+            VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            ici.imageType     = VK_IMAGE_TYPE_2D;
+            ici.format        = kDepthFormat;
+            ici.extent        = {extent.width, extent.height, 1};
+            ici.mipLevels     = 1;
+            ici.arrayLayers   = 1;
+            ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+            ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+            ici.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+            ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            if (!vkOk(vkCreateImage(device, &ici, nullptr, &depthImages[i]), "vkCreateImage(depth)"))
+                return false;
+
+            VkMemoryRequirements mr;
+            vkGetImageMemoryRequirements(device, depthImages[i], &mr);
+            uint32_t mt = findMemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            if (mt == UINT32_MAX) { SPDLOG_ERROR("no DEVICE_LOCAL memory for depth image"); return false; }
+            VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            mai.allocationSize  = mr.size;
+            mai.memoryTypeIndex = mt;
+            if (!vkOk(vkAllocateMemory(device, &mai, nullptr, &depthMemories[i]), "vkAllocateMemory(depth)"))
+                return false;
+            vkBindImageMemory(device, depthImages[i], depthMemories[i], 0);
+
+            VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            vi.image                       = depthImages[i];
+            vi.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+            vi.format                      = kDepthFormat;
+            vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            vi.subresourceRange.levelCount = 1;
+            vi.subresourceRange.layerCount = 1;
+            if (!vkOk(vkCreateImageView(device, &vi, nullptr, &depthViews[i]), "vkCreateImageView(depth)"))
+                return false;
+        }
+        return true;
     }
 
     bool createSwapchain() {
@@ -521,6 +598,8 @@ struct VkM final : SokolContext::M {
             if (!vkOk(vkCreateImageView(device, &vi, nullptr, &views[i]), "vkCreateImageView"))
                 return false;
         }
+
+        if (!createDepthResources(actualCount)) return false;  // 🎯T133
 
         sync.resize(std::max<size_t>(2, actualCount));
         VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
@@ -667,15 +746,20 @@ struct VkM final : SokolContext::M {
         act.colors[0].clear_value  = clearColor
             ? sg_color{clearColor[0], clearColor[1], clearColor[2], clearColor[3]}
             : sg_color{0.f, 0.f, 0.f, 1.f};
+        act.depth.load_action  = SG_LOADACTION_CLEAR;   // 🎯T133: clear depth to far
+        act.depth.store_action = SG_STOREACTION_DONTCARE;
+        act.depth.clear_value  = 1.0f;
 
         auto& sc = pass.swapchain;
         sc.width        = width;
         sc.height       = height;
         sc.sample_count = 1;
         sc.color_format = sgFormat(swapchainFormat);
-        sc.depth_format = SG_PIXELFORMAT_NONE;
+        sc.depth_format = SG_PIXELFORMAT_DEPTH;   // 🎯T133
         sc.vulkan.render_image               = vkHandle(images[imageIndex]);
         sc.vulkan.render_view                = vkHandle(views[imageIndex]);
+        sc.vulkan.depth_stencil_image        = vkHandle(depthImages[imageIndex]);  // 🎯T133
+        sc.vulkan.depth_stencil_view         = vkHandle(depthViews[imageIndex]);   // 🎯T133
         sc.vulkan.render_finished_semaphore  = vkHandle(s.renderFinished);
         sc.vulkan.present_complete_semaphore = vkHandle(s.presentComplete);
         sg_begin_pass(&pass);
