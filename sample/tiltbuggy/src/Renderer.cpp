@@ -365,8 +365,11 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // Pro entitlement (🎯T65.7) flips the chassis paint from default
     // yellow to a chromed cyan — the visible gate for the IAP demo.
     const Pose pose = scene.buggyPose();
-    const float hw = scene.halfExtent() * 0.05f;
-    const float hh = hw * 0.5f;
+    // 🎯T137.1 Draw the buggy at the physics chassis size (single source of
+    // truth via Scene::chassisHalfExtents), not a fraction of the arena.
+    const auto che = scene.chassisHalfExtents();
+    const float hw = che.x;
+    const float hh = che.y;
     const uint32_t buggyColor = ge::iap::owned("pro")
         ? rgb(0x00, 0xE0, 0xFF)   // pro: chromed cyan
         : rgb(0xFF, 0xCC, 0x33);  // default: yellow

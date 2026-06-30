@@ -32,7 +32,15 @@
 
 namespace {
 
-constexpr float kWorldHalfExtent = 0.625f;
+// 🎯T137.1 Restored to the 2013 ~10-unit world (was 1/16-shrunk to 0.625). The
+// follow-camera (🎯T137.3) keeps the buggy on screen, so the arena no longer
+// has to be tiny, and box2d v3's solver prefers human-scale bodies.
+constexpr float kWorldHalfExtent = 10.0f;
+
+// Device acceleration (≈9.8 m/s² per g) scaled into world gravity. The 2013
+// game drove gravity at ~100 per g for a snappy arcade feel; this gain is the
+// equivalent knob at this world scale (tuned in 🎯T16).
+constexpr float kGravityGain = 4.0f;
 
 struct State {
     std::unique_ptr<tiltbuggy::Scene> scene;
@@ -154,10 +162,10 @@ int main(int argc, char* argv[]) {
             {{"id", "buggy"}, {"pos", {0.0, 0.0}}, {"vel", {0.0, 0.0}}, {"angle", 0.0},
              {"shapes", nlohmann::json::array({
                  {{"type", "polygon"},
-                  {"vertices", {{-0.03, -0.016}, {0.03, -0.016}, {0.03, 0.016}, {-0.03, 0.016}}}},
+                  {"vertices", {{-1.0, -0.5}, {1.0, -0.5}, {1.0, 0.5}, {-1.0, 0.5}}}},
              })}},
         })},
-        {"bounds", {{"min", {-0.625, -0.625}}, {"max", {0.625, 0.625}}}},
+        {"bounds", {{"min", {-10.0, -10.0}}, {"max", {10.0, 10.0}}}},
     });
     ge::appchannel::registerStateSerializer(
         [&state] {
@@ -229,8 +237,8 @@ int main(int argc, char* argv[]) {
                     // buggy (free on the board) experiences gravity in the
                     // opposite direction — hence the negation.
                     const b2Vec2 oldG = state.gravity;
-                    state.gravity.x = -e.sensor.data[0];
-                    state.gravity.y = -e.sensor.data[1];
+                    state.gravity.x = -e.sensor.data[0] * kGravityGain;
+                    state.gravity.y = -e.sensor.data[1] * kGravityGain;
                     // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
                     // idle loop on its own, but a *meaningful tilt change* must:
                     // otherwise a tilt while the buggy is asleep would update
