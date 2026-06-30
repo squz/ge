@@ -1,11 +1,26 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// TiltBuggy — a ge sample driving a 2D buggy with tilt gravity.
-// Stage 2: Box2D physics + sokol rendering. On a real device the
-// accelerometer drives gravity. On desktop/simulator/emulator
-// AccelSynth synthesises SDL_EVENT_SENSOR_UPDATE events from
-// Shift-gated mouse drag — hold Shift and drag to tilt the world.
+// TiltBuggy — a ge sample, a faithful port of the 2013 Chipmunk/iOS TiltBuggy
+// (🎯T137). Tilt the device and a steering buggy drives in arcs across an
+// asphalt arena; ice and dirt patches rob traction. On a real device the
+// accelerometer drives gravity; on desktop/simulator/emulator AccelSynth
+// synthesises SDL_EVENT_SENSOR_UPDATE from Shift-gated mouse drag (hold Shift
+// and drag to tilt the world).
+//
+// CORE GAME (the 2013 parity port): tilt→gravity, the vehicle-dynamics model
+// (Scene.cpp), the surface traps, the follow camera, and the textured art
+// (Renderer.cpp).
+//
+// ge ENGINE SHOWCASES layered on top — each opt-in / off-by-default, present to
+// exercise an engine capability, NOT part of the original game (🎯T137.6):
+//   • IAP (🎯T65.7): the BUY PRO button + yellow→cyan buggy recolour.
+//   • App channel (🎯T92/T115): state slices (scene/iap/geometry) + perf counters.
+//   • Render-on-demand (🎯T131/T132): GE_RENDER_ON_DEMAND idles a settled buggy.
+//   • Debug overlay (🎯T97): GE_DEBUG_OVERLAY draws wireframes/HUD over the scene.
+//   • Headless render (🎯T124): the `render` verb → deterministic PNG + goldens.
+//   • SVG decals (🎯T42): the icy-pond + title art are lunasvg rasterisations.
+//   • Presentation-tilt (🎯T94): AccelSynth tilts the playfield in perspective.
 
 #include "Renderer.h"
 #include "Scene.h"
@@ -32,7 +47,15 @@
 
 namespace {
 
-constexpr float kWorldHalfExtent = 0.625f;
+// 🎯T137.1 Restored to the 2013 ~10-unit world (was 1/16-shrunk to 0.625). The
+// follow-camera (🎯T137.3) keeps the buggy on screen, so the arena no longer
+// has to be tiny, and box2d v3's solver prefers human-scale bodies.
+constexpr float kWorldHalfExtent = 10.0f;
+
+// Device acceleration (≈9.8 m/s² per g) scaled into world gravity. The 2013
+// game drove gravity at ~100 per g for a snappy arcade feel; this gain is the
+// equivalent knob at this world scale (tuned in 🎯T16).
+constexpr float kGravityGain = 4.0f;
 
 struct State {
     std::unique_ptr<tiltbuggy::Scene> scene;
@@ -119,9 +142,14 @@ int main(int argc, char* argv[]) {
     // are cheaply settable here (gravity + the pro entitlement).
     ge::appchannel::registerStateSlice("scene", [&state] {
         const auto p = state.scene ? state.scene->buggyPose() : tiltbuggy::Pose{};
+        const auto g = state.scene ? state.scene->gripState()
+                                   : tiltbuggy::GripState{};
         return nlohmann::json{
             {"buggy",   {{"x", p.x}, {"y", p.y}, {"angle", p.angle}}},
             {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+            // 🎯T137.2 Per-axle grip — drops when a tread is over ice/dirt, so a
+            // state-capture across an input sequence shows the surface effect.
+            {"grip",    {{"front", g.front}, {"rear", g.rear}}},
         };
     });
     ge::appchannel::registerStateSlice("iap", [] {
@@ -154,10 +182,10 @@ int main(int argc, char* argv[]) {
             {{"id", "buggy"}, {"pos", {0.0, 0.0}}, {"vel", {0.0, 0.0}}, {"angle", 0.0},
              {"shapes", nlohmann::json::array({
                  {{"type", "polygon"},
-                  {"vertices", {{-0.03, -0.016}, {0.03, -0.016}, {0.03, 0.016}, {-0.03, 0.016}}}},
+                  {"vertices", {{-1.0, -0.5}, {1.0, -0.5}, {1.0, 0.5}, {-1.0, 0.5}}}},
              })}},
         })},
-        {"bounds", {{"min", {-0.625, -0.625}}, {"max", {0.625, 0.625}}}},
+        {"bounds", {{"min", {-10.0, -10.0}}, {"max", {10.0, 10.0}}}},
     });
     ge::appchannel::registerStateSerializer(
         [&state] {
@@ -203,9 +231,10 @@ int main(int argc, char* argv[]) {
                 ge::appchannel::perfEmit("buggy_x", p.x);
                 static int frame = 0;
                 if (++frame % 60 == 0) {
-                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] pro={}",
+                    const auto gr = state.scene->gripState();
+                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.2f},{:.2f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
-                                ge::iap::owned("pro"));
+                                gr.front, gr.rear, ge::iap::owned("pro"));
                 }
             },
             .onRender = [&](const ge::Context& c) {
@@ -229,8 +258,8 @@ int main(int argc, char* argv[]) {
                     // buggy (free on the board) experiences gravity in the
                     // opposite direction — hence the negation.
                     const b2Vec2 oldG = state.gravity;
-                    state.gravity.x = -e.sensor.data[0];
-                    state.gravity.y = -e.sensor.data[1];
+                    state.gravity.x = -e.sensor.data[0] * kGravityGain;
+                    state.gravity.y = -e.sensor.data[1] * kGravityGain;
                     // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
                     // idle loop on its own, but a *meaningful tilt change* must:
                     // otherwise a tilt while the buggy is asleep would update

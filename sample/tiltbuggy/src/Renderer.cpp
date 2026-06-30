@@ -29,6 +29,7 @@
 // `vs_params_t` struct are also defined there.
 #include "simple.h"  // sokol-shdc generated; -I via Module.mk
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -125,6 +126,59 @@ constexpr std::string_view kTitleSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/
         paint-order="stroke">TILT BUGGY</text>
 </svg>)SVG";
 
+// 🎯T137.4 Asphalt road tile — a dark macadam base with scattered aggregate
+// speckles, tiled across the arena (orig asphalt.png, GL_REPEAT). Specks kept
+// off the edges so the tiling seams stay subtle.
+constexpr std::string_view kAsphaltSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#3b3b40"/>
+  <g fill="#4a4a50">
+    <circle cx="60"  cy="48"  r="6"/><circle cx="150" cy="38" r="4"/>
+    <circle cx="206" cy="70"  r="7"/><circle cx="40"  cy="120" r="5"/>
+    <circle cx="120" cy="110" r="8"/><circle cx="190" cy="140" r="5"/>
+    <circle cx="86"  cy="170" r="6"/><circle cx="150" cy="190" r="7"/>
+    <circle cx="210" cy="200" r="4"/><circle cx="58"  cy="214" r="5"/>
+  </g>
+  <g fill="#2f2f33">
+    <circle cx="100" cy="60"  r="5"/><circle cx="176" cy="100" r="4"/>
+    <circle cx="70"  cy="92"  r="4"/><circle cx="130" cy="150" r="5"/>
+    <circle cx="40"  cy="180" r="4"/><circle cx="200" cy="170" r="6"/>
+    <circle cx="158" cy="68"  r="3"/><circle cx="96"  cy="206" r="4"/>
+  </g>
+</svg>)SVG";
+
+// 🎯T137.4 Dirt patch tile — loose brown earth with darker clods and lighter
+// grit (orig dirt.png). Tiled across the dirt strip.
+constexpr std::string_view kDirtSvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#6f4a2c"/>
+  <g fill="#5a3a20">
+    <ellipse cx="64"  cy="56"  rx="22" ry="14"/><ellipse cx="170" cy="44" rx="16" ry="11"/>
+    <ellipse cx="206" cy="120" rx="20" ry="13"/><ellipse cx="48"  cy="150" rx="18" ry="12"/>
+    <ellipse cx="128" cy="138" rx="24" ry="15"/><ellipse cx="190" cy="196" rx="17" ry="12"/>
+    <ellipse cx="92"  cy="206" rx="20" ry="13"/>
+  </g>
+  <g fill="#86603d">
+    <circle cx="110" cy="80" r="4"/><circle cx="156" cy="104" r="3"/>
+    <circle cx="70"  cy="110" r="3"/><circle cx="180" cy="150" r="4"/>
+    <circle cx="100" cy="170" r="3"/><circle cx="146" cy="186" r="4"/>
+  </g>
+</svg>)SVG";
+
+// 🎯T137.4 Top-down buggy, facing +x (right = forward). Bodywork is white so
+// SpriteBatch tints it (yellow default → cyan when `pro` is owned, the IAP
+// showcase); wheels are black (tint-invariant), cockpit + nose are dark.
+constexpr std::string_view kBuggySvg = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" width="512" height="256" viewBox="0 0 512 256">
+  <g fill="#111111">
+    <rect x="96"  y="18"  width="96" height="40" rx="12"/>
+    <rect x="96"  y="198" width="96" height="40" rx="12"/>
+    <rect x="320" y="18"  width="96" height="40" rx="12"/>
+    <rect x="320" y="198" width="96" height="40" rx="12"/>
+  </g>
+  <path d="M 70,64 L 360,64 L 470,108 L 470,148 L 360,192 L 70,192
+           Q 48,128 70,64 Z" fill="#ffffff" stroke="#222222" stroke-width="6"/>
+  <rect x="150" y="92" width="120" height="72" rx="14" fill="#333842"/>
+  <path d="M 360,92 L 452,118 L 452,138 L 360,164 Z" fill="#2a2a2e"/>
+</svg>)SVG";
+
 } // namespace
 
 namespace tiltbuggy {
@@ -141,6 +195,15 @@ struct PosColorVertex {
 // under 4096, but the headroom keeps future surface-density bumps cheap.
 constexpr int kStreamBufferBytes = 4096 * int(sizeof(PosColorVertex));
 
+// 🎯T137.3 Phone follow-camera zoom: show this fraction of the arena half-extent
+// around the buggy (orig iPhone showed half the view = 2× zoom). Tablets/desktop
+// show the whole arena.
+constexpr float kPhoneViewFrac = 0.5f;
+
+// 🎯T137.4 World size of one asphalt/dirt texture tile (orig tiled ~every 2
+// world units). Tiles are batched, so the count is cheap.
+constexpr float kTileWorld = 2.5f;
+
 // Append two triangles forming an axis-aligned rect (world space).
 void pushRect(std::vector<PosColorVertex>& verts, ge::Rect r, uint32_t abgr) {
     const float x0 = r.x;
@@ -153,29 +216,6 @@ void pushRect(std::vector<PosColorVertex>& verts, ge::Rect r, uint32_t abgr) {
     verts.push_back({x0, y1, 0.0f, abgr});
     verts.push_back({x1, y0, 0.0f, abgr});
     verts.push_back({x0, y0, 0.0f, abgr});
-}
-
-// Append two triangles forming a rotated rect: the AABB `rect` rotated by
-// `angle` around its centre.
-void pushRotatedRect(std::vector<PosColorVertex>& verts,
-                     ge::Rect rect, float angle, uint32_t abgr) {
-    const float c = std::cos(angle);
-    const float s = std::sin(angle);
-    const auto  centre = rect.center();
-    const float hw = rect.w * 0.5f;
-    const float hh = rect.h * 0.5f;
-    // Four corners in local space: (±hw, ±hh)
-    const float lx[4] = { -hw,  hw,  hw, -hw };
-    const float ly[4] = { -hh, -hh,  hh,  hh };
-    PosColorVertex v[4];
-    for (int i = 0; i < 4; ++i) {
-        v[i].x    = centre.x + lx[i] * c - ly[i] * s;
-        v[i].y    = centre.y + lx[i] * s + ly[i] * c;
-        v[i].z    = 0.0f;
-        v[i].abgr = abgr;
-    }
-    verts.push_back(v[0]); verts.push_back(v[1]); verts.push_back(v[2]);
-    verts.push_back(v[0]); verts.push_back(v[2]); verts.push_back(v[3]);
 }
 
 // Pack 0xRRGGBB into ABGR (alpha=0xFF) for SG_VERTEXFORMAT_UBYTE4N.
@@ -219,9 +259,13 @@ struct Renderer::Impl {
     sg_pipeline pipeline = {};
     sg_buffer   stream   = {};   // SG_USAGE_STREAM per-frame vertex buffer
     bool        ready    = false;
-    ge::Sprite  pond;
+    ge::Sprite  asphalt;         // 🎯T137.4 tiled road texture
+    ge::Sprite  dirt;            // 🎯T137.4 dirt-patch texture
+    ge::Sprite  buggy;           // 🎯T137.4 buggy sprite (tinted)
+    ge::Sprite  pond;            // ice-patch texture (the icy pond SVG)
     ge::Sprite  title;
     ge::Sprite  buyPro;
+    ge::SpriteBatch batch;       // 🎯T137.4 reused per frame for the tiled ground
     float       diagSpin       = 0.f;   // 🎯T89 render-liveness accumulator
     bool        diagnosticSpin = true;  // 🎯T124 off for deterministic renders
 };
@@ -245,6 +289,9 @@ void Renderer::init(const char* /*shaderDir*/) {
     // ready — uploadPixels inside svg.cpp does `sg_make_image` which needs
     // sg_isvalid(). ge::run sets up sokol before invoking the factory, so
     // by the time init() runs here, sokol is live.
+    i_->asphalt = ge::rasterizeSvg(kAsphaltSvg, 256, 256);
+    i_->dirt    = ge::rasterizeSvg(kDirtSvg,    256, 256);
+    i_->buggy   = ge::rasterizeSvg(kBuggySvg,   512, 256);
     i_->pond   = ge::rasterizeSvg(kIcyPondSvg, 384, 256);
     i_->title  = ge::rasterizeSvg(kTitleSvg,   768, 128);
     i_->buyPro = ge::rasterizeSvg(kBuyProSvg,  256, 80);
@@ -295,145 +342,140 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // draws a flat top-down view.
 
     auto surf = c.fullRectInPts();
+    const float aspect = (surf.h > 0)
+        ? static_cast<float>(surf.w) / static_cast<float>(surf.h) : 1.0f;
 
-    // Orthographic projection: fit [-he,+he] in the shorter axis of
-    // the FULL surface, so world-space coords map uniformly across the
-    // whole backbuffer (including chrome).
-    const float he     = scene.halfExtent();
-    const float aspect = static_cast<float>(surf.w) / static_cast<float>(surf.h);
-    float orthoW, orthoH;
-    if (aspect >= 1.0f) {
-        orthoH = he;
-        orthoW = he * aspect;
-    } else {
-        orthoW = he;
-        orthoH = he / aspect;
-    }
+    // 🎯T137.1 Buggy pose drives both the camera and the chassis draw.
+    const Pose pose = scene.buggyPose();
 
+    // 🎯T137.3 Camera. Phones follow the buggy zoomed-in (orig iPhone: 2× +
+    // translate-by-buggy-pos); tablets/desktop show the whole arena (orig iPad).
+    // The scene layer (ground, surfaces, buggy) rides the follow projection; the
+    // UI layer (BUY PRO, title) rides a static whole-arena projection so it
+    // stays put on screen.
+    const float he        = scene.halfExtent();
+    const bool  followCam = c.deviceClass() == ge::DeviceClass::Phone;
+    const float viewHe    = followCam ? he * kPhoneViewFrac : he;
+
+    // Fit a world half-extent to the shorter surface axis.
+    auto orthoHalf = [aspect](float halfExtent, float& ow, float& oh) {
+        if (aspect >= 1.0f) { oh = halfExtent; ow = halfExtent * aspect; }
+        else                { ow = halfExtent; oh = halfExtent / aspect; }
+    };
+
+    float orthoW, orthoH;                        // scene (follow) view
+    orthoHalf(viewHe, orthoW, orthoH);
+    const float camX = followCam ? pose.x : 0.0f;
+    const float camY = followCam ? pose.y : 0.0f;
     const ge::la::float4x4 proj = orthoMetal(
-        -orthoW, orthoW,
-        -orthoH, orthoH,
-        -1.0f, 1.0f);
+        camX - orthoW, camX + orthoW, camY - orthoH, camY + orthoH, -1.0f, 1.0f);
 
-    // 🎯T94 Tilt the *playfield* in perspective as a surrogate for physical
-    // device tilt. presentationTilt() is AccelSynth's contribution — nonzero
-    // only on synth platforms (desktop / sim / emu), {0,0} on a real device
-    // (whose screen is already physically tilted, so this is identity there).
-    // Composed onto the base projection; the GPU's w-divide does the
-    // foreshortening. Applied to the scene (field, buggy, pond, title) but NOT
-    // the BUY PRO button — that stays axis-aligned so it lines up with its
-    // screen-space hit-test in main.cpp.
+    // 🎯T94 presentation-tilt perspective, composed onto the follow projection.
+    // Nonzero only on synth platforms (desktop / sim / emu); identity on device.
     const ge::la::float4x4 projTilt =
         ge::la::mul(ge::ortho::tilt(aspect, c.presentationTilt()), proj);
 
-    std::vector<PosColorVertex> verts;
-    verts.reserve(6 * (2 + scene.surfaces().size()));
+    // Static whole-arena projection for screen-space UI (no follow, no tilt) so
+    // the BUY PRO button and title stay anchored to the screen.
+    float uiW, uiH;
+    orthoHalf(he, uiW, uiH);
+    const ge::la::float4x4 uiProj = orthoMetal(-uiW, uiW, -uiH, uiH, -1.0f, 1.0f);
+    const float uiPxToWorldX = (surf.w > 0) ? (2.0f * uiW / float(surf.w)) : 0.0f;
+    const float uiPxToWorldY = (surf.h > 0) ? (2.0f * uiH / float(surf.h)) : 0.0f;
 
-    // Brown playfield placed at c.drawSafeRectInPts() — tiltbuggy is
-    // touch-free, so the maze can extend into gesture zones (the wider
-    // rect). World maps [-orthoW, +orthoW] to [0, surf.w] in pts.
-    auto safeRect = c.drawSafeRectInPts();
-    const float pxToWorldX = (surf.w > 0) ? (2.f * orthoW / float(surf.w)) : 0.f;
-    const float pxToWorldY = (surf.h > 0) ? (2.f * orthoH / float(surf.h)) : 0.f;
-    const float bgL = -orthoW + safeRect.x                * pxToWorldX;
-    const float bgR = -orthoW + (safeRect.x + safeRect.w) * pxToWorldX;
-    const float bgB =  orthoH - (safeRect.y + safeRect.h) * pxToWorldY;
-    const float bgT =  orthoH - safeRect.y                * pxToWorldY;
-    pushRect(verts, ge::Rect{bgL, bgB, bgR - bgL, bgT - bgB}, rgb(0xAA, 0x66, 0x44));
-
-    // 2. Surface rects (excluding ice — drawn as a textured sprite below).
-    // Both the dirt patch and the icy pond are gated behind the `pro`
-    // IAP (🎯T65.7) — without it the buggy slides on featureless
-    // asphalt; buying pro materialises the terrain features.
     const bool proOwned = ge::iap::owned("pro");
-    if (proOwned) {
-        for (const auto& s : scene.surfaces()) {
-            uint32_t color;
-            switch (s.type) {
-                case SurfaceType::Ice:     continue;  // see ice-sprite pass below
-                case SurfaceType::Dirt:    color = rgb(0xAA, 0x66, 0x44); break;
-                case SurfaceType::Asphalt: continue;
-                default:                   continue;
-            }
-            pushRect(verts, s.rect, color);
-        }
-    }
+    const auto che      = scene.chassisHalfExtents();
+    const float hw = che.x, hh = che.y;  // chassis half-extents (debug overlay)
 
-    // 3. Buggy — sized in proportion to the world (kept at 1/20 of the
-    // arena half-extent to match the Box2D shape, so when the world is
-    // shrunk to speed up physics, the rendered chassis tracks it).
-    // Pro entitlement (🎯T65.7) flips the chassis paint from default
-    // yellow to a chromed cyan — the visible gate for the IAP demo.
-    const Pose pose = scene.buggyPose();
-    const float hw = scene.halfExtent() * 0.05f;
-    const float hh = hw * 0.5f;
-    const uint32_t buggyColor = ge::iap::owned("pro")
-        ? rgb(0x00, 0xE0, 0xFF)   // pro: chromed cyan
-        : rgb(0xFF, 0xCC, 0x33);  // default: yellow
-    // 🎯T89 render-liveness indicator: a constant slow spin advanced once
-    // per rendered frame. If the buggy stops turning, the render loop has
-    // stalled (e.g. a Metal command-buffer wedge) — an at-a-glance signal
-    // that beats reattaching a logger. Purely visual; does not touch physics.
-    if (i_->diagnosticSpin) i_->diagSpin += 0.01f;  // ~one rev/~10s at 60fps
-    pushRotatedRect(verts,
-        ge::Rect{pose.x - hw, pose.y - hh, 2.f * hw, 2.f * hh},
-        pose.angle + i_->diagSpin,
-        buggyColor);
+    // Camera's visible world box, inflated past the presentation-tilt bleed.
+    const float bgM     = 1.4f;
+    const float bgHalfW = orthoW * bgM, bgHalfH = orthoH * bgM;
+    const ge::Rect cameraBox{camX - bgHalfW, camY - bgHalfH,
+                             2.0f * bgHalfW, 2.0f * bgHalfH};
 
-    // --- Submit the solid-color mesh ---
-    // sokol pattern: append into the stream buffer, bind, set uniforms, draw.
-    // No per-frame buffer alloc (the stream is reused; sg_append_buffer
-    // returns the byte offset of this slice).
-    const int vertCount = static_cast<int>(verts.size());
-    if (vertCount > 0) {
+    // ── Solid base fill (🎯T137.4) ──────────────────────────────────────
+    // One dark rect under the tiles via the simple pipeline — insurance against
+    // gaps or a null sprite. Everything else is textured below.
+    {
+        std::vector<PosColorVertex> base;
+        pushRect(base, cameraBox, rgb(0x3b, 0x3b, 0x40));
         sg_apply_pipeline(i_->pipeline);
-
-        sg_range vr{ .ptr = verts.data(), .size = size_t(vertCount) * sizeof(PosColorVertex) };
+        sg_range vr{ .ptr = base.data(), .size = base.size() * sizeof(PosColorVertex) };
         const int offset = sg_append_buffer(i_->stream, &vr);
-
         sg_bindings b{};
         b.vertex_buffers[0]        = i_->stream;
         b.vertex_buffer_offsets[0] = offset;
         sg_apply_bindings(&b);
-
-        // Identity model matrix — vertices already in world space — so the
-        // MVP collapses to just the projection.
         vs_params_t vsp;
         std::memcpy(vsp.u_modelViewProj, &projTilt[0][0], sizeof(vsp.u_modelViewProj));
         sg_range up{ .ptr = &vsp, .size = sizeof(vsp) };
         sg_apply_uniforms(UB_vs_params, &up);
-
-        sg_draw(0, vertCount, 1);
+        sg_draw(0, static_cast<int>(base.size()), 1);
     }
 
-    // Ice-sprite pass — drawn after the color batch so the pond sits on top
-    // of the dirt/background. Each ice surface gets a copy of the same
-    // SVG-rasterized texture, inflated 25% past the collision rect so the
-    // irregular bezier border has visible overhang past where the friction
-    // actually changes.
-    //
-    // World is y-up (gravity points -y), so the rect's `y` is the rect's
-    // TOP (larger y) and `h` is NEGATIVE, flipping the y basis so the
-    // sprite's source-image top lands at world top.
-    if (proOwned && !i_->pond.isNull()) {
+    // ── Textured scene: one SpriteBatch, layered by insertion order (🎯T137.4)
+    // asphalt tiles → dirt tiles → ice pond → buggy on top. Replaces the old
+    // solid-colour rects. SpriteBatch flushes per-texture runs in order, so the
+    // layering is preserved with one submit.
+    auto tileInto = [&](const ge::Sprite& spr, ge::Rect region, float tile) {
+        if (spr.isNull()) return;
+        const float x0 = std::floor(region.x / tile) * tile;
+        const float y0 = std::floor(region.y / tile) * tile;
+        for (float ty = y0; ty < region.y + region.h; ty += tile)
+            for (float tx = x0; tx < region.x + region.w; tx += tile) {
+                // Clip each cell to the region so a bounded patch (dirt) doesn't
+                // overhang onto the asphalt; uvSubRect keeps the texture aligned.
+                const float cx0 = std::max(tx, region.x);
+                const float cx1 = std::min(tx + tile, region.x + region.w);
+                const float cy0 = std::max(ty, region.y);
+                const float cy1 = std::min(ty + tile, region.y + region.h);
+                if (cx1 <= cx0 || cy1 <= cy0) continue;
+                i_->batch.addSprite(
+                    ge::frame(ge::Rect{cx0, cy0, cx1 - cx0, cy1 - cy0}), spr,
+                    ge::Rect{(cx0 - tx) / tile, (cy0 - ty) / tile,
+                             (cx1 - cx0) / tile, (cy1 - cy0) / tile});
+            }
+    };
+
+    i_->batch.clear();
+
+    // Asphalt floor — tiled across the whole visible box.
+    tileInto(i_->asphalt, cameraBox, kTileWorld);
+
+    // Surfaces — always shown (🎯T137.4 ungates terrain for parity; the original
+    // always drew ice/dirt. The IAP showcase is now the BUY PRO button + the
+    // buggy recolour, not the terrain). Dirt is tiled; ice is one irregular pond.
+    for (const auto& s : scene.surfaces())
+        if (s.type == SurfaceType::Dirt) tileInto(i_->dirt, s.rect, kTileWorld);
+
+    if (!i_->pond.isNull()) {
         for (const auto& s : scene.surfaces()) {
             if (s.type != SurfaceType::Ice) continue;
-            // Inflate 25% so the irregular bezier border has visible overhang
-            // past the (rectangular) collision area.
-            const float pw = s.rect.w * 0.125f;
-            const float ph = s.rect.h * 0.125f;
-            // y-up: rect.y is the bottom edge in scene's y-up world. To put the
-            // sprite top-down upright on screen, frame() needs y at the TOP
-            // (larger world y) and h NEGATIVE (basis points toward smaller y).
-            const auto model = ge::frame(ge::Rect{
-                s.rect.x - pw,
-                s.rect.y + s.rect.h + ph,        // top in y-up = bottom + height
-                s.rect.w + 2.f * pw,
-                -(s.rect.h + 2.f * ph),           // negative for y-up
-            });
-            i_->pond.draw(ge::la::mul(projTilt, model));
+            // Inflate 25% so the irregular bezier border overhangs the
+            // (rectangular) collision area. y-up: rect.y is the bottom edge, so
+            // frame() takes the TOP (bottom + height) with h NEGATIVE.
+            const float pw = s.rect.w * 0.125f, ph = s.rect.h * 0.125f;
+            i_->batch.addSprite(ge::frame(ge::Rect{
+                s.rect.x - pw, s.rect.y + s.rect.h + ph,
+                s.rect.w + 2.0f * pw, -(s.rect.h + 2.0f * ph)}), i_->pond);
         }
     }
+
+    // Buggy on top of the surfaces, at the chassis pose. Pro entitlement
+    // (🎯T65.7) tints it from default yellow to chromed cyan — the IAP demo's
+    // visible gate. 🎯T89 render-liveness spin (off for deterministic renders).
+    const uint32_t buggyColor = proOwned
+        ? rgb(0x66, 0xF0, 0xFF)   // pro: chromed cyan
+        : rgb(0xFF, 0xCC, 0x33);  // default: yellow
+    if (i_->diagnosticSpin) i_->diagSpin += 0.01f;
+    if (!i_->buggy.isNull()) {
+        i_->batch.addSprite(
+            ge::frameRotated({pose.x, pose.y}, {2.0f * hw, 2.0f * hh},
+                             pose.angle + i_->diagSpin),
+            i_->buggy, buggyColor);
+    }
+
+    i_->batch.submit(projTilt);
 
     // Title — sits above the pond, between iceT (0.375) and the top of the
     // playfield (halfExtent ~ 0.625). 6:1 aspect to match the SVG viewBox.
@@ -448,7 +490,9 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
             titleWidth,
             -titleHeight,                             // h NEGATIVE for y-up
         });
-        i_->title.draw(ge::la::mul(projTilt, model));
+        // 🎯T137.3 Title rides the static UI projection so it stays anchored to
+        // the screen top under the follow-camera, not scrolling with the scene.
+        i_->title.draw(ge::la::mul(uiProj, model));
     }
 
     // BUY PRO button — only when pro isn't owned. Positioned in screen-
@@ -459,12 +503,14 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // Screen → world conversion uses the same pxToWorldX/Y as the
         // background math above. World is y-up (frame() takes y=top with
         // h NEGATIVE to flip the basis); convert each axis accordingly.
-        const float wL =  -orthoW + btn.x                  * pxToWorldX;
-        const float wT =   orthoH - btn.y                  * pxToWorldY;  // y=top in y-up
-        const float wW =                btn.w              * pxToWorldX;
-        const float wH =                btn.h              * pxToWorldY;
+        // 🎯T137.3 Screen-space, on the static UI projection so it never moves
+        // with the follow camera — keeping it aligned to its pt-space hit-test.
+        const float wL =  -uiW + btn.x         * uiPxToWorldX;
+        const float wT =   uiH - btn.y         * uiPxToWorldY;  // y=top in y-up
+        const float wW =          btn.w        * uiPxToWorldX;
+        const float wH =          btn.h        * uiPxToWorldY;
         const auto model = ge::frame(ge::Rect{wL, wT, wW, -wH});
-        i_->buyPro.draw(ge::la::mul(proj, model));
+        i_->buyPro.draw(ge::la::mul(uiProj, model));
     }
 
     // ── 🎯T97 debug-overlay demo ────────────────────────────────────────
@@ -492,9 +538,10 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         // classic "debug shape" look, both layers in one mesh() call.
         ge::debug::mesh(chassis, quad, ge::debug::kWireColor, ge::debug::kFillColor);
 
-        // Playfield border via box(), buggy position marker via circle() —
-        // the convenience shapes, wire-only (default colour).
-        ge::debug::box(ge::Rect{bgL, bgB, bgR - bgL, bgT - bgB});
+        // Arena border via box(), buggy position marker via circle() — the
+        // convenience shapes, wire-only (default colour). Border = the walls
+        // (±halfExtent), so it rides the follow camera with the scene.
+        ge::debug::box(ge::Rect{-he, -he, 2.0f * he, 2.0f * he});
         ge::debug::circle({pose.x, pose.y}, hw * 1.6f);
 
         const auto t = c.presentationTilt();

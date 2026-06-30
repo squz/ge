@@ -1380,7 +1380,7 @@ targets:
     achieved: 2026-06-30
   T137:
     name: sample/tiltbuggy is a faithful port of the 2013 TiltBuggy reference game
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1398,9 +1398,10 @@ targets:
     - T16
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T137.1:
     name: 'Vehicle-dynamics model restored: steering linkage + groove-joint wheels'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1412,9 +1413,10 @@ targets:
     context: 'The heart of the port. The 2013 game (ViewController.mm viewDidLoad + update) builds a real top-down car, not a sliding box. Restore in box2d v3: a separate steering body at the front of the chassis, joined by a pivot joint, a rotary-limit joint clamping the steer angle, and a self-centering damped rotary spring; plus front and rear groove-joint wheels (steering-to-ground, chassis-to-ground) whose max force caps lateral friction so each axle resists sideways slide and the buggy tracks a direction. The grooves are re-anchored to the current wheel world-positions every substep. box2d v3 has no direct cpGrooveJoint; map it to a prismatic/wheel joint + motor/limit, or a friction-style lateral-velocity-killing constraint that reproduces the capped-lateral-force behaviour. Constants (steer clamp ~0.3 rad, wheel max force ~150, anchor offsets 0.7/0.65/0.85) are for the old ~10-unit world; re-derive them for the chosen scale and document the scale decision (keep the 1/16 arena and rescale, or restore full size now that a follow-cam (T137.3) removes the need for the shrink hack). Remove the disabled-vehicle-dynamics stub in Scene::step. This unblocks the surface traps (T137.2) which modulate the wheel grip, and the feel pass (T16).'
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T137.2:
     name: 'Surface traction traps work: treads + sensor handlers modulate wheel grip'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1428,9 +1430,10 @@ targets:
     - T137.1
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T137.3:
     name: Camera keeps the buggy in view (follow-cam on phones, whole-arena on tablets)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1441,9 +1444,10 @@ targets:
     context: 'The 2013 game zooms 2x and follows the buggy on iPhone (projection times translate(-0.6*buggyPos)) while showing the whole arena on iPad. The current ge Renderer uses a fixed ortho that fits the arena to the shorter axis with no follow, so on a small screen the buggy drives out of frame. Add a camera that tracks the chassis position on small form factors (use ge::Context form-factor scalars - deviceUiScale / device class - to decide zoom-and-follow vs whole-arena) and keeps motion smooth. The projection must still respect aspect and safe-area like the current code. Couples with T137.1''s world-scale decision: a follow-cam means the world no longer has to be shrunk to keep the buggy on screen.'
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T137.4:
     name: 'Textured art parity: asphalt/ice/dirt/buggy textures replace solid rects'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1455,9 +1459,10 @@ targets:
     context: The 2013 game renders a tiled asphalt ground (wrapped texture across the whole arena), ice and dirt patches with their own textures, and a buggy sprite - source PNGs at ~/work/marcelocantos.com/unwisegames/tiltbuggy/TiltBuggy/Images/{asphalt,ice,dirt,buggy}.png (root buggy57/72/114/144.png are icon sizes). The current ge Renderer draws a flat brown rect for the ground, solid-color rects for surfaces, a yellow rotated rect for the buggy, and a procedural SVG pond/title (a ge lunasvg showcase, not the original art). Replace the solid-color scene with real textures via ge::loadImage / ge::Sprite (premultiplied-alpha blend, wrap/tiling where the original tiled - asphalt, ice, dirt). The buggy becomes a sprite drawn at the chassis pose. Decide whether to vendor the original PNGs into sample/tiltbuggy/assets or author fresh equivalents; either way the arena should read as the original road/ice/dirt/buggy, not flat color blocks. The SVG pond/title belong to the showcase tail (T137.6), not here.
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T137.6:
     name: ge showcase/test features re-layered as opt-in demos on the ported game
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1473,6 +1478,7 @@ targets:
     - T137.4
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-07-01
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
@@ -1523,7 +1529,7 @@ targets:
     achieved: 2026-04-17
   T16:
     name: TiltBuggy vehicle dynamics feel right
-    status: identified
+    status: achieved
     value: 3.0
     cost: 3.0
     acceptance:
@@ -1537,6 +1543,7 @@ targets:
     - T137.1
     origin: discovered while testing tiltbuggy stage 2
     discovered: 2026-04-16
+    achieved: 2026-07-01
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved

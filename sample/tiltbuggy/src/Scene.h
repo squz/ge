@@ -21,6 +21,12 @@ struct Surface {
     SurfaceType type;
 };
 
+// 🎯T137.1/.2 Live grip of each axle (fraction of sideways velocity removed per
+// frame, 0..1). Asphalt = the per-axle base; ice/dirt drop the axle currently
+// over them. Exposed so a log / state slice can show the grip change as the
+// buggy crosses a patch.
+struct GripState { float front, rear; };
+
 class Scene {
 public:
     // World is [-halfExtent, +halfExtent] on both axes.
@@ -59,6 +65,13 @@ public:
 
     // Extent of the world (walls at ±halfExtent).
     float halfExtent() const;
+
+    // 🎯T137.1 Half-extents of the chassis box (metres). Single source of truth
+    // shared with the Renderer so the drawn buggy matches the physics body.
+    b2Vec2 chassisHalfExtents() const;
+
+    // 🎯T137.1/.2 Current per-axle grip (m/s² lateral-traction cap).
+    GripState gripState() const;
 
     // Static surface regions for rendering (includes ice, dirt).
     // Does NOT include the default asphalt background.
