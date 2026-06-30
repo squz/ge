@@ -1174,9 +1174,10 @@ targets:
     discovered: 2026-06-30
   T134:
     name: Render-on-demand idles a static screen even while an accelerometer/sensor stream is active
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 2.0
     acceptance:
     - 'In on-demand mode (Context::setContinuousRendering(false)), a continuous SDL_EVENT_SENSOR_UPDATE stream does NOT by itself force a render each frame: the run loop stays idle (~0% CPU, onRender skipped) until genuine user input (touch/key/mouse) or requestRedraw().'
     - A consumer that wants sensor-driven redraws can still get them by opting in explicitly (calling requestRedraw() from onEvent on sensor updates), OR ge exposes a runtime sensor enable/disable so the consumer can pause the sensor on a static screen. Pick one; document it.
@@ -1204,6 +1205,7 @@ targets:
     - blocker
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
