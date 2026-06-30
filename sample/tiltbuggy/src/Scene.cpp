@@ -36,7 +36,7 @@ struct Scene::Impl {
     ge::Rect iceRect;
     ge::Rect dirtRect;
 
-    explicit Impl(float halfExtent_) : halfExtent(halfExtent_) {
+    Impl(float halfExtent_, bool allowBuggySleep) : halfExtent(halfExtent_) {
         // ------------------------------------------------------------------
         // World
         // ------------------------------------------------------------------
@@ -84,7 +84,10 @@ struct Scene::Impl {
             bdef.position = {0.0f, 0.0f};
             bdef.linearDamping = 0.5f;
             bdef.angularDamping = 2.0f;
-            bdef.enableSleep = false;  // gravity changes must always take effect
+            // 🎯T131.5 Default: sleep off so a gravity change always takes effect.
+        // Render-on-demand mode allows sleep so a settled buggy lets the loop
+        // idle; the consumer calls wakeBuggy() on a tilt to re-apply gravity.
+        bdef.enableSleep = allowBuggySleep;
             chassisId = b2CreateBody(worldId, &bdef);
 
             b2Polygon box = b2MakeBox(0.03125f, 0.015625f); // half-extents (1/16 of original)
@@ -137,7 +140,8 @@ struct Scene::Impl {
 // Scene
 // ----------------------------------------------------------------------------
 
-Scene::Scene(float halfExtent) : i_(std::make_unique<Impl>(halfExtent)) {}
+Scene::Scene(float halfExtent, bool allowBuggySleep)
+    : i_(std::make_unique<Impl>(halfExtent, allowBuggySleep)) {}
 Scene::~Scene() = default;
 
 void Scene::step(float dt, b2Vec2 gravity) {
@@ -158,6 +162,10 @@ void Scene::applyPose(const Pose& pose) {
     b2Body_SetTransform(i_->chassisId, {pose.x, pose.y}, b2MakeRot(pose.angle));
     b2Body_SetLinearVelocity(i_->chassisId, {0.0f, 0.0f});
     b2Body_SetAngularVelocity(i_->chassisId, 0.0f);
+    b2Body_SetAwake(i_->chassisId, true);
+}
+
+void Scene::wakeBuggy() {
     b2Body_SetAwake(i_->chassisId, true);
 }
 

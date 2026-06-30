@@ -11,6 +11,7 @@
 #include "Scene.h"
 
 #include <ge/appchannel.h>
+#include <ge/box2d_render.h>  // 🎯T131.2 renderWhileAwake
 #include <ge/box2d_slice.h>
 #include <ge/iap.h>
 #include <ge/Protocol.h>
@@ -38,6 +39,7 @@ struct State {
     std::unique_ptr<tiltbuggy::Renderer> renderer;
     b2Vec2 gravity{0, 0};
     bool rendererInited = false;
+    bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
     bool proPurchaseInFlight = false;   // debounce: drop taps while Apple modal is up
 };
 
@@ -172,9 +174,24 @@ int main(int argc, char* argv[]) {
         [&state](const nlohmann::json& j) { applyState(state, j); });
 
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
-        state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent);
+        // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
+        // settled scene lets the loop idle (onEvent wakes it on a real tilt).
+        state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent,
+                                                         state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
+
+        // 🎯T131.5 Render-on-demand demo (opt-in via GE_RENDER_ON_DEMAND). The
+        // buggy is a physics body: render every frame while it's moving (box2d
+        // island-awake trigger), idle once the whole world sleeps. The render-
+        // liveness diagnostic spin changes the frame every tick, so it would
+        // defeat idle — turn it off in this mode.
+        if (state.renderOnDemand) {
+            ctx.setContinuousRendering(false);
+            ge::box2d::renderWhileAwake(ctx, state.scene->worldId());
+            state.renderer->setDiagnosticSpin(false);
+            SPDLOG_INFO("tiltbuggy: render-on-demand ON (box2d-awake trigger)");
+        }
 
         return {
             .onUpdate = [&](float dt) {
@@ -197,6 +214,12 @@ int main(int argc, char* argv[]) {
                     state.rendererInited = true;
                 }
                 state.renderer->drawFrame(*state.scene, c);
+                // 🎯T131.5 Push the present counter so a spyder matrix cell can
+                // assert it goes flat when the buggy settles (idle) and resumes
+                // on tilt. Pushed from onRender, so it only advances on a drawn
+                // frame — exactly the signal we want — and reads as stale (flat)
+                // to app_perf_get while the loop idles.
+                ge::appchannel::perfEmit("frames_presented", double(c.framesPresented()));
             },
             .onEvent = [&, ctx](const SDL_Event& e) {
                 SPDLOG_INFO("onEvent type=0x{:x}", e.type);
@@ -205,8 +228,24 @@ int main(int argc, char* argv[]) {
                     // The world/board accelerates in that direction, so the
                     // buggy (free on the board) experiences gravity in the
                     // opposite direction — hence the negation.
+                    const b2Vec2 oldG = state.gravity;
                     state.gravity.x = -e.sensor.data[0];
                     state.gravity.y = -e.sensor.data[1];
+                    // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
+                    // idle loop on its own, but a *meaningful tilt change* must:
+                    // otherwise a tilt while the buggy is asleep would update
+                    // gravity and never step it (no frame runs), so the buggy
+                    // would never start moving. Threshold filters accelerometer
+                    // noise so a still device still idles; the box2d-awake trigger
+                    // then keeps rendering until the buggy settles again.
+                    if (state.renderOnDemand) {
+                        const float dx = state.gravity.x - oldG.x;
+                        const float dy = state.gravity.y - oldG.y;
+                        if (dx * dx + dy * dy > 0.04f) {
+                            state.scene->wakeBuggy();  // re-apply gravity to a settled buggy
+                            ctx.requestRedraw();       // and draw the frame that steps it
+                        }
+                    }
                     SPDLOG_INFO("ACCEL accel=[{:+.2f},{:+.2f},{:+.2f}] gravity=[{:+.2f},{:+.2f}]",
                                 e.sensor.data[0], e.sensor.data[1], e.sensor.data[2],
                                 state.gravity.x, state.gravity.y);
@@ -303,6 +342,10 @@ int main(int argc, char* argv[]) {
             prepare, outFile);
         return ok ? 0 : 1;
     }
+
+    // 🎯T131.5 Opt into the render-on-demand demo for the live run only — the
+    // headless render path above must stay continuous/deterministic.
+    state.renderOnDemand = std::getenv("GE_RENDER_ON_DEMAND") != nullptr;
 
     ge::run(factory, {
         .width = brokered ? 0 : 1024,

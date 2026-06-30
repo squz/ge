@@ -45,6 +45,13 @@ void LongPressWatcher::update(float dt) {
         fired = true;
         if (onFire) onFire();
     }
+    // 🎯T131.3 A long press is a *level* activity: its timer only advances while
+    // update() runs, but under render-on-demand no input arrives during a still
+    // hold, so the loop would idle and the press would never fire. Re-request a
+    // redraw each frame the timer is still counting (the finger-down already
+    // woke the loop; this keeps it awake) until it fires, releases, or drifts
+    // out — then we stop and the loop idles again.
+    if (tracking && !fired && onRedraw) onRedraw();
 }
 
 void LongPressWatcher::cancel() {

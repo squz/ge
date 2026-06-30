@@ -471,6 +471,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                     });
             }
             i_->sokolCtx->endFrame();
+            i_->ctx->recordPresent();  // 🎯T131.5 advance framesPresented()
         });
     });
     {
@@ -713,8 +714,12 @@ void DirectRenderHost::pumpEvents() {
     // instead of spinning. SDL_WaitEventTimeout idles at ~0% CPU and bounds the
     // shouldQuit re-check; the first delivered event clears `blocking` so the
     // rest of the queue drains non-blocking.
+    // 🎯T131.1 Stay awake (poll, don't block) while a render trigger is active —
+    // a still-awake physics sim / moving animation keeps the loop at full rate
+    // until it settles, at which point all triggers go false and we idle.
     const bool onDemandIdle = i_->ctx && !i_->ctx->continuousRendering() &&
-                              !i_->ctx->redrawPending();
+                              !i_->ctx->redrawPending() &&
+                              !i_->ctx->anyRenderTriggerActive();
     bool blocking = paused() || onDemandIdle;
     bool sawRealEvent = false;
     SDL_Event e;

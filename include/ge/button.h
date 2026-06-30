@@ -64,6 +64,20 @@ struct Button {
     FireCallback        onFire            = {};
     HighlightCallback   onHighlightChange = {};
 
+    // 🎯T131.3 Redraw sink — called on every visible-state (phase) transition:
+    // touch-down highlight, drag-off un-highlight, drag-back re-highlight,
+    // release. In render-on-demand mode (Context::setContinuousRendering(false))
+    // this is what guarantees the frame in which the depress / release visual is
+    // drawn, so a consumer using ge::Button writes ZERO render-control code — it
+    // still draws the pressed state (reading highlighted()); the engine owns the
+    // frame. Wire once, capturing the Context by value (a cheap shared handle):
+    //   btn.onRedraw = [ctx]{ ctx.requestRedraw(); };
+    // Optional — leave unset in continuous mode. A button is *edge*-triggered
+    // (its meaning is the transition), which is why this is requestRedraw() and
+    // not a Context render trigger (a level predicate would miss the falling
+    // edge and over-render while held).
+    std::function<void()> onRedraw          = {};
+
     // Internal state. Public so designated init still works; the
     // consumer shouldn't reach in directly.
     enum Phase { Idle, PressedInside, PressedOutside };
@@ -98,6 +112,14 @@ struct Button {
 struct ButtonGroup {
     std::vector<Button*>  buttons;
     Button*               active = nullptr;
+
+    // 🎯T131.3 Redraw sink — fired whenever a routed button's visible state
+    // transitions, so one wire covers every button in the group:
+    //   group.onRedraw = [ctx]{ ctx.requestRedraw(); };
+    // Use this (leaving the individual buttons' onRedraw unset) when dispatching
+    // through the group; it's the same single redraw bit, so even setting both
+    // is harmless (the requests coalesce).
+    std::function<void()> onRedraw = {};
 
     bool handleEvent(const PointerEvent& ev);
 };

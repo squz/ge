@@ -6,6 +6,9 @@
 #include <SDL3/SDL_events.h>
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
+#include <vector>
 
 namespace ge {
 
@@ -36,6 +39,16 @@ struct Context::M {
     // the pending one-shot, set from any thread via requestRedraw().
     bool continuous = true;
     std::atomic<bool> redraw{false};
+    // 🎯T131.1 Render triggers (level predicates). Game-thread only: registered
+    // in the factory / onUpdate, polled by the run loop + pumpEvents.
+    std::vector<std::function<bool()>> renderTriggers;
+    // 🎯T131.5 Monotonic swapchain-present count. Atomic so the app-channel perf
+    // push / a watcher can read it off the game thread.
+    std::atomic<uint64_t> presented{0};
+    // 🎯T131.4 State-diff render-on-demand: a consumer generation counter and the
+    // value at the last presented frame. Game-thread only.
+    std::function<uint64_t()> stateGen;
+    uint64_t lastStateGen = 0;
 };
 
 Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
@@ -120,17 +133,52 @@ void Context::setContinuousRendering(bool on) const {
 bool Context::continuousRendering() const { return m->continuous; }
 
 void Context::requestRedraw() const {
-    m->redraw.store(true, std::memory_order_relaxed);
-    // Wake a loop idling in pumpEvents' SDL_WaitEventTimeout. SDL's event queue
-    // is thread-safe, so this is safe from any thread; the host filters this
+    // 🎯T131.1 Coalesce: push the wake event only on the false→true transition of
+    // the redraw flag, so any number of requestRedraw() calls in a frame (from
+    // scattered, independent code — buttons, async callbacks) collapse to one
+    // wake and one rendered frame. The flag itself is idempotent; this just
+    // avoids queuing N redundant SDL_EVENT_USER wakes. SDL's event queue is
+    // thread-safe, so this is safe from any thread; the host filters the
     // sentinel out before delivering to onEvent.
-    SDL_Event e{};
-    e.type = SDL_EVENT_USER;
-    e.user.code = kRedrawEventCode;
-    SDL_PushEvent(&e);
+    if (!m->redraw.exchange(true, std::memory_order_relaxed)) {
+        SDL_Event e{};
+        e.type = SDL_EVENT_USER;
+        e.user.code = kRedrawEventCode;
+        SDL_PushEvent(&e);
+    }
 }
 void Context::markRedraw() const { m->redraw.store(true, std::memory_order_relaxed); }
 bool Context::redrawPending() const { return m->redraw.load(std::memory_order_relaxed); }
 bool Context::takeRedraw() const { return m->redraw.exchange(false, std::memory_order_relaxed); }
+
+// 🎯T131.1 Render triggers + present counter.
+void Context::addRenderTrigger(std::function<bool()> active) const {
+    if (active) m->renderTriggers.push_back(std::move(active));
+}
+bool Context::anyRenderTriggerActive() const {
+    for (const auto& t : m->renderTriggers)
+        if (t && t()) return true;
+    return false;
+}
+
+// 🎯T131.4 State-diff as a *pure* render trigger: it reads gen() vs the last
+// presented value with no side effect, so the run loop / pumpEvents can poll it
+// twice per frame and get the same answer. recordPresent() (once per drawn
+// frame) advances lastStateGen — never the trigger — so the diff resolves the
+// instant the frame that consumed the change is presented. The trigger captures
+// a raw M* (not the shared_ptr) so it doesn't form a cycle keeping M alive.
+void Context::renderWhenStateChanges(std::function<uint64_t()> generation) const {
+    if (!generation) return;
+    m->lastStateGen = generation();      // seed: registration itself isn't a change
+    m->stateGen = std::move(generation);
+    M* raw = m.get();
+    addRenderTrigger([raw] { return raw->stateGen && raw->stateGen() != raw->lastStateGen; });
+}
+
+uint64_t Context::framesPresented() const { return m->presented.load(std::memory_order_relaxed); }
+void Context::recordPresent() const {
+    m->presented.fetch_add(1, std::memory_order_relaxed);
+    if (m->stateGen) m->lastStateGen = m->stateGen();  // 🎯T131.4 diff catches up
+}
 
 } // namespace ge

@@ -112,15 +112,24 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
                 continue;
             }
 
-            // 🎯T132 Render-on-demand: when the consumer opted out of continuous
-            // rendering and nothing requested a redraw (input + requestRedraw()
-            // mark it), skip the whole draw+present for this frame. pumpEvents
-            // has already idled the thread (SDL_WaitEventTimeout, ~0% CPU), so
-            // this just avoids GPU/encode/present work on a static screen. Reset
+            // 🎯T132/T131.1 Render-on-demand: render this frame iff continuous
+            // mode is on, OR a one-shot redraw is pending (input / requestRedraw,
+            // the *edge* signal), OR any registered render trigger is active (the
+            // *level* signal — a physics sim still awake, an animation still
+            // moving). Otherwise skip the whole draw+present: pumpEvents has
+            // already idled the thread (SDL_WaitEventTimeout, ~0% CPU), so this
+            // just avoids GPU/encode/present work on a static screen. takeRedraw()
+            // runs unconditionally so the one-shot is always consumed. Reset
             // `last` so the next rendered frame doesn't see a multi-tick dt.
-            if (!host.context().continuousRendering() && !host.context().takeRedraw()) {
-                last = SDL_GetPerformanceCounter();
-                continue;
+            {
+                const auto& ctx      = host.context();
+                const bool  redraw   = ctx.takeRedraw();
+                const bool  wantFrame = ctx.continuousRendering() || redraw ||
+                                        ctx.anyRenderTriggerActive();
+                if (!wantFrame) {
+                    last = SDL_GetPerformanceCounter();
+                    continue;
+                }
             }
 
             // 🎯T92.4 Feed the real (pre-time-control) frame time to the perf

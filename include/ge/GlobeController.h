@@ -5,6 +5,7 @@
 #include <ge/DampedRotation.h>
 #include <SDL3/SDL_events.h>
 #include <cmath>
+#include <functional>
 
 namespace ge {
 
@@ -174,7 +175,16 @@ public:
         if (!dragging_) {
             rotation_.update(dt);
         }
+        // 🎯T131.3 Spinning the globe is a level activity (a drag, then inertia
+        // decaying to rest). Under render-on-demand keep the loop awake while the
+        // globe is dragging or coasting, then let it idle once velocity decays —
+        // the consumer wires onRedraw once instead of forcing continuous mode.
+        if (onRedraw && (dragging_ || rotation_.isMoving())) onRedraw();
     }
+
+    // 🎯T131.3 Redraw sink for render-on-demand — see update(). Wire once,
+    // capturing the Context by value: globe.onRedraw = [ctx]{ ctx.requestRedraw(); };
+    std::function<void()> onRedraw;
 
     DampedRotation& rotation() { return rotation_; }
     const DampedRotation& rotation() const { return rotation_; }

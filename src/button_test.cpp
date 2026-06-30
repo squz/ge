@@ -384,3 +384,60 @@ TEST_CASE("ButtonGroup: drift-in capture on Move routes through the group lock")
     CHECK(firedA == 1);
     CHECK(firedB == 0);
 }
+
+// ── 🎯T131.3 Render-on-demand redraw sink ──────────────────────────
+// A button is edge-triggered: onRedraw fires exactly on each visible-state
+// (phase) transition — the frame a render-on-demand consumer needs to draw the
+// depress / release — and never on a no-op event.
+
+TEST_CASE("Button onRedraw fires on press, release, and drag in/out — not on no-ops") {
+    int redraws = 0;
+    Button btn{
+        .hitTest  = rectHitTest({0, 0, 100, 100}),
+        .onRedraw = [&]{ ++redraws; },
+    };
+
+    CHECK(btn.handleEvent(down(50, 50)));   // Idle → PressedInside
+    CHECK(redraws == 1);
+    btn.handleEvent(move(50, 50));          // inside → inside: no transition
+    CHECK(redraws == 1);
+    btn.handleEvent(move(200, 200));        // PressedInside → PressedOutside (un-highlight)
+    CHECK(redraws == 2);
+    btn.handleEvent(move(50, 50));          // PressedOutside → PressedInside (re-highlight)
+    CHECK(redraws == 3);
+    btn.handleEvent(up(50, 50));            // → Idle (release, fire)
+    CHECK(redraws == 4);
+
+    // A Down outside the hit region is a no-op → no redraw.
+    btn.handleEvent(down(500, 500));
+    CHECK(redraws == 4);
+}
+
+TEST_CASE("Button onRedraw fires on cancel that leaves a highlight") {
+    int redraws = 0;
+    Button btn{.hitTest = rectHitTest({0, 0, 100, 100}), .onRedraw = [&]{ ++redraws; }};
+    btn.handleEvent(down(50, 50));   // highlight on
+    CHECK(redraws == 1);
+    btn.cancel();                    // highlight off
+    CHECK(redraws == 2);
+    btn.cancel();                    // already idle → no-op
+    CHECK(redraws == 2);
+}
+
+TEST_CASE("ButtonGroup onRedraw fires once per routed button transition") {
+    int redraws = 0;
+    Button a{.hitTest = rectHitTest({0, 0, 100, 100})};
+    Button b{.hitTest = rectHitTest({200, 0, 100, 100})};
+    ButtonGroup g{.buttons = {&a, &b}, .onRedraw = [&]{ ++redraws; }};
+
+    CHECK(g.handleEvent(down(50, 50)));   // a: Idle → PressedInside
+    CHECK(redraws == 1);
+    g.handleEvent(move(50, 50));          // no transition
+    CHECK(redraws == 1);
+    g.handleEvent(up(50, 50));            // a: → Idle
+    CHECK(redraws == 2);
+
+    // An event that no button claims doesn't redraw.
+    CHECK_FALSE(g.handleEvent(down(150, 150)));
+    CHECK(redraws == 2);
+}
