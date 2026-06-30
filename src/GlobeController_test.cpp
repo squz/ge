@@ -54,3 +54,20 @@ TEST_CASE("GlobeController Y-up basis: vertical drag spins about screen-right (X
     CHECK(q.x != doctest::Approx(0.0f));
     CHECK(q.y == doctest::Approx(0.0f));
 }
+
+// 🎯T131.3 Render-on-demand: a fresh idle controller stays silent; while a drag
+// is in flight the controller keeps the loop awake (onRedraw each frame) so the
+// spin stays responsive without forcing continuous rendering.
+TEST_CASE("GlobeController onRedraw: idle is silent, dragging redraws") {
+    ge::GlobeController g;
+    int redraws = 0;
+    g.onRedraw = [&]{ ++redraws; };
+
+    g.update(0.016f);            // fresh: not dragging, not moving → no redraw
+    CHECK(redraws == 0);
+
+    mouseDown(g, 100.0f, 100.0f);
+    g.update(0.016f);            // dragging → redraw each frame held
+    g.update(0.016f);
+    CHECK(redraws == 2);
+}

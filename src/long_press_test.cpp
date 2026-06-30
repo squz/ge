@@ -163,3 +163,26 @@ TEST_CASE("LongPressWatcher: re-press after fire fires again on next threshold c
     w.update(1.1f);
     CHECK(fires == 2);
 }
+
+// 🎯T131.3 Under render-on-demand a still hold produces no input, so the watcher
+// keeps the loop awake (onRedraw each frame) while its timer counts, then stops
+// once it fires — otherwise the timer would never advance and it'd never fire.
+TEST_CASE("LongPressWatcher onRedraw sustains the loop while counting, stops after fire") {
+    int redraws = 0, fires = 0;
+    LongPressWatcher w{
+        .region       = {0, 0, 100, 100},
+        .thresholdSec = 1.0f,
+        .onFire       = [&]{ ++fires; },
+        .onRedraw     = [&]{ ++redraws; },
+    };
+    CHECK(w.handleEvent(down(50, 50)));   // start tracking
+    w.update(0.3f);                       // counting → redraw
+    w.update(0.3f);                       // counting → redraw
+    CHECK(redraws == 2);
+    CHECK(fires == 0);
+    w.update(0.5f);                       // crosses 1.0s → fires; no redraw this frame
+    CHECK(fires == 1);
+    CHECK(redraws == 2);
+    w.update(0.3f);                       // already fired → no redraw, loop idles
+    CHECK(redraws == 2);
+}

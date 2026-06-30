@@ -120,3 +120,90 @@ TEST_CASE("Context render-on-demand: continuous flag + redraw set/take (🎯T132
     CHECK(ctx.takeRedraw());
     SDL_QuitSubSystem(SDL_INIT_EVENTS);
 }
+
+// 🎯T131.1 Render triggers (the *level* signal). The run loop renders while any
+// trigger is active and idles when all are false; here we pin the OR predicate.
+TEST_CASE("Context render triggers gate anyRenderTriggerActive (🎯T131.1)") {
+    Context ctx = makeContext();
+    CHECK_FALSE(ctx.anyRenderTriggerActive());   // none registered → idle-eligible
+
+    bool a = false, b = false;
+    ctx.addRenderTrigger([&] { return a; });
+    ctx.addRenderTrigger([&] { return b; });
+    CHECK_FALSE(ctx.anyRenderTriggerActive());   // both false
+    a = true;
+    CHECK(ctx.anyRenderTriggerActive());         // OR over all triggers
+    a = false; b = true;
+    CHECK(ctx.anyRenderTriggerActive());
+    b = false;
+    CHECK_FALSE(ctx.anyRenderTriggerActive());   // activity settled → idle again
+
+    // A null trigger is ignored, not crashed on.
+    ctx.addRenderTrigger({});
+    CHECK_FALSE(ctx.anyRenderTriggerActive());
+}
+
+// 🎯T131.5 The present counter is the ground-truth "did we draw?" signal.
+TEST_CASE("Context framesPresented is monotonic from zero (🎯T131.5)") {
+    Context ctx = makeContext();
+    CHECK(ctx.framesPresented() == 0);
+    ctx.recordPresent();
+    ctx.recordPresent();
+    ctx.recordPresent();
+    CHECK(ctx.framesPresented() == 3);
+}
+
+// 🎯T131.1 requestRedraw() coalesces: any number of calls in one redraw cycle
+// queue exactly one wake event, so scattered callers need no central collector.
+TEST_CASE("requestRedraw coalesces the wake event per redraw cycle (🎯T131.1)") {
+    SDL_InitSubSystem(SDL_INIT_EVENTS);
+    SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+    Context ctx = makeContext();
+
+    auto drainWakes = [] {
+        int n = 0;
+        SDL_Event e;
+        while (SDL_PollEvent(&e))
+            if (e.type == SDL_EVENT_USER && e.user.code == Context::kRedrawEventCode) ++n;
+        return n;
+    };
+
+    for (int i = 0; i < 5; ++i) ctx.requestRedraw();  // five callers, one cycle
+    CHECK(ctx.redrawPending());
+    CHECK(drainWakes() == 1);                          // coalesced, not 5
+
+    // Once the loop consumes the flag, the next requestRedraw wakes again.
+    CHECK(ctx.takeRedraw());
+    ctx.requestRedraw();
+    ctx.requestRedraw();
+    CHECK(drainWakes() == 1);
+    SDL_QuitSubSystem(SDL_INIT_EVENTS);
+}
+
+// 🎯T131.4 State-diff: a screen renders when its generation counter changes and
+// idles when stable; recordPresent() (a drawn frame) advances the baseline.
+TEST_CASE("renderWhenStateChanges renders on a generation bump, idles when stable (🎯T131.4)") {
+    Context ctx = makeContext();
+    uint64_t gen = 1;
+    ctx.renderWhenStateChanges([&] { return gen; });
+    CHECK_FALSE(ctx.anyRenderTriggerActive());   // seeded at registration → stable
+
+    gen = 2;                                      // render-relevant state changed
+    CHECK(ctx.anyRenderTriggerActive());          // → wants a frame
+    CHECK(ctx.anyRenderTriggerActive());          // pure: a second poll agrees (no self-consume)
+    ctx.recordPresent();                          // the frame is drawn → baseline catches up
+    CHECK_FALSE(ctx.anyRenderTriggerActive());    // stable again → idle
+
+    gen = 9;                                       // changes again
+    CHECK(ctx.anyRenderTriggerActive());
+    ctx.recordPresent();
+    CHECK_FALSE(ctx.anyRenderTriggerActive());
+}
+
+// A null generation is ignored (renderWhenStateChanges is a no-op), leaving the
+// screen idle-eligible rather than registering a dead trigger.
+TEST_CASE("renderWhenStateChanges ignores a null generation (🎯T131.4)") {
+    Context ctx = makeContext();
+    ctx.renderWhenStateChanges({});
+    CHECK_FALSE(ctx.anyRenderTriggerActive());
+}

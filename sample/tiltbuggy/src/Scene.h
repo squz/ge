@@ -24,7 +24,13 @@ struct Surface {
 class Scene {
 public:
     // World is [-halfExtent, +halfExtent] on both axes.
-    explicit Scene(float halfExtent);
+    //
+    // 🎯T131.5 allowBuggySleep: by default the chassis has sleep DISABLED so a
+    // gravity change always takes effect immediately (the buggy is the whole
+    // game). For the render-on-demand demo it must be allowed to sleep when the
+    // buggy settles (so the box2d-awake trigger lets the loop idle); the
+    // consumer then calls wakeBuggy() on a real tilt so the new gravity moves it.
+    explicit Scene(float halfExtent, bool allowBuggySleep = false);
     ~Scene();
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
@@ -41,6 +47,11 @@ public:
     // arena is rebuilt deterministically by the ctor; only the dynamic body's
     // transform needs restoring.
     void applyPose(const Pose& pose);
+
+    // 🎯T131.5 Wake the chassis. Needed when allowBuggySleep is on and a sleeping
+    // buggy must respond to a new gravity vector: b2World_SetGravity does not
+    // wake sleeping bodies, so a tilt has to wake it explicitly.
+    void wakeBuggy();
 
     // The box2d world — exposed so the 🎯T117 geometry slice can read every body
     // out via ge::box2d::worldGeometry(scene->worldId()).

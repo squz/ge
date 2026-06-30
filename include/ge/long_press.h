@@ -41,6 +41,15 @@ struct LongPressWatcher {
     float                      thresholdSec  = 1.0f;
     std::function<void()>      onFire        = {};
 
+    // 🎯T131.3 Redraw sink for render-on-demand. A long press is a level
+    // activity — its timer advances only while update() runs, but a still hold
+    // produces no input, so without this the loop idles and the press never
+    // fires. update() calls this each frame the timer is counting to keep the
+    // loop awake until it fires / releases / drifts out. Wire once:
+    //   watcher.onRedraw = [ctx]{ ctx.requestRedraw(); };  // capture by value
+    // Optional — leave unset in continuous mode.
+    std::function<void()>      onRedraw      = {};
+
     // Internal state (public so designated init still works; consumer
     // shouldn't reach in directly).
     bool         tracking = false;

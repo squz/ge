@@ -452,6 +452,47 @@ public:
     bool continuousRendering() const;
     void requestRedraw() const;
 
+    // 🎯T131.1 Render trigger — a *level* predicate ge polls each frame in
+    // render-on-demand mode. While ANY registered trigger returns true the run
+    // loop keeps rendering and does not idle; when all return false (and no
+    // redraw / resuming input is pending) the loop idles. Use for sustained
+    // activity whose end is a level condition — a physics sim settling (box2d
+    // world asleep), an animation reaching rest. For *discrete* transitions (a
+    // button press) call requestRedraw() instead — that's the one redraw bit
+    // raised imperatively; a trigger is that same bit raised declaratively while
+    // a predicate holds. Register once per session (e.g. in your factory); the
+    // predicate runs on the game thread, so keep it cheap and non-throwing. It
+    // may gate on game state, so "only while playing" is
+    // `[&]{ return playing && world.anyAwake(); }` — no unregister needed.
+    // Const (mutates shared per-session state, like the methods above).
+    void addRenderTrigger(std::function<bool()> active) const;
+
+    // 🎯T131.4 Render-on-demand by State diff — the zero-bookkeeping tier for a
+    // screen whose render is a pure function of some State (a menu, a level-
+    // picker). Provide a cheap generation counter that *changes* whenever the
+    // render-relevant State changes — an O(1) value, e.g. a mutation counter
+    // (the tweak::generation() pattern), a persistent-structure root id, or a
+    // hash. ge renders only when it differs from the last presented frame's
+    // value and idles when it's stable: no per-change requestRedraw, no trigger
+    // predicate — the consumer never writes "turn rendering on/off". It's a
+    // render trigger under the hood, so it composes with addRenderTrigger /
+    // input. Register once per session. Const (mutates shared per-session state).
+    //
+    // Contract: render must be a pure function of the diffed State, with no
+    // ambient time / RNG — the same discipline as 🎯T124's deterministic
+    // headless render — and incidental fields (timestamps, frame counters) must
+    // be excluded from the generation, or the screen never idles. Async state
+    // changes that occur while the loop is already idle still need an explicit
+    // requestRedraw() (nothing is polling to notice them).
+    void renderWhenStateChanges(std::function<uint64_t()> generation) const;
+
+    // 🎯T131.5 Monotonic count of frames presented — the swapchain present at the
+    // end of each rendered frame. Flat across wall-clock ⇒ the screen idled;
+    // advancing ⇒ rendering. This is the ground-truth signal that render-on-
+    // demand dropped a static screen's presents to ~0/sec: onMetrics / fps() go
+    // *stale* (not zero) when idle, but this number simply stops.
+    uint64_t framesPresented() const;
+
     // SDL_EVENT_USER code identifying ge's redraw-wake event — requestRedraw()
     // pushes it to wake an idle loop; the host filters it out before onEvent.
     static constexpr int32_t kRedrawEventCode = 0x47455244;  // 'GERD'
@@ -488,6 +529,14 @@ public:
     void markRedraw() const;
     bool redrawPending() const;
     bool takeRedraw() const;
+
+    // 🎯T131.1 Engine-internal: true if any registered render trigger is active.
+    // The run loop / pumpEvents poll this to decide render-vs-idle in
+    // render-on-demand mode (continuous mode never consults it).
+    bool anyRenderTriggerActive() const;
+    // 🎯T131.5 Engine-internal: the render host calls this at each swapchain
+    // present to advance framesPresented().
+    void recordPresent() const;
 
 private:
     struct M;

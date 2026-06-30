@@ -5,6 +5,7 @@
 // b2World. (box2d is linked into the test binary via APP_LIBS.)
 
 #include <ge/box2d_slice.h>
+#include <ge/box2d_render.h>  // 🎯T131.2
 
 #include <doctest.h>
 
@@ -88,6 +89,36 @@ TEST_CASE("ge::box2d::body / bodyState produce the curated single-body form") {
     const auto labelled = ge::box2d::body("hero", id);
     CHECK(labelled["id"] == "hero");
     CHECK(labelled["pos"][0].get<float>() == doctest::Approx(5.0f));
+
+    b2DestroyWorld(world);
+}
+
+// 🎯T131.2 The box2d render-on-demand trigger: render while any body is awake,
+// idle once the whole world sleeps (box2d's velocity-thresholded island sleep),
+// resume when a body wakes. The signal is noise-immune by construction.
+TEST_CASE("ge::box2d::renderWhileAwake tracks world wake/sleep") {
+    b2WorldDef wd = b2DefaultWorldDef();
+    wd.gravity = {0.0f, 0.0f};            // no gravity → a still body settles to sleep
+    b2WorldId world = b2CreateWorld(&wd);
+
+    b2BodyDef bd = b2DefaultBodyDef();
+    bd.type = b2_dynamicBody;
+    b2BodyId body = b2CreateBody(world, &bd);
+    b2ShapeDef sd = b2DefaultShapeDef();
+    b2Circle c = {{0.0f, 0.0f}, 0.5f};
+    b2CreateCircleShape(body, &sd, &c);
+
+    ge::Context ctx(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::box2d::renderWhileAwake(ctx, world);
+    CHECK(ctx.anyRenderTriggerActive());          // a fresh dynamic body is awake
+
+    // Step until the still body sleeps (well past box2d's 0.5s timeToSleep).
+    for (int i = 0; i < 200 && ctx.anyRenderTriggerActive(); ++i)
+        b2World_Step(world, 1.0f / 60.0f, 4);
+    CHECK_FALSE(ctx.anyRenderTriggerActive());    // settled → loop idles
+
+    b2Body_SetAwake(body, true);                  // waking a body resumes rendering
+    CHECK(ctx.anyRenderTriggerActive());
 
     b2DestroyWorld(world);
 }
