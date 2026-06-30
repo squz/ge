@@ -127,9 +127,14 @@ int main(int argc, char* argv[]) {
     // are cheaply settable here (gravity + the pro entitlement).
     ge::appchannel::registerStateSlice("scene", [&state] {
         const auto p = state.scene ? state.scene->buggyPose() : tiltbuggy::Pose{};
+        const auto g = state.scene ? state.scene->gripState()
+                                   : tiltbuggy::GripState{};
         return nlohmann::json{
             {"buggy",   {{"x", p.x}, {"y", p.y}, {"angle", p.angle}}},
             {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+            // 🎯T137.2 Per-axle grip — drops when a tread is over ice/dirt, so a
+            // state-capture across an input sequence shows the surface effect.
+            {"grip",    {{"front", g.front}, {"rear", g.rear}}},
         };
     });
     ge::appchannel::registerStateSlice("iap", [] {
@@ -211,9 +216,10 @@ int main(int argc, char* argv[]) {
                 ge::appchannel::perfEmit("buggy_x", p.x);
                 static int frame = 0;
                 if (++frame % 60 == 0) {
-                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] pro={}",
+                    const auto gr = state.scene->gripState();
+                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.0f},{:.0f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
-                                ge::iap::owned("pro"));
+                                gr.front, gr.rear, ge::iap::owned("pro"));
                 }
             },
             .onRender = [&](const ge::Context& c) {
