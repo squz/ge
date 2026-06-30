@@ -8,13 +8,10 @@
 
 namespace tiltbuggy {
 
-class Scene;  // from Scene.h — written by a parallel agent
+class Scene;
 
-// Point-space rect of the "BUY PRO" button. Returned in pt matching
-// ge::input::fromSdl's output (🎯T60), so main.cpp's onEvent hit-test
-// and Renderer's draw position share one source of truth.
-ge::Rect proButtonRect(const ge::Context& c);
-
+// 🎯T137 Renders the TiltBuggy scene from the original textures: a tiled
+// asphalt arena with rectangular ice/dirt patches and the buggy sprite on top.
 class Renderer {
 public:
     Renderer();
@@ -22,26 +19,14 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Called once after the render backend is initialized. `shaderDir` is the directory
-    // containing compiled `.bin` files (e.g. "build/shaders").
+    // Called once after the render backend is initialized. `shaderDir` is
+    // unused (the renderer draws via ge::Sprite/SpriteBatch, not a bespoke
+    // pipeline) but kept for call-site compatibility.
     void init(const char* shaderDir);
 
-    // Clear + draw the scene. Call per frame in the swapchain Pass
-    // covering the full surface. The playfield is placed at
-    // `c.drawSafeRectInPts()` (display-cutout-safe — visuals here aren't
-    // physically obscured) and the renderer is free to draw anywhere
-    // on `c.fullRectInPts()` for effects that bleed past it.
-    // `tiltX` / `tiltY` are normalized (~[-1, +1]) device tilt; the
-    // host's composite pass applies viewport tilt when synthesized
-    // tilt is non-zero. Pass (0, 0) for a flat top-down view.
+    // Clear + draw the scene for this frame, inside the swapchain pass.
     void drawFrame(const Scene& scene, const ge::Context& c,
                    float tiltX = 0.f, float tiltY = 0.f);
-
-    // 🎯T124 The 🎯T89 render-liveness spin advances the buggy a hair each frame
-    // — great for spotting a stalled loop, fatal for deterministic snapshots.
-    // Turn it off for headless render-to-PNG so the same state yields the same
-    // pixels. On by default.
-    void setDiagnosticSpin(bool on);
 
 private:
     struct Impl;

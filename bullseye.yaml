@@ -1479,6 +1479,29 @@ targets:
     origin: manual
     discovered: 2026-06-30
     achieved: 2026-07-01
+  T138:
+    name: App-icon generator emits an opaque (alpha-free) iOS App Store marketing icon
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - bin/ge-icon-gen (via ge::rasterizeSvgToPixels) writes the 1024×1024 iOS App Store marketing icon (ios/Assets.xcassets/AppIcon.appiconset/icon.png) with NO alpha channel — opaque RGB, not RGBA — so App Store Connect / Transporter upload validation passes.
+    - A ge consumer can `make ge/app-icons` and upload the resulting build without hitting Apple validation error 'Invalid large app icon … can’t be transparent or contain an alpha channel.'
+    - (Decide + document) whether the alpha is dropped only for the iOS marketing icon or for all iOS icon sizes; Android adaptive/legacy icons keep their alpha (the foreground layer needs it).
+    context: |-
+      Surfaced shipping multimaze2 3.0.0 to the App Store on 2026-07-01: Transporter upload failed validation with HTTP 409 STATE_ERROR.VALIDATION_ERROR — 'Invalid large app icon. The large app icon in the asset catalog in “MultiMaze.app” can’t be transparent or contain an alpha channel.' (error id dda85b80-0ab5-4efe-8464-3fa12b470824).
+
+      Root cause: rasterizeSvgToPixels emits premultiplied RGBA, so the generated icon.png is full-bleed *opaque* (alpha all 255) but still carries an alpha *channel*. Apple's marketing-icon rule forbids any alpha channel at all, regardless of whether pixels are transparent. ge-icon-gen needs to strip/flatten the alpha channel for the iOS 1024 marketing icon (e.g. composite onto opaque + drop the channel, or write RGB8 PNG).
+
+      multimaze2 stopgap for this ship: flatten the alpha on its committed icon.png locally; replace with regeneration once this lands and the ge submodule is bumped. First ge consumer to ship to the App Store, so this had not surfaced before.
+    tags:
+    - ios
+    - app-icon
+    - app-store
+    - ge-icon-gen
+    - multimaze
+    origin: manual
+    discovered: 2026-07-01
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
