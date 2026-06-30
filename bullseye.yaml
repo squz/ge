@@ -1089,25 +1089,32 @@ targets:
     discovered: 2026-06-29
   T131:
     name: ge apps can suspend rendering while the scene is static, so a still screen costs ~no GPU/encode/present work
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
-    - A consumer opts into render-on-demand and signals "scene unchanged" (e.g. an onRender/onUpdate no-change result, or a Context::requestRedraw()/setNeedsDisplay() handshake). When unchanged, ge skips the draw + present for that frame instead of rendering it.
-    - On a static screen with no input, measured GPU submits and swapchain presents fall to ~0/sec (verifiable via a present counter or onMetrics), versus continuous full-rate rendering today.
-    - The first input event (touch/mouse/key) or an explicit redraw request resumes rendering on the very next frame — no dropped first interaction and no added latency on the first post-idle frame.
-    - In the ged-brokered streaming path a static scene stops emitting H.264 frames on the wire (no encode, no present) and resumes on change; the player holds the last frame meanwhile.
-    - 'Opt-in and backward compatible: consumers that don''t adopt it keep rendering every frame unconditionally — no behaviour change for existing apps.'
-    - 'Works on every platform ge supports: desktop, iOS direct-mode, and Android direct-mode.'
-    - The opt-in surface is documented in one sentence at its declaration site in ge's public headers (RunConfig / Context).
+    - 'ge ASSEMBLES the "render this frame?" decision from declared sources — edges (requestRedraw(), coalescing) and levels (addRenderTrigger()) — so a consumer gets render-on-demand with little-to-no app-side bookkeeping and NEVER writes central "turn rendering on/off" logic. (mechanism: T131.1)'
+    - 'A static screen costs ~no GPU / present / battery: presents fall to ~0/sec, measured via Context::framesPresented() on desktop + iOS + Android, and resume on the first input / redraw on the very next frame with no dropped interaction. (T131.5)'
+    - 'The common change sources are zero-effort: ge ships triggers for physics sleep + its own animations (T131.2) and its interactive widgets self-invalidate on transitions (T131.3); discrete-state screens (menus) idle via a cheap State diff with no render-control code (T131.4).'
+    - Opt-in and backward compatible (non-adopters keep rendering every frame); works on desktop, iOS direct-mode, and Android direct-mode; the opt-in surface is documented in one sentence at each declaration site (RunConfig / Context).
+    - 'Brokered streaming quiet-when-static is EMERGENT, not built here: the static detection is engine-side and runs in the server''s loop, so a server on the render-on-demand path stops encoding/emitting H.264 when static and the player holds the last frame. The only streaming-specific addition is forcing an IDR/keyframe on the first post-idle frame so a drifted held frame re-syncs. Tracked under T34 (brokered/wire path), gated on that path coming alive — NOT a child of T131.'
+    - Achieved when T131.1–T131.5 are achieved.
     context: |-
-      Realises the "future freeze-when-static rendering mode" referenced (but explicitly deferred) in 🎯T96's removal decision (2026-06-01): "The run loop renders every frame unconditionally (not on-demand), so a ge app presents drawables continuously even on a static menu." That unconditional render is the status quo today.
+      Realises the "future freeze-when-static rendering mode" referenced (but explicitly deferred) in 🎯T96's removal decision (2026-06-01): the run loop renders every frame unconditionally, so a ge app presents drawables continuously even on a static menu. Surfaced concretely by multimaze2: its menu / level-picker / solved-level screens are genuinely static yet redraw at full refresh — needless GPU and battery/thermal cost on the iOS launch target (multimaze2 🎯T16, 🎯T66).
 
-      Surfaced by multimaze2: its menu, level-picker, and solved-level screens are genuinely static yet redraw at full refresh every frame — needless GPU and battery/thermal cost on the iOS launch target (multimaze2 🎯T16). A game-driven, opt-in render-on-demand mode lets the consumer declare a frame unchanged so ge skips draw/encode/present until input or an explicit redraw arrives.
+      Design settled with the user 2026-06-30 and decomposed into the T131.* subgraph. The spine is T131.1: ONE redraw bit raised two ways — imperatively via requestRedraw() (edges: discrete transitions, coalescing, callable any number of times per frame from any thread with no central collector) and declaratively via addRenderTrigger(pred) (levels: sustained activity ge polls and auto-raises the bit while true). An active/idle state machine blocks the loop (~0% CPU) when no trigger is true and no edge is pending; an edge wakes it, and a trigger started by that frame keeps it active until the activity settles. On top of the spine: built-in physics/animation triggers (T131.2), widget self-invalidation (T131.3, pulled up out of this node's old prose), and a State-diff tier for discrete screens (T131.4). T131.5 makes "presents → ~0/sec" measurable (a present counter at the T101 Pass chokepoint) and proves it in-repo (tiltbuggy on box2d sleep) cross-platform (app-channel + spyder matrix).
 
-      Adjacent features that already shipped but are NOT this: 🎯T88 (background render pause — lifecycle-driven, not scene-driven) and 🎯T111 (onMetrics fps callback — adapts quality, still renders every frame). Design choice to settle during the work: per-frame "unchanged" return value vs. a requestRedraw()/invalidate handshake on Context. Original discussion lived only in a ge Codex session (2026-06-01); mnemo does not index Codex, so this target is the canonical record going forward.
+      Streaming reframe (user correction, 2026-06-30): the original "brokered path stops emitting H.264" criterion is NOT a separate feature. All the static-detection analysis is engine/server-side, so streaming-quiet falls out for free once the server runs its game loop through the render-on-demand path — which is exactly what 🎯T34's unification gives. The one genuine streaming-specific wrinkle (IDR/keyframe on resume) rides T34, not this subgraph. Deeper unifier worth keeping in view: render = f(State) with no ambient time is the SAME contract behind 🎯T124's deterministic headless render and the streaming-quiet property — auto render-on-demand is the runtime dividend of a discipline already being paid for.
+
+      Adjacent shipped features that are NOT this: 🎯T88 (background render pause — lifecycle-driven), 🎯T111 (onMetrics — adapts quality, still renders every frame), 🎯T132 (the primitive — setContinuousRendering/requestRedraw + idle-block + skip, shipped v0.68.0), 🎯T134 (sensor streams don't force redraws, shipped v0.69.0). T132/T134 are the achieved foundation this subgraph builds on. Original pre-decomposition discussion lived only in a ge Codex session (2026-06-01, mnemo-unindexed); this target + subgraph are the canonical record going forward.
     depends_on:
     - T132
+    - T134
+    - T131.1
+    - T131.2
+    - T131.3
+    - T131.4
+    - T131.5
     tags:
     - render
     - run-loop
@@ -1120,6 +1127,102 @@ targets:
     - streaming
     - surfaced-by:multimaze2
     origin: manual
+    discovered: 2026-06-30
+  T131.1:
+    name: 'Render triggers + active/idle state machine: ge assembles "render this frame?" from edges and levels'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Context::addRenderTrigger(pred) registers a level predicate; in render-on-demand mode the run loop renders every frame while ANY registered trigger returns true, and blocks (idles, ~0% CPU) only when all triggers are false, no redraw is pending, and no resuming input has arrived.
+    - Triggers are polled cheaply each loop iteration (a predicate call, no onUpdate/onRender) so the active-vs-idle decision needs no frame work; the expensive onUpdate/onRender run only on frames that actually render.
+    - 'The active->idle transition still draws the final settled frame: triggers are evaluated on the state the previous onUpdate produced, so the frame that ENDS an activity is itself rendered and no trailing/settle frame is dropped.'
+    - 'requestRedraw() coalesces: any number of calls per frame, from any thread or callback, collapse to exactly one render of the next frame with NO central collection code; the SDL wake event is pushed only on the false->true transition of the redraw flag (one wake per render cycle).'
+    context: 'The engine mechanism the whole convenience story rests on. One redraw bit, two ways to raise it: imperatively via requestRedraw() (edges — discrete transitions) and declaratively via addRenderTrigger(pred) (levels — sustained activity ge polls and auto-raises the bit while true). The active/idle state machine: an edge wakes a blocked loop and draws one frame; if that frame starts an activity its trigger holds the loop ACTIVE until the activity settles, then back to IDLE. Triggers can only keep-active and decide-when-to-settle (they can''t wake a blocked loop, which only an edge can); that asymmetry is why both primitives are needed. Settled 2026-06-30 with the user.'
+    depends_on:
+    - T132
+    tags:
+    - render
+    - run-loop
+    - render-on-demand
+    origin: subdivide(🎯T131)
+    discovered: 2026-06-30
+  T131.2:
+    name: Built-in render triggers for ge's continuous sources (physics sleep + animation)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge provides a box2d "world awake" render trigger (built on b2 island-sleep state / the geometry-slice work, T117) so a physics consumer registers one line (or gets it via a helper) and the screen idles when the simulation settles and resumes when a body wakes. The signal is box2d's velocity-threshold sleep, NOT a per-frame position diff, so it is noise-immune.
+    - ge's own animation primitives (DampedValue / DampedRotation while isMoving(), GlobeController inertia) drive a trigger/redraw so a consumer animating through them gets render-on-demand with no hand-written redraw bookkeeping; the animation runs to completion then idles.
+    context: 'The common continuous sources should cost the consumer zero render-control code. Physics is the headline: box2d already computes per-island sleep, so ''render while world awake'' is the trigger, and because sleep is velocity-thresholded it won''t chase sub-pixel jitter the way a raw State diff would. ge''s damped-animation helpers self-trigger for the same reason.'
+    depends_on:
+    - T131.1
+    tags:
+    - render
+    - render-on-demand
+    - physics
+    - animation
+    origin: subdivide(🎯T131)
+    discovered: 2026-06-30
+  T131.3:
+    name: ge's interactive widgets self-invalidate on every visible-state transition (edge redraws)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::Button / ge::ButtonGroup / ge::LongPressWatcher / GlobeController call requestRedraw() themselves on every visible-state transition (touch-down / lift / highlight / phase change Idle<->PressedInside<->PressedOutside / active-button lock / drag), wired via a Context (or redraw callback) supplied at construction. A consumer using ge's interactors in render-on-demand mode writes ZERO render-control code.
+    - 'The falling-edge frame is never dropped: a release/cancel/drag-off un-highlight produces its own redraw (a level predicate like highlighted() would miss exactly this edge), so the un-pressed visual is always drawn.'
+    - 'Verified: a ge::Button-based UI on an opted-in static screen shows the depress on touch-down and the release on lift/cancel, each as a single on-demand redraw, with no per-app wiring. The consumer still owns DRAWING the pressed state (reading highlighted()); the engine owns GUARANTEEING the frame.'
+    context: 'Pulled up out of T131''s prose (added 2026-06-30, surfaced by multimaze2 T66). Buttons are EDGE-triggered, not level: their significant moments are the down/up/cancel transitions, and a level predicate can''t see its own falling edge (and over-renders while held). So widgets raise the redraw bit imperatively on transition. Independent of T131.1 — it only needs requestRedraw() (T132), not triggers.'
+    depends_on:
+    - T132
+    tags:
+    - render
+    - render-on-demand
+    - ui
+    - surfaced-by:multimaze2
+    origin: subdivide(🎯T131)
+    discovered: 2026-06-30
+  T131.4:
+    name: 'State-diff render-on-demand: discrete-state screens idle with zero app-side render-control code'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A consumer opts a screen into "render when state changes" and ge renders only when the render-relevant State changes — detected via an O(1) generation counter that mutations bump (the tweak::generation() pattern) or the registered state serializer (T92/T115), NEVER a per-frame deep re-serialize. A static discrete-state screen (a menu / level-picker, multimaze2's motivating case) idles with no requestRedraw or trigger code at all.
+    - 'Documented constraint: render must be a pure function of State with no ambient time / RNG — the SAME contract as T124''s deterministic headless render — and incidental fields (timestamps, frame counters) are excluded from the diff. A debug aid that double-renders an unchanged State and pixel-compares helps surface a violated contract rather than leaving a ''won''t idle'' / ''won''t update'' mystery.'
+    context: 'The zero-effort tier the user asked for (''I don''t want to write logic that turns rendering on and off''). For discrete-state screens (menus) the render-relevant State is genuinely static between taps, so diffing it is both robust and zero-bookkeeping. The deep insight: render = f(State) with no ambient time is the SAME discipline behind T124 (deterministic headless render) and the streaming-quiet criterion — auto render-on-demand is the runtime dividend of a contract we''re already paying for. Diff must be cheap (generation bump / pointer compare on persistent State), never serialize-every-frame, or it costs more than the draw it avoids.'
+    depends_on:
+    - T131.1
+    tags:
+    - render
+    - render-on-demand
+    - state
+    - surfaced-by:multimaze2
+    origin: subdivide(🎯T131)
+    discovered: 2026-06-30
+  T131.5:
+    name: Idle is measured and proven in-repo, cross-platform (present counter + tiltbuggy + matrix)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Context::framesPresented() (monotonic, incremented at the single T101 Pass present chokepoint) lets a consumer or test confirm presents fall to ~0/sec while static; onMetrics naturally stops firing when idle (a free secondary signal — fps goes stale, not zero).
+    - 'sample/tiltbuggy demonstrates render-on-demand end-to-end via the box2d-awake trigger: held still, the buggy settles -> framesPresented() flattens; tilt / touch -> resumes — exercising the whole stack (T132 idle + T134 sensor-doesn''t-wake + T131.1 state machine + T131.2 physics trigger).'
+    - 'Cross-platform: the present counter is pushed over the app-channel (T92) and a spyder matrix cell asserts presents go flat on desktop + an iOS device + an Android device, then resume on injected input — making acceptance criteria ''presents -> ~0/sec'' and ''all platforms'' MEASURED, not argued.'
+    context: Closes the measurability gap T132 left (today fps/onMetrics go stale, not zero, when idle — no ground-truth present signal) and the 'no static-screen sample' gap. The present counter is the ground truth; tiltbuggy-on-box2d-sleep is the realistic proof (idle when the sim is at rest, not an artificial demo); the matrix cell is the cross-device measurement reusing existing app-channel + spyder infra.
+    depends_on:
+    - T131.1
+    - T131.2
+    tags:
+    - render
+    - render-on-demand
+    - measurement
+    - ios
+    - android
+    - tiltbuggy
+    origin: subdivide(🎯T131)
     discovered: 2026-06-30
   T132:
     name: A ge consumer can stop and start the render loop; ge idles (blocks, never busy-spins) when stopped and wakes on input or an explicit redraw request
@@ -1205,6 +1308,67 @@ targets:
     - ios
     - multimaze-audit
     - blocker
+    origin: manual
+    discovered: 2026-06-30
+    achieved: 2026-06-30
+  T135:
+    name: ge::Sprite owns its GPU resources (RAII) so re-rasterizing a sprite can't leak the sokol pool
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'ge::Sprite frees its underlying sg_image + sg_view on destruction AND on (move-)assignment: reassigning a slot (e.g. `m->badge = rasterizeSvg(...)`) destroys the previous image/view instead of orphaning them.'
+    - ge::Sprite is move-only (or otherwise prevents double-free of the shared sokol handles); all in-tree Sprite producers and by-value users are migrated to the new ownership semantics and still compile/behave.
+    - rasterizeSvg / rasterizeText / uploadPixels (and any other Sprite factory) return owning Sprites consistent with the new semantics.
+    - 'Soak/counter test: repeatedly re-rasterizing the same Sprite slot for >1000 iterations does NOT grow the live sokol image/view counts (pools are image=128, view=256) and never trips the sg_make_image/sg_make_view pool-exhaustion assert.'
+    - Resolves multimaze2's SIGABRT — a sokol pool-exhaustion assert in _sg_init_view / sg_make_view reached via ge::rasterizeSvg <- Application::renderMenu — confirmed on the iPhone 13 (build 115).
+    - Destroys happen on the render/sokol thread (where reassignment occurs); no cross-thread sg_destroy_*.
+    context: |-
+      Surfaced by multimaze2 (🎯T16 v1 / iPhone 13 launch device). Sporadic SIGABRT crashes, tap-correlated. Root-caused 2026-06-30 from the device IPS crash report (symbolicated): EXC_CRASH / SIGABRT, byProc MultiMaze, faulting main-thread stack `__assert_rtn -> _sg_init_view(.cold) -> sg_make_view -> ge::rasterizeSvg -> Application::renderMenu`. It's a sokol_gfx pool-exhaustion assertion, not an event-handler bug — tapping just navigates, and re-entering the menu re-renders it.
+
+      Mechanism: ge::Sprite (ge/include/ge/sprite.h) is a plain POD — `sg_image tex` + `sg_view view`, no destructor, no resource-freeing assignment. ge::rasterizeSvg -> uploadPixels (ge/src/svg.cpp) calls sg_make_image + sg_make_view every time and frees nothing. So every render-path re-rasterization — multimaze2's paidStarSprite[i] (per price-label change), buyBarSprite, levelsBuySprite, menuButton (per resize) — orphans the prior image+view. Sokol pools are small (image 128 / view 256); after enough re-rasterizations a pool fills and the make-resource call asserts -> abort. Sporadic because it depends on how many re-rasterizations accumulate before the ceiling.
+
+      This is exactly the secondary finding already logged in multimaze2 🎯T47's context ("ge::Sprite has no RAII — reassignments like m->buyBarSprite = ge::rasterizeSvg(...) and m->paidStarSprite[i] = ... orphan the previous sg_image/sg_view on every price/pack change (~1 MB GPU each; bounded but real)") — except it is NOT merely bounded GPU waste; it crashes once a pool fills. Per-user direction the fix goes in ge properly (no app-side mitigation). Tag multimaze-audit.
+    tags:
+    - render
+    - sprite
+    - sokol
+    - raii
+    - memory
+    - crash
+    - ios
+    - multimaze-audit
+    - blocker
+    origin: manual
+    discovered: 2026-06-30
+    achieved: 2026-06-30
+  T136:
+    name: ge surfaces consumer-callback crashes (uncaught exceptions + fatal signals) through the app-channel logger before dying
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - The direct (device/standalone) run loop wraps the consumer callbacks (onEvent dispatched from pumpEvents, onUpdate, onRender) so an uncaught std::exception is logged with its what() and originating callback through the app-channel logger before the process exits — not a bare std::terminate with no trace.
+    - A fatal-signal handler (SIGSEGV / SIGABRT / SIGBUS / SIGILL / SIGFPE) captures a minimal report — signal, and a best-effort faulting backtrace — and flushes it through the app-channel logger (and stderr) before re-raising the default handler so the OS still writes its crash report.
+    - Existing SIGINT / SIGTERM graceful-quit behaviour (Signal.cpp) is preserved unchanged.
+    - 'Demonstrated: a consumer that throws from onEvent (e.g. a bad tap) and one that dereferences null produce a log record retrievable via spyder app_log_get / log capture, without pulling device IPS files.'
+    - Opt-out / configurable (e.g. SessionHostConfig flag or build macro) so tests and tools that expect raw aborts/asserts are unaffected; the surface is documented in one sentence at its declaration site.
+    - Works on the platforms ge supports for direct mode (desktop, iOS, Android); the brokered/streaming path may already differ and is out of scope unless trivially shared.
+    context: |-
+      Surfaced by multimaze2 (🎯T16). Diagnosing the iPhone 13 SIGABRT (see 🎯T135) required pulling and hand-symbolicating IPS crash files off the device, because ge reports nothing itself: runDirect (ge/src/SessionHost.mm) calls onUpdate/onRender bare and DirectRenderHost::pumpEvents calls eventHandler(e) bare (DirectRenderHost.mm ~:850) — no try/catch — and installSignalHandlers (ge/src/Signal.cpp) only installs SIGINT/SIGTERM for graceful quit, not the crash signals. The try/catch blocks that exist are in the brokered/streaming path and renderBatch, not the device direct loop. So an uncaught exception (-> std::terminate -> SIGABRT) or a segfault on a consumer that has a live app-channel produces no app-channel record at all.
+
+      Goal: when a consumer crashes inside a ge callback, ge emits a last-gasp record through the same app-channel logger spyder already drains (app_log_get / log_capture), so the developer sees the failure mode without IPS-file archaeology. Note this would NOT have caught 🎯T135 itself (that's a sokol abort() with the assert message already on stderr), but it covers the broader class — uncaught C++ exceptions and segfaults in onEvent/onUpdate/onRender — which is what was originally asked about. Tag multimaze-audit.
+    tags:
+    - render
+    - run-loop
+    - crash
+    - diagnostics
+    - app-channel
+    - signals
+    - exceptions
+    - ios
+    - android
+    - multimaze-audit
     origin: manual
     discovered: 2026-06-30
     achieved: 2026-06-30

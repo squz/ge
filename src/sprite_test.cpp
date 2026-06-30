@@ -8,6 +8,9 @@
 
 #include <doctest.h>
 
+#include <type_traits>
+#include <utility>
+
 // The full GPU submit path (drawRun) needs a live sokol context, so it is
 // not exercised here. Its overflow-spreading decision (🎯T113), however, is
 // factored into the pure detail::planSpriteRun, which IS tested below — the
@@ -222,4 +225,72 @@ TEST_CASE("planSpriteRun: exact multi-buffer fit leaves no empty trailing step")
 
 TEST_CASE("planSpriteRun: empty run produces no steps") {
     CHECK(planSpriteRun(0, kFullVerts, kFullVerts).empty());
+}
+
+// ── 🎯T135: ge::Sprite RAII ownership ──────────────────────────────
+//
+// These run without a live sokol context: Sprite::destroy() guards its
+// sg_destroy_* calls on sg_isvalid() (false here), but still counts the
+// release event via ge::detail::spriteReleaseCount(). So we verify the
+// ownership *logic* (move transfers + nulls source, move-assign releases the
+// prior slot, copy is deleted) headlessly, and prove the leak fix at scale via
+// the release counter — a stand-in for live sokol pool occupancy.
+
+TEST_CASE("🎯T135 Sprite is move-only (copy deleted, move enabled)") {
+    static_assert(!std::is_copy_constructible_v<Sprite>, "Sprite must not be copyable");
+    static_assert(!std::is_copy_assignable_v<Sprite>,    "Sprite must not be copy-assignable");
+    static_assert(std::is_move_constructible_v<Sprite>,  "Sprite must be move-constructible");
+    static_assert(std::is_move_assignable_v<Sprite>,     "Sprite must be move-assignable");
+    CHECK(true);  // the contract is the static_asserts above
+}
+
+TEST_CASE("🎯T135 move-construct transfers handles and nulls the source") {
+    const uint64_t before = ge::detail::spriteReleaseCount();
+    Sprite a = fakeSprite(42, 7, 9);
+    REQUIRE_FALSE(a.isNull());
+
+    Sprite b = std::move(a);
+    CHECK(b.tex.id == 42);
+    CHECK(b.width  == 7);
+    CHECK(b.height == 9);
+    CHECK(a.isNull());  // moved-from source is null → its dtor releases nothing
+    // Move-construction releases no resource (b had no prior slot).
+    CHECK(ge::detail::spriteReleaseCount() == before);
+}
+
+TEST_CASE("🎯T135 move-assign releases the destination's prior resource") {
+    const uint64_t before = ge::detail::spriteReleaseCount();
+    Sprite slot = fakeSprite(1);
+    Sprite next = fakeSprite(2);
+    slot = std::move(next);            // overwrites a non-null slot
+    CHECK(slot.tex.id == 2);
+    CHECK(next.isNull());
+    CHECK(ge::detail::spriteReleaseCount() - before == 1);  // the prior (id=1) was released
+}
+
+TEST_CASE("🎯T135 destroy() on a null sprite is a counted-release no-op") {
+    const uint64_t before = ge::detail::spriteReleaseCount();
+    Sprite s;
+    s.destroy();
+    s.destroy();
+    CHECK(s.isNull());
+    CHECK(ge::detail::spriteReleaseCount() == before);  // null release isn't counted
+}
+
+TEST_CASE("🎯T135 re-rasterizing one slot N≫pool times releases every prior (no orphaning)") {
+    // The bug: each `slot = rasterizeSvg(...)` orphaned the prior sg_image+view;
+    // after ~128 image / 256 view orphans the pool filled and sg_make_* aborted
+    // (multimaze2 iPhone-13 SIGABRT). With RAII move-assignment, every reassign
+    // releases the prior, so live occupancy stays at one regardless of N.
+    constexpr int N = 2000;  // ≫ the image(128) / view(256) pools and the ≥1000 acceptance
+    const uint64_t before = ge::detail::spriteReleaseCount();
+    Sprite slot;  // starts null
+    for (int i = 1; i <= N; ++i) {
+        slot = fakeSprite(static_cast<uint16_t>(i % 60000 + 1));  // re-rasterize the slot
+    }
+    // First assign overwrote a null slot (no release); the other N-1 each
+    // released the prior occupant — so no handle was ever orphaned.
+    CHECK(ge::detail::spriteReleaseCount() - before == static_cast<uint64_t>(N - 1));
+    slot.destroy();
+    CHECK(ge::detail::spriteReleaseCount() - before == static_cast<uint64_t>(N));
 }

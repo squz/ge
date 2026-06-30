@@ -661,6 +661,15 @@ struct SessionHostConfig {
     // unset. Relative (not absolute) so the same value behaves consistently at
     // 30 or 120 fps.
     float metricsReportThreshold = 0.1f;
+
+    // 🎯T136 Crash diagnostics. When true (default), the direct run loop wraps
+    // the consumer callbacks (onUpdate / onRender / onEvent) so an uncaught
+    // exception is logged through the app-channel logger before it propagates,
+    // and installs last-gasp fatal-signal handlers (SIGSEGV / SIGABRT / SIGBUS
+    // / SIGILL / SIGFPE) that log signal + backtrace before re-raising the OS
+    // default. Set false for a tool/test that wants raw aborts and untouched
+    // exception propagation. No effect on the brokered/streaming path.
+    bool crashDiagnostics = true;
 };
 
 // Factory receives platform context and returns render loop callbacks.

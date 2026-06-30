@@ -51,6 +51,13 @@ void runBrokered(Factory factory, const SessionHostConfig& config);
 static void runDirect(Factory factory, const SessionHostConfig& config) {
     DirectRenderHost host(config);
     applyImmersive(config.immersive);
+
+    // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same
+    // flag, and install the fatal-signal last-gasp handlers. Done before the
+    // factory so a crash in the consumer's construction is also surfaced.
+    ge::setCrashDiagnosticsEnabled(config.crashDiagnostics);
+    if (config.crashDiagnostics) ge::installCrashHandlers();
+
     RunConfig rc = factory(host.context());
     host.setEventHandler(rc.onEvent);
     host.setBackPressedHandler(rc.onBackPressed);
@@ -125,7 +132,11 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
             // no-op pass-through unless an app-channel is driving it; returns 0
             // while paused (render + input below still run), kStepDt per
             // stepped frame, or dt×speed otherwise.
-            if (rc.onUpdate) rc.onUpdate(ge::appchannel::applyTimeControl(dt));
+            if (rc.onUpdate) {
+                ge::guardCallback("onUpdate", [&] {  // 🎯T136
+                    rc.onUpdate(ge::appchannel::applyTimeControl(dt));
+                });
+            }
 
             // 🎯T101 Refresh per-frame Context state (resize, insets, parallax,
             // tilt) before onRender. The game opens this frame's swapchain pass
@@ -153,7 +164,11 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
                 }
             }
 
-            if (rc.onRender) rc.onRender(host.context());
+            if (rc.onRender) {
+                ge::guardCallback("onRender", [&] {  // 🎯T136
+                    rc.onRender(host.context());
+                });
+            }
         }
     }
 

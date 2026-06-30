@@ -453,8 +453,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
                 if (sp.isNull()) return;
                 const Rect rect{pos.x, pos.y, float(sp.width), float(sp.height)};
                 sp.draw(la::mul(px, frame(rect)));
-                sg_destroy_view(sp.view);
-                sg_destroy_image(sp.tex);
+                // 🎯T135 sp frees its sg_image + sg_view here at scope end.
             };
             for (const auto& t : s.texts) {
                 drawText(t.pos, t.str, t.color);
@@ -468,8 +467,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
                     if (x < margin) x = margin;
                     const Rect rect{x, margin, float(sp.width), float(sp.height)};
                     sp.draw(la::mul(px, frame(rect)));
-                    sg_destroy_view(sp.view);
-                    sg_destroy_image(sp.tex);
+                    // 🎯T135 sp frees its sg_image + sg_view here at scope end.
                 }
             }
         }

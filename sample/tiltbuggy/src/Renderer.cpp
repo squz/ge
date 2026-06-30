@@ -234,14 +234,10 @@ Renderer::~Renderer() {
     if (i_->pipeline.id != SG_INVALID_ID) sg_destroy_pipeline(i_->pipeline);
     if (i_->stream.id   != SG_INVALID_ID) sg_destroy_buffer(i_->stream);
     if (i_->shader.id   != SG_INVALID_ID) sg_destroy_shader(i_->shader);
-
-    auto destroySprite = [](ge::Sprite& s) {
-        if (s.tex.id  != SG_INVALID_ID) sg_destroy_image(s.tex);
-        if (s.view.id != SG_INVALID_ID) sg_destroy_view(s.view);
-    };
-    destroySprite(i_->pond);
-    destroySprite(i_->title);
-    destroySprite(i_->buyPro);
+    // 🎯T135 pond / title / buyPro are owning ge::Sprites — they free their
+    // sg_image + sg_view as i_ (the Impl) is destroyed below, while sokol is
+    // still valid (the host runs sg_shutdown after the factory's State, and
+    // thus this Renderer, is torn down).
 }
 
 void Renderer::init(const char* /*shaderDir*/) {
