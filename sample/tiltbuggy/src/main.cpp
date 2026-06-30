@@ -1,11 +1,26 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// TiltBuggy — a ge sample driving a 2D buggy with tilt gravity.
-// Stage 2: Box2D physics + sokol rendering. On a real device the
-// accelerometer drives gravity. On desktop/simulator/emulator
-// AccelSynth synthesises SDL_EVENT_SENSOR_UPDATE events from
-// Shift-gated mouse drag — hold Shift and drag to tilt the world.
+// TiltBuggy — a ge sample, a faithful port of the 2013 Chipmunk/iOS TiltBuggy
+// (🎯T137). Tilt the device and a steering buggy drives in arcs across an
+// asphalt arena; ice and dirt patches rob traction. On a real device the
+// accelerometer drives gravity; on desktop/simulator/emulator AccelSynth
+// synthesises SDL_EVENT_SENSOR_UPDATE from Shift-gated mouse drag (hold Shift
+// and drag to tilt the world).
+//
+// CORE GAME (the 2013 parity port): tilt→gravity, the vehicle-dynamics model
+// (Scene.cpp), the surface traps, the follow camera, and the textured art
+// (Renderer.cpp).
+//
+// ge ENGINE SHOWCASES layered on top — each opt-in / off-by-default, present to
+// exercise an engine capability, NOT part of the original game (🎯T137.6):
+//   • IAP (🎯T65.7): the BUY PRO button + yellow→cyan buggy recolour.
+//   • App channel (🎯T92/T115): state slices (scene/iap/geometry) + perf counters.
+//   • Render-on-demand (🎯T131/T132): GE_RENDER_ON_DEMAND idles a settled buggy.
+//   • Debug overlay (🎯T97): GE_DEBUG_OVERLAY draws wireframes/HUD over the scene.
+//   • Headless render (🎯T124): the `render` verb → deterministic PNG + goldens.
+//   • SVG decals (🎯T42): the icy-pond + title art are lunasvg rasterisations.
+//   • Presentation-tilt (🎯T94): AccelSynth tilts the playfield in perspective.
 
 #include "Renderer.h"
 #include "Scene.h"

@@ -24,9 +24,11 @@ namespace {
 // separate steering body pivoted at the front (pivot + rotary-limit ±0.3 +
 // self-centring damped spring → one box2d revolute joint here), and front/rear
 // "wheels" that resist lateral slide up to a capped force (cpGrooveJoint with
-// maxForce). box2d v3 has no groove joint, so the wheels are a top-down
-// tire-friction model: each axle cancels its sideways velocity, capped by a
-// grip *acceleration* (the mass-independent form of the old maxForce).
+// maxForce). box2d v3 has no groove joint, so the wheels become a top-down
+// tire-friction model (front/rear lateral-slide damping on the chassis) plus an
+// explicit heading-alignment torque — see the constant blocks below. The
+// steering body + revolute joint are retained as the cosmetic self-centring
+// caster. Final feel is tuned in 🎯T16.
 // ----------------------------------------------------------------------------
 
 // Chassis — matches the original rectVects({1, 0.5}) → a 2×1 box.
@@ -112,11 +114,11 @@ void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripFrac,
     // scaled to the actual dt, clamped so a long frame can't over-correct).
     const float frac = std::clamp(gripFrac * dt * kRefHz, 0.0f, 1.0f);
     const float jLat = -b2Dot(v, lat) * m * frac;
-    b2Body_ApplyLinearImpulse(body, b2MulSV(jLat, lat), p, true);
+    b2Body_ApplyLinearImpulse(body, b2MulSV(jLat, lat), p, false);
 
     // Forward: gentle rolling resistance.
     const float jFwd = -rollResist * b2Dot(v, fwd) * m * dt;
-    b2Body_ApplyLinearImpulse(body, b2MulSV(jFwd, fwd), p, true);
+    b2Body_ApplyLinearImpulse(body, b2MulSV(jFwd, fwd), p, false);
 }
 
 // 🎯T16 Torque the chassis so its heading tracks its travel direction. Restoring
@@ -131,7 +133,7 @@ void applyAlignment(b2BodyId body) {
     const float slip = std::atan2(std::sin(velAngle - heading),
                                   std::cos(velAngle - heading));
     // A torque (not impulse) — box2d integrates it over the step.
-    b2Body_ApplyTorque(body, kAlign * slip * speed * b2Body_GetMass(body), true);
+    b2Body_ApplyTorque(body, kAlign * slip * speed * b2Body_GetMass(body), false);
 }
 
 } // namespace
@@ -362,7 +364,9 @@ void Scene::step(float dt, b2Vec2 gravity) {
     // is what makes the buggy drive in arcs instead of sliding like a box; rear
     // grip > front grip keeps it from spinning out (understeer).
     // 🎯T137.2 folds sensor-driven grip changes into i_->front/rearGrip.
-    if (dt > 0.0f) {
+    // Skip a sleeping chassis (🎯T131.5 render-on-demand): a settled buggy must
+    // stay asleep so the loop idles — applyTireFriction passes wake=false.
+    if (dt > 0.0f && b2Body_IsAwake(i_->chassisId)) {
         applyTireFriction(i_->chassisId, {kFrontAxleX, 0.0f},
                           i_->frontGrip, kRollResist, dt);
         applyTireFriction(i_->chassisId, {kRearWheelX, 0.0f},
