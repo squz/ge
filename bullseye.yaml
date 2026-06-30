@@ -1378,6 +1378,101 @@ targets:
     origin: manual
     discovered: 2026-06-30
     achieved: 2026-06-30
+  T137:
+    name: sample/tiltbuggy is a faithful port of the 2013 TiltBuggy reference game
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Playing the ge sample feels like the 2013 original: tilt the device and a steering buggy drives in smooth arcs (not a frictionless sliding box); ice and dirt patches visibly rob traction; the camera keeps the buggy in view; the arena looks like the original (textured asphalt/ice/dirt plus a buggy sprite).'
+    - All four parity pillars are achieved (T137.1 vehicle dynamics, T137.2 surface traps, T137.3 follow camera, T137.4 textured art) plus the feel-tuning pass T16.
+    - ge showcase/test features are not lost in the port; they are re-layered as opt-in demos (T137.6).
+    - A side-by-side run of the ge sample and the 2013 Xcode build shows equivalent core behaviour.
+    context: 'Umbrella for bringing ge sample/tiltbuggy up to parity with the original 2013 Chipmunk iOS TiltBuggy at ~/work/marcelocantos.com/unwisegames/tiltbuggy. The whole reference game lives in TiltBuggy/ViewController.mm; Buggy.cpp/.h is an abandoned stub. Reference design: chassis box plus a separate lighter steering body at the front, joined by a pivot joint, a rotary-limit joint clamping steer angle to about plus/minus 0.3 rad, and a self-centering damped rotary spring; front and rear groove-joint wheels with a capped max force (150) that resist lateral slide and are re-anchored each substep; ice and dirt sensor patches plus four corner tread shapes whose collision handlers drop the matching wheel grip while overlapping (base 150, ice minus 75, dirt minus 60) and restore on exit; tiled asphalt/ice/dirt textures and a buggy sprite from real PNGs; a 2x-zoom follow camera on phones and whole-arena view on tablets; gravity from the accelerometer; elastic walls. There is no throttle or explicit steer input: the buggy accelerates in whatever direction device tilt points. Current ge sample only does tilt-to-gravity, walls, and rendered ice/dirt rects with no gameplay effect; Scene::step explicitly disables vehicle dynamics and surface effects so the buggy is a free-sliding box, and the world was shrunk to 1/16 scale so the old constants need re-deriving. Decomposed into four parity pillars (T137.1 to T137.4), the existing feel target T16, and a showcase-reintroduction tail (T137.6).'
+    depends_on:
+    - T137.1
+    - T137.3
+    - T137.4
+    - T137.2
+    - T137.6
+    - T16
+    origin: manual
+    discovered: 2026-06-30
+  T137.1:
+    name: 'Vehicle-dynamics model restored: steering linkage + groove-joint wheels'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Scene owns a steering body pivot-jointed to the chassis with a clamped steer angle and a self-centering spring, plus front and rear wheel constraints that resist lateral slide up to a capped force.
+    - Under a steady tilt the buggy drives in a smooth predictable arc with directional traction; with the wheel constraints removed it slides like a frictionless puck - the difference is obvious on screen.
+    - Wheel anchors track the current chassis/steering pose each substep (no drift between body and wheel line).
+    - Scene::step no longer contains the 'vehicle dynamics + surface effects temporarily disabled' stub; the model runs every step.
+    - Tuning constants (steer clamp, wheel force, anchor offsets, world scale) are named constants or tweaks, not bare magic numbers, and the chosen world scale is documented in Scene.cpp.
+    context: 'The heart of the port. The 2013 game (ViewController.mm viewDidLoad + update) builds a real top-down car, not a sliding box. Restore in box2d v3: a separate steering body at the front of the chassis, joined by a pivot joint, a rotary-limit joint clamping the steer angle, and a self-centering damped rotary spring; plus front and rear groove-joint wheels (steering-to-ground, chassis-to-ground) whose max force caps lateral friction so each axle resists sideways slide and the buggy tracks a direction. The grooves are re-anchored to the current wheel world-positions every substep. box2d v3 has no direct cpGrooveJoint; map it to a prismatic/wheel joint + motor/limit, or a friction-style lateral-velocity-killing constraint that reproduces the capped-lateral-force behaviour. Constants (steer clamp ~0.3 rad, wheel max force ~150, anchor offsets 0.7/0.65/0.85) are for the old ~10-unit world; re-derive them for the chosen scale and document the scale decision (keep the 1/16 arena and rescale, or restore full size now that a follow-cam (T137.3) removes the need for the shrink hack). Remove the disabled-vehicle-dynamics stub in Scene::step. This unblocks the surface traps (T137.2) which modulate the wheel grip, and the feel pass (T16).'
+    origin: manual
+    discovered: 2026-06-30
+  T137.2:
+    name: 'Surface traction traps work: treads + sensor handlers modulate wheel grip'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Crossing the ice patch visibly reduces the buggy's traction (it slides / oversteers); crossing dirt reduces it less; leaving a patch restores normal grip.
+    - The grip change is driven by sensor begin/end (or tread overlap) events adjusting the relevant wheel's lateral-force cap, not a hardcoded region check in step().
+    - Front and rear surface effects are independent (a tread on ice affects only that axle), matching the original front/rear collision-type split.
+    - A state slice or log shows the wheel max-force changing as the buggy enters and leaves a patch.
+    - Grip deltas are named constants/tweaks scaled to the world, no bare magic numbers.
+    context: 'In the 2013 game the ice and dirt patches are gameplay, not decoration. Four tread shapes sit at the chassis corners carrying front/rear collision identity; ice (grip -75) and dirt (grip -60) sensor patches trip collision handlers (begin/separate) that adjust the matching wheel''s max force off a base of 150, so the buggy loses traction and slides on ice and bogs/slips on dirt, restoring grip on exit. The current ge sample renders ice/dirt rects but Scene::step disables all surface effects - they do nothing. Implement on top of the restored wheel model (T137.1): add corner tread shapes (or use box2d sensor-overlap begin/end events on the wheels), and on enter/exit of a surface sensor scale that wheel''s lateral-force cap by the surface''s grip delta. Re-derive the -75/-60 deltas for the chosen scale. The effect must be physical (the buggy actually slides differently), observable in the geometry/scene state slice as a changing wheel force, not merely a color change.'
+    depends_on:
+    - T137.1
+    origin: manual
+    discovered: 2026-06-30
+  T137.3:
+    name: Camera keeps the buggy in view (follow-cam on phones, whole-arena on tablets)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - On a phone-class surface the camera follows the buggy (zoomed in) so the chassis stays on screen no matter how far it drives; on a tablet-class surface the whole arena is visible.
+    - Camera motion is smooth - no per-frame jitter or popping as the buggy moves or the gravity flips.
+    - The projection still honours surface aspect ratio and the draw/ui safe rects.
+    - Form-factor choice uses ge::Context device/scale accessors, not a hardcoded platform check.
+    context: 'The 2013 game zooms 2x and follows the buggy on iPhone (projection times translate(-0.6*buggyPos)) while showing the whole arena on iPad. The current ge Renderer uses a fixed ortho that fits the arena to the shorter axis with no follow, so on a small screen the buggy drives out of frame. Add a camera that tracks the chassis position on small form factors (use ge::Context form-factor scalars - deviceUiScale / device class - to decide zoom-and-follow vs whole-arena) and keeps motion smooth. The projection must still respect aspect and safe-area like the current code. Couples with T137.1''s world-scale decision: a follow-cam means the world no longer has to be shrunk to keep the buggy on screen.'
+    origin: manual
+    discovered: 2026-06-30
+  T137.4:
+    name: 'Textured art parity: asphalt/ice/dirt/buggy textures replace solid rects'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Ground renders as a tiled asphalt texture spanning the arena (not a flat brown rect), tiling/wrapping like the original.
+    - Ice and dirt patches render with their own textures aligned to their sensor regions.
+    - The buggy renders as a buggy sprite at the chassis pose (position + rotation), not a solid rotated rect.
+    - Textures load through ge::loadImage / ge::Sprite with premultiplied-alpha blend; source art is committed under sample/tiltbuggy and resolves via ge::resource on desktop/iOS/Android.
+    - The headless render goldens (fixtures/golden) are regenerated to match the textured look.
+    context: The 2013 game renders a tiled asphalt ground (wrapped texture across the whole arena), ice and dirt patches with their own textures, and a buggy sprite - source PNGs at ~/work/marcelocantos.com/unwisegames/tiltbuggy/TiltBuggy/Images/{asphalt,ice,dirt,buggy}.png (root buggy57/72/114/144.png are icon sizes). The current ge Renderer draws a flat brown rect for the ground, solid-color rects for surfaces, a yellow rotated rect for the buggy, and a procedural SVG pond/title (a ge lunasvg showcase, not the original art). Replace the solid-color scene with real textures via ge::loadImage / ge::Sprite (premultiplied-alpha blend, wrap/tiling where the original tiled - asphalt, ice, dirt). The buggy becomes a sprite drawn at the chassis pose. Decide whether to vendor the original PNGs into sample/tiltbuggy/assets or author fresh equivalents; either way the arena should read as the original road/ice/dirt/buggy, not flat color blocks. The SVG pond/title belong to the showcase tail (T137.6), not here.
+    origin: manual
+    discovered: 2026-06-30
+  T137.6:
+    name: ge showcase/test features re-layered as opt-in demos on the ported game
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Every showcase/test feature present before the port still works after it: IAP demo, app-channel state slices + perf counters, render-on-demand, debug overlay, headless render-to-PNG + goldens, SVG decals, presentation-tilt - none silently dropped.'
+    - Each is opt-in (env var / flag / build define) and off-by-default behaviours (e.g. diagnostic spin) do not alter the core game feel or break determinism of the headless render path.
+    - The showcase features are layered on the ported vehicle/surface/camera/texture game, not on the old free-sliding-box stub.
+    - ge/CLAUDE.md (or the sample README) documents which sample features are engine showcases vs core game so future readers don't mistake them for the 2013 design.
+    context: 'Explicit per user instruction: the showcase/test features currently in sample/tiltbuggy exist to exercise ge engine capabilities, not because the 2013 game had them. The parity port (T137.1-.4) will disrupt or remove some of them (solid-color rects give way to textures, the free-sliding box becomes a real vehicle, the presentation-tilt + follow-cam interact, the SVG pond no longer stands in for the ice texture). Do not lose them - re-layer each as an opt-in demo on top of the ported game so the sample still documents the engine: IAP BUY PRO + pro-gated visuals (T65.7/T74), app-channel state slices + perf counters (T92/T115/T117), render-on-demand demo (T131/T132/T134), debug-overlay demo (T97), headless render-to-PNG + golden fixtures (T124), procedural SVG decals such as the pond/title (T42 lunasvg showcase), and presentation-tilt (T94). Each should be independently togglable (env var / flag / build define) and must not distort the core game feel by default - e.g. diagnostic spin stays off by default, the SVG pond coexists with rather than replaces the real ice texture. This is the convergence tail: it runs after the four pillars land so the demos are reintroduced against the finished game.'
+    depends_on:
+    - T137.1
+    - T137.2
+    - T137.3
+    - T137.4
+    origin: manual
+    discovered: 2026-06-30
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved
@@ -1432,11 +1527,14 @@ targets:
     value: 3.0
     cost: 3.0
     acceptance:
-    - Tilting in a steady direction produces a smooth predictable arc with no oscillation
-    - Releasing tilt lets the buggy decelerate without strange angular spinning
-    - Quick tilt changes feel responsive but not jittery
-    - Tuning constants are exposed via tweaks or at least clearly named in Scene.cpp
-    context: Current arcade implementation in Scene::step uses chassis as the only body, killing lateral velocity (kGrip = 0.85) and applying torque proportional to angle between heading and velocity (5.0 * deltaAngle * speed). It works but feels slightly wonky. Iterate on the constants, or escalate to real vehicle dynamics with wheel bodies if the simple model can't feel right.
+    - Tilting in a steady direction produces a smooth predictable arc with no oscillation.
+    - Releasing tilt lets the buggy decelerate without strange angular spinning.
+    - Quick tilt changes feel responsive but not jittery.
+    - Tuning constants (steer clamp, spring, wheel force, damping, substeps) are exposed via tweaks or clearly named constants in Scene.cpp.
+    - Feel is sanity-checked side-by-side against the 2013 reference build, not just in isolation.
+    context: 'The final feel-tuning pass for the ported vehicle model. NOTE (2026-06-30): this target''s original context is stale - it described an arcade Scene::step model (kGrip 0.85, torque from heading-vs-velocity) that has since been fully disabled; the current Scene::step stubs out all vehicle dynamics and the buggy is a free-sliding box. Feel work now sits on top of the restored 2013-style model in T137.1 (steering linkage + groove-joint wheels) and the surface traps in T137.2. Tune the steer clamp, self-centering spring, wheel lateral-force caps, damping, and substep cadence (the original ran 4 substeps at dt=0.25/60) until tilting produces a smooth predictable arc with no oscillation, releasing tilt decelerates cleanly without weird angular spin, and quick tilt changes feel responsive but not jittery - judged against the 2013 reference build.'
+    depends_on:
+    - T137.1
     origin: discovered while testing tiltbuggy stage 2
     discovered: 2026-04-16
   T17:
