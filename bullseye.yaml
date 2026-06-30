@@ -1151,6 +1151,61 @@ targets:
     origin: manual
     discovered: 2026-06-30
     achieved: 2026-06-30
+  T133:
+    name: Android swapchain provides a depth buffer (Vulkan + GLES3) so depth testing works
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'The Android swapchain pass exposes a real depth(-stencil) attachment on BOTH backends: SokolContext_android sets desc.environment.defaults.depth_format and pass.swapchain.depth_format to a concrete format (e.g. SG_PIXELFORMAT_DEPTH or DEPTH_STENCIL), not SG_PIXELFORMAT_NONE; the GLES path requests SDL_GL_DEPTH_SIZE>=24 (currently 0); the Vulkan path (VkM) creates a per-frame/per-image depth VkImage+view and binds it into the sokol swapchain descriptor.'
+    - A pipeline with depth.compare=LESS_EQUAL + depth.write_enabled correctly occludes later-submitted geometry behind nearer earlier-submitted geometry on-device, on a Vulkan device (Mali-G710) and on a GLES3 fallback device.
+    - esfera2 (opaque pieces drawn first, then translucent two-pass cells) renders pieces in front of the cells when the piece is nearer the camera — pieces no longer vanish when rotated from the silhouette to the front of the sphere.
+    - The depth attachment is recreated on swapchain resize / device rotation (no stale-extent depth image).
+    - tiltbuggy still renders correctly on Android (no regression).
+    context: 'esfera2 ge v0.64 port (esfera2-audit). On Android, ge''s SokolContext_android creates the swapchain with no depth buffer on both paths: GLES sets SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0) and depth_format=SG_PIXELFORMAT_NONE (lines ~135/160/206); the custom Vulkan backend (VkM) also sets depth_format=SG_PIXELFORMAT_NONE (~302/676) and its swapchain only tracks color images/views. With no depth attachment, any pipeline requesting depth.compare/write gets a no-op depth test. tiltbuggy is a single convex back-face-culled globe, so it never needed depth and the gap was invisible. esfera2 is the first consumer that depth-tests opaque geometry (chess pieces) against translucent geometry (the two-pass sphere cells): on a Pixel Tablet (Vulkan, Mali-G710) the opaque pieces are only visible where they extend past the sphere silhouette (against black); rotated to the front they are painted over by the later-drawn translucent cells because submission order, not depth, decides. iOS/desktop (Metal) have a swapchain depth buffer, so the same code is correct there. Vulkan NDC z is [0,1] like Metal, so the existing [0,1] projection is fine — the missing piece is purely the depth attachment.'
+    tags:
+    - render
+    - android
+    - vulkan
+    - gles
+    - depth
+    - esfera2-audit
+    origin: manual
+    discovered: 2026-06-30
+  T134:
+    name: Render-on-demand idles a static screen even while an accelerometer/sensor stream is active
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 2.0
+    acceptance:
+    - 'In on-demand mode (Context::setContinuousRendering(false)), a continuous SDL_EVENT_SENSOR_UPDATE stream does NOT by itself force a render each frame: the run loop stays idle (~0% CPU, onRender skipped) until genuine user input (touch/key/mouse) or requestRedraw().'
+    - A consumer that wants sensor-driven redraws can still get them by opting in explicitly (calling requestRedraw() from onEvent on sensor updates), OR ge exposes a runtime sensor enable/disable so the consumer can pause the sensor on a static screen. Pick one; document it.
+    - 'Verified on a physical iPhone with multimaze2 (which keeps kSensorAccelerometer enabled session-wide for the Playing screen): its Menu/Levels idle to ~0 fps while static, with measurably lower CPU/GPU than continuous mode.'
+    - 'Backward compatible: continuous-mode consumers, and on-demand consumers that DO want sensor-driven redraws, are unaffected.'
+    context: |-
+      Surfaced by multimaze2 🎯T66 (consumer-side render-on-demand adoption, on ge 0.68 / 🎯T132). T66's implementation is correct (setContinuousRendering(false) on static Menu/Levels) and idles on desktop, but does NOT idle on a physical device.
+
+      Root cause: DirectRenderHost::pumpEvents (ge/src/render/DirectRenderHost.mm) sets `sawRealEvent = true` (line ~729) for EVERY non-sentinel SDL event — including SDL_EVENT_SENSOR_UPDATE (the accelerometer, handled at ~816) — then calls `i_->ctx->markRedraw()` (line ~850) whenever sawRealEvent. The render-on-demand gate in SessionHost.mm (~114) only skips the frame when `!continuousRendering() && !takeRedraw()`, so a marked redraw forces a render. An always-on accelerometer therefore marks redraw on every sample, rendering continuously on a static screen and defeating the on-demand skip.
+
+      No app-side workaround exists: sensors are opened once in the DirectRenderHost ctor from SessionHostConfig.sensors with no runtime enable/disable (comment at DirectRenderHost.mm:641), and markRedraw fires inside ge's pumpEvents before the app's onEvent runs, so the consumer can neither pause the stream nor suppress the redraw.
+
+      Recommended fix (a): do NOT markRedraw on SDL_EVENT_SENSOR_UPDATE — a continuous sensor stream isn't discrete user input demanding a frame; a consumer that wants sensor-driven redraws opts in via requestRedraw() in onEvent. Cleaner and needs no new API. Alternative (b): add a runtime sensor enable/disable so the consumer pauses the accelerometer on static screens.
+
+      Tag with multimaze-audit; this blocks the on-device half of multimaze2 🎯T66.
+    tags:
+    - render
+    - run-loop
+    - render-on-demand
+    - sensors
+    - accelerometer
+    - power
+    - ios
+    - multimaze-audit
+    - blocker
+    origin: manual
+    discovered: 2026-06-30
+    achieved: 2026-06-30
   T14:
     name: Render subsystem visibly tilts the viewport in response to synthesised accelerometer input
     status: achieved

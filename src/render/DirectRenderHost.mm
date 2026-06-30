@@ -25,6 +25,8 @@
 #include <ge/Signal.h>
 #include <ge/SokolContext.h>
 
+#include "RenderOnDemand.h"
+
 #include "../../tools/player_orientation.h"
 
 #include <algorithm>
@@ -726,7 +728,10 @@ void DirectRenderHost::pumpEvents() {
         if (e.type == SDL_EVENT_USER && e.user.code == Context::kRedrawEventCode) {
             continue;
         }
-        sawRealEvent = true;  // 🎯T132 any real event resumes rendering
+        // 🎯T132/T134 Resume rendering on a real event — but a continuous sensor
+        // stream (accelerometer) isn't discrete input demanding a frame, so it
+        // doesn't force a redraw on a static screen (see eventResumesRendering).
+        if (detail::eventResumesRendering(e)) sawRealEvent = true;
         if (e.type == SDL_EVENT_QUIT) {
             i_->quit = true;
             continue;
