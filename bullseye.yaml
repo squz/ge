@@ -1089,7 +1089,7 @@ targets:
     discovered: 2026-06-29
   T131:
     name: ge apps can suspend rendering while the scene is static, so a still screen costs ~no GPU/encode/present work
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1128,9 +1128,10 @@ targets:
     - surfaced-by:multimaze2
     origin: manual
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T131.1:
     name: 'Render triggers + active/idle state machine: ge assembles "render this frame?" from edges and levels'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1147,9 +1148,10 @@ targets:
     - render-on-demand
     origin: subdivide(🎯T131)
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T131.2:
     name: Built-in render triggers for ge's continuous sources (physics sleep + animation)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1165,9 +1167,10 @@ targets:
     - animation
     origin: subdivide(🎯T131)
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T131.3:
     name: ge's interactive widgets self-invalidate on every visible-state transition (edge redraws)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1184,9 +1187,10 @@ targets:
     - surfaced-by:multimaze2
     origin: subdivide(🎯T131)
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T131.4:
     name: 'State-diff render-on-demand: discrete-state screens idle with zero app-side render-control code'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1202,9 +1206,10 @@ targets:
     - surfaced-by:multimaze2
     origin: subdivide(🎯T131)
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T131.5:
     name: Idle is measured and proven in-repo, cross-platform (present counter + tiltbuggy + matrix)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1224,6 +1229,7 @@ targets:
     - tiltbuggy
     origin: subdivide(🎯T131)
     discovered: 2026-06-30
+    achieved: 2026-06-30
   T132:
     name: A ge consumer can stop and start the render loop; ge idles (blocks, never busy-spins) when stopped and wakes on input or an explicit redraw request
     status: achieved
