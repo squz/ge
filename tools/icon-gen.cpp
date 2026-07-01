@@ -12,7 +12,9 @@
 // At least one of --ios-out / --android-res-out is required.
 //
 // iOS output (single-source mode, Xcode 15+):
-//   <appiconset-dir>/icon.png         1024×1024 master
+//   <appiconset-dir>/icon.png         1024×1024 master — OPAQUE RGB, no alpha
+//                                     channel (🎯T138: App Store validation
+//                                     rejects any alpha on the marketing icon)
 //   <appiconset-dir>/Contents.json    universal/ios platform manifest
 //
 // Android output:
@@ -115,7 +117,40 @@ bool writePng(const std::string& path,
     return stbi_write_png(path.c_str(), w, h, 4, rgba.data(), w * 4) != 0;
 }
 
-bool rasterToPng(const std::string& svg, int size, const std::string& outPath) {
+// 🎯T138 Flatten RGBA → opaque RGB (drops the alpha channel entirely),
+// compositing any non-opaque pixel over `bg`. Apple's App Store marketing-icon
+// validation rejects a 1024×1024 icon that carries an alpha channel AT ALL —
+// even when every pixel is opaque (alpha 255), which a full-bleed rasterized
+// icon is. A full-bleed icon has alpha 255 throughout, so `bg` never actually
+// shows; it's just a safe fallback for a stray transparent edge.
+std::vector<uint8_t> flattenToRgb(const std::vector<uint8_t>& rgba, int w, int h,
+                                  uint8_t bg = 255) {
+    const size_t n = static_cast<size_t>(w) * h;
+    std::vector<uint8_t> rgb(n * 3);
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t a = rgba[i * 4 + 3];
+        for (int c = 0; c < 3; ++c)
+            rgb[i * 3 + c] = static_cast<uint8_t>(
+                (rgba[i * 4 + c] * a + bg * (255 - a) + 127) / 255);
+    }
+    return rgb;
+}
+
+bool writePngRgb(const std::string& path,
+                 const std::vector<uint8_t>& rgb,
+                 int w, int h) {
+    auto slash = path.rfind('/');
+    if (slash != std::string::npos) {
+        if (!mkpath(path.substr(0, slash))) return false;
+    }
+    return stbi_write_png(path.c_str(), w, h, 3, rgb.data(), w * 3) != 0;
+}
+
+// `opaque` (🎯T138): write 3-channel RGB with NO alpha channel — required for
+// the iOS App Store marketing icon. Default false keeps the RGBA channel, which
+// Android round / adaptive icons need (transparent corners / a masked layer).
+bool rasterToPng(const std::string& svg, int size, const std::string& outPath,
+                 bool opaque = false) {
     auto pixels = ge::rasterizeSvgToPixels(svg, size, size);
     if (pixels.isNull()) {
         std::fprintf(stderr, "icon-gen: rasterizeSvgToPixels failed at %d×%d for %s\n",
@@ -123,7 +158,11 @@ bool rasterToPng(const std::string& svg, int size, const std::string& outPath) {
         return false;
     }
     unpremultiply(pixels.rgba);
-    if (!writePng(outPath, pixels.rgba, pixels.width, pixels.height)) {
+    const bool ok = opaque
+        ? writePngRgb(outPath, flattenToRgb(pixels.rgba, pixels.width, pixels.height),
+                      pixels.width, pixels.height)
+        : writePng(outPath, pixels.rgba, pixels.width, pixels.height);
+    if (!ok) {
         std::fprintf(stderr, "icon-gen: writePng failed for %s\n", outPath.c_str());
         return false;
     }
@@ -203,7 +242,10 @@ bool generateIos(const std::string& svg, const std::string& outDir) {
         std::fprintf(stderr, "icon-gen: cannot create %s\n", outDir.c_str());
         return false;
     }
-    if (!rasterToPng(svg, 1024, outDir + "/icon.png")) return false;
+    // 🎯T138 opaque=true: NO alpha channel — App Store validation rejects any
+    // alpha on the 1024 marketing icon. This is the only iOS icon (single-source
+    // appiconset), so it's the whole iOS surface; Android keeps its alpha.
+    if (!rasterToPng(svg, 1024, outDir + "/icon.png", /*opaque=*/true)) return false;
     if (!writeFile(outDir + "/Contents.json", kIosContentsJson)) {
         std::fprintf(stderr, "icon-gen: failed to write %s/Contents.json\n", outDir.c_str());
         return false;
