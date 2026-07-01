@@ -1481,7 +1481,7 @@ targets:
     achieved: 2026-07-01
   T138:
     name: App-icon generator emits an opaque (alpha-free) iOS App Store marketing icon
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1500,6 +1500,22 @@ targets:
     - app-store
     - ge-icon-gen
     - multimaze
+    origin: manual
+    discovered: 2026-07-01
+    achieved: 2026-07-01
+  T139:
+    name: ge/ios-init generates a CMakeLists that builds a consuming app out of the box
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'The iOS project ge/ios-init scaffolds (ios/CMakeLists.txt) builds the consuming app without per-app hand-editing: it discovers the app''s sources (or the app declares them once in a way the template consumes), bundles the app''s runtime assets, and — critically — runs a sokol-shdc pre-build step to generate the app''s build/shaders/*.h from shaders/*.glsl (GE_SHDC_LANGS), matching what the Makefile build does. Today the generated CMakeLists hardcodes a stale source list, globs obsolete bgfx *.bin shaders, omits most runtime assets, and has no shader-generation step, so a consuming app''s iOS target neither compiles nor bundles correctly.'
+    - 'Verify with yourworld2: `make ios` then an xcodebuild compile (signing disabled) of the YourWorld target succeeds after only `ge/ios-init` + adding the app''s own sources/assets through the supported mechanism — no manual CMake surgery on the generated file (which is gitignored and regenerated).'
+    context: 'Precise diagnosis (2026-07-01, from yourworld2 T58 audit; corrected after a configure probe). The CANONICAL and ONLY viable iOS path is ge tools/ios-build/build_project.rb (xcodeproj gem) from tools/ios-template/project.rb.in. A consumer''s local CMake path is NOT viable: `make ios` -> `cmake -G Xcode` does `add_subdirectory(<app>/ge)` but ge has no CMakeLists.txt (it builds via Module.mk/Make), so cmake configure fails immediately (''does not contain a CMakeLists.txt file''). So build_project.rb is the path to fix. Concrete gaps in project.rb.in: (1) game_sources globs `src/*.cpp`+`src/*.mm` NON-recursively, dropping a consumer''s src/ui/*.cpp (yourworld2 has src/ui/Draw.cpp, Overlay.cpp); (2) no sokol-shdc pre-build phase generating build/shaders/*.h from the app''s shaders/*.glsl (sokol-shdc is vendored at ge/vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc; template still references bgfx shaders/metal); (3) resources are a manual list — consumer declares manifest/meshes/cubemap/flags/icons/audio/poi.json. Fix project.rb.in, verify a consumer (yourworld2 and/or the sample) compiles with signing disabled. Then full T58 is only Apple signing + device. Shared-engine infra (affects all consumers) — deliberate ge PR + sample test, not an inline consumer hack.'
+    tags:
+    - yourworld2-audit
+    - ios
+    - build
     origin: manual
     discovered: 2026-07-01
   T14:

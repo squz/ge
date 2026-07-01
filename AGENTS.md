@@ -229,7 +229,7 @@ ge ships a build-time tool, `bin/ge-icon-gen`, that takes one source SVG and wri
 
 **What gets generated:**
 
-- iOS: `Assets.xcassets/AppIcon.appiconset/icon.png` (1024×1024) + `Contents.json`. Single-source mode (Xcode 15+) — Xcode generates the smaller per-size icons automatically at build time.
+- iOS: `Assets.xcassets/AppIcon.appiconset/icon.png` (1024×1024) + `Contents.json`. Single-source mode (Xcode 15+) — Xcode generates the smaller per-size icons automatically at build time. The icon is written as **opaque RGB with no alpha channel** (🎯T138): App Store Connect / Transporter validation rejects a marketing icon that carries *any* alpha channel, even one whose pixels are all opaque, so ge-icon-gen flattens it. This is the only iOS icon (single-source), so it covers the whole iOS surface; the Android round / adaptive icons keep their alpha (they need transparent corners / a masked foreground).
 - Android legacy: `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` and matching `_round.png` at 48 / 72 / 96 / 144 / 192 px.
 - Android adaptive: `drawable/ic_launcher_foreground.png` (432×432, full-bleed master SVG) + `drawable/ic_launcher_background.xml` (solid color from `ge/APP_ICON_BG_COLOR`, default white) + `mipmap-anydpi-v26/ic_launcher.xml` and `_round.xml` adaptive manifests.
 
