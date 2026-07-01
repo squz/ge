@@ -72,7 +72,7 @@ constexpr float kRefHz       = 60.0f;     // grip fractions are calibrated at 60
 // explicit restoring torque noses the buggy onto its travel direction: snappy at
 // speed, quiet at rest, and stable by construction (a damped restoring torque
 // can't spin out). kAlign is the stiffness; the body's angularDamping damps it.
-constexpr float kAlign         = 5.0f;    // heading-alignment stiffness
+constexpr float kAlign         = 6.0f;    // heading-alignment stiffness (forward only)
 constexpr float kMinAlignSpeed = 0.4f;    // m/s below which we don't align (anti-jitter)
 
 // ----------------------------------------------------------------------------
@@ -121,19 +121,27 @@ void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripFrac,
     b2Body_ApplyLinearImpulse(body, b2MulSV(jFwd, fwd), p, false);
 }
 
-// 🎯T16 Torque the chassis so its heading tracks its travel direction. Restoring
-// (∝ sideslip) and speed-scaled, so the buggy noses into a turn at speed and
-// sits still at rest; the body's angularDamping provides the damping.
+// 🎯T16 Torque the chassis so its heading tracks its travel direction — but only
+// when driving FORWARD. The torque is ∝ sin(slip)·max(cos(slip),0)·speed:
+//   • sin(slip)  — the lateral slip; the aligning direction, 0 when straight.
+//   • cos(slip)  — a forward gate: full when moving along the nose (slip≈0),
+//                  fading to 0 by a sideways slide and staying 0 in reverse.
+// So reverse gets NO explicit alignment (like the 2013 car, which had none) and
+// stays controllable — its only turning tendency is the gentle tire-friction
+// weathervane. Forward, sin·cos ≈ slip for small slip, so it noses in snappily.
+// Speed-scaled; damped by the body's angularDamping.
 void applyAlignment(b2BodyId body) {
     const b2Vec2 vel = b2Body_GetLinearVelocity(body);
     const float speed = b2Length(vel);
     if (speed < kMinAlignSpeed) return;
     const float velAngle = std::atan2(vel.y, vel.x);
     const float heading  = b2Rot_GetAngle(b2Body_GetRotation(body));
-    const float slip = std::atan2(std::sin(velAngle - heading),
-                                  std::cos(velAngle - heading));
-    // A torque (not impulse) — box2d integrates it over the step.
-    b2Body_ApplyTorque(body, kAlign * slip * speed * b2Body_GetMass(body), false);
+    const float dHeading = velAngle - heading;
+    const float fwdGate  = std::cos(dHeading);
+    if (fwdGate <= 0.0f) return;  // reverse / sideways-back: tire weathervane only
+    const float torque = kAlign * std::sin(dHeading) * fwdGate * speed
+                       * b2Body_GetMass(body);
+    b2Body_ApplyTorque(body, torque, false);  // torque, not impulse
 }
 
 } // namespace
@@ -143,7 +151,8 @@ void applyAlignment(b2BodyId body) {
 // ----------------------------------------------------------------------------
 
 struct Scene::Impl {
-    float halfExtent;
+    float halfExtent;   // y (shorter) axis
+    float halfWidth;    // x axis = halfExtent * arenaAspect (🎯T137.3)
 
     b2WorldId worldId;
 
@@ -171,7 +180,9 @@ struct Scene::Impl {
     ge::Rect iceRect;
     ge::Rect dirtRect;
 
-    Impl(float halfExtent_, bool allowBuggySleep) : halfExtent(halfExtent_) {
+    Impl(float halfExtent_, float arenaAspect, bool allowBuggySleep)
+        : halfExtent(halfExtent_),
+          halfWidth(halfExtent_ * (arenaAspect > 0.0f ? arenaAspect : 1.0f)) {
         // ------------------------------------------------------------------
         // World — gravity supplied per-step (device tilt); start at rest.
         // ------------------------------------------------------------------
@@ -192,9 +203,9 @@ struct Scene::Impl {
         // Walls — four edge segments at ±halfExtent, elastic (orig restitution
         // 1.0; 0.6 here keeps the buggy from pinballing forever).
         {
-            const float e = halfExtent;
+            const float w = halfWidth, e = halfExtent;
             const b2Vec2 corners[4] = {
-                {-e, -e}, { e, -e}, { e,  e}, {-e,  e}
+                {-w, -e}, { w, -e}, { w,  e}, {-w,  e}
             };
             b2ShapeDef sdef = b2DefaultShapeDef();
             sdef.material.friction = 0.4f;
@@ -298,8 +309,8 @@ struct Scene::Impl {
 
         // Dirt: left strip x ∈ [-halfExtent, -halfExtent/2], full height
         // (orig dirt was the left ~quarter of the arena).
-        dirtRect = ge::Rect{-halfExtent, -halfExtent,
-                            halfExtent * 0.5f, 2.0f * halfExtent};
+        dirtRect = ge::Rect{-halfWidth, -halfExtent,
+                            halfWidth * 0.5f, 2.0f * halfExtent};
         dirtShapeId = makeSensorPatch(dirtRect);
     }
 
@@ -352,8 +363,8 @@ struct Scene::Impl {
 // Scene
 // ----------------------------------------------------------------------------
 
-Scene::Scene(float halfExtent, bool allowBuggySleep)
-    : i_(std::make_unique<Impl>(halfExtent, allowBuggySleep)) {}
+Scene::Scene(float halfExtent, float arenaAspect, bool allowBuggySleep)
+    : i_(std::make_unique<Impl>(halfExtent, arenaAspect, allowBuggySleep)) {}
 Scene::~Scene() = default;
 
 void Scene::step(float dt, b2Vec2 gravity) {
@@ -421,6 +432,10 @@ b2WorldId Scene::worldId() const {
 
 float Scene::halfExtent() const {
     return i_->halfExtent;
+}
+
+float Scene::halfWidth() const {
+    return i_->halfWidth;
 }
 
 b2Vec2 Scene::chassisHalfExtents() const {

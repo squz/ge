@@ -151,7 +151,8 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // 🎯T97 debug overlay — opt-in (GE_DEBUG_OVERLAY); a no-op while disabled.
     {
         const auto che = scene.chassisHalfExtents();
-        ge::debug::box(ge::Rect{-he, -he, 2.f * he, 2.f * he});
+        const float hwid = scene.halfWidth();
+        ge::debug::box(ge::Rect{-hwid, -he, 2.f * hwid, 2.f * he});
         ge::debug::circle({pose.x, pose.y}, che.x * 1.2f);
         ge::debug::flush(c, mvp);
     }

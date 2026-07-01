@@ -36,7 +36,11 @@ public:
     // game). For the render-on-demand demo it must be allowed to sleep when the
     // buggy settles (so the box2d-awake trigger lets the loop idle); the
     // consumer then calls wakeBuggy() on a real tilt so the new gravity moves it.
-    explicit Scene(float halfExtent, bool allowBuggySleep = false);
+    // Arena: y ∈ ±halfExtent; x ∈ ±halfExtent·arenaAspect. Aspect-scaling x
+    // (like the 2013 game, WORLD_SIZE·aspect wide) fills a landscape screen so
+    // the dirt strip reaches the left edge (🎯T137.3). Pass the display aspect.
+    explicit Scene(float halfExtent, float arenaAspect = 1.0f,
+                   bool allowBuggySleep = false);
     ~Scene();
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
@@ -63,8 +67,10 @@ public:
     // out via ge::box2d::worldGeometry(scene->worldId()).
     b2WorldId worldId() const;
 
-    // Extent of the world (walls at ±halfExtent).
+    // Arena half-extents: halfExtent() = y (shorter) axis; halfWidth() = x axis
+    // = halfExtent·arenaAspect (🎯T137.3).
     float halfExtent() const;
+    float halfWidth() const;
 
     // 🎯T137.1 Half-extents of the chassis box (metres). Single source of truth
     // shared with the Renderer so the drawn buggy matches the physics body.
