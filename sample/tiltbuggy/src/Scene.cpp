@@ -12,136 +12,97 @@ namespace tiltbuggy {
 namespace {
 
 // ----------------------------------------------------------------------------
-// Vehicle constants (🎯T137.1)
+// Vehicle model — a faithful port of the 2013 Chipmunk car (🎯T16)
 //
-// Scale: restored to the 2013 reference's ~10-unit world (walls at ±halfExtent,
-// a 2×1 m chassis). box2d v3's solver is tuned for human-scale bodies, so the
-// earlier 1/16 shrink (halfExtent 0.625) is dropped now that the follow-camera
-// (🎯T137.3) keeps the buggy on screen without shrinking the world. The
-// Renderer is scale-invariant (everything derives from scene.halfExtent()).
+// The original is a CONSTRAINT-based top-down car, not a force heuristic. We
+// replicate its exact structure and numbers so the dynamics (forward
+// weathervane-stability AND reverse fishtailing) emerge from the geometry
+// rather than being faked with an alignment torque:
 //
-// The original (ViewController.mm) built a real top-down car: a chassis box, a
-// separate steering body pivoted at the front (pivot + rotary-limit ±0.3 +
-// self-centring damped spring → one box2d revolute joint here), and front/rear
-// "wheels" that resist lateral slide up to a capped force (cpGrooveJoint with
-// maxForce). box2d v3 has no groove joint, so the wheels become a top-down
-// tire-friction model (front/rear lateral-slide damping on the chassis) plus an
-// explicit heading-alignment torque — see the constant blocks below. The
-// steering body + revolute joint are retained as the cosmetic self-centring
-// caster. Final feel is tuned in 🎯T16.
+//   • Chassis: a 2×1 box, mass 1, moment of inertia 1 (cpBodyNew(1,1)). The
+//     moment is set by hand — ~2.4× a uniform box's I/m — which is what gives
+//     the car its planted, deliberate rotation.
+//   • Steering body: mass 0.1, moment 0.1, at chassis-local (0.7, 0), joined to
+//     the chassis by a revolute with a ±0.3 rad limit and a PURE rotary damper
+//     (cpDampedRotarySpring stiffness 0, damping 1 — no self-centring spring).
+//   • Two "wheels" = groove joints (cpGrooveJoint + maxForce 150): hard
+//     lateral-velocity constraints that null the sideways velocity at the wheel
+//     point, capped at 150 N (ice/dirt lower the cap so the wheel slips). The
+//     REAR grips on the chassis at (-0.65,0); the FRONT grips on the STEERING
+//     body at (-0.1,0), so the front wheel resists slip along the *steered*
+//     direction and the force feeds the chassis through the pivot.
+//   • 4 substeps/frame (orig 4 × cpSpaceStep(0.25/60)), re-solving the wheels
+//     each substep. No linear/angular damping (Chipmunk default), no rolling
+//     resistance — the car coasts, controlled by tilt + walls + wheel grip.
 // ----------------------------------------------------------------------------
 
-// Chassis — matches the original rectVects({1, 0.5}) → a 2×1 box.
-constexpr float kChassisHalfLen = 1.0f;   // half-length along +x (forward)
-constexpr float kChassisHalfWid = 0.5f;   // half-width along ±y
-constexpr float kChassisDensity = 1.0f;
+// Chassis (orig cpBodyNew(1,1), box rectVects({1,0.5}) = 2×1).
+constexpr float kChassisHalfLen = 1.0f;    // half-length along +x (forward)
+constexpr float kChassisHalfWid = 0.5f;    // half-width along ±y
+constexpr float kChassisMass    = 1.0f;
+constexpr float kChassisInertia = 1.0f;    // set by hand (orig), not from the box
+constexpr float kChassisRestitution = 0.5f;
 
-// Steering body — a tiny body ahead of the chassis centre, free to pivot
-// ±kSteerClamp and self-centred by a soft rotary spring.
-constexpr float kSteerOffsetX  = 0.7f;    // chassis-local x of the steer pivot
-constexpr float kSteerHalf     = 0.1f;
-constexpr float kSteerDensity   = 0.25f;
-constexpr float kSteerClampRad  = 0.3f;   // ± steer-angle limit (orig -0.3..0.3)
-constexpr float kSteerSpringHz  = 2.5f;   // self-centring stiffness (cycles/s)
-constexpr float kSteerSpringZ   = 0.7f;   // self-centring damping ratio
+// Steering body (orig cpBodyNew(0.1,0.1) at chassis-local (0.7,0)).
+constexpr float kSteerOffsetX = 0.7f;
+constexpr float kSteerHalf    = 0.1f;      // small box (visual/link only)
+constexpr float kSteerMass    = 0.1f;
+constexpr float kSteerInertia = 0.1f;
+constexpr float kSteerLimit   = 0.3f;      // ± revolute limit (orig ±0.3)
+constexpr float kSteerDamping = 1.0f;      // pure rotary damper (orig damping 1)
 
-// Tire friction. Both axles act on the chassis at their wheel points: box2d v3
-// has no groove joint, and the original front groove (on the light steering
-// body) doesn't translate to a mass-scaled impulse, so the front grip is applied
-// to the chassis at the front axle — the steering body stays as the cosmetic
-// self-centring caster (🎯T16).
-//
-// Each axle removes a *fraction* (0..1) of its sideways velocity per frame — a
-// proportional cornering force, not a hard cancel. This is what makes the buggy
-// turn to track its travel: rear grip > front grip puts the net lateral force
-// behind the centre of mass (like a dart's fin), so the heading weathervanes
-// onto the velocity. A hard symmetric cancel produces zero net torque from a
-// clean sideslip (both axles cancel equally) — the buggy would just slide
-// sideways and never turn; equal-and-saturating grip oversteers and spins out on
-// a fast release. Ice/dirt scale the axle's fraction down (🎯T137.2).
-constexpr float kFrontGrip  = 0.12f;      // fraction of front sideways vel / frame
-constexpr float kRearGrip   = 0.28f;      // fraction of rear sideways vel / frame
-constexpr float kRollResist = 0.6f;       // forward rolling drag, per second
-constexpr float kFrontAxleX  =  0.65f;    // chassis-local front axle
-constexpr float kRearWheelX  = -0.65f;    // chassis-local rear axle (orig -0.65)
-constexpr float kMaxSpin     = 6.0f;      // rad/s yaw clamp — kills wild spins
-constexpr float kRefHz       = 60.0f;     // grip fractions are calibrated at 60fps
+// Wheels — force-capped lateral constraints (orig cpGrooveJoint maxForce 150).
+constexpr float kBaseGrip    = 150.0f;     // N lateral force cap on asphalt
+constexpr float kFrontWheelX = -0.10f;     // steering-local front wheel (orig -0.1)
+constexpr float kRearWheelX  = -0.65f;     // chassis-local rear wheel (orig -0.65)
 
-// 🎯T16 Heading-alignment assist. The grip imbalance alone gives only a weak
-// weathervane (grip removes the sideways velocity that would drive it), so an
-// explicit restoring torque noses the buggy onto its travel direction: snappy at
-// speed, quiet at rest, and stable by construction (a damped restoring torque
-// can't spin out). kAlign is the stiffness; the body's angularDamping damps it.
-constexpr float kAlign         = 6.0f;    // heading-alignment stiffness (forward only)
-constexpr float kMinAlignSpeed = 0.4f;    // m/s below which we don't align (anti-jitter)
+constexpr int   kSubSteps = 4;             // physics substeps / frame (orig 4)
 
 // ----------------------------------------------------------------------------
-// Surface traps (🎯T137.2)
-//
-// The original tripped per-axle grip changes with four corner "tread" shapes
-// over ice / dirt sensor patches. Here, two non-colliding tread probes (front /
-// rear) on the chassis are detected by the ground sensors via collision-filter
-// categories; b2World_GetSensorEvents drives the per-axle grip. Ice/dirt
-// multiply the affected axle's grip (orig deltas: 150→75 ice = ×0.5,
-// 150→90 dirt = ×0.6; exaggerated here for a more legible slide, tuned in 🎯T16).
+// Surface traps (🎯T137.2) — orig grip 150 → 75 on ice, 90 on dirt, per axle.
 // ----------------------------------------------------------------------------
-constexpr float kIceGripFactor  = 0.18f;  // ice: very slippery
-constexpr float kDirtGripFactor = 0.45f;  // dirt: loose, moderate slip
-constexpr float kFrontProbeX    = 0.70f;  // chassis-local front tread (near steer)
-constexpr float kProbeHalf      = 0.12f;  // small tread-probe box
+constexpr float kIceGrip     = 75.0f;      // N (orig 150 - 75)
+constexpr float kDirtGrip    = 90.0f;      // N (orig 150 - 60)
+constexpr float kFrontProbeX = 0.70f;      // chassis-local front tread (near steer)
+constexpr float kProbeHalf   = 0.12f;      // small tread-probe box
 
 // Collision-filter categories: tread probes are *detected by* the surface
-// sensors but collide with nothing physical. Sensor detection respects the
-// same filter as collision, so each shape opts into exactly what it needs.
-constexpr uint64_t kCatWall   = 0x1;  // arena walls
-constexpr uint64_t kCatBuggy  = 0x2;  // chassis body
-constexpr uint64_t kCatProbe  = 0x4;  // tread probes (detection only)
-constexpr uint64_t kCatSensor = 0x8;  // ice / dirt sensor patches
+// sensors but collide with nothing physical.
+constexpr uint64_t kCatWall   = 0x1;
+constexpr uint64_t kCatBuggy  = 0x2;
+constexpr uint64_t kCatProbe  = 0x4;
+constexpr uint64_t kCatSensor = 0x8;
 
-// Remove a fraction `gripFrac` (0..1) of a wheel's sideways velocity, plus a
-// little forward rolling resistance. Applied at the wheel's world point so the
-// impulse also yields the turning moment about the body's COM — the source of
-// the weathervane alignment.
-void applyTireFriction(b2BodyId body, b2Vec2 localPt, float gripFrac,
-                       float rollResist, float dt) {
-    const b2Vec2 fwd = b2Body_GetWorldVector(body, b2Vec2{1.0f, 0.0f});
+// A groove-joint wheel: null the lateral (sideways) velocity at a wheel point,
+// capped at maxForce. `lat` is the body's local lateral axis (so the front
+// wheel, on the steering body, grips along the steered direction). Uses the
+// constraint's effective mass 1/(1/m + (r⊥·n)²/I) so the impulse exactly
+// removes the point's lateral velocity — the cpGrooveJoint behaviour.
+void applyWheelGrip(b2BodyId body, b2Vec2 localPt, float maxForce, float dt) {
     const b2Vec2 lat = b2Body_GetWorldVector(body, b2Vec2{0.0f, 1.0f});
     const b2Vec2 p   = b2Body_GetWorldPoint(body, localPt);
     const b2Vec2 v   = b2Body_GetWorldPointVelocity(body, p);
+    const float  vLat = b2Dot(v, lat);
+    const b2Vec2 com = b2Body_GetWorldCenterOfMass(body);
+    const b2Vec2 r   = b2Sub(p, com);
+    const float  rn  = b2Cross(r, lat);
     const float  m   = b2Body_GetMass(body);
-
-    // Lateral: remove gripFrac of the sideways velocity (calibrated at 60fps,
-    // scaled to the actual dt, clamped so a long frame can't over-correct).
-    const float frac = std::clamp(gripFrac * dt * kRefHz, 0.0f, 1.0f);
-    const float jLat = -b2Dot(v, lat) * m * frac;
-    b2Body_ApplyLinearImpulse(body, b2MulSV(jLat, lat), p, false);
-
-    // Forward: gentle rolling resistance.
-    const float jFwd = -rollResist * b2Dot(v, fwd) * m * dt;
-    b2Body_ApplyLinearImpulse(body, b2MulSV(jFwd, fwd), p, false);
+    const float  I   = b2Body_GetRotationalInertia(body);
+    const float  invM = 1.0f / m + (I > 0.0f ? (rn * rn) / I : 0.0f);
+    float j = (invM > 0.0f) ? (-vLat / invM) : 0.0f;
+    const float cap = maxForce * dt;
+    j = std::clamp(j, -cap, cap);
+    b2Body_ApplyLinearImpulse(body, b2MulSV(j, lat), p, false);
 }
 
-// 🎯T16 Torque the chassis so its heading tracks its travel direction — but only
-// when driving FORWARD. The torque is ∝ sin(slip)·max(cos(slip),0)·speed:
-//   • sin(slip)  — the lateral slip; the aligning direction, 0 when straight.
-//   • cos(slip)  — a forward gate: full when moving along the nose (slip≈0),
-//                  fading to 0 by a sideways slide and staying 0 in reverse.
-// So reverse gets NO explicit alignment (like the 2013 car, which had none) and
-// stays controllable — its only turning tendency is the gentle tire-friction
-// weathervane. Forward, sin·cos ≈ slip for small slip, so it noses in snappily.
-// Speed-scaled; damped by the body's angularDamping.
-void applyAlignment(b2BodyId body) {
-    const b2Vec2 vel = b2Body_GetLinearVelocity(body);
-    const float speed = b2Length(vel);
-    if (speed < kMinAlignSpeed) return;
-    const float velAngle = std::atan2(vel.y, vel.x);
-    const float heading  = b2Rot_GetAngle(b2Body_GetRotation(body));
-    const float dHeading = velAngle - heading;
-    const float fwdGate  = std::cos(dHeading);
-    if (fwdGate <= 0.0f) return;  // reverse / sideways-back: tire weathervane only
-    const float torque = kAlign * std::sin(dHeading) * fwdGate * speed
-                       * b2Body_GetMass(body);
-    b2Body_ApplyTorque(body, torque, false);  // torque, not impulse
+// Pure rotary damper between chassis and steering (orig cpDampedRotarySpring
+// stiffness 0, damping 1): resist the RELATIVE spin, no centring.
+void applySteerDamping(b2BodyId chassis, b2BodyId steer, float damping) {
+    const float relW = b2Body_GetAngularVelocity(steer)
+                     - b2Body_GetAngularVelocity(chassis);
+    const float torque = -damping * relW;
+    b2Body_ApplyTorque(steer, torque, false);
+    b2Body_ApplyTorque(chassis, -torque, false);
 }
 
 } // namespace
@@ -160,7 +121,7 @@ struct Scene::Impl {
     b2BodyId chassisId;
     b2BodyId steeringId;
 
-    b2JointId steeringJoint;  // revolute: chassis ↔ steering
+    b2JointId steeringJoint;  // revolute: chassis ↔ steering (limit only)
 
     // Sensor shapes for surface patches.
     b2ShapeId iceShapeId;
@@ -171,10 +132,10 @@ struct Scene::Impl {
     b2ShapeId frontProbeId;
     b2ShapeId rearProbeId;
 
-    // Live per-axle grip (m/s² lateral cap). Asphalt = base; 🎯T137.2 drops the
-    // axle over an ice / dirt patch and restores it on exit.
-    float frontGrip = kFrontGrip;
-    float rearGrip  = kRearGrip;
+    // Live per-axle wheel grip (lateral force cap, N). Asphalt = kBaseGrip;
+    // 🎯T137.2 drops the axle over an ice / dirt patch and restores it on exit.
+    float frontGrip = kBaseGrip;
+    float rearGrip  = kBaseGrip;
 
     // Remembered surface bounds (y-up world rects) for surfaces().
     ge::Rect iceRect;
@@ -183,16 +144,12 @@ struct Scene::Impl {
     Impl(float halfExtent_, float arenaAspect, bool allowBuggySleep)
         : halfExtent(halfExtent_),
           halfWidth(halfExtent_ * (arenaAspect > 0.0f ? arenaAspect : 1.0f)) {
-        // ------------------------------------------------------------------
         // World — gravity supplied per-step (device tilt); start at rest.
-        // ------------------------------------------------------------------
         b2WorldDef wdef = b2DefaultWorldDef();
         wdef.gravity = {0.0f, 0.0f};
         worldId = b2CreateWorld(&wdef);
 
-        // ------------------------------------------------------------------
-        // Ground (static body: walls + sensor patches)
-        // ------------------------------------------------------------------
+        // Ground (static body: walls + sensor patches).
         {
             b2BodyDef bdef = b2DefaultBodyDef();
             bdef.type = b2_staticBody;
@@ -200,16 +157,17 @@ struct Scene::Impl {
             groundId = b2CreateBody(worldId, &bdef);
         }
 
-        // Walls — four edge segments at ±halfExtent, elastic (orig restitution
-        // 1.0; 0.6 here keeps the buggy from pinballing forever).
+        // Walls — four edge segments at ±halfWidth (x) × ±halfExtent (y).
+        // Elastic (orig restitution 1.0), frictionless (orig walls set no
+        // friction) so the car slides along them.
         {
             const float w = halfWidth, e = halfExtent;
             const b2Vec2 corners[4] = {
                 {-w, -e}, { w, -e}, { w,  e}, {-w,  e}
             };
             b2ShapeDef sdef = b2DefaultShapeDef();
-            sdef.material.friction = 0.4f;
-            sdef.material.restitution = 0.6f;
+            sdef.material.friction = 0.0f;
+            sdef.material.restitution = 1.0f;
             sdef.filter.categoryBits = kCatWall;
             sdef.filter.maskBits = kCatBuggy;  // walls collide with the chassis only
             for (int i = 0; i < 4; ++i) {
@@ -218,51 +176,51 @@ struct Scene::Impl {
             }
         }
 
-        // ------------------------------------------------------------------
-        // Chassis — 2×1 box at the origin.
-        // ------------------------------------------------------------------
+        // Chassis — 2×1 box at the origin, mass/moment (1,1) set by hand.
         {
             b2BodyDef bdef = b2DefaultBodyDef();
             bdef.type = b2_dynamicBody;
             bdef.name = "buggy";  // 🎯T117 → geometry slice id
             bdef.position = {0.0f, 0.0f};
-            bdef.angularDamping = 0.5f;  // damps spin; lateral grip does the rest
+            // No linear/angular damping — Chipmunk default (the car coasts).
             bdef.enableSleep = allowBuggySleep;  // 🎯T131.5 render-on-demand demo
             chassisId = b2CreateBody(worldId, &bdef);
 
             b2Polygon box = b2MakeBox(kChassisHalfLen, kChassisHalfWid);
             b2ShapeDef sdef = b2DefaultShapeDef();
-            sdef.density = kChassisDensity;
-            sdef.material.friction = 0.6f;
-            sdef.material.restitution = 0.3f;
+            sdef.density = 1.0f;  // overridden by SetMassData below
+            sdef.material.friction = 0.0f;
+            sdef.material.restitution = kChassisRestitution;
             sdef.filter.categoryBits = kCatBuggy;
             sdef.filter.maskBits = kCatWall;        // collide with walls only
             sdef.enableSensorEvents = false;        // only the treads trip sensors
             b2CreatePolygonShape(chassisId, &sdef, &box);
 
-            // 🎯T137.2 Front + rear tread probes. Density 0 (no mass), filtered
-            // to be detected by the surface sensors but collide with nothing.
+            // 🎯T137.2 Front + rear tread probes. Density 0, filtered to be
+            // detected by the surface sensors but collide with nothing.
             b2ShapeDef pdef = b2DefaultShapeDef();
             pdef.density = 0.0f;
             pdef.filter.categoryBits = kCatProbe;
-            pdef.filter.maskBits = kCatSensor;      // "collide" with sensors only
+            pdef.filter.maskBits = kCatSensor;
             pdef.enableSensorEvents = true;
-            b2Polygon frontBox =
-                b2MakeOffsetBox(kProbeHalf, kProbeHalf,
-                                b2Vec2{kFrontProbeX, 0.0f}, b2Rot_identity);
-            b2Polygon rearBox =
-                b2MakeOffsetBox(kProbeHalf, kProbeHalf,
-                                b2Vec2{kRearWheelX, 0.0f}, b2Rot_identity);
+            b2Polygon frontBox = b2MakeOffsetBox(kProbeHalf, kProbeHalf,
+                                     b2Vec2{kFrontProbeX, 0.0f}, b2Rot_identity);
+            b2Polygon rearBox  = b2MakeOffsetBox(kProbeHalf, kProbeHalf,
+                                     b2Vec2{kRearWheelX, 0.0f}, b2Rot_identity);
             frontProbeId = b2CreatePolygonShape(chassisId, &pdef, &frontBox);
             rearProbeId  = b2CreatePolygonShape(chassisId, &pdef, &rearBox);
+
+            // Match the original mass + moment exactly (after all shapes so the
+            // auto-computed mass doesn't override this).
+            b2MassData md{};
+            md.mass = kChassisMass;
+            md.center = {0.0f, 0.0f};
+            md.rotationalInertia = kChassisInertia;
+            b2Body_SetMassData(chassisId, md);
         }
 
-        // ------------------------------------------------------------------
-        // Steering body + revolute joint (the self-centring front axle).
-        // The original used cpPivotJoint + cpRotaryLimitJoint(-0.3..0.3) +
-        // cpDampedRotarySpring; box2d v3's revolute joint carries the limit
-        // AND the self-centring spring in one joint.
-        // ------------------------------------------------------------------
+        // Steering body + revolute joint: ±0.3 rad limit, NO spring (orig
+        // stiffness 0). The rotary damping is applied manually each substep.
         {
             b2BodyDef bdef = b2DefaultBodyDef();
             bdef.type = b2_dynamicBody;
@@ -273,13 +231,17 @@ struct Scene::Impl {
 
             b2Polygon box = b2MakeBox(kSteerHalf, kSteerHalf);
             b2ShapeDef sdef = b2DefaultShapeDef();
-            sdef.density = kSteerDensity;
+            sdef.density = 1.0f;  // overridden below
             sdef.enableSensorEvents = false;
-            // The steering body must not collide with anything — it is a pure
-            // control linkage. Filter it out of all collisions.
-            sdef.filter.categoryBits = 0;
+            sdef.filter.categoryBits = 0;  // pure control linkage; no collisions
             sdef.filter.maskBits = 0;
             b2CreatePolygonShape(steeringId, &sdef, &box);
+
+            b2MassData md{};
+            md.mass = kSteerMass;
+            md.center = {0.0f, 0.0f};
+            md.rotationalInertia = kSteerInertia;
+            b2Body_SetMassData(steeringId, md);
 
             b2RevoluteJointDef jd = b2DefaultRevoluteJointDef();
             jd.bodyIdA = chassisId;
@@ -288,35 +250,24 @@ struct Scene::Impl {
             jd.localAnchorB = {0.0f, 0.0f};
             jd.referenceAngle = 0.0f;
             jd.enableLimit = true;
-            jd.lowerAngle = -kSteerClampRad;
-            jd.upperAngle =  kSteerClampRad;
-            jd.enableSpring = true;
-            jd.targetAngle = 0.0f;          // self-centre to straight-ahead
-            jd.hertz = kSteerSpringHz;
-            jd.dampingRatio = kSteerSpringZ;
+            jd.lowerAngle = -kSteerLimit;
+            jd.upperAngle =  kSteerLimit;
+            jd.enableSpring = false;   // no self-centring (orig stiffness 0)
+            jd.enableMotor  = false;   // damping done manually (applySteerDamping)
             jd.collideConnected = false;
             steeringJoint = b2CreateRevoluteJoint(worldId, &jd);
         }
 
-        // ------------------------------------------------------------------
-        // Surface sensor patches — restored to the 2013 layout (in world
-        // units): ice across the upper-middle, dirt down the left edge.
-        // ------------------------------------------------------------------
-
-        // Ice: x ∈ [-6, 6], y ∈ [2, 6]   (orig rectVects({-6,2},{6,6}))
+        // Surface sensor patches (orig layout): ice upper-middle, dirt left edge.
         iceRect = ge::Rect{-6.0f, 2.0f, 12.0f, 4.0f};
         iceShapeId = makeSensorPatch(iceRect);
-
-        // Dirt: left strip x ∈ [-halfExtent, -halfExtent/2], full height
-        // (orig dirt was the left ~quarter of the arena).
         dirtRect = ge::Rect{-halfWidth, -halfExtent,
                             halfWidth * 0.5f, 2.0f * halfExtent};
         dirtShapeId = makeSensorPatch(dirtRect);
     }
 
-    // 🎯T137.2 Drain this step's sensor begin/end events and set each axle's
-    // grip: a tread probe entering ice / dirt drops that axle; leaving restores
-    // it. Front and rear are independent (separate probes → separate grips).
+    // 🎯T137.2 Drain sensor begin/end events and set each axle's grip cap: a
+    // tread probe entering ice / dirt drops that axle; leaving restores it.
     void updateSurfaceGrip() {
         b2SensorEvents ev = b2World_GetSensorEvents(worldId);
         for (int i = 0; i < ev.beginCount; ++i)
@@ -330,15 +281,15 @@ struct Scene::Impl {
     }
 
     void applyTouch(b2ShapeId visitor, b2ShapeId sensor, bool begin) {
-        float factor = 1.0f;  // leaving a patch restores asphalt grip
+        float grip = kBaseGrip;  // leaving a patch restores asphalt grip
         if (begin) {
             if (b2Shape_IsValid(sensor) && B2_ID_EQUALS(sensor, iceShapeId))
-                factor = kIceGripFactor;
+                grip = kIceGrip;
             else if (b2Shape_IsValid(sensor) && B2_ID_EQUALS(sensor, dirtShapeId))
-                factor = kDirtGripFactor;
+                grip = kDirtGrip;
         }
-        if (B2_ID_EQUALS(visitor, frontProbeId))      frontGrip = kFrontGrip * factor;
-        else if (B2_ID_EQUALS(visitor, rearProbeId))  rearGrip  = kRearGrip  * factor;
+        if (B2_ID_EQUALS(visitor, frontProbeId))      frontGrip = grip;
+        else if (B2_ID_EQUALS(visitor, rearProbeId))  rearGrip  = grip;
     }
 
     b2ShapeId makeSensorPatch(const ge::Rect& r) {
@@ -369,33 +320,25 @@ Scene::~Scene() = default;
 
 void Scene::step(float dt, b2Vec2 gravity) {
     b2World_SetGravity(i_->worldId, gravity);
+    if (dt <= 0.0f) { b2World_Step(i_->worldId, 0.0f, 1); return; }
 
-    // 🎯T137.1/T16 Tire friction — front + rear axles, both on the chassis —
-    // applied before the solve, like the original's per-step wheel update. This
-    // is what makes the buggy drive in arcs instead of sliding like a box; rear
-    // grip > front grip keeps it from spinning out (understeer).
-    // 🎯T137.2 folds sensor-driven grip changes into i_->front/rearGrip.
-    // Skip a sleeping chassis (🎯T131.5 render-on-demand): a settled buggy must
-    // stay asleep so the loop idles — applyTireFriction passes wake=false.
-    if (dt > 0.0f && b2Body_IsAwake(i_->chassisId)) {
-        applyTireFriction(i_->chassisId, {kFrontAxleX, 0.0f},
-                          i_->frontGrip, kRollResist, dt);
-        applyTireFriction(i_->chassisId, {kRearWheelX, 0.0f},
-                          i_->rearGrip,  kRollResist, dt);
-        applyAlignment(i_->chassisId);
+    // 🎯T16 Substep like the original (4 × the frame), re-solving the two
+    // groove-joint wheels each substep: rear on the chassis, front on the
+    // steering body (so it grips along the steered direction). The pivot joint
+    // (solved inside b2World_Step) feeds the front grip into the chassis. No
+    // heuristic alignment torque — the weathervane (forward) and the fishtail
+    // (reverse) fall out of the geometry.
+    const float h = dt / kSubSteps;
+    for (int s = 0; s < kSubSteps; ++s) {
+        // Skip a sleeping chassis (🎯T131.5 render-on-demand idle).
+        if (b2Body_IsAwake(i_->chassisId)) {
+            applyWheelGrip(i_->chassisId,  {kRearWheelX,  0.0f}, i_->rearGrip,  h);
+            applyWheelGrip(i_->steeringId, {kFrontWheelX, 0.0f}, i_->frontGrip, h);
+            applySteerDamping(i_->chassisId, i_->steeringId, kSteerDamping);
+        }
+        b2World_Step(i_->worldId, h, 4);
+        i_->updateSurfaceGrip();
     }
-
-    b2World_Step(i_->worldId, dt, 4);
-
-    // 🎯T16 Yaw clamp — a hard cap on chassis spin so a fast release / glancing
-    // wall hit can't send the buggy into an unrecoverable pirouette. Normal
-    // turning (~2–3 rad/s) is well under the cap, so it only catches blow-ups.
-    const float w = b2Body_GetAngularVelocity(i_->chassisId);
-    if (w >  kMaxSpin) b2Body_SetAngularVelocity(i_->chassisId,  kMaxSpin);
-    else if (w < -kMaxSpin) b2Body_SetAngularVelocity(i_->chassisId, -kMaxSpin);
-
-    // 🎯T137.2 Fold this step's surface overlaps into next step's grip.
-    i_->updateSurfaceGrip();
 }
 
 Pose Scene::buggyPose() const {

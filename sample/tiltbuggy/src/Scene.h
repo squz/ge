@@ -21,10 +21,10 @@ struct Surface {
     SurfaceType type;
 };
 
-// 🎯T137.1/.2 Live grip of each axle (fraction of sideways velocity removed per
-// frame, 0..1). Asphalt = the per-axle base; ice/dirt drop the axle currently
-// over them. Exposed so a log / state slice can show the grip change as the
-// buggy crosses a patch.
+// 🎯T137.1/.2 Live grip of each axle — the wheel's lateral-force cap in newtons
+// (orig cpGrooveJoint maxForce; asphalt 150, ice 75, dirt 90). ice/dirt drop the
+// axle currently over them. Exposed so a log / state slice shows the change as
+// the buggy crosses a patch.
 struct GripState { float front, rear; };
 
 class Scene {

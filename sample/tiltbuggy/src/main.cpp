@@ -234,7 +234,7 @@ int main(int argc, char* argv[]) {
                 static int frame = 0;
                 if (++frame % 60 == 0) {
                     const auto gr = state.scene->gripState();
-                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.2f},{:.2f}] pro={}",
+                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.0f},{:.0f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
                                 gr.front, gr.rear, ge::iap::owned("pro"));
                 }
