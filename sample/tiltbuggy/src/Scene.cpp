@@ -59,12 +59,21 @@ constexpr float kRearWheelX  = -0.65f;     // chassis-local rear wheel (orig -0.
 constexpr int   kSubSteps = 4;             // physics substeps / frame (orig 4)
 
 // ----------------------------------------------------------------------------
-// Surface traps (🎯T137.2) — orig grip 150 → 75 on ice, 90 on dirt, per axle.
+// Surface traps (🎯T137.2). The original has FOUR tread shapes at the chassis
+// corners (±0.85, ±0.45) — two per axle — and its collision handler subtracts
+// the surface's grip delta PER TREAD from that axle's wheel force cap. So a
+// fully-on axle reads 150 − 2·75 = 0 on ice / 150 − 2·60 = 30 on dirt, but a
+// HALF-on axle (one tread over the edge) reads the intermediate 75 / 90 — a
+// third grip level the differential harness proved is load-bearing (a half-on
+// rear still grips → the car rotates). We replicate all four treads + the
+// additive per-tread deltas so the grip states match {150, 75, 0} exactly.
 // ----------------------------------------------------------------------------
-constexpr float kIceGrip     = 75.0f;      // N (orig 150 - 75)
-constexpr float kDirtGrip    = 90.0f;      // N (orig 150 - 60)
-constexpr float kFrontProbeX = 0.70f;      // chassis-local front tread (near steer)
-constexpr float kProbeHalf   = 0.12f;      // small tread-probe box
+constexpr int   kIceDelta   = -75;         // per-tread grip delta on ice (orig)
+constexpr int   kDirtDelta  = -60;         // per-tread grip delta on dirt (orig)
+constexpr float kTreadX     = 0.85f;       // tread x offset (orig ±0.85)
+constexpr float kTreadY     = 0.45f;       // tread y offset (orig ±0.45)
+constexpr float kTreadHalfX = 0.10f;       // tread box half-extents (orig rectVects({0.1,0.04}))
+constexpr float kTreadHalfY = 0.04f;
 
 // Collision-filter categories: tread probes are *detected by* the surface
 // sensors but collide with nothing physical.
@@ -127,13 +136,15 @@ struct Scene::Impl {
     b2ShapeId iceShapeId;
     b2ShapeId dirtShapeId;
 
-    // 🎯T137.2 Non-colliding tread probes on the chassis, detected by the
-    // surface sensors to drive per-axle grip.
-    b2ShapeId frontProbeId;
-    b2ShapeId rearProbeId;
+    // 🎯T137.2 Four non-colliding tread probes (2 front, 2 rear) at the chassis
+    // corners, detected by the surface sensors. probes[0,1] are front, [2,3]
+    // rear. probeDelta[i] is the grip delta of the surface probe i currently
+    // sits on (0 = asphalt), so each axle's grip is derived, not accumulated —
+    // robust against a teleport dropping a begin/end pair.
+    b2ShapeId probes[4];
+    int       probeDelta[4] = {0, 0, 0, 0};
 
-    // Live per-axle wheel grip (lateral force cap, N). Asphalt = kBaseGrip;
-    // 🎯T137.2 drops the axle over an ice / dirt patch and restores it on exit.
+    // Live per-axle wheel grip (lateral force cap, N), derived from the treads.
     float frontGrip = kBaseGrip;
     float rearGrip  = kBaseGrip;
 
@@ -196,19 +207,23 @@ struct Scene::Impl {
             sdef.enableSensorEvents = false;        // only the treads trip sensors
             b2CreatePolygonShape(chassisId, &sdef, &box);
 
-            // 🎯T137.2 Front + rear tread probes. Density 0, filtered to be
+            // 🎯T137.2 Four tread probes at the chassis corners (orig ±0.85,
+            // ±0.45): probes[0,1] front, [2,3] rear. Density 0, filtered to be
             // detected by the surface sensors but collide with nothing.
             b2ShapeDef pdef = b2DefaultShapeDef();
             pdef.density = 0.0f;
             pdef.filter.categoryBits = kCatProbe;
             pdef.filter.maskBits = kCatSensor;
             pdef.enableSensorEvents = true;
-            b2Polygon frontBox = b2MakeOffsetBox(kProbeHalf, kProbeHalf,
-                                     b2Vec2{kFrontProbeX, 0.0f}, b2Rot_identity);
-            b2Polygon rearBox  = b2MakeOffsetBox(kProbeHalf, kProbeHalf,
-                                     b2Vec2{kRearWheelX, 0.0f}, b2Rot_identity);
-            frontProbeId = b2CreatePolygonShape(chassisId, &pdef, &frontBox);
-            rearProbeId  = b2CreatePolygonShape(chassisId, &pdef, &rearBox);
+            const b2Vec2 treadPos[4] = {
+                {+kTreadX, -kTreadY}, {+kTreadX, +kTreadY},   // front
+                {-kTreadX, -kTreadY}, {-kTreadX, +kTreadY},   // rear
+            };
+            for (int i = 0; i < 4; ++i) {
+                b2Polygon t = b2MakeOffsetBox(kTreadHalfX, kTreadHalfY,
+                                              treadPos[i], b2Rot_identity);
+                probes[i] = b2CreatePolygonShape(chassisId, &pdef, &t);
+            }
 
             // Match the original mass + moment exactly (after all shapes so the
             // auto-computed mass doesn't override this).
@@ -266,30 +281,32 @@ struct Scene::Impl {
         dirtShapeId = makeSensorPatch(dirtRect);
     }
 
-    // 🎯T137.2 Drain sensor begin/end events and set each axle's grip cap: a
-    // tread probe entering ice / dirt drops that axle; leaving restores it.
+    // 🎯T137.2 Drain sensor begin/end events, updating which surface each tread
+    // sits on, then derive each axle's grip = 150 + Σ (its two treads' deltas),
+    // clamped at 0 — exactly the original's per-tread additive collision handler.
     void updateSurfaceGrip() {
         b2SensorEvents ev = b2World_GetSensorEvents(worldId);
         for (int i = 0; i < ev.beginCount; ++i)
-            applyTouch(ev.beginEvents[i].visitorShapeId,
-                       ev.beginEvents[i].sensorShapeId, true);
+            setProbeDelta(ev.beginEvents[i].visitorShapeId,
+                          surfaceDelta(ev.beginEvents[i].sensorShapeId));
         for (int i = 0; i < ev.endCount; ++i) {
-            const auto& e = ev.endEvents[i];
-            if (!b2Shape_IsValid(e.visitorShapeId)) continue;
-            applyTouch(e.visitorShapeId, e.sensorShapeId, false);
+            if (!b2Shape_IsValid(ev.endEvents[i].visitorShapeId)) continue;
+            setProbeDelta(ev.endEvents[i].visitorShapeId, 0);  // left the patch
         }
+        frontGrip = std::max(0.0f, kBaseGrip + float(probeDelta[0] + probeDelta[1]));
+        rearGrip  = std::max(0.0f, kBaseGrip + float(probeDelta[2] + probeDelta[3]));
     }
 
-    void applyTouch(b2ShapeId visitor, b2ShapeId sensor, bool begin) {
-        float grip = kBaseGrip;  // leaving a patch restores asphalt grip
-        if (begin) {
-            if (b2Shape_IsValid(sensor) && B2_ID_EQUALS(sensor, iceShapeId))
-                grip = kIceGrip;
-            else if (b2Shape_IsValid(sensor) && B2_ID_EQUALS(sensor, dirtShapeId))
-                grip = kDirtGrip;
+    int surfaceDelta(b2ShapeId sensor) const {
+        if (b2Shape_IsValid(sensor)) {
+            if (B2_ID_EQUALS(sensor, iceShapeId))  return kIceDelta;
+            if (B2_ID_EQUALS(sensor, dirtShapeId)) return kDirtDelta;
         }
-        if (B2_ID_EQUALS(visitor, frontProbeId))      frontGrip = grip;
-        else if (B2_ID_EQUALS(visitor, rearProbeId))  rearGrip  = grip;
+        return 0;
+    }
+    void setProbeDelta(b2ShapeId visitor, int delta) {
+        for (int i = 0; i < 4; ++i)
+            if (B2_ID_EQUALS(visitor, probes[i])) { probeDelta[i] = delta; return; }
     }
 
     b2ShapeId makeSensorPatch(const ge::Rect& r) {
