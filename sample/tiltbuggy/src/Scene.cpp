@@ -104,14 +104,25 @@ void applyWheelGrip(b2BodyId body, b2Vec2 localPt, float maxForce, float dt) {
     b2Body_ApplyLinearImpulse(body, b2MulSV(j, lat), p, false);
 }
 
-// Pure rotary damper between chassis and steering (orig cpDampedRotarySpring
-// stiffness 0, damping 1): resist the RELATIVE spin, no centring.
-void applySteerDamping(b2BodyId chassis, b2BodyId steer, float damping) {
-    const float relW = b2Body_GetAngularVelocity(steer)
-                     - b2Body_GetAngularVelocity(chassis);
-    const float torque = -damping * relW;
-    b2Body_ApplyTorque(steer, torque, false);
-    b2Body_ApplyTorque(chassis, -torque, false);
+// Pure rotary damper between chassis and steering — a verbatim port of Chipmunk's
+// cpDampedRotarySpring (stiffness 0, damping 1). Per substep it removes
+// w_coef = 1 − exp(−damping·dt·moment) of the RELATIVE angular velocity (moment =
+// I⁻¹chassis + I⁻¹steer), distributing the impulse via the shared effective
+// moment 1/moment. This is the exact velocity-level operation, not a linear
+// ApplyTorque (which over-damps and couples through the integrator differently).
+void applySteerDamping(b2BodyId chassis, b2BodyId steer, float damping, float dt) {
+    const float iChas = b2Body_GetRotationalInertia(chassis);
+    const float iSteer = b2Body_GetRotationalInertia(steer);
+    if (iChas <= 0.0f || iSteer <= 0.0f) return;
+    const float iaInv = 1.0f / iChas, ibInv = 1.0f / iSteer;
+    const float moment = iaInv + ibInv;
+    const float wCoef = 1.0f - std::exp(-damping * dt * moment);
+    const float wA = b2Body_GetAngularVelocity(chassis);   // a = chassis
+    const float wB = b2Body_GetAngularVelocity(steer);      // b = steering
+    const float wrn = wA - wB;
+    const float jDamp = (-wrn * wCoef) / moment;            // = w_damp · iSum
+    b2Body_SetAngularVelocity(chassis, wA + jDamp * iaInv);
+    b2Body_SetAngularVelocity(steer,   wB - jDamp * ibInv);
 }
 
 } // namespace
@@ -351,7 +362,7 @@ void Scene::step(float dt, b2Vec2 gravity) {
         if (b2Body_IsAwake(i_->chassisId)) {
             applyWheelGrip(i_->chassisId,  {kRearWheelX,  0.0f}, i_->rearGrip,  h);
             applyWheelGrip(i_->steeringId, {kFrontWheelX, 0.0f}, i_->frontGrip, h);
-            applySteerDamping(i_->chassisId, i_->steeringId, kSteerDamping);
+            applySteerDamping(i_->chassisId, i_->steeringId, kSteerDamping, h);
         }
         b2World_Step(i_->worldId, h, 4);
         i_->updateSurfaceGrip();
