@@ -33,6 +33,10 @@
 #include <SDL3/SDL_main.h>  // required on iOS/Android; no-op on desktop
 #include <spdlog/spdlog.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>  // TARGET_OS_IOS — guards the host-only render path
+#endif
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -51,7 +55,7 @@ constexpr float kWorldHalfExtent = 10.0f;
 // Device acceleration (≈9.8 m/s² per g) scaled into world gravity. The 2013
 // game drove gravity at ~100 per g for a snappy arcade feel; this gain is the
 // equivalent knob at this world scale (tuned in 🎯T16).
-constexpr float kGravityGain = 4.0f;
+constexpr float kGravityGain = 10.0f;
 
 struct State {
     std::unique_ptr<tiltbuggy::Scene> scene;
@@ -199,7 +203,13 @@ int main(int argc, char* argv[]) {
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
         // settled scene lets the loop idle (onEvent wakes it on a real tilt).
+        // 🎯T137.3 Aspect-scale the arena to the display (like the 2013 game),
+        // so a landscape screen is filled and the dirt reaches the left edge.
+        const auto surf0 = ctx.fullRectInPts();
+        const float arenaAspect = (surf0.h > 0)
+            ? static_cast<float>(surf0.w) / static_cast<float>(surf0.h) : 1.0f;
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent,
+                                                         arenaAspect,
                                                          state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
@@ -224,7 +234,7 @@ int main(int argc, char* argv[]) {
                 static int frame = 0;
                 if (++frame % 60 == 0) {
                     const auto gr = state.scene->gripState();
-                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.2f},{:.2f}] pro={}",
+                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.0f},{:.0f}] pro={}",
                                 dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
                                 gr.front, gr.rear, ge::iap::owned("pro"));
                 }
@@ -298,7 +308,13 @@ int main(int argc, char* argv[]) {
             catch (const std::exception& e) { SPDLOG_ERROR("render: bad manifest: {}", e.what()); return 1; }
 
             // --isolate: re-exec a fresh process per fixture (hard-crash safe).
+            // Host-only: std::system is unavailable on iOS (sandbox), and the
+            // render verb is a desktop golden-generation tool anyway.
             if (isolate) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+                SPDLOG_ERROR("render --isolate is not available on iOS");
+                return 1;
+#else
                 int fails = 0;
                 for (const auto& e : manifest) {
                     const std::string sf = e.value("state", std::string());
@@ -309,6 +325,7 @@ int main(int argc, char* argv[]) {
                     if (std::system(cmd.c_str()) != 0) { ++fails; SPDLOG_ERROR("isolate: failed {}", of); }
                 }
                 return fails == 0 ? 0 : 1;
+#endif
             }
 
             // Default: one host, every fixture in-process (amortised startup).
