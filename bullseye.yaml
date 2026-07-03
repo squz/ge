@@ -1590,9 +1590,10 @@ targets:
     discovered: 2026-07-02
   T144:
     name: ge wires Android background/foreground transitions into DirectRenderHost so the swapchain is torn down and recreated
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 3.0
+    set_aside_reason: Refuted by two-lens re-verification (2026-07-03). The DirectRenderHost Android background/foreground lifecycle finding did not survive scrutiny as a high-severity defect. Set aside; see docs/audit/fable-2026-07.md F-entry for the verifier reasoning. (The other ge findings — VkM/GlesM NULL-deref on the VK→GLES fallback, PlayerWireBridge OOB read, WebSocketClient unbounded alloc, and the T100 build-dependency gap — were all confirmed and stand.)
     acceptance:
     - SokolContext::onBackground()/onForeground() are invoked on Android background/foreground transitions
     - The Vulkan swapchain / EGL surface is torn down on background and recreated on foreground (no stale surface or black first frame)
