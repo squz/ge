@@ -15,9 +15,10 @@ typedef struct __CVBuffer* CVPixelBufferRef;
 namespace ge {
 
 // H.264 video encoder using VideoToolbox (macOS/iOS).
-// Encodes BGRA frames to H.264. Output is complete encoded frames
-// (not individual NAL units) — the callback receives the full
-// CMSampleBuffer data for each frame.
+// Encodes RGBA frames to H.264 (RGBA is ge's frame-capture contract — see
+// SokolContext's readback normalization; the encode(pixels) path swaps R↔B to
+// VideoToolbox's BGRA internally). Output is complete encoded frames (not
+// individual NAL units) — the callback receives the full CMSampleBuffer data.
 class VideoEncoder {
 public:
     struct Frame {

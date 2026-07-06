@@ -106,15 +106,17 @@ GE_SRC_STUB_ATTITUDE := \
 GE_SRC_ORIENTATION_IOS  := tools/player_orientation_ios.mm
 GE_SRC_ORIENTATION_STUB := tools/player_orientation_stub.cpp
 
-# ── brokered (wire / networking) mode ──────────────────────────────
-# Included only when GE_DIRECT_ONLY is NOT set — i.e., when ge is built
-# in wire mode (ged + remote-rendering server/player). The prebuilt
-# .a's always omit these; only desktop builds in non-direct mode pick
-# them up.
+# ── wire (server + player) mode ────────────────────────────────────
+# 🎯T92.2.2 Included only when GE_DIRECT_ONLY is NOT set — i.e., when ge is
+# built in wire mode. Server mode (SessionHost_server.mm + ServerSession.mm) is
+# a hidden-window DirectRenderHost streaming ge's canonical H.264 wire to a
+# player attached via spyder's relay; the player side (PlayerWireBridge /
+# PlayerRender / decoder) receives it. The prebuilt .a's always omit these; only
+# desktop builds in non-direct mode pick them up.
 GE_SRC_BROKERED := \
-	src/bridge/SessionHost_brokered.mm \
+	src/bridge/SessionHost_server.mm \
+	src/bridge/ServerSession.mm \
 	src/render/PlayerRender.cpp \
-	src/bridge/ServerWireBridge.mm \
 	src/bridge/PlayerWireBridge.cpp \
 	src/bridge/WebSocketClient.cpp \
 	src/bridge/VideoEncoder_apple.mm \

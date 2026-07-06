@@ -27,7 +27,12 @@ ge ?= ge
 # Build configuration (app-overridable)
 # ────────────────────────────────────────────────
 
-BUILD_DIR ?= build
+# 🎯T92.2.2 Server build variant: `make GE_SERVER=1` compiles ge::run to the
+# hidden-window streaming path (-DGE_SERVER_BUILD, below) and emits a distinct
+# binary (bin/<app>-server) into a distinct object dir (so its SessionHost.o,
+# built with the flag, never clobbers the desktop build's). Plain `make` is the
+# desktop/windowed build. The app source is identical in both.
+BUILD_DIR ?= build$(if $(GE_SERVER),-server)
 CXX       ?= clang++
 CC        ?= clang
 
@@ -99,7 +104,7 @@ ge/SRC_BROKERED := $(addprefix $(ge)/,$(GE_SRC_BROKERED))
 # T38: brokered streaming sources still reference bgfx and are not being
 # ported in this phase. Direct-only build for libge.a until the bridge
 # subsystem is ported.
-ge/SRC = $(ge/SRC_DIRECT)
+ge/SRC = $(ge/SRC_DIRECT) $(ge/SRC_BROKERED)
 
 ge/OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(filter $(ge)/src/%.cpp,$(ge/SRC))) \
          $(patsubst $(ge)/src/%.mm,$(BUILD_DIR)/ge/src/%.o,$(filter $(ge)/src/%.mm,$(ge/SRC))) \
@@ -253,7 +258,8 @@ ge/TEST_SRC = \
 	$(ge)/src/Context_test.cpp \
 	$(ge)/src/render_on_demand_test.cpp \
 	$(ge)/src/Signal_test.cpp \
-	$(ge)/src/render/RefreshRateBoost_test.cpp
+	$(ge)/src/render/RefreshRateBoost_test.cpp \
+	$(ge)/src/VideoRoundtrip_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
@@ -267,7 +273,7 @@ COMPILE_DB_DEPS = $(ge/SRC) $(ge/TEST_SRC) $(ge)/Module.mk $(APP_SRC) Makefile
 # Engine-managed base flags. Apps that want to extend CXXFLAGS keep these by
 # default (via `CXXFLAGS ?=` below) or reference $(ge/CXXFLAGS_BASE) explicitly
 # when constructing their own.
-ge/CXXFLAGS_BASE = -std=c++20 -O2 -g -DGE_DIRECT_ONLY $(ge/INCLUDES) -I$(BUILD_DIR)/ge/shaders -I$(BUILD_DIR)/$(ge/SHADER_DIR)
+ge/CXXFLAGS_BASE = -std=c++20 -O2 -g $(ge/INCLUDES) -I$(BUILD_DIR)/ge/shaders -I$(BUILD_DIR)/$(ge/SHADER_DIR) $(if $(GE_SERVER),-DGE_SERVER_BUILD)
 
 CXXFLAGS   ?= $(ge/CXXFLAGS_BASE) -Isrc
 SDL_CFLAGS ?= -I$(ge)/vendor/sdl3/include
@@ -280,7 +286,7 @@ FRAMEWORKS ?= $(ge/FRAMEWORKS)
 # Derived from the parent's APP_NAME and APP_SRC. The parent can override
 # $(APP) (e.g. to change the binary location) or $(APP_OBJ) (unusual) before
 # the include.
-APP         ?= bin/$(APP_NAME)
+APP         ?= bin/$(APP_NAME)$(if $(GE_SERVER),-server)
 APP_OBJ     ?= $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(APP_SRC))
 
 # Display name used for iOS / Android bundles and Xcode targets/schemes.

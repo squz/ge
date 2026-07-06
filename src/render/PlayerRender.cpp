@@ -4,83 +4,15 @@
 #include <ge/PlayerRender.h>
 #include <ge/Protocol.h>
 
-#include "AccelSynth.h"
 #include "../../tools/player_orientation.h"
 
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <cmath>
-#include <optional>
 #include <vector>
 
 namespace ge {
-
-namespace {
-
-// Subdivision count for the tilt composite mesh (N×N quads).
-// 16×16 = 512 triangles. Cheap, and linear-UV interpolation per-triangle
-// is visually indistinguishable from perspective-correct mapping at the
-// tilt angles we support (< ~60°).
-constexpr int kMeshN = 16;
-
-// Camera distance for the composite perspective; matches DirectRenderHost.
-// fovY = 2·atan(1/D) → at zero tilt, a quad with halfW=aspect, halfH=1 at
-// z=0 exactly fills clip space.
-constexpr float kComposeCameraD = 2.0f;
-
-struct Mat3 { float m[9]; };  // row-major 3x3
-
-// Rodrigues' formula specialized for a rotation axis in the XY plane
-// (axZ = 0). Returns the 3x3 rotation matrix.
-Mat3 rotationXY(float axX, float axY, float angle) {
-    const float c = std::cos(angle);
-    const float s = std::sin(angle);
-    const float C = 1.f - c;
-    Mat3 r;
-    r.m[0] = c + axX * axX * C;
-    r.m[1] = axX * axY * C;
-    r.m[2] = axY * s;
-    r.m[3] = axX * axY * C;
-    r.m[4] = c + axY * axY * C;
-    r.m[5] = -axX * s;
-    r.m[6] = -axY * s;
-    r.m[7] = axX * s;
-    r.m[8] = c;
-    return r;
-}
-
-// Apply tilt rotation + perspective + bounding-box fit to a local-space
-// (wx, wy, 0) point. Returns NDC (x, y) after fit. Returns false if the
-// point is behind the camera (z_view <= small epsilon).
-struct ComposeParams {
-    Mat3  rot;
-    float aspect;
-    // Bounding-box fit applied to NDC: ndc' = ndc * fitS + fitT.
-    float fitS = 1.f;
-    float fitTx = 0.f;
-    float fitTy = 0.f;
-};
-
-bool projectVertex(const ComposeParams& p, float wx, float wy,
-                   float& ndcX, float& ndcY) {
-    // Rotate (wx, wy, 0).
-    const float rx = p.rot.m[0]*wx + p.rot.m[1]*wy;
-    const float ry = p.rot.m[3]*wx + p.rot.m[4]*wy;
-    const float rz = p.rot.m[6]*wx + p.rot.m[7]*wy;
-    // View: camera at (0,0,D) looking down -Z, so z_view = D - rz.
-    const float zView = kComposeCameraD - rz;
-    if (zView < 0.01f) return false;
-    // Perspective with fovY = 2·atan(1/D): f = cot(fovY/2) = D.
-    const float ndcX0 = (kComposeCameraD / p.aspect) * rx / zView;
-    const float ndcY0 = kComposeCameraD * ry / zView;
-    ndcX = ndcX0 * p.fitS + p.fitTx;
-    ndcY = ndcY0 * p.fitS + p.fitTy;
-    return true;
-}
-
-} // namespace
 
 struct PlayerRender::Impl {
     SDL_Window* window = nullptr;
@@ -91,13 +23,20 @@ struct PlayerRender::Impl {
 
     uint8_t requestedOrientation = 0;
 
-    // Sensor sources. Exactly one or neither is active.
-    SDL_Sensor* accelSensor = nullptr;
-    std::optional<AccelSynth> synth;
+    // Desktop windows auto-size to the video's aspect on first frame (and on
+    // stream-dimension change) so a landscape game gets a landscape window
+    // instead of letterboxing inside the portrait default. Mobile players are
+    // borderless-fullscreen; their shape is the device's.
+    bool autoSizeToVideo = false;
 
-    // Scratch buffers re-used each frame.
-    std::vector<SDL_Vertex> meshVerts;
-    std::vector<int>        meshIndices;
+    // Real accelerometer, if the player device has one (phone/tablet player).
+    // Its events forward upstream verbatim. There is deliberately NO synthetic
+    // fallback here: the player is a dumb peripheral — tilt-gesture input
+    // (Shift+drag) forwards raw to the server, where the ENGINE synthesizes
+    // sensor events and applies presentation tilt (🎯T94) in the game's own
+    // projection. Games only ever see SDL_EVENT_SENSOR_UPDATE, real or
+    // synthetic; that contract is the engine's, not the player's.
+    SDL_Sensor* accelSensor = nullptr;
 
     // Coordinate-map a window-pixel (sx, sy) to video-texture space.
     // Accounts for aspect-fit scaling and portrait-in-landscape rotation.
@@ -132,7 +71,10 @@ struct PlayerRender::Impl {
         }
     }
 
-    // Rewrite event coordinates in-place to server-space.
+    // Rewrite event coordinates in-place to server-space. Relative motion
+    // (xrel/yrel) stays in raw window pixels: it feeds the server-side
+    // AccelSynth, whose tilt scale is calibrated in pixels of hand movement —
+    // a human quantity, not a texture-space one.
     void mapEvent(SDL_Event& e) const {
         if (!videoTex) return;
         if (e.type == SDL_EVENT_MOUSE_MOTION) {
@@ -155,6 +97,7 @@ struct PlayerRender::Impl {
 PlayerRender::PlayerRender(const Config& cfg)
     : i_(std::make_unique<Impl>()) {
     i_->requestedOrientation = cfg.orientation;
+    i_->autoSizeToVideo = !cfg.borderless;
 
     Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (cfg.borderless) flags |= SDL_WINDOW_BORDERLESS;
@@ -183,7 +126,9 @@ PlayerRender::~PlayerRender() {
 SDL_Window* PlayerRender::window() const { return i_->window; }
 
 void PlayerRender::enableAccelerometer() {
-    // Try a real sensor first.
+    // Open a real sensor if the player device has one; its events forward
+    // upstream. No sensor is fine — Shift+drag forwards raw to the server,
+    // whose engine-side AccelSynth synthesizes (see Impl::accelSensor note).
     int count = 0;
     SDL_SensorID* sensors = SDL_GetSensors(&count);
     if (sensors) {
@@ -198,11 +143,9 @@ void PlayerRender::enableAccelerometer() {
         }
         SDL_free(sensors);
     }
-    // Fall back to Shift-mouse synthesis.
     if (!i_->accelSensor) {
-        i_->synth.emplace();
-        i_->synth->setWindow(i_->window);
-        SPDLOG_INFO("PlayerRender: Shift-mouse accelerometer synthesis enabled");
+        SPDLOG_INFO("PlayerRender: no local accelerometer — tilt gestures "
+                    "(Shift+drag) forward to the server's synthesizer");
     }
 }
 
@@ -241,6 +184,27 @@ void PlayerRender::updateVideoTexture(const VideoFrame& frame) {
         i_->texFormat = sdlFormat;
         SPDLOG_INFO("PlayerRender: video texture created {}x{} format={}",
                     frame.width, frame.height, SDL_GetPixelFormatName(sdlFormat));
+
+        // Match the desktop window to the video's shape: points = video pixels
+        // scaled down by the window's pixel density (a 2048×1536 stream from a
+        // 2× HiDPI server displays 1:1 at 1024×768 points), capped to 85% of
+        // the desktop so big streams still fit on small displays.
+        if (i_->autoSizeToVideo) {
+            const float pd = std::max(1.0f, SDL_GetWindowPixelDensity(i_->window));
+            float w = frame.width / pd;
+            float h = frame.height / pd;
+            const SDL_DisplayMode* dm =
+                SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+            if (dm && dm->w > 0 && dm->h > 0) {
+                const float fit = std::min(1.0f,
+                    std::min(0.85f * dm->w / w, 0.85f * dm->h / h));
+                w *= fit;
+                h *= fit;
+            }
+            SDL_SetWindowSize(i_->window, int(w), int(h));
+            SDL_SetWindowPosition(i_->window,
+                SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
     }
 
     switch (frame.format) {
@@ -265,25 +229,24 @@ void PlayerRender::updateVideoTexture(const VideoFrame& frame) {
 
 PlayerRender::PumpResult PlayerRender::pumpEvents() {
     PumpResult r;
-    // Drive AccelSynth ease-back each frame, and hook its emitted
-    // synthetic sensor events into the upstream queue.
-    std::vector<SDL_Event> synthBatch;
-    if (i_->synth) {
-        i_->synth->setEmit([&](const SDL_Event& e) { synthBatch.push_back(e); });
-        i_->synth->update();
-    }
-
     SDL_Event e;
     SDL_Event lastMotion{};
     bool hasMotion = false;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_EVENT_QUIT) { r.quit = true; continue; }
-        if (i_->synth && i_->synth->handle(e)) continue;
 
         switch (e.type) {
         case SDL_EVENT_MOUSE_MOTION:
         case SDL_EVENT_FINGER_MOTION:
             i_->mapEvent(e);
+            // Coalesce to one motion per pump, but SUM the relative deltas —
+            // the server-side AccelSynth accumulates xrel/yrel, so dropping
+            // intermediate deltas would under-rotate the tilt.
+            if (hasMotion && e.type == SDL_EVENT_MOUSE_MOTION &&
+                lastMotion.type == SDL_EVENT_MOUSE_MOTION) {
+                e.motion.xrel += lastMotion.motion.xrel;
+                e.motion.yrel += lastMotion.motion.yrel;
+            }
             lastMotion = e;
             hasMotion = true;
             break;
@@ -303,8 +266,6 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
         }
     }
     if (hasMotion) r.upstreamEvents.push_back(lastMotion);
-    // Synth-emitted events come last (post-user-input) and go upstream too.
-    for (auto& se : synthBatch) r.upstreamEvents.push_back(se);
     return r;
 }
 
@@ -322,143 +283,28 @@ PlayerRender::RenderStats PlayerRender::render() {
         SDL_GetWindowSizeInPixels(i_->window, &ww, &wh);
         const bool needsRotation = (ww > wh) && (i_->texH > i_->texW);
 
-        // Compute display rect (aspect-fit).
-        float visW, visH;
         if (needsRotation) {
+            // SDL_RenderTextureRotated rotates the texture within its
+            // dest rect. For a portrait texture rotated -90° in a
+            // landscape window, the dest rect matches the pre-rotation
+            // size (texW × texH) scaled to fit the post-rotation bbox.
             const float scale = std::min(float(ww) / float(i_->texH),
                                          float(wh) / float(i_->texW));
-            visW = i_->texH * scale;  // post-rotation width
-            visH = i_->texW * scale;  // post-rotation height
+            const float dstW = i_->texW * scale;
+            const float dstH = i_->texH * scale;
+            SDL_FRect dst{ (ww - dstW) * 0.5f, (wh - dstH) * 0.5f,
+                           dstW, dstH };
+            SDL_RenderTextureRotated(i_->renderer, i_->videoTex,
+                                     nullptr, &dst,
+                                     -90.0, nullptr, SDL_FLIP_NONE);
         } else {
             const float scale = std::min(float(ww) / float(i_->texW),
                                          float(wh) / float(i_->texH));
-            visW = i_->texW * scale;
-            visH = i_->texH * scale;
-        }
-        const float offX = (ww - visW) * 0.5f;
-        const float offY = (wh - visH) * 0.5f;
-
-        // Tilt from AccelSynth (only synth path tilts — real sensor
-        // means the device is physically tilted, no need to simulate).
-        Tilt t{};
-        if (i_->synth) t = i_->synth->current();
-        const float mag = std::sqrt(t.x * t.x + t.y * t.y);
-        const bool tiltActive = (mag > 0.7f);
-
-        if (!tiltActive) {
-            if (needsRotation) {
-                // SDL_RenderTextureRotated rotates the texture within its
-                // dest rect. For a portrait texture rotated -90° in a
-                // landscape window, the dest rect matches the pre-rotation
-                // size (texW × texH) scaled to fit the post-rotation bbox.
-                const float scale = std::min(float(ww) / float(i_->texH),
-                                             float(wh) / float(i_->texW));
-                const float dstW = i_->texW * scale;
-                const float dstH = i_->texH * scale;
-                SDL_FRect dst{ (ww - dstW) * 0.5f, (wh - dstH) * 0.5f,
-                               dstW, dstH };
-                SDL_RenderTextureRotated(i_->renderer, i_->videoTex,
-                                         nullptr, &dst,
-                                         -90.0, nullptr, SDL_FLIP_NONE);
-            } else {
-                SDL_FRect dst{ offX, offY, visW, visH };
-                SDL_RenderTexture(i_->renderer, i_->videoTex, nullptr, &dst);
-            }
-        } else {
-            // Viewport-tilt composite via subdivided mesh.
-            // World-space quad: halfW = aspect, halfH = 1.
-            // Aspect here is the *displayed* aspect (post-rotation if needed).
-            const float displayW = needsRotation ? float(i_->texH) : float(i_->texW);
-            const float displayH = needsRotation ? float(i_->texW) : float(i_->texH);
-            const float aspect   = displayW / displayH;
-            const float halfW = aspect;
-            const float halfH = 1.f;
-
-            // Rotation axis in screen plane (same convention as DirectRenderHost).
-            const float axX = -t.y / mag;
-            const float axY =  t.x / mag;
-            const float angle = mag * kTiltRadPerPixel;
-
-            ComposeParams cp;
-            cp.rot = rotationXY(axX, axY, angle);
-            cp.aspect = aspect;
-
-            // Bounding-box fit: project the four corners, compute NDC bbox,
-            // fit to [-1,1]×[-1,1].
-            float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
-            const float corners[4][2] = {
-                {-halfW, -halfH}, { halfW, -halfH},
-                { halfW,  halfH}, {-halfW,  halfH},
-            };
-            for (auto& c : corners) {
-                float nx, ny;
-                if (!projectVertex(cp, c[0], c[1], nx, ny)) continue;
-                minX = std::min(minX, nx); maxX = std::max(maxX, nx);
-                minY = std::min(minY, ny); maxY = std::max(maxY, ny);
-            }
-            const float bboxW = maxX - minX;
-            const float bboxH = maxY - minY;
-            const float fitS = std::min(2.f / bboxW, 2.f / bboxH);
-            cp.fitS = fitS;
-            cp.fitTx = -fitS * (minX + maxX) * 0.5f;
-            cp.fitTy = -fitS * (minY + maxY) * 0.5f;
-
-            // Build the subdivided mesh. Each vertex:
-            //   - screen position (via projectVertex + NDC→pixel)
-            //   - texture UV (rotation-aware if portrait video in landscape)
-            const int V = (kMeshN + 1) * (kMeshN + 1);
-            i_->meshVerts.resize(V);
-            i_->meshIndices.resize(kMeshN * kMeshN * 6);
-
-            for (int j = 0; j <= kMeshN; j++) {
-                const float fy = float(j) / float(kMeshN);      // 0..1
-                const float wy = -halfH + 2.f * halfH * fy;
-                for (int k = 0; k <= kMeshN; k++) {
-                    const float fx = float(k) / float(kMeshN);  // 0..1
-                    const float wx = -halfW + 2.f * halfW * fx;
-
-                    // UV in the video texture.
-                    float u, v;
-                    if (needsRotation) {
-                        // Portrait video rotated 90° CCW to fit landscape
-                        // display. Display's +x axis = video's +v axis
-                        // (going right in display = going down in video's
-                        // pre-rotation frame), display's +y = video's -u.
-                        u = 1.f - fy;
-                        v = fx;
-                    } else {
-                        u = fx;
-                        v = fy;
-                    }
-
-                    // Screen position from projected NDC.
-                    float ndcX, ndcY;
-                    if (!projectVertex(cp, wx, wy, ndcX, ndcY)) {
-                        ndcX = 0; ndcY = 0;
-                    }
-                    const float sx = (ndcX * 0.5f + 0.5f) * ww;
-                    const float sy = (0.5f - ndcY * 0.5f) * wh;
-
-                    SDL_Vertex& vv = i_->meshVerts[j * (kMeshN + 1) + k];
-                    vv.position = SDL_FPoint{ sx, sy };
-                    vv.color    = SDL_FColor{ 1.f, 1.f, 1.f, 1.f };
-                    vv.tex_coord = SDL_FPoint{ u, v };
-                }
-            }
-            int* ix = i_->meshIndices.data();
-            for (int j = 0; j < kMeshN; j++) {
-                for (int k = 0; k < kMeshN; k++) {
-                    const int a = j * (kMeshN + 1) + k;
-                    const int b = a + 1;
-                    const int c = a + (kMeshN + 1);
-                    const int d = c + 1;
-                    *ix++ = a; *ix++ = b; *ix++ = d;
-                    *ix++ = a; *ix++ = d; *ix++ = c;
-                }
-            }
-            SDL_RenderGeometry(i_->renderer, i_->videoTex,
-                               i_->meshVerts.data(), int(i_->meshVerts.size()),
-                               i_->meshIndices.data(), int(i_->meshIndices.size()));
+            const float visW = i_->texW * scale;
+            const float visH = i_->texH * scale;
+            SDL_FRect dst{ (ww - visW) * 0.5f, (wh - visH) * 0.5f,
+                           visW, visH };
+            SDL_RenderTexture(i_->renderer, i_->videoTex, nullptr, &dst);
         }
     }
 

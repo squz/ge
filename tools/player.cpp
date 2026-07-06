@@ -8,10 +8,16 @@
 
 int main(int argc, char* argv[]) {
     std::string name = "server";
+    std::string host = "localhost";
+    int port = 42069;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
             name = argv[++i];
+        } else if (std::strcmp(argv[i], "--host") == 0 && i + 1 < argc) {
+            host = argv[++i];
+        } else if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+            port = std::atoi(argv[++i]);
         }
     }
-    return playerCore("localhost", 42069, name);
+    return playerCore(host, port, name);
 }

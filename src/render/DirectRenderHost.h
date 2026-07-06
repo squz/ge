@@ -11,6 +11,8 @@
 #include <ge/RenderHost.h>
 #include <ge/SokolContext.h>
 
+#include <atomic>
+#include <functional>
 #include <memory>
 
 namespace ge {
@@ -43,6 +45,14 @@ public:
     // on the game thread inside pumpEvents.
     void setBackPressedHandler(std::function<void()>);
     void setMemoryWarningHandler(std::function<void(MemoryPressureLevel)>);
+
+    // 🎯T92.2.2 Server mode: while `*active` is true, every presented frame is
+    // captured and handed to `fn` on the game thread (the ServerSession encodes
+    // + streams it). `active` is owned by the ServerSession and must outlive the
+    // host; pass a null fn / active to clear. runServer installs this after the
+    // ServerSession is built.
+    void setServerFrameSink(std::function<void(const std::uint8_t*, int, int)> fn,
+                            std::atomic<bool>* active);
 
 private:
     la::float2 updateParallax();

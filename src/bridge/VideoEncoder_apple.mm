@@ -8,6 +8,8 @@
 #import <CoreVideo/CoreVideo.h>
 #include <spdlog/spdlog.h>
 
+#include <vector>
+
 namespace ge {
 
 struct VideoEncoder::M {
@@ -17,6 +19,7 @@ struct VideoEncoder::M {
     int height;
     int fps;
     int64_t frameCount = 0;
+    std::vector<uint8_t> bgra;  // reused RGBA→BGRA scratch (see encode())
 
     void createSession();
     static void outputCallback(void* ctx, void* sourceFrameRefCon,
@@ -161,14 +164,31 @@ VideoEncoder::~VideoEncoder() {
     }
 }
 
-void VideoEncoder::encode(const uint8_t* bgraPixels, size_t bytesPerRow) {
+void VideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
     if (!m->session) return;
+
+    // ge's frame-capture contract delivers RGBA (SokolContext normalizes every
+    // backend's readback to RGBA); VideoToolbox wants BGRA. Swap R↔B into a
+    // reused scratch. (On Metal this undoes the capture's BGRA→RGBA swap — a
+    // native-BGRA stream-capture path could elide both, tracked separately.)
+    const size_t rows = static_cast<size_t>(m->height);
+    m->bgra.resize(bytesPerRow * rows);
+    for (size_t y = 0; y < rows; ++y) {
+        const uint8_t* s = rgbaPixels + y * bytesPerRow;
+        uint8_t* d = m->bgra.data() + y * bytesPerRow;
+        for (size_t x = 0; x + 4 <= bytesPerRow; x += 4) {
+            d[x + 0] = s[x + 2];  // B ← R
+            d[x + 1] = s[x + 1];  // G
+            d[x + 2] = s[x + 0];  // R ← B
+            d[x + 3] = s[x + 3];  // A
+        }
+    }
 
     CVPixelBufferRef pixelBuffer = nullptr;
     OSStatus err = CVPixelBufferCreateWithBytes(
         nullptr, m->width, m->height,
         kCVPixelFormatType_32BGRA,
-        const_cast<uint8_t*>(bgraPixels),
+        m->bgra.data(),
         bytesPerRow,
         nullptr, nullptr, nullptr,
         &pixelBuffer

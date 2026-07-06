@@ -11,6 +11,8 @@
 
 #ifndef NDEBUG
 
+#include <ge/Tweak.h>
+
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -468,6 +470,44 @@ void registerBuiltins() {
         const auto now = std::chrono::system_clock::now().time_since_epoch();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
         return nlohmann::json{{"ts", static_cast<std::int64_t>(ms)}};
+    });
+
+    // ── tweaks (🎯T91.2) ──
+    // Expose the shared `tweak::` library over the app-channel so a
+    // direct-mode app is tunable from spyder WITHOUT ged — this is what
+    // lets ged's control plane be deleted rather than reimplemented. list/get
+    // use the exact `tweak::allToJson` serialisation ged already proxies, so
+    // the shapes match; set/reset apply + persist through the tweak DB.
+    reg("tweak_list", [](const nlohmann::json&) {
+        return nlohmann::json::parse(tweak::allToJson());
+    });
+    reg("tweak_get", [](const nlohmann::json& p) -> nlohmann::json {
+        if (!p.contains("name"))
+            throw Error{-32602, "tweak_get: 'name' is required"};
+        const std::string name = p["name"].get<std::string>();
+        for (auto& t : nlohmann::json::parse(tweak::allToJson()))
+            if (t.value("name", std::string{}) == name) return t;
+        throw Error{-32602, "tweak_get: no such tweak: " + name};
+    });
+    reg("tweak_set", [](const nlohmann::json& p) -> nlohmann::json {
+        if (!p.contains("name") || !p.contains("value"))
+            throw Error{-32602, "tweak_set: 'name' and 'value' are required"};
+        if (!tweak::parseAndApply(p.dump()))
+            throw Error{-32602, "tweak_set: no such tweak or invalid value: " +
+                                    p.value("name", std::string{})};
+        // Return the updated entry (JSON) — richer than ged's text ack; the
+        // harness records this as an intentional divergence (Goodhart guard).
+        const std::string name = p["name"].get<std::string>();
+        for (auto& t : nlohmann::json::parse(tweak::allToJson()))
+            if (t.value("name", std::string{}) == name) return t;
+        return nlohmann::json::object();
+    });
+    reg("tweak_reset", [](const nlohmann::json& p) -> nlohmann::json {
+        // {"name":..} resets one, {"all":true} resets all — same payload ged
+        // forwards, applied locally via the shared library. Returns the fresh
+        // list so the caller sees the result in one round-trip.
+        tweak::parseAndReset(p.dump());
+        return nlohmann::json::parse(tweak::allToJson());
     });
 
     // ── lifecycle ──
