@@ -8,7 +8,6 @@
 #import <CoreVideo/CoreVideo.h>
 #include <spdlog/spdlog.h>
 
-#include <mutex>
 #include <vector>
 
 namespace ge {
@@ -17,14 +16,6 @@ struct VideoDecoder::M {
     FrameCallback callback;
     VTDecompressionSessionRef session = nullptr;
     CMVideoFormatDescriptionRef formatDesc = nullptr;
-
-    // Latest decoded frame, protected by mutex for cross-thread access.
-    // The decompression callback runs on an arbitrary VideoToolbox thread.
-    std::mutex frameMutex;
-    std::vector<uint8_t> frameBuffer;
-    int frameWidth = 0;
-    int frameHeight = 0;
-    size_t frameBytesPerRow = 0;
 
     ~M() {
         if (session) {
@@ -113,19 +104,11 @@ void VideoDecoder::M::outputCallback(void* decompressionOutputRefCon,
         CVPixelBufferGetBaseAddress(imageBuffer));
 
     if (baseAddr) {
-        std::lock_guard<std::mutex> lock(self->frameMutex);
-        size_t totalBytes = bytesPerRow * height;
-        self->frameBuffer.resize(totalBytes);
-        std::memcpy(self->frameBuffer.data(), baseAddr, totalBytes);
-        self->frameWidth = width;
-        self->frameHeight = height;
-        self->frameBytesPerRow = bytesPerRow;
-
         VideoFrame f;
         f.format = VideoFrame::Format::BGRA;
         f.width = width;
         f.height = height;
-        f.planes[0] = self->frameBuffer.data();
+        f.planes[0] = baseAddr;
         f.strides[0] = static_cast<int>(bytesPerRow);
         self->callback(f);
     }

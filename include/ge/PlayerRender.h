@@ -4,13 +4,18 @@
 // PlayerRender — the render half of the player (brokered modality).
 //
 // Counterpart to DirectRenderHost, but for the player: owns the SDL
-// window + SDL_Renderer, uploads decoded video frames to a texture,
-// translates local input events into server-space, and applies the
-// viewport-tilt composite when Shift-mouse accelerometer synthesis is
-// active (symmetric with DirectRenderHost's composite pass).
+// window + SDL_Renderer, uploads decoded video frames to a texture, and
+// translates local input events into server-space.
 //
-// No render backend — the player just blits a decoded video texture, optionally
-// through a subdivided-mesh perspective pass via SDL_RenderGeometry.
+// The player is a dumb peripheral: display out, raw input in. It runs NO
+// accelerometer synthesis and NO tilt rendering — Shift+drag forwards raw to
+// the server, where the ENGINE synthesizes sensor events (games only ever see
+// SDL_EVENT_SENSOR_UPDATE, real or synthetic) and applies presentation tilt in
+// the game's own projection (🎯T94), baked into the streamed video. A player
+// device with a real accelerometer forwards real sensor events instead; the
+// server synth stays dormant and the physical tilt IS the presentation.
+//
+// No render backend — the player just blits a decoded video texture.
 // This keeps mobile player builds small and avoids a render-backend port there.
 #pragma once
 
@@ -43,8 +48,8 @@ public:
     PlayerRender& operator=(const PlayerRender&) = delete;
 
     // Open the SDL_Sensor if present (called after receiving SessionConfig
-    // with kSensorAccelerometer). If no real sensor is found AND the
-    // server asked for one, enable Shift-mouse accelerometer synthesis.
+    // with kSensorAccelerometer). No sensor is fine: tilt gestures forward
+    // raw to the server-side synthesizer.
     void enableAccelerometer();
 
     // Current window/display dimensions and pixel ratio for DeviceInfo.
@@ -60,15 +65,14 @@ public:
     // Drain SDL events. Returns:
     //   quit           — SDL_EVENT_QUIT received
     //   upstreamEvents — events the caller should forward to the server
-    //                    (already coordinate-mapped, Shift-synth expanded)
+    //                    (already coordinate-mapped; forwarded raw otherwise)
     struct PumpResult {
         bool quit = false;
         std::vector<SDL_Event> upstreamEvents;
     };
     PumpResult pumpEvents();
 
-    // Render a frame (clears, draws the video texture with optional
-    // tilt composite, presents).
+    // Render a frame (clears, draws the video texture aspect-fit, presents).
     struct RenderStats {
         float drainMs = 0.f;
         float renderMs = 0.f;

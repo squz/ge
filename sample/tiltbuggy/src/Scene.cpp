@@ -3,6 +3,8 @@
 
 #include "Scene.h"
 
+#include <ge/Tweak.h>
+
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -42,6 +44,12 @@ constexpr float kChassisHalfWid = 0.5f;    // half-width along ±y
 constexpr float kChassisMass    = 1.0f;
 constexpr float kChassisInertia = 1.0f;    // set by hand (orig), not from the box
 constexpr float kChassisRestitution = 0.5f;
+
+// 🎯T91.2 demo tweaks — exercise the tweak plane over spyder's app-channel
+// (list/get/set/reset + persistence). Wiring them into the physics/camera is
+// a proving-ground follow-up; registration alone makes them controllable.
+tweak::Tweak<float> tweakGripScale{"physics.grip_scale", 1.0f};
+tweak::Tweak<float> tweakCameraZoom{"camera.zoom", 1.0f};
 
 // Steering body (orig cpBodyNew(0.1,0.1) at chassis-local (0.7,0)).
 constexpr float kSteerOffsetX = 0.7f;

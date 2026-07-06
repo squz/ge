@@ -639,6 +639,13 @@ struct SessionHostConfig {
     // it directly. No effect in headless (server) mode.
     bool hidden = false;
 
+    // 🎯T92.2.2 Server mode is a BUILD VARIANT, not a config field: a server
+    // build (GE_SERVER_BUILD) makes ge::run a hidden-window DirectRenderHost that
+    // streams ge's canonical H.264 wire to a player via spyder's relay. The relay
+    // address is read from the GE_SERVER env inside runServer; the app's config
+    // and code are identical to its desktop build. Render dims come from
+    // width/height above, NOT the player's DeviceInfo.
+
     // App identity for persistent DB path (via SDL_GetPrefPath).
     // Bundled (non-headless) mode opens a persistent file; headless
     // (server) mode always uses :memory: — persistence is owned by

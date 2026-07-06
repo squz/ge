@@ -1,19 +1,23 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// ge::run() dispatcher + runDirect() (distribution modality).
+// ge::run() dispatcher + runDirectHosted() (direct + server modality).
 //
-// The brokered implementation (runBrokered) lives in SessionHost_brokered.mm
-// which is only compiled when the parent build wants brokered support (i.e.
-// not mobile distribution). Define GE_DIRECT_ONLY to compile just runDirect
-// without pulling in the bridge subsystem, WebSocketClient, ServerWireBridge
-// etc.
+// 🎯T92.2.2 One render host, one wire. The windowed path and server mode share
+// runDirectHosted() (a hidden-window DirectRenderHost streaming ge's canonical
+// wire); server mode is grafted on via a ServerHook (RunDirect.h). runServer —
+// which builds the ServerSession and calls runDirectHosted — lives in the wire
+// TU (src/bridge/SessionHost_server.mm), compiled only when the parent build
+// wants wire support (i.e. not mobile distribution). Define GE_DIRECT_ONLY to
+// compile just the windowed path without pulling in the bridge subsystem
+// (ServerSession, WebSocketClient, VideoEncoder); runServer is then stubbed.
 
 #include <ge/SessionHost.h>
 #include <ge/Signal.h>
 #include <ge/Protocol.h>
 
 #include "Immersive.h"
+#include "RunDirect.h"
 #include "render/DirectRenderHost.h"
 
 #include <SDL3/SDL.h>
@@ -24,33 +28,41 @@
 
 #include "render/ScreenshotBridge.h"
 
+#include <atomic>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace ge {
 
-// Brokered entry point — defined in SessionHost_brokered.mm when included.
-// For GE_DIRECT_ONLY builds, we stub it out with a runtime error.
-#ifdef GE_DIRECT_ONLY
-static void runBrokered(Factory, const SessionHostConfig&) {
-    SPDLOG_ERROR("ge::run: headless/brokered modality requested but this build "
-                 "was compiled with GE_DIRECT_ONLY — relink with the bridge "
-                 "subsystem enabled.");
-}
-#else
-void runBrokered(Factory factory, const SessionHostConfig& config);
+// 🎯T92.2.2 Server entry point — a hidden-window DirectRenderHost that streams
+// ge's canonical wire, defined in the wire TU (src/bridge/SessionHost_server.mm),
+// compiled ONLY into a server build. ge::run() dispatches here at COMPILE time
+// via GE_SERVER_BUILD; a desktop/mobile build never references runServer, so the
+// static linker never pulls the ServerSession / WebSocketClient / VideoEncoder
+// objects (smaller, and a shipped direct build can't be coerced into a server).
+#if defined(GE_SERVER_BUILD)
+void runServer(Factory factory, const SessionHostConfig& config);
 #endif
 
-// ── runDirect: standalone / distribution modality ─────────────────
+// ── runDirectHosted: standalone / distribution / server modality ──
 //
-// Render + engine in one process, no ged, no wire. Uses DirectRenderHost
-// for window + sokol + input. The host owns the session Context (db
-// setup, dimensions, safe-area); the run loop just relays it.
-static void runDirect(Factory factory, const SessionHostConfig& config) {
+// Render + engine in one process, no ged. Uses DirectRenderHost for window +
+// sokol + input. The host owns the session Context (db setup, dimensions,
+// safe-area); the run loop just relays it. When `server` is non-null the same
+// loop drives server mode: the host is hidden, capture is armed each frame, and
+// the render-on-demand gate is skipped so the player gets a continuous stream.
+// (Declared in RunDirect.h so runServer in the wire TU can call it.)
+void runDirectHosted(Factory factory, SessionHostConfig config,
+                     const ServerHook* server) {
     DirectRenderHost host(config);
     applyImmersive(config.immersive);
+
+    if (server && server->active) {
+        host.setServerFrameSink(server->sink, server->active);
+    }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same
     // flag, and install the fatal-signal last-gasp handlers. Done before the
@@ -72,7 +84,28 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
     uint64_t last = SDL_GetPerformanceCounter();
     float lastReportedFps = 0.0f;  // 🎯T111 onMetrics deviation gate state
 
+    // 🎯T92.2.2 Server pacing. A hidden window gets no vsync back-pressure
+    // from present, so the loop spins as fast as encode allows (observed
+    // ~108 fps) — overworking the encoder and flooding the player faster
+    // than it can decode. Pace server mode to the encoder's 60 fps with
+    // absolute timestamps (no drift). Windowed mode keeps vsync pacing.
+    constexpr uint64_t kServerFps = 60;
+    const uint64_t paceStart = last;
+    uint64_t paceIndex = 0;
+
     while (!host.shouldQuit()) {
+        if (server) {
+            const uint64_t target = paceStart + paceIndex * freq / kServerFps;
+            uint64_t now = SDL_GetPerformanceCounter();
+            if (now < target) {
+                const int64_t sleepTicks =
+                    int64_t(target - now) - int64_t(freq / 1000);
+                if (sleepTicks > 0)
+                    SDL_Delay(uint32_t(sleepTicks * 1000 / freq));
+                while (SDL_GetPerformanceCounter() < target) {}
+            }
+            ++paceIndex;
+        }
         // 🎯T114 Apple: drain autoreleased objects every frame. sokol's Metal
         // backend autoreleases per-pass objects (MTLRenderPassDescriptor,
         // attachment arrays, command encoders/buffers, CAMetalDrawable
@@ -124,7 +157,11 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
             {
                 const auto& ctx      = host.context();
                 const bool  redraw   = ctx.takeRedraw();
-                const bool  wantFrame = ctx.continuousRendering() || redraw ||
+                // 🎯T92.2.2 In server mode a remote player needs a continuous
+                // frame stream, so bypass the render-on-demand gate entirely —
+                // render every frame regardless of the app's on-demand opt-in.
+                const bool  wantFrame = (server && server->active) ||
+                                        ctx.continuousRendering() || redraw ||
                                         ctx.anyRenderTriggerActive();
                 if (!wantFrame) {
                     last = SDL_GetPerformanceCounter();
@@ -182,6 +219,10 @@ static void runDirect(Factory factory, const SessionHostConfig& config) {
     }
 
     if (rc.onShutdown) rc.onShutdown();
+
+    // 🎯T92.2.2 Stop the ServerSession (close sockets, join threads) after the
+    // loop exits — runServer installed onStop for this.
+    if (server && server->onStop) server->onStop();
 }
 
 // ── ge::run — dispatch by modality ────────────────────────────────
@@ -200,11 +241,18 @@ void run(Factory factory, const SessionHostConfig& config) {
     // before the hello handshake advertises them.
     ge::appchannel::installFromEnv(config.appName ? config.appName : "ge", "dev");
 
-    if (config.headless) {
-        runBrokered(factory, config);
-    } else {
-        runDirect(factory, config);
-    }
+    // 🎯T92.2.2 Server mode is a BUILD VARIANT, not a runtime switch: ge::run
+    // knows at compile time which build it belongs to. A server build
+    // (GE_SERVER_BUILD) is a hidden-window DirectRenderHost that streams the
+    // canonical wire to a player via spyder's relay (the relay address is read
+    // from the GE_SERVER env inside runServer); every other build is the
+    // direct/windowed path. The app calls ge::run() identically in both — the
+    // mode is the build, not the call.
+#if defined(GE_SERVER_BUILD)
+    runServer(factory, config);
+#else
+    runDirectHosted(factory, config, nullptr);
+#endif
 }
 
 // ── renderBatch / renderToPng — 🎯T124 headless render ─────────────

@@ -9,10 +9,13 @@
 // platforms only deliver motion via touch synthesis, which requires a
 // "finger down". On desktop, the button is irrelevant.
 //
-// Belongs to the render subsystem. Both DirectRenderHost (in-process)
-// and the player binary's render loop use it. The engine subsystem
-// only ever sees SDL_EVENT_SENSOR_UPDATE events; whether they originate
-// from real hardware or this synthesis is invisible to the engine.
+// Belongs to the render subsystem. DirectRenderHost (in-process — desktop
+// app, hidden-window server, sim/emu) is the sole owner: synthesis is an
+// ENGINE concern, so it runs wherever the engine hosts the game. Players are
+// dumb peripherals that forward raw Shift+drag over the wire; the server-side
+// host's synth interprets it. Games only ever see SDL_EVENT_SENSOR_UPDATE
+// events; whether they originate from real hardware or this synthesis is
+// invisible to them.
 //
 // Tilt model: mouse displacement from its initial press-point is the
 // tilt vector. Magnitude × a fixed radians-per-pixel scale gives the
@@ -32,7 +35,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
-#include <spdlog/spdlog.h>  // TEMP: T28.3 diagnostic
+#include <spdlog/spdlog.h>
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -69,20 +72,12 @@ public:
     // Returns true if the event was consumed by the synthesis (caller
     // should NOT forward it). Returns false if the event passes through.
     bool handle(const SDL_Event& e) {
-        // TEMP: T28.3 diagnostic — log key/mouse events to verify arrival
-        if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP ||
-            e.type == SDL_EVENT_MOUSE_MOTION || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-            e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-            SPDLOG_INFO("AccelSynth: event type=0x{:x} shiftDown={}", e.type, shiftDown_);
-        }
-
         if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP)
             && (e.key.scancode == SDL_SCANCODE_LSHIFT ||
                 e.key.scancode == SDL_SCANCODE_RSHIFT)) {
             const bool newShift = (e.type == SDL_EVENT_KEY_DOWN);
             if (newShift != shiftDown_) {
                 shiftDown_ = newShift;
-                SPDLOG_INFO("AccelSynth: shift {}", shiftDown_);  // TEMP: T28.3 diagnostic
                 // Relative mouse mode pins the cursor so drag can continue
                 // past the window edge (desktop). On iOS simulator it causes
                 // a stuck-touch indicator when the mouse button is released,
@@ -108,8 +103,6 @@ public:
         if (e.type == SDL_EVENT_MOUSE_MOTION && shiftDown_) {
             tilt_.x += e.motion.xrel;
             tilt_.y += e.motion.yrel;
-            SPDLOG_INFO("AccelSynth: motion xrel={} yrel={} tilt=({},{})",  // TEMP: T28.3 diagnostic
-                        e.motion.xrel, e.motion.yrel, tilt_.x, tilt_.y);
             emitSensorFromTilt();
             return true;  // consume motion-while-tilting
         }
@@ -205,7 +198,6 @@ private:
             gx = -kG * s * tilt_.x / mag;
             gy =  kG * s * tilt_.y / mag;
         }
-        SPDLOG_INFO("AccelSynth: emit g=({},{})", gx, gy);  // TEMP: T28.3 diagnostic
         SDL_Event se{};
         se.type = SDL_EVENT_SENSOR_UPDATE;
         se.sensor.data[0] = gx;

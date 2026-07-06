@@ -43,7 +43,14 @@
 #include <fstream>
 #include <memory>
 #include <string>
+
+// 🎯T92.1 GE_FACTORY mode (below) forks game instances via posix_spawn.
+#include <spawn.h>
+#include <unistd.h>
+#include <chrono>
+#include <thread>
 #include <vector>
+extern char** environ;
 
 namespace {
 
@@ -102,21 +109,60 @@ int main(int argc, char* argv[]) {
     //               adb shell setprop debug.ge.log_target 127.0.0.1:9999
     // Debug builds only — the sink is compiled out under NDEBUG.
 
-    bool brokered = false;     // default: direct/distribution modality
     bool renderMode = false;   // 🎯T124 headless render-to-PNG: `tiltbuggy render ...`
     bool isolate = false;      // --batch --isolate: re-exec a fresh process per fixture
     std::string stateFile, batchFile;
     std::string outFile = "frame.png";
     int renderW = 1024, renderH = 768;
     for (int i = 1; i < argc; i++) {
-        if (std::strcmp(argv[i], "--brokered") == 0) brokered = true;
-        else if (std::strcmp(argv[i], "render") == 0) renderMode = true;
+        if (std::strcmp(argv[i], "render") == 0) renderMode = true;
         else if (std::strcmp(argv[i], "--state") == 0 && i + 1 < argc) stateFile = argv[++i];
         else if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) outFile = argv[++i];
         else if (std::strcmp(argv[i], "--batch") == 0 && i + 1 < argc) batchFile = argv[++i];
         else if (std::strcmp(argv[i], "--isolate") == 0) isolate = true;
         else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc)
             std::sscanf(argv[++i], "%dx%d", &renderW, &renderH);
+    }
+
+    // 🎯T92.1 GE_FACTORY mode — act as a game-server "device factory". Register
+    // spawn_instance so spyder can fork game instances on demand; each instance
+    // is this same binary re-exec'd (GE_FACTORY stripped) pointed at the given
+    // app-channel, so it dials spyder back as its own session with the full
+    // monitor surface. No game window in this mode — the app-channel worker
+    // threads service requests while main() idles. Dev-only (installFromEnv and
+    // the whole channel compile out under NDEBUG).
+    if (std::getenv("GE_FACTORY")) {
+        const std::string self = argv[0];
+        ge::appchannel::registerMethod(
+            "spawn_instance", [self](const nlohmann::json& p) -> nlohmann::json {
+                const std::string chan = p.value("app_channel", std::string{});
+                if (chan.empty())
+                    throw ge::appchannel::Error{-32602, "spawn_instance: app_channel is required"};
+                // Child env: inherit ours, drop GE_FACTORY, point at the instance channel.
+                std::vector<std::string> envs;
+                for (char** e = environ; e && *e; ++e) {
+                    std::string s = *e;
+                    if (s.rfind("GE_FACTORY=", 0) == 0) continue;
+                    if (s.rfind("SPYDER_APP_CHANNEL=", 0) == 0) continue;
+                    envs.push_back(std::move(s));
+                }
+                envs.push_back("SPYDER_APP_CHANNEL=" + chan);
+                std::vector<char*> envp;
+                for (auto& s : envs) envp.push_back(s.data());
+                envp.push_back(nullptr);
+                char* argvv[] = {const_cast<char*>(self.c_str()), nullptr};
+                pid_t pid = 0;
+                int rc = posix_spawn(&pid, self.c_str(), nullptr, nullptr, argvv, envp.data());
+                if (rc != 0)
+                    throw ge::appchannel::Error{-32000,
+                                                std::string("spawn failed: ") + std::strerror(rc)};
+                SPDLOG_INFO("tiltbuggy factory: spawned instance pid={} game={}", pid,
+                            p.value("game", std::string{}));
+                return nlohmann::json{{"ok", true}, {"pid", pid}, {"game", p.value("game", std::string{})}};
+            });
+        ge::appchannel::installFromEnv("tiltbuggy-factory", "dev");
+        SPDLOG_INFO("tiltbuggy GE_FACTORY: spawn_instance registered; idling");
+        for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
     }
 
     State state;
@@ -368,10 +414,15 @@ int main(int argc, char* argv[]) {
     // headless render path above must stay continuous/deterministic.
     state.renderOnDemand = std::getenv("GE_RENDER_ON_DEMAND") != nullptr;
 
+    // 🎯T92.2.2 Mode-agnostic: the app calls ge::run() identically in every
+    // build. A server build (GE_SERVER_BUILD) makes ge::run a hidden-window
+    // streaming host that dials spyder's relay (address from the GE_SERVER env);
+    // a desktop/mobile build makes it windowed. The app neither knows nor cares —
+    // no server fields, no env parsing here.
     ge::run(factory, {
-        .width = brokered ? 0 : 1024,
-        .height = brokered ? 0 : 768,
-        .headless = brokered,
+        .width = 1024,
+        .height = 768,
+        .orgName = "squz",
         .appName = "tiltbuggy",
         .sensors = wire::kSensorAccelerometer,
         .orientation = wire::kOrientationAnyLandscape,

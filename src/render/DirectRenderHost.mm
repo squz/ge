@@ -24,6 +24,7 @@
 #include <ge/Resource.h>
 #include <ge/Signal.h>
 #include <ge/SokolContext.h>
+#include <ge/Tweak.h>
 
 #include "RenderOnDemand.h"
 
@@ -272,6 +273,7 @@ bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
     if (g_ssReq == &req) { g_ssReq = nullptr; g_ssArmed.store(false); }
     return false;
 }
+
 } // namespace detail
 
 #if defined(__ANDROID__)
@@ -351,6 +353,13 @@ struct DirectRenderHost::Impl {
     // 🎯T44 / 🎯T45 callbacks — set by runDirect after factory.
     std::function<void()> onBackPressed;
     std::function<void(MemoryPressureLevel)> onMemoryWarning;
+
+    // 🎯T92.2.2 Server mode: when serverActive is non-null and set, each
+    // presented frame is routed to serverSink on the game thread (the
+    // ServerSession encodes + streams it). Both null in the normal windowed
+    // path. serverActive is owned by the ServerSession, which outlives the host.
+    std::atomic<bool>* serverActive = nullptr;
+    std::function<void(const std::uint8_t*, int, int)> serverSink;
 
     // 🎯T63 High-refresh-rate during press.
     // Incremented on every pointer Down, decremented on every Up/Cancel.
@@ -448,6 +457,11 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     if (config.orgName && config.appName) {
         if (char* pref = SDL_GetPrefPath(config.orgName, config.appName)) {
             dbPath = std::string(pref) + "game.db";
+            // 🎯T91.2: persist tweak overrides alongside the game db so a
+            // tweak set from spyder over the app-channel survives a restart.
+            // loadOverrides opens the db (which also enables tweak::save on
+            // later tweak_set/reset) and applies any stored values.
+            tweak::loadOverrides((std::string(pref) + "tweaks.db").c_str());
             SDL_free(pref);
             SPDLOG_INFO("DirectRenderHost: persistent DB at {}", dbPath);
         }
@@ -468,6 +482,14 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                 i_->sokolCtx->captureNextFrame(
                     [](const std::uint8_t* rgba, int w, int h) {
                         ge::detail::deliverScreenshot(rgba, w, h);
+                    });
+            } else if (i_->serverActive && i_->serverActive->load()) {
+                // 🎯T92.2.2 server mode: capture every presented frame for the
+                // attached player. The ServerSession encodes + sends off the
+                // game thread; this only pumps the pixels out via serverSink.
+                i_->sokolCtx->captureNextFrame(
+                    [this](const std::uint8_t* px, int w, int h) {
+                        if (i_->serverSink) i_->serverSink(px, w, h);
                     });
             }
             i_->sokolCtx->endFrame();
@@ -675,6 +697,13 @@ void DirectRenderHost::setMemoryWarningHandler(
                         }];
     }
 #endif
+}
+
+void DirectRenderHost::setServerFrameSink(
+        std::function<void(const std::uint8_t*, int, int)> fn,
+        std::atomic<bool>* active) {
+    i_->serverSink = std::move(fn);
+    i_->serverActive = active;
 }
 
 void DirectRenderHost::pumpEvents() {

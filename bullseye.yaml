@@ -900,20 +900,22 @@ targets:
     origin: manual
     discovered: 2026-06-28
   T128:
-    name: ge can carry a session as a serialized command stream to a replay player, chosen per session as an alternative to the H.264 video transport
-    status: converging
+    name: 'ge streaming negotiates the most advanced mutually-supported protocol: H.264 video as the retained baseline, a command stream (draw calls) as the top rung'
+    status: identified
     value: 8.0
     cost: 20.0
+    set_aside_reason: 'Parked 2026-07-05 (user-flagged, deprioritized under the browser-player-centric direction). T128''s command-stream transport requires a SOKOL-CAPABLE player that replays ge primitives on its own GPU. The player integration has since consolidated on spyder with the browser/dashboard player (WebCodecs H.264) as the primary, first-class player — which cannot consume a sokol command stream without a massive ge+sokol→WASM/WebGL port. H.264 video is universally decodable (browser WebCodecs, native VideoToolbox, mobile MediaCodec), so it is the right SINGLE transport for the browser-centric vision; T128 reduces to a native-only crispness optimization whose two-transport maintenance cost no longer fits. Note: spyder itself stays sokol-free either way (payload-agnostic relay) — the blocker is the browser player, not spyder. Not deleted: the command-stream idea is coherent and could revive if native vector/text crispness ever becomes the dominant need. Children T128.3–T128.6 are dormant under this parent.'
     acceptance:
-    - A ge session can be served over a command-stream transport (serialized sokol commands + ge protocol framing) instead of H.264 video, negotiated per session; the H.264 video transport remains available as the fallback for high-temporal-churn content.
-    - The replay player renders ge content from the command stream on its own GPU and stays app-agnostic (no game-specific code — it knows ge primitives, not the game's logic).
-    - tiltbuggy runs end-to-end over the command-stream transport with parity to its video-streamed appearance.
-    context: 'Umbrella for the command-stream transport (see docs/command-stream-transport.md). sokol_gfx (~159 POD-descriptor calls) + the T107 dispatch shim (g_ge_sg_api — one installable function table every sg_* flows through) make a serializing "remoting backend" cheap to insert: structurally identical to the GLES/VK backends already shipped, and the production instance of T109''s interposable capture layer. The bet: for ge''s vector/text-heavy, geometrically simple content this is plausibly the better default, with video kept as the churn fallback. Headline architectural win: in command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec — it deletes the encode subsystem rather than adding one. Convergence is the MVP set (T128.3–T128.6); verbs (T128.7) are a fast-follow and block compression (T128.8) is deferred.'
+    - After a player connects, server and player FEATURE-DETECT the player's rendering capability; a SOKOL-CAPABLE player (native) may select the command-stream transport (serialized sokol commands + ge framing), while a non-sokol player (the browser) uses H.264. The player is sokol-AWARE, not sokol-REQUIRED — no player is excluded.
+    - In command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec encode; H.264 remains the universal fallback (browser, non-sokol players, and high-temporal-churn content). spyder's relay carries the command stream unchanged (payload-agnostic) — no ged.
+    - tiltbuggy runs end-to-end over the command-stream transport to a sokol player with parity to its H.264-streamed appearance. The web MVP supports H.264 only (a sokol-in-browser port is explicitly out of scope).
+    context: 'UN-PARKED 2026-07-05. Parked earlier on a flawed premise (browser can''t render sokol → T128 obsolete under a browser-centric player). User''s correction: make the player OPTIONALLY sokol-aware, feature-detected AFTER connecting to the server — command-stream for sokol-capable native players, H.264 the universal fallback. This is T128''s original per-session / H.264-fallback design plus a capability handshake; it excludes no player. Rationale for an H.264-only web MVP: the browser player usually runs on the SAME HOST as the server (localhost / same-machine factory instance), where the command-stream''s bandwidth advantage over H.264 is negligible — so the web loses nothing by skipping sokol, and a ge+sokol→WASM/WebGL port stays out of scope. Sequencing: land the H.264 streaming data plane first (spyder T92.2), then command-stream as the native crispness / no-encode optimization. Children T128.3–T128.6 (the MVP set) revive with this framing.'
     depends_on:
     - T128.3
     - T128.4
     - T128.5
     - T128.6
+    - T128.9
     origin: manual
     discovered: 2026-06-29
   T128.1:
@@ -985,17 +987,18 @@ targets:
     origin: manual
     discovered: 2026-06-29
   T128.6:
-    name: In command-stream mode the streaming server runs with no GPU context and no video encoder
+    name: A negotiated command-stream session runs the server with no per-session GPU-render or encode work (encoder retained)
     status: identified
-    value: 5.0
-    cost: 5.0
+    value: 3.0
+    cost: 3.0
     acceptance:
-    - A server streaming over the command-stream transport instantiates no GPU drawable and no VideoToolbox/MediaCodec encoder — it runs the game, emits sg_* through a serializing null backend, and ships bytes.
-    - The GPU-render + H.264 encode path remains compiled and is used only for the video fallback transport and the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff).
-    - A command-stream server builds and runs on a host with no GPU (the Apple-only encode .mm and headless-GPU-context dependencies are off the streaming path).
-    context: 'The headline architectural payoff: subtraction, not addition. In command-stream mode the server needs neither a GPU nor a hardware encoder, severing the VideoToolbox/MediaCodec dependency from the streaming path and making the server portable to GPU-less hosts. The video pipeline stays for the fallback transport and the offline pixel-producing paths.'
+    - When a session negotiates the command-stream rung, the server produces the stream through a serializing null backend and performs no GPU-render and no H.264 encode for that session.
+    - The H.264 encoder and headless-GPU-render path remain compiled into ge and are used for sessions that negotiate the video baseline and for the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff) — they are NOT removed.
+    - The per-session win (no encode/GPU in the dev-preview loop; native-res on the device) is demonstrated; any GPU-less-server benefit is scoped as a conditional consequence of a command-stream-only deployment, not a default.
+    context: 'The honest win is a per-session runtime property: when a session negotiates the command-stream rung the server does no encode/GPU-render for that session, giving less Mac CPU/fan in the dev loop and crisper native-res preview on the device. Scoped this way (rather than as a "thin GPU-less production server") because of the model that landed 2026-07-05 after this subgraph was created: (1) H.264 is the retained permanent baseline, so the encoder stays compiled in; (2) per T145 the server streaming path is dev-only in release, so there is no production-server-cost story. Any GPU-less-server benefit is a conditional consequence of a command-stream-only deployment, not a default.'
     depends_on:
     - T128.3
+    - T128.9
     origin: manual
     discovered: 2026-06-29
   T128.7:
@@ -1027,6 +1030,21 @@ targets:
     - T128.4
     origin: manual
     discovered: 2026-06-29
+  T128.9:
+    name: Player and server negotiate the most advanced mutually-supported protocol; the broker relays bytes agnostically
+    status: identified
+    value: 8.0
+    cost: 5.0
+    acceptance:
+    - 'On connect, player and server exchange capability advertisements and select the highest common protocol rung: H.264 video (universal baseline) or command stream (both ends must support it; the server must render through ge''s serializable sokol path).'
+    - The negotiation is in-band and end-to-end; the broker (ged today, spyder as it absorbs the role) relays the bytes without inspecting the protocol, rides the same byte pipe H.264 uses, and is compatible with an E2E-encrypted relay (T11) — so adding the command-stream rung requires no broker-side change.
+    - Within the command-stream rung, ge verbs (SVG/text/image) are sub-negotiated, each degrading to its sokol-flatten fallback when unsupported.
+    - A non-sokol server, or a player that cannot replay, transparently lands on the H.264 baseline.
+    context: 'The ged->spyder move (T145) makes the broker a protocol-agnostic byte relay, so the transport decision is a player<->server concern, negotiated in-band end-to-end. H.264 is retained as the permanent interop floor precisely because the command-stream rung requires a sokol-based, serializable server AND a replay-capable player; spyder cannot assume either. Because spyder is agnostic and the rung rides the same byte pipe as video, this is a pure ge-side addition with zero new spyder dependency. Nests two negotiations: transport rung, then verb set within the command-stream rung.'
+    depends_on:
+    - T128.2
+    origin: manual
+    discovered: 2026-07-05
   T129:
     name: ge provides an audio clip-player API (sfx + looping music) for direct-mode apps
     status: identified
@@ -1552,7 +1570,7 @@ targets:
     acceptance:
     - VkM/GlesM destructors and Vulkan teardown check the sokol dispatch table (g_ge_sg_api) is bound before calling through it
     - A forced Vulkan bring-up failure falls back to GLES without crashing
-    context: 'CRITICAL. src/SokolContext_android.cpp:336: the VkM destructor NULL-derefs the sokol dispatch table on the VK→GLES fallback path (Vulkan fails before ge_sokol_set_api), crashing the fallback. Two finders converged here. Unverified Fable-5 finder-stage candidate; verify before implementing. See docs/audit/fable-2026-07.md.'
+    context: 'CRITICAL. src/SokolContext_android.cpp:336: the VkM destructor NULL-derefs the sokol dispatch table on the VK→GLES fallback path (Vulkan fails before ge_sokol_set_api), crashing the fallback. VERIFIED CONFIRMED 2026-07-05 against current source: the shim is `const ge_sg_api* g_ge_sg_api = 0;` (tools/sokol-dispatch/generated/ge_sokol_dispatch.c:5) and every forwarder does `g_ge_sg_api->sg_X(...)` unconditionally, so `sg_isvalid()` at line 336 NULL-derefs when the table is unbound — the `if (sg_isvalid())` guard is worthless (it IS the crash). This is core Android render bring-up (T107), NOT streaming, so the 2026-07-04 dev-only-streaming decision does not reduce severity: a shipped direct-mode Android app (multimaze2) crashes instead of falling back to GLES. Fix: guard teardown with a g_ge_sg_api-bound check (e.g. a ge_sokol_bound() helper) before any sg_* call. Severity stands CRITICAL. Original: two finders converged; see docs/audit/fable-2026-07.md.'
     origin: manual
     discovered: 2026-07-02
   T141:
@@ -1563,7 +1581,7 @@ targets:
     acceptance:
     - GlesM destructor calls sg_shutdown() only when sokol was actually set up (table bound and sg_isvalid)
     - A GLES init failure before ge_sokol_set_api does not call through an unbound dispatch table
-    context: 'HIGH. src/SokolContext_android.cpp:175: the GlesM destructor calls sg_shutdown() through the shim even when GLES init failed before binding the table. Unverified Fable-5 finder-stage candidate; verify before implementing. See docs/audit/fable-2026-07.md.'
+    context: 'HIGH. src/SokolContext_android.cpp:175/178: the GlesM destructor calls bare sg_shutdown() through the shim with no guard, even when GLES init failed before binding the table. VERIFIED CONFIRMED 2026-07-05: same NULL-deref mechanism as T140 — g_ge_sg_api is 0 until ge_sokol_set_api (line 163), and the sg_shutdown forwarder derefs it unconditionally. Reachable if GLES context creation fails (gl NULL → else branch, line 178) before the bind. Lower likelihood than T140 because GLES is the universal fallback (its bring-up failing is rarer than Vulkan''s). Core render bring-up, not streaming — severity unaffected by the dev-only decision. Same fix as T140 (bound-check before any sg_*). Severity stands HIGH. See docs/audit/fable-2026-07.md.'
     origin: manual
     discovered: 2026-07-02
   T142:
@@ -1574,7 +1592,7 @@ targets:
     acceptance:
     - length is validated (>=5 and within the buffer) before computing length-5 / 8+length, so no unsigned underflow or 32-bit overflow occurs
     - A malformed video-stream message cannot cause an out-of-bounds heap read; a regression/fuzz case is added
-    context: 'HIGH. src/bridge/PlayerWireBridge.cpp:198: unsigned underflow of length-5 and 32-bit overflow of 8+length yield an out-of-bounds heap read on malformed video-stream messages (network trust boundary). Unverified Fable-5 finder-stage candidate; verify before implementing. See docs/audit/fable-2026-07.md.'
+    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/PlayerWireBridge.cpp:181-198. VERIFIED CONFIRMED 2026-07-05: three real OOB reads on a malformed video-stream message — (1) line 193 computes `8 + length` in uint32 so it overflows/wraps for length near UINT32_MAX, passing the bounds check; (2) line 198 `length - 5` underflows for length<5 → huge avccSize; (3) line 195 reads seq at data[9..12] with only data.size()>=8 guaranteed. All yield an out-of-bounds heap read. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is entirely dev tooling on a trusted LAN — PlayerWireBridge only ever consumes frames from our own encoder, not an adversarial network peer, so the ''network trust boundary'' that justified HIGH does not exist in the intended deployment. Reclassify as LOW robustness (a buggy encoder shouldn''t crash the dev player), not a security finding. Fix is cheap+correct (validate length>=5 and 13+length<=size before the reads; add a fuzz/regression case) but not urgent, and lives in streaming code slated to move to spyder / be NDEBUG-gated per T145. See docs/audit/fable-2026-07.md.'
     origin: manual
     discovered: 2026-07-02
   T143:
@@ -1585,7 +1603,7 @@ targets:
     acceptance:
     - recvFrame validates the 64-bit payload length against kMaxMessageSize before any resize/allocation
     - An oversized or hostile length is rejected rather than triggering an unbounded allocation / bad_alloc
-    context: 'HIGH. src/bridge/WebSocketClient.cpp:181: recvFrame resizes the message buffer to an unvalidated 64-bit wire length (no kMaxMessageSize bound) → unbounded allocation / bad_alloc DoS from a network peer. Unverified Fable-5 finder-stage candidate; verify before implementing. See docs/audit/fable-2026-07.md.'
+    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/WebSocketClient.cpp:181. VERIFIED CONFIRMED 2026-07-05: `out.resize(prevSize + payloadLen)` resizes to an unvalidated 64-bit wire length (payloadLen from a 127-length WebSocket frame, lines 167-172) with no kMaxMessageSize bound → unbounded allocation / bad_alloc. Real. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is dev-only on a trusted LAN, so the peer is our own ged, not a hostile network peer — reclassify HIGH→LOW (robustness, not security). Cheap fix (reject payloadLen > kMaxMessageSize before resize) still worth doing, but not urgent, and lives in streaming code slated to move/gate per T145. See docs/audit/fable-2026-07.md.'
     origin: manual
     discovered: 2026-07-02
   T144:
@@ -1600,6 +1618,48 @@ targets:
     context: 'HIGH. src/render/DirectRenderHost.mm:786: the Android background/foreground lifecycle is never wired into DirectRenderHost, so onBackground()/onForeground() are never called and the Vulkan swapchain is never torn down/recreated across background transitions. Unverified Fable-5 finder-stage candidate; verify before implementing. See docs/audit/fable-2026-07.md.'
     origin: manual
     discovered: 2026-07-02
+  T145:
+    name: The ged daemon is removed from ge; ge retains only the app-side (dial-out control channel + headless encode) and the wire-protocol schema, with the server streaming path dev-only
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '[class 1] `make ged` and `bin/ged` no longer exist; the ge repo builds and the developer loop (deploy, drive, inspect, tweak, optional dev-stream) works entirely via spyder, with no ged process.'
+    - '[class 1] Release (`NDEBUG`) builds contain no streaming/encode/app-channel code — verified by a symbol check — matching the app-channel''s existing dev-only gating.'
+    - '[class 1] ge remains the single source of truth for the wire-protocol schema; spyder consumes generated bindings from it (no hand-rolled parallel copy).'
+    - The spyder-side capabilities (spyder T91 and its subgraph) are achieved first — cross-repo dependency, tracked in prose since bullseye is per-repo.
+    context: 'The ge half of the ged→spyder consolidation (see spyder T91). Decision 2026-07-04: ge streaming is entirely dev tooling, so ged — both its control plane and its dev data plane — folds into spyder. ge keeps only the app-side: the dial-out control channel (the app-channel client, already in ge) plus the headless render+encode for the dev stream, both dev-only/NDEBUG-gated. ged''s MCP/dashboard/tweak-serving is deleted, not moved (spyder T91.2/T91.3 provide the equivalent). This retirement is blocked on the spyder capabilities landing and passing the T91.1 differential harness against ged''s recorded behaviour — delete ged only once spyder demonstrably reproduces it. Reframes T128/T34: they become optional dev-preview data-plane features hosted in spyder, not ge production infra.'
+    origin: manual
+    discovered: 2026-07-04
+  T146:
+    name: ge has evaluated arena / ZII / group-lifetime memory patterns against its real architecture and adopted the ones that fit, each accepted idea filed as a concrete target
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'A written evaluation (this target''s context or a docs/ note) scores each of four candidate applications against ge''s ACTUAL code with a keep / defer / reject verdict + rationale: (1) a named ''zero-stub'' ZII convention; (2) a per-frame CPU arena on Context; (3) a per-session State arena folded into T99; (4) a handle-based sprite/texture pool as the N+1 for T135''s per-element Sprite RAII.'
+    - 'The ZII zero-stub convention is decided: whether ge''s existing de-facto behaviour (Sprite{} / isNull() no-op draw, loadImage / rasterizeSvg / rasterizeText returning Sprite{} on failure, makePass(nullptr) no-op Pass, wire-mode zeroed Context) becomes a documented AGENTS.md design principle, and which remaining factories need auditing to conform.'
+    - The per-frame-arena win is sized with a CHEAP measurement of per-frame heap churn in the render loop today (SpriteBatch::quads_ reallocation, the ge::debug primitive vectors, transient rasterizeText sprites), so the decision is evidence-based rather than aesthetic.
+    - 'The tension with T135 is confronted head-on (Sprite RAII IS the Stage-N per-element ownership the source argues against): the handle-based pool is either scoped as T135''s deliberate N+1 evolution with the triggering consumer named (e.g. multimaze2''s many menu sprites), or explicitly deferred with rationale.'
+    - Every 'keep' verdict spawns a concrete follow-on target (or folds into an existing one — e.g. the State arena into T99); every 'defer'/'reject' records why in this target's context. No accepted idea is left as loose prose.
+    context: |-
+      Sourced from Casey Muratori's "Smart-Pointers, RAII, ZII? Becoming an N+2 programmer" (YouTube xt1KNDmOYqA; note at ~/think/knowledge/youtube/xt1KNDmOYqA/memory-arenas-over-smart-pointers.md). Thesis: arenas / group-lifetime over per-element new/delete; per-frame arenas; growable-arena + stub failure handling; and ZII (Zero Is Initialization) — all-zeros is a valid no-op default, so a failing factory returns a zero-stub the caller uses blindly instead of throwing, deleting large amounts of error-handling code.
+
+      Why a spike, not an implementation: ge is already structurally closer to N+1 than typical C++ — pImpl (single-owner, not a pointer web), handle-based sokol (sg_image/sg_view are {uint32_t id}), value types, and the render = f(State) direction (🎯T99 / 🎯T124 / 🎯T131.4) — and it already does ZII-on-failure in several places without naming it. The Stage-N residue is real but narrow: per-element GPU-resource ownership (🎯T135 just gave ge::Sprite RAII — the exact anti-pattern the talk targets) and per-frame vector churn (SpriteBatch, ge::debug). So the right first move is to evaluate the four candidate applications against ge's actual code + a cheap measurement, keep what fits, and spawn concrete targets for the keepers — not a rewrite.
+
+      The caveat to honour so this doesn't become a de-RAII crusade: ge is C++ consumed by other teams, and RAII over a single external resource with an obvious owner (ge::Pass, ge::audio::Registration, the pImpls) is the legitimate use the talk does NOT object to — it stays. The win is selective: transient / frame data → arena; recoverable failure → ZII stub; grouped lifetimes → State / session arena. Filed from a design discussion 2026-07-04.
+
+      Related: 🎯T99 (ge::app&lt;State&gt;), 🎯T124 (render = f(State)), 🎯T131.4 (State-diff render-on-demand), 🎯T135 (Sprite RAII).
+    tags:
+    - memory
+    - arena
+    - zii
+    - architecture
+    - performance
+    - spike
+    - render-loop
+    origin: manual
+    discovered: 2026-07-04
   T15:
     name: Player binary restructured around named PlayerWireBridge + PlayerRender classes
     status: achieved
