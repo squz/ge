@@ -5,8 +5,8 @@
 const ge_sg_api* g_ge_sg_api = 0;
 void ge_sokol_set_api(const ge_sg_api* api) { g_ge_sg_api = api; }
 void sg_setup(const sg_desc* desc) { g_ge_sg_api->sg_setup(desc); }
-void sg_shutdown(void) { g_ge_sg_api->sg_shutdown(); }
-bool sg_isvalid(void) { return g_ge_sg_api->sg_isvalid(); }
+void sg_shutdown(void) { if (g_ge_sg_api) g_ge_sg_api->sg_shutdown(); }
+bool sg_isvalid(void) { return g_ge_sg_api ? g_ge_sg_api->sg_isvalid() : (bool)0; }
 void sg_reset_state_cache(void) { g_ge_sg_api->sg_reset_state_cache(); }
 sg_trace_hooks sg_install_trace_hooks(const sg_trace_hooks* trace_hooks) { return g_ge_sg_api->sg_install_trace_hooks(trace_hooks); }
 void sg_push_debug_group(const char* name) { g_ge_sg_api->sg_push_debug_group(name); }

@@ -5,6 +5,8 @@
 #include <ge/VideoDecoder.h>
 #include <ge/WebSocketClient.h>
 
+#include "wire_input.h"
+
 #include <spdlog/spdlog.h>
 
 #include <cstring>
@@ -189,14 +191,14 @@ bool PlayerWireBridge::pump() {
         uint32_t magic = 0;
         std::memcpy(&magic, data.data(), 4);
         if (magic == wire::kVideoStreamMagic) {
-            uint32_t length = 0;
-            std::memcpy(&length, data.data() + 4, 4);
-            if (data.size() < 8 + length) continue;
+            // 🎯T142: validate the wire length before deriving any pointer/size.
+            // Guards unsigned underflow of (length - 5), 32-bit overflow of
+            // (8 + length), and the OOB seq/AVCC reads on a malformed message.
             uint32_t seq = 0;
-            std::memcpy(&seq, data.data() + 9, 4);
-            const uint8_t* avccData =
-                reinterpret_cast<const uint8_t*>(data.data()) + 13;
-            size_t avccSize = length - 5;
+            const uint8_t* avccData = nullptr;
+            size_t avccSize = 0;
+            if (!detail::decodeVideoStreamMessage(data, seq, avccData, avccSize))
+                continue;
 
             auto frameNals = i_->avcc.parse(avccData, avccSize);
             if (i_->decoder && i_->avcc.paramsDirty && i_->avcc.hasParams()) {

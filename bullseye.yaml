@@ -1564,48 +1564,56 @@ targets:
     achieved: 2026-04-26
   T140:
     name: ge's Android VK→GLES fallback tears down safely — no NULL sokol-dispatch-table deref when Vulkan bring-up fails
-    status: identified
+    status: achieved
     value: 13.0
     cost: 3.0
+    actual_cost: 3.0
     acceptance:
     - VkM/GlesM destructors and Vulkan teardown check the sokol dispatch table (g_ge_sg_api) is bound before calling through it
     - A forced Vulkan bring-up failure falls back to GLES without crashing
-    context: 'CRITICAL. src/SokolContext_android.cpp:336: the VkM destructor NULL-derefs the sokol dispatch table on the VK→GLES fallback path (Vulkan fails before ge_sokol_set_api), crashing the fallback. VERIFIED CONFIRMED 2026-07-05 against current source: the shim is `const ge_sg_api* g_ge_sg_api = 0;` (tools/sokol-dispatch/generated/ge_sokol_dispatch.c:5) and every forwarder does `g_ge_sg_api->sg_X(...)` unconditionally, so `sg_isvalid()` at line 336 NULL-derefs when the table is unbound — the `if (sg_isvalid())` guard is worthless (it IS the crash). This is core Android render bring-up (T107), NOT streaming, so the 2026-07-04 dev-only-streaming decision does not reduce severity: a shipped direct-mode Android app (multimaze2) crashes instead of falling back to GLES. Fix: guard teardown with a g_ge_sg_api-bound check (e.g. a ge_sokol_bound() helper) before any sg_* call. Severity stands CRITICAL. Original: two finders converged; see docs/audit/fable-2026-07.md.'
+    context: 'CRITICAL. src/SokolContext_android.cpp:336: the VkM destructor NULL-derefs the sokol dispatch table on the VK→GLES fallback path (Vulkan fails before ge_sokol_set_api), crashing the fallback. VERIFIED CONFIRMED 2026-07-05 against current source: the shim is `const ge_sg_api* g_ge_sg_api = 0;` (tools/sokol-dispatch/generated/ge_sokol_dispatch.c:5) and every forwarder does `g_ge_sg_api->sg_X(...)` unconditionally, so `sg_isvalid()` at line 336 NULL-derefs when the table is unbound — the `if (sg_isvalid())` guard is worthless (it IS the crash). This is core Android render bring-up (T107), NOT streaming, so the 2026-07-04 dev-only-streaming decision does not reduce severity: a shipped direct-mode Android app (multimaze2) crashes instead of falling back to GLES. Fix: guard teardown with a g_ge_sg_api-bound check (e.g. a ge_sokol_bound() helper) before any sg_* call. Severity stands CRITICAL. Original: two finders converged; see docs/audit/fable-2026-07.md. RESOLVED 2026-07-06 (branch audit-ge-20260705): hardened the generated dispatch shim so sg_isvalid() returns false and sg_shutdown() no-ops when g_ge_sg_api is unbound (NULL) rather than dereferencing it — the audit strategic-recommendation primitive-level fix, covering every VkM/GlesM teardown path with a single guard. Changed tools/sokol-dispatch/gen.py and regenerated ge_sokol_dispatch.c; rebuilt the android-arm64 prebuilt libge.a + manifest (NDK r27). Oracle: make dispatch-null-safety-test — the unfixed shim SIGSEGVs (exit 139), the fixed shim PASSes.'
     origin: manual
     discovered: 2026-07-02
+    achieved: 2026-07-06
   T141:
     name: ge's GlesM teardown does not call sg_shutdown when GLES init failed before binding the dispatch table
-    status: identified
+    status: achieved
     value: 8.0
     cost: 3.0
+    actual_cost: 1.0
     acceptance:
     - GlesM destructor calls sg_shutdown() only when sokol was actually set up (table bound and sg_isvalid)
     - A GLES init failure before ge_sokol_set_api does not call through an unbound dispatch table
-    context: 'HIGH. src/SokolContext_android.cpp:175/178: the GlesM destructor calls bare sg_shutdown() through the shim with no guard, even when GLES init failed before binding the table. VERIFIED CONFIRMED 2026-07-05: same NULL-deref mechanism as T140 — g_ge_sg_api is 0 until ge_sokol_set_api (line 163), and the sg_shutdown forwarder derefs it unconditionally. Reachable if GLES context creation fails (gl NULL → else branch, line 178) before the bind. Lower likelihood than T140 because GLES is the universal fallback (its bring-up failing is rarer than Vulkan''s). Core render bring-up, not streaming — severity unaffected by the dev-only decision. Same fix as T140 (bound-check before any sg_*). Severity stands HIGH. See docs/audit/fable-2026-07.md.'
+    context: 'HIGH. src/SokolContext_android.cpp:175/178: the GlesM destructor calls bare sg_shutdown() through the shim with no guard, even when GLES init failed before binding the table. VERIFIED CONFIRMED 2026-07-05: same NULL-deref mechanism as T140 — g_ge_sg_api is 0 until ge_sokol_set_api (line 163), and the sg_shutdown forwarder derefs it unconditionally. Reachable if GLES context creation fails (gl NULL → else branch, line 178) before the bind. Lower likelihood than T140 because GLES is the universal fallback (its bring-up failing is rarer than Vulkan''s). Core render bring-up, not streaming — severity unaffected by the dev-only decision. Same fix as T140 (bound-check before any sg_*). Severity stands HIGH. See docs/audit/fable-2026-07.md. RESOLVED 2026-07-06 (branch audit-ge-20260705): resolved by the same shim hardening as T140 — sg_shutdown() through the shim now no-ops when g_ge_sg_api is unbound, so ~GlesM (line 175/178) is safe on the GLES-init-failed-before-bind path with no per-call-site edit needed. Same oracle: make dispatch-null-safety-test (unfixed SIGSEGVs, fixed PASSes).'
     origin: manual
     discovered: 2026-07-02
+    achieved: 2026-07-06
   T142:
     name: ge's PlayerWireBridge::pump bounds-checks message length before reading — no unsigned underflow or 32-bit overflow
-    status: identified
+    status: achieved
     value: 8.0
     cost: 3.0
+    actual_cost: 2.0
     acceptance:
     - length is validated (>=5 and within the buffer) before computing length-5 / 8+length, so no unsigned underflow or 32-bit overflow occurs
     - A malformed video-stream message cannot cause an out-of-bounds heap read; a regression/fuzz case is added
-    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/PlayerWireBridge.cpp:181-198. VERIFIED CONFIRMED 2026-07-05: three real OOB reads on a malformed video-stream message — (1) line 193 computes `8 + length` in uint32 so it overflows/wraps for length near UINT32_MAX, passing the bounds check; (2) line 198 `length - 5` underflows for length<5 → huge avccSize; (3) line 195 reads seq at data[9..12] with only data.size()>=8 guaranteed. All yield an out-of-bounds heap read. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is entirely dev tooling on a trusted LAN — PlayerWireBridge only ever consumes frames from our own encoder, not an adversarial network peer, so the ''network trust boundary'' that justified HIGH does not exist in the intended deployment. Reclassify as LOW robustness (a buggy encoder shouldn''t crash the dev player), not a security finding. Fix is cheap+correct (validate length>=5 and 13+length<=size before the reads; add a fuzz/regression case) but not urgent, and lives in streaming code slated to move to spyder / be NDEBUG-gated per T145. See docs/audit/fable-2026-07.md.'
+    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/PlayerWireBridge.cpp:181-198. VERIFIED CONFIRMED 2026-07-05: three real OOB reads on a malformed video-stream message — (1) line 193 computes `8 + length` in uint32 so it overflows/wraps for length near UINT32_MAX, passing the bounds check; (2) line 198 `length - 5` underflows for length<5 → huge avccSize; (3) line 195 reads seq at data[9..12] with only data.size()>=8 guaranteed. All yield an out-of-bounds heap read. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is entirely dev tooling on a trusted LAN — PlayerWireBridge only ever consumes frames from our own encoder, not an adversarial network peer, so the ''network trust boundary'' that justified HIGH does not exist in the intended deployment. Reclassify as LOW robustness (a buggy encoder shouldn''t crash the dev player), not a security finding. Fix is cheap+correct (validate length>=5 and 13+length<=size before the reads; add a fuzz/regression case) but not urgent, and lives in streaming code slated to move to spyder / be NDEBUG-gated per T145. See docs/audit/fable-2026-07.md. RESOLVED 2026-07-06 (branch audit-ge-20260705): extracted the video-stream length validation into pure ge::detail::decodeVideoStreamMessage (src/bridge/wire_input.h) called by pump — it rejects (skips the message) when length < 5 or when 8 + length (computed in 64-bit) exceeds the buffer, closing the underflow, 32-bit overflow, and OOB seq/AVCC reads. Regression test src/wire_input_test.cpp (6 video-stream cases) plus a standalone ASan repro that shows the original logic heap-buffer-overflows on a 9-byte malformed message and the guard rejects it.'
     origin: manual
     discovered: 2026-07-02
+    achieved: 2026-07-06
   T143:
     name: ge's WebSocketClient::recvFrame enforces kMaxMessageSize before allocating from a wire-supplied length
-    status: identified
+    status: achieved
     value: 8.0
     cost: 3.0
+    actual_cost: 1.0
     acceptance:
     - recvFrame validates the 64-bit payload length against kMaxMessageSize before any resize/allocation
     - An oversized or hostile length is rejected rather than triggering an unbounded allocation / bad_alloc
-    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/WebSocketClient.cpp:181. VERIFIED CONFIRMED 2026-07-05: `out.resize(prevSize + payloadLen)` resizes to an unvalidated 64-bit wire length (payloadLen from a 127-length WebSocket frame, lines 167-172) with no kMaxMessageSize bound → unbounded allocation / bad_alloc. Real. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is dev-only on a trusted LAN, so the peer is our own ged, not a hostile network peer — reclassify HIGH→LOW (robustness, not security). Cheap fix (reject payloadLen > kMaxMessageSize before resize) still worth doing, but not urgent, and lives in streaming code slated to move/gate per T145. See docs/audit/fable-2026-07.md.'
+    context: 'Was HIGH (network trust boundary); DOWNGRADED to LOW. src/bridge/WebSocketClient.cpp:181. VERIFIED CONFIRMED 2026-07-05: `out.resize(prevSize + payloadLen)` resizes to an unvalidated 64-bit wire length (payloadLen from a 127-length WebSocket frame, lines 167-172) with no kMaxMessageSize bound → unbounded allocation / bad_alloc. Real. SEVERITY DOWNGRADE (2026-07-04 decision): streaming is dev-only on a trusted LAN, so the peer is our own ged, not a hostile network peer — reclassify HIGH→LOW (robustness, not security). Cheap fix (reject payloadLen > kMaxMessageSize before resize) still worth doing, but not urgent, and lives in streaming code slated to move/gate per T145. See docs/audit/fable-2026-07.md. RESOLVED 2026-07-06 (branch audit-ge-20260705): recvFrame now calls ge::detail::wsPayloadWithinCap (src/bridge/wire_input.h) before out.resize — it rejects and closes the connection when a single frame exceeds wire::kMaxMessageSize or when fragmented-continuation accumulation would exceed it (overflow-safe: the single-frame cap is checked first). Regression test src/wire_input_test.cpp (3 cases incl. the 0x7FFFFFFFFFFFFFFF 127-length trigger and the accumulation boundary).'
     origin: manual
     discovered: 2026-07-02
+    achieved: 2026-07-06
   T144:
     name: ge wires Android background/foreground transitions into DirectRenderHost so the swapchain is torn down and recreated
     status: set_aside
