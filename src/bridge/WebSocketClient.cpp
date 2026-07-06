@@ -5,6 +5,8 @@
 #include <sha1.h>
 #include <spdlog/spdlog.h>
 
+#include "wire_input.h"
+
 #include <mutex>
 #include <sstream>
 #include <vector>
@@ -178,6 +180,15 @@ private:
             }
 
             size_t prevSize = out.size();
+            // 🎯T143: bound the wire-supplied length by wire::kMaxMessageSize
+            // before allocating — both a single oversized frame and unbounded
+            // fragmented-continuation accumulation. Without this a hostile 127-
+            // length frame drives out.resize() to an ~8 EB allocation (bad_alloc
+            // DoS).
+            if (!detail::wsPayloadWithinCap(payloadLen, prevSize)) {
+                open_ = false;
+                return false;
+            }
             out.resize(prevSize + payloadLen);
 
             if (payloadLen > 0) {

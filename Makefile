@@ -20,7 +20,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
-        python-test \
+        python-test dispatch-null-safety-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
         prebuild-libge-android-arm64 \
@@ -69,6 +69,19 @@ ruby-test:
 # reason as ruby-test.
 python-test:
 	@python3 tools/test_verify_prebuilds.py
+
+# 🎯T140/T141: the sokol dispatch shim's teardown forwarders (sg_isvalid /
+# sg_shutdown) must be NULL-safe when no backend is bound (the Android VK->GLES
+# fallback-teardown crash the Fable-5 audit traced). Standalone: the shim
+# defines real sg_* symbols that collide with sokol's SOKOL_IMPL in the doctest
+# binary, so it can't ride `unit-test`.
+dispatch-null-safety-test:
+	@mkdir -p build
+	@clang -DSOKOL_GLES3 -Itools/sokol-dispatch/generated \
+	    -Ivendor/github.com/floooh/sokol -o build/dispatch-nullsafe-test \
+	    tools/sokol-dispatch/generated/ge_sokol_dispatch.c \
+	    tools/sokol-dispatch/nullsafe_test.c
+	@build/dispatch-nullsafe-test
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #
