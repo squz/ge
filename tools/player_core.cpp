@@ -72,18 +72,25 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
     }
 
     // 4. Main loop.
-    struct PlayerFrame { uint64_t timestamp; int decoded; uint32_t lastSeq; float drainMs; float renderMs; };
+    struct PlayerFrame { uint64_t timestamp; int decoded; uint32_t lastSeq; float drainMs; float renderMs; float pumpMs; float evMs; float upMs; };
     static FrameLog<PlayerFrame> playerLog(
         [](const std::vector<PlayerFrame>& frames, uint64_t freq) {
             int total = 0, empty = 0, gaps = 0;
             uint32_t prev = 0, minSeq = UINT32_MAX, maxSeq = 0;
-            float maxDrain = 0, maxRender = 0, maxGap = 0;
+            float maxDrain = 0, maxRender = 0, maxGap = 0, maxPump = 0, sumPump = 0;
+            float maxEv = 0, sumEv = 0, maxUp = 0, sumUp = 0;
             for (size_t i = 0; i < frames.size(); i++) {
                 auto& f = frames[i];
                 total += f.decoded;
                 if (f.decoded == 0) empty++;
                 maxDrain  = std::max(maxDrain,  f.drainMs);
                 maxRender = std::max(maxRender, f.renderMs);
+                maxPump   = std::max(maxPump,   f.pumpMs);
+                sumPump  += f.pumpMs;
+                maxEv     = std::max(maxEv,     f.evMs);
+                sumEv    += f.evMs;
+                maxUp     = std::max(maxUp,     f.upMs);
+                sumUp    += f.upMs;
                 if (i > 0) {
                     float g = float(frames[i].timestamp - frames[i-1].timestamp)
                             * 1000.f / float(freq);
@@ -97,30 +104,43 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
                 }
             }
             SPDLOG_INFO("PlayerLog: {} ticks, {} decoded ({} empty), seq {}-{} ({} gaps), "
-                        "maxDrain={:.1f}ms maxRender={:.1f}ms maxGap={:.1f}ms",
+                        "maxDrain={:.1f}ms maxRender={:.1f}ms maxGap={:.1f}ms "
+                        "pump avg={:.1f}/max={:.1f}ms ev avg={:.1f}/max={:.1f}ms "
+                        "upload avg={:.1f}/max={:.1f}ms",
                         frames.size(), total, empty, minSeq, maxSeq, gaps,
-                        maxDrain, maxRender, maxGap);
+                        maxDrain, maxRender, maxGap,
+                        frames.empty() ? 0.f : sumPump / frames.size(), maxPump,
+                        frames.empty() ? 0.f : sumEv / frames.size(), maxEv,
+                        frames.empty() ? 0.f : sumUp / frames.size(), maxUp);
         });
 
     uint64_t frameCount = 0;
+    ge::PlayerWireBridge::DecodedFrame decodedFrame;
     while (!ge::shouldQuit()) {
+        const uint64_t tEv0 = SDL_GetPerformanceCounter();
         auto pump = render.pumpEvents();
         if (pump.quit) break;
         for (auto& e : pump.upstreamEvents) wire.sendEvent(e);
 
+        const uint64_t tPump0 = SDL_GetPerformanceCounter();
         if (!wire.pump()) break;
+        const uint64_t tPump1 = SDL_GetPerformanceCounter();
 
-        ge::PlayerWireBridge::DecodedFrame df;
-        if (wire.pollFrame(df)) {
-            render.updateVideoTexture(df.view());
+        if (wire.pollFrame(decodedFrame)) {
+            render.updateVideoTexture(decodedFrame.view());
             frameCount++;
         }
+        const uint64_t tUp1 = SDL_GetPerformanceCounter();
 
         auto rs = render.render();
         auto stats = wire.lastPumpStats();
+        const float tickHz = float(SDL_GetPerformanceFrequency());
         playerLog.record({SDL_GetPerformanceCounter(),
                           stats.framesThisTick, stats.lastSeq,
-                          rs.drainMs, rs.renderMs});
+                          rs.drainMs, rs.renderMs,
+                          float(tPump1 - tPump0) * 1000.f / tickHz,
+                          float(tPump0 - tEv0) * 1000.f / tickHz,
+                          float(tUp1 - tPump1) * 1000.f / tickHz});
     }
 
     wire.close();

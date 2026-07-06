@@ -18,6 +18,7 @@ web/sqlite_mcp_server.db
 # via `make ge/ios-init` / `make ge/android-init`). Do not hand-edit.
 /sample/*/ios/
 /sample/*/android/
+/sample/*/build-server/
 
 # fastlane (🎯T64.1): per-machine bundler artefacts; Gemfile.lock is
 # committed so fastlane versions stay aligned across the studio, but the

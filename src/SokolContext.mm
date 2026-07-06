@@ -276,6 +276,10 @@ void SokolContext::endFrame() {
         std::vector<std::uint8_t> bgra(static_cast<std::size_t>(w) * h * 4);
         [dst getBytes:bgra.data() bytesPerRow:w * 4
            fromRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0];
+        // newTextureWithDescriptor is +1 under MRR — release or leak 12.6 MB
+        // per capture. Invisible for one-shot screenshots; at the server's
+        // per-frame capture rate it exhausted system RAM (~1.3 GB/s observed).
+        [dst release];
         // BGRA8 → RGBA8 so the sink's contract is uniform across backends.
         std::vector<std::uint8_t> rgba(bgra.size());
         for (std::size_t i = 0, n = static_cast<std::size_t>(w) * h; i < n; ++i) {

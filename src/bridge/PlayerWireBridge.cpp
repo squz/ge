@@ -9,6 +9,7 @@
 
 #include <cstring>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace ge {
@@ -231,8 +232,7 @@ bool PlayerWireBridge::pump() {
 bool PlayerWireBridge::pollFrame(DecodedFrame& out) {
     std::lock_guard<std::mutex> lock(i_->frameMutex);
     if (!i_->pendingReady) return false;
-    out = std::move(i_->pending);
-    i_->pending = {};
+    std::swap(out, i_->pending);
     i_->pendingReady = false;
     return true;
 }
