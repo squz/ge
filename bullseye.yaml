@@ -1668,6 +1668,44 @@ targets:
     - render-loop
     origin: manual
     discovered: 2026-07-04
+  T147:
+    name: ge's iOS project generator defines NDEBUG for the Release configuration
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'ge/tools/ios-build/build_project.rb splits GCC_PREPROCESSOR_DEFINITIONS per-config: Release includes NDEBUG=1, Debug includes DEBUG=1 (or equivalent)'
+    - 'An xcodebuild Release archive with no manual overrides compiles out all #ifndef NDEBUG code — a `strings` scan of the device binary shows zero dev-overlay/wrench/FPS/telemetry markers'
+    - Consumers no longer need to pass GCC_PREPROCESSOR_DEFINITIONS='$(inherited) NDEBUG=1' by hand to ship a clean release build
+    context: 'Regression vs the retired CMake iOS build, which auto-defined NDEBUG for Release. build_project.rb''s add_build_configurations! applies one common_settings hash (incl. GCC_PREPROCESSOR_DEFINITIONS) to ALL configurations, so NDEBUG is never set for Release. Consequence in multimaze2: the dev console/wrench, FPS overlay, and geometry telemetry compiled into the shipped App Store build 122 (v3.0.0). Stopgap: pass NDEBUG=1 as an xcodebuild archive override. Surfaced during the multimaze2 3.0/3.1 iOS ship.'
+    tags:
+    - ios
+    - build
+    - build_project.rb
+    - ndebug
+    - release-config
+    - multimaze-audit
+    origin: manual
+    discovered: 2026-07-07
+  T148:
+    name: ge's app-icon generator emits an opaque (alpha-free) iOS App Store marketing icon
+    status: set_aside
+    value: 0.0
+    cost: 0.0
+    set_aside_reason: Duplicate of 🎯T138 (achieved 2026-07-01, shipped v0.71.0). ge-icon-gen already writes the 1024×1024 iOS marketing icon as opaque RGB (flattenToRgb + writePngRgb); Android keeps alpha. Acceptance of T148 is identical to T138 — filed 2026-07-07 without noticing T138 already covered it.
+    acceptance:
+    - 'ge-icon-gen writes the 1024×1024 iOS marketing icon (Assets.xcassets AppIcon) with no alpha channel — `file`/`sips` reports RGB (hasAlpha: no)'
+    - 'The compiled AppIcon rendition reports Opaque: True'
+    - A Transporter/App Store upload passes marketing-icon validation without the 409 'Invalid large app icon … can't be transparent or contain an alpha channel' error, with no manual `magick -alpha remove` step
+    context: 'ge-icon-gen emits premultiplied RGBA, so the 1024² icon.png was full-bleed opaque but still carried an alpha channel. Apple''s marketing-icon check rejects any alpha channel, so Transporter rejected multimaze2 build 122 (v3.0.0). Stopgap in the consumer: `magick icon.png -background black -alpha remove -alpha off icon.png`. Surfaced during the multimaze2 3.0 iOS ship.'
+    tags:
+    - ios
+    - app-icons
+    - icon-gen
+    - app-store
+    - multimaze-audit
+    origin: manual
+    discovered: 2026-07-07
   T15:
     name: Player binary restructured around named PlayerWireBridge + PlayerRender classes
     status: achieved
