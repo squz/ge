@@ -13,3 +13,7 @@ homebrew_tap: disabled
 profile: game
 
 @AGENTS.md
+
+## Plateau
+
+**Plateau P (2026-07-11):** spyder is the sole dev control plane; `ged` is removed (🎯T145). Primary modality is direct `ge::run` + app-channel. Optional server-mode streams through spyder. See `AGENTS.md` § Architecture.

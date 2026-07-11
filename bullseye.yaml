@@ -3290,9 +3290,10 @@ targets:
     achieved: 2026-05-24
   T64:
     name: Unified studio-wide deployment architecture across squz + minicadesmobile
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: studio-wide deploy architecture; portfolio work after multimaze ship.'
     acceptance:
     - Either engineer can ship any squz or minicadesmobile game by typing one command (/ge:ship or make ship-release VERSION=x)
     - Match-managed signing works from both laptops and CI for both portfolios via a single shared certs repo

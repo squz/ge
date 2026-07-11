@@ -55,19 +55,19 @@ If unsure, ask before creating: see `CLAUDE.md` §"When to change what" for the 
   Concrete implementations: `DirectRenderHost` (direct mode) and `ServerWireBridge` (brokered mode).
 - **`PlayerWireBridge`** — player-side counterpart of `ServerWireBridge`. Wraps a `DirectRenderHost`,
   intercepts events for wire transmission, and feeds decoded frames as textures.
-- **`SessionHost`** / `ge::run()` — server-side lifecycle: sokol_gfx init (via `SokolContext`), ged sideband connection,
-  per-session factory invocation, frame loop, graceful shutdown.
+- **`SessionHost`** / `ge::run()` — app lifecycle: sokol_gfx init (via `SokolContext`), direct host or
+  optional server-mode stream via spyder relay, frame loop, graceful shutdown.
 
 ### sokol_gfx backends (🎯T38 / 🎯T107)
 
 - **Apple (macOS, iOS)**: Metal via `CAMetalLayer` (`SokolContext.mm`).
 - **Android**: Vulkan with GLES3 fallback — runtime-selected per device by `SokolContext_android.cpp`. See the "Android renderer backend: Vulkan with GLES fallback (🎯T107)" section in CLAUDE.md for the full dispatch-shim architecture.
 
-### ged daemon
+### spyder (dev control plane)
 
-Broker between servers and players. Manages WebSocket routing, QR codes, session assignment, server
-supersede (SIGINT to old server on name collision), and the React dashboard. Exposes an MCP server
-at `/mcp` (streamable HTTP). Launch with `bin/ged`; use `-no-open` to suppress browser auto-open.
+**Not part of this repo.** [spyder](https://github.com/marcelocantos/spyder) owns device inventory,
+launch, reservations, app-channel inspect/tweak/logs, dashboard, and the optional H.264 stream relay.
+The historical `ged` daemon was removed (🎯T145). Do not look for `make ged` / `bin/ged`.
 
 ## Build and run
 
@@ -75,16 +75,17 @@ All recipes assume the consuming app's Makefile includes `ge/Module.mk` and the 
 present. For `sample/tiltbuggy/`, run all commands from that directory.
 
 ```bash
-# Engine and app
+# Control plane (once per machine)
+brew services start spyder   # or: spyder serve
+
+# Engine and app — direct modality
 make                        # build app binary
 make run                    # build + run desktop direct mode
-make ge/player              # build desktop player binary (bin/player)
-make ged && bin/ged         # build + start the daemon
 
-# Brokered mode (three terminals)
-bin/ged -no-open &          # terminal 1: daemon
-bin/<app>                   # terminal 2: game server
-bin/player                  # terminal 3: desktop player
+# Optional server-stream modality (server-mode build + spyder relay + native player)
+make ge/player              # build desktop player binary (bin/player)
+# launch server-mode app with stream host pointing at spyder; then:
+bin/player --host 127.0.0.1 --port 3030 --name <server-name>
 
 # iOS simulator
 make ge/ios-init APP_ID=com.example.myapp APP_NAME=MyApp IOS_DEVELOPMENT_TEAM=XXXXXX
@@ -97,10 +98,6 @@ make ge/android-init APP_ID=com.example.myapp APP_NAME=MyApp
 make ge/android             # builds android/app/build/.../app-debug.apk
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.example.myapp/.MainActivity
-
-# (The brokered ge player iOS/Android make targets were retired in
-#  🎯T73.3; the player is dormant pending 🎯T34's rewrite of it as a
-#  regular ge app.)
 
 # Tests
 make unit-test              # ge unit tests (doctest)
@@ -628,8 +625,8 @@ go there.
 - **`make -j` is not set in parent Makefiles.** Projects that need parallel builds set `MAKEFLAGS`
   in their own Makefile. Never pass `-j` on the command line.
 
-- **`bin/ged -no-open`** prevents the dashboard from opening in the browser on first server connect.
-  Always use this flag in automated/CI contexts.
+- **Use spyder, not ged.** The historical `ged` daemon and `-no-open` dashboard flag are gone.
+  Start `spyder serve` (or `brew services start spyder`) for the control plane / stream relay.
 
 - **SQLite3 is compiled into `libge.a`.** It comes from `vendor/src/sqlite3.c`. Never add `-lsqlite3`
   to link lines — it's already included and double-linking produces duplicate-symbol errors.

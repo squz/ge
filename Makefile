@@ -19,7 +19,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
-.PHONY: all check matrix-test check-list unit-test init clean ged run bullseye ruby-test \
+.PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
         python-test dispatch-null-safety-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
@@ -34,7 +34,7 @@ init:
 	$(MAKE) -C $(SAMPLE) ge/init
 	$(MAKE) -C $(SAMPLE) init 2>/dev/null || true
 
-# ged and other `ge/*` engine targets can be invoked directly from here
+# `ge/*` engine targets can be invoked directly from here
 # via the sample's Module.mk. Forward anything starting with `ge/`.
 ge/%:
 	$(MAKE) -C $(SAMPLE) $@
