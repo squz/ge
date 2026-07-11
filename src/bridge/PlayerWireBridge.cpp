@@ -81,9 +81,22 @@ inline uint8_t clampByte(int v) {
     return uint8_t(v < 0 ? 0 : (v > 255 ? 255 : v));
 }
 
-// Blit a decoded tile into a dense BGRA mosaic. Desktop VT delivers BGRA;
-// Android FFmpeg delivers IYUV (planar YUV420) — both must compose.
-// Returns false if the frame format is unsupported.
+// BT.601 limited-range YUV → BGRA for one pixel.
+inline void yuvToBgra(int Y, int U, int V, uint8_t* dst) {
+    const int C = Y - 16;
+    const int D = U - 128;
+    const int E = V - 128;
+    const int R = (298 * C + 409 * E + 128) >> 8;
+    const int G = (298 * C - 100 * D - 208 * E + 128) >> 8;
+    const int B = (298 * C + 516 * D + 128) >> 8;
+    dst[0] = clampByte(B);
+    dst[1] = clampByte(G);
+    dst[2] = clampByte(R);
+    dst[3] = 255;
+}
+
+// Blit a decoded tile into a dense BGRA mosaic.
+// Desktop VT → BGRA; Android MediaCodec → NV12 (HW); FFmpeg fallback → IYUV.
 bool blitTileToMosaic(uint8_t* mosaic, int frameW, int frameH,
                       int x0, int y0, int copyW, int copyH,
                       const VideoFrame& f) {
@@ -103,10 +116,27 @@ bool blitTileToMosaic(uint8_t* mosaic, int frameW, int frameH,
         return true;
     }
 
+    if (f.format == VideoFrame::Format::NV12) {
+        // Y plane + interleaved UV (VU order is NV21; NV12 is UV).
+        if (!f.planes[1]) return false;
+        const int yStride = f.strides[0];
+        const int uvStride = f.strides[1] > 0 ? f.strides[1] : yStride;
+        if (yStride < copyW || uvStride < copyW) return false;
+        for (int y = 0; y < copyH; ++y) {
+            const uint8_t* yRow = f.planes[0] + size_t(y) * yStride;
+            const uint8_t* uvRow =
+                f.planes[1] + size_t(y / 2) * uvStride;
+            uint8_t* dst =
+                mosaic + (size_t(y0 + y) * frameW + size_t(x0)) * 4;
+            for (int x = 0; x < copyW; ++x) {
+                const int uv = (x & ~1);
+                yuvToBgra(yRow[x], uvRow[uv], uvRow[uv + 1], dst + x * 4);
+            }
+        }
+        return true;
+    }
+
     if (f.format == VideoFrame::Format::IYUV) {
-        // Planar YUV 4:2:0 → BGRA (BT.601 limited range). Matches what
-        // VideoDecoder_ffmpeg delivers; mosaic stays BGRA so desktop VT
-        // and Android FFmpeg share one compose path.
         if (!f.planes[1] || !f.planes[2]) return false;
         const int yStride = f.strides[0];
         const int uStride = f.strides[1];
@@ -121,16 +151,7 @@ bool blitTileToMosaic(uint8_t* mosaic, int frameW, int frameH,
             uint8_t* dst =
                 mosaic + (size_t(y0 + y) * frameW + size_t(x0)) * 4;
             for (int x = 0; x < copyW; ++x) {
-                const int C = int(yRow[x]) - 16;
-                const int U = int(uRow[x / 2]) - 128;
-                const int V = int(vRow[x / 2]) - 128;
-                const int R = (298 * C + 409 * V + 128) >> 8;
-                const int G = (298 * C - 100 * U - 208 * V + 128) >> 8;
-                const int B = (298 * C + 516 * U + 128) >> 8;
-                dst[x * 4 + 0] = clampByte(B);
-                dst[x * 4 + 1] = clampByte(G);
-                dst[x * 4 + 2] = clampByte(R);
-                dst[x * 4 + 3] = 255;
+                yuvToBgra(yRow[x], uRow[x / 2], vRow[x / 2], dst + x * 4);
             }
         }
         return true;
@@ -303,7 +324,7 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
                         logged = true;
                         SPDLOG_ERROR(
                             "PlayerWireBridge: tiled blit rejected format "
-                            "(need BGRA or IYUV), fmt={}",
+                            "(need BGRA/NV12/IYUV), fmt={}",
                             int(f.format));
                     }
                     return;
@@ -425,29 +446,31 @@ void PlayerWireBridge::sendEvent(const SDL_Event& e) {
 bool PlayerWireBridge::pump() {
     if (!i_->conn) return false;
     i_->stats = {};
-    // Cap decode work so the present loop keeps up. The server can push
-    // hundreds of tile msgs/s; Android FFmpeg is sync and each tile is
-    // expensive — draining until the socket is empty never returns to
-    // pollFrame/render (black screen). ~3 full 4×3 mosaics per tick.
-    constexpr int kMaxVideoMsgsPerPump = 36;
-    int videoMsgs = 0;
-    while (i_->conn->isOpen() && i_->conn->available() > 0) {
+    // Drop-to-latest: drain the socket (bounded), keep only the newest N
+    // video messages, then decode those. Decoding oldest-first while the
+    // server is ahead permanently lags (Android FFmpeg is sync and ~ms/tile).
+    // ~2 full mosaics of a 2×2 grid (or ~1 of a 4×3) per present tick.
+    constexpr int kMaxVideoDecodePerPump = 24;
+    constexpr int kMaxDrainPerPump = 256;
+    std::vector<std::vector<char>> videoBatch;
+    videoBatch.reserve(static_cast<size_t>(kMaxVideoDecodePerPump));
+    int drained = 0;
+    int dropped = 0;
+    while (i_->conn->isOpen() && i_->conn->available() > 0 &&
+           drained < kMaxDrainPerPump) {
         std::vector<char> data;
         if (!i_->conn->recvBinary(data) || data.size() < 8) break;
+        ++drained;
 
         uint32_t magic = 0;
         std::memcpy(&magic, data.data(), 4);
         if (magic == wire::kVideoStreamMagic) {
-            detail::VideoStreamPayload pl;
-            if (!detail::decodeVideoStreamMessage(data, pl))
-                continue;
-            if (pl.tiled)
-                i_->handleTiledVideo(pl);
-            else
-                i_->handleLegacyVideo(pl);
-            i_->stats.framesThisTick++;
-            i_->stats.lastSeq = pl.seq;
-            if (++videoMsgs >= kMaxVideoMsgsPerPump) break;
+            if (static_cast<int>(videoBatch.size()) >= kMaxVideoDecodePerPump) {
+                // Drop oldest so the batch is always the newest msgs.
+                videoBatch.erase(videoBatch.begin());
+                ++dropped;
+            }
+            videoBatch.push_back(std::move(data));
         } else if (magic == wire::kStreamSessionIdMagic) {
             const auto* hdr =
                 reinterpret_cast<const wire::MessageHeader*>(data.data());
@@ -462,6 +485,27 @@ bool PlayerWireBridge::pump() {
             SPDLOG_INFO("PlayerWireBridge: session ended");
         }
     }
+
+    for (auto& data : videoBatch) {
+        detail::VideoStreamPayload pl;
+        if (!detail::decodeVideoStreamMessage(data, pl)) continue;
+        if (pl.tiled)
+            i_->handleTiledVideo(pl);
+        else
+            i_->handleLegacyVideo(pl);
+        i_->stats.framesThisTick++;
+        i_->stats.lastSeq = pl.seq;
+    }
+    if (dropped > 0) {
+        static int dropLog = 0;
+        if (dropLog++ < 8) {
+            SPDLOG_INFO(
+                "PlayerWireBridge: drop-to-latest discarded {} older video msgs "
+                "(decoded {})",
+                dropped, int(videoBatch.size()));
+        }
+    }
+
     // One mosaic snapshot per pump — tiles already blitted above (or on VT
     // decode threads). Sync FFmpeg path never returns to the game loop if we
     // memcpy the full frame on every tile.

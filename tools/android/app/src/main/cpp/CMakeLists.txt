@@ -19,13 +19,8 @@ add_subdirectory(
     ${CMAKE_CURRENT_BINARY_DIR}/SDL3
 )
 
-# FFmpeg (prebuilt, H.264 decode only)
-set(FFMPEG_DIR ${GE_ROOT}/vendor/ffmpeg)
-
-# Sources — Android entry point + shared H.264 player core + FFmpeg decoder.
-# Keep this lean: full libge (Resource/sokol/sqlite/…) is not required for the
-# brokered player path and would pull in sokol_gfx headers the NDK build does
-# not need.
+# Sources — Android entry point + shared H.264 player core + MediaCodec
+# hardware decoder (not FFmpeg). Keep this lean: full libge is not required.
 add_library(main SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/QRScanner_android.cpp
@@ -34,7 +29,7 @@ add_library(main SHARED
     ${GE_ROOT}/tools/player_orientation_android.cpp
     ${GE_ROOT}/src/bridge/PlayerWireBridge.cpp
     ${GE_ROOT}/src/bridge/WebSocketClient.cpp
-    ${GE_ROOT}/src/bridge/VideoDecoder_ffmpeg.cpp
+    ${GE_ROOT}/src/bridge/VideoDecoder_android.cpp
     ${GE_ROOT}/src/render/PlayerRender.cpp
     ${GE_ROOT}/src/Signal.cpp
 )
@@ -51,17 +46,12 @@ target_include_directories(main PRIVATE
     ${GE_ROOT}/vendor/github.com/chriskohlhoff/asio/include
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL/include
     ${GE_ROOT}/tools
-    ${FFMPEG_DIR}/include
-    ${GE_ROOT}/vendor/github.com/FFmpeg/FFmpeg
 )
 
-# FFmpeg static libs + SDL3 + Android system libs
-# (libswscale is no longer needed: VideoDecoder_ffmpeg.cpp delivers IYUV
-# directly to the renderer, which handles YUV→RGB on the GPU via SDL.)
+# MediaCodec (HW) + SDL3 + Android system libs. No FFmpeg.
 target_link_libraries(main PRIVATE
-    ${FFMPEG_DIR}/lib/android-arm64/libavcodec.a
-    ${FFMPEG_DIR}/lib/android-arm64/libavutil.a
     SDL3::SDL3
+    mediandk
     android
     log
     z

@@ -83,12 +83,14 @@ public:
         int width = 0;
         int height = 0;
         int fps = 60;
-        // Prefer large tiles: 48× sequential VT encodes kills full-frame FPS.
-        // 512 on 2048×1536 → 4×3 = 12 sessions (see maxTiles).
-        int preferredTileEdge = 512;
+        // Prefer large tiles: Android software decode cost scales with tile
+        // count (FFmpeg per tile). 1024 on 2048×1536 → padded 2×2 = 4 sessions
+        // (exact 512 divisors give 4×3=12 — too many for mobile).
+        int preferredTileEdge = 1024;
         int mtuBudget = 16 * 1024;    // soft hint only (wire::kVideoTileMtuBudget)
-        int totalAverageBitRate = 8'000'000;  // softer than legacy 16 Mbps
-        int maxTiles = 16;            // cap sessions — grow edge if needed
+        // ~CRF-36 class on game content (was 16 Mbps full-frame / 8 Mbps tiled).
+        int totalAverageBitRate = 4'000'000;
+        int maxTiles = 4;             // cap sessions — grow edge if needed
         int encodeParallelism = 0;    // 0 → min(n, hardware_concurrency)
     };
 

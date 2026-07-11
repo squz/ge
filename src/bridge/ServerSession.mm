@@ -78,6 +78,7 @@ struct PlayerSlot {
     std::unique_ptr<TiledVideoEncoder> tiledEncoder;
     bool useTiles = true;
     int encW = 0, encH = 0;
+    int tileCount = 1;  // grid size for stats (1 = legacy full-frame)
     std::atomic<uint32_t> seq{0};
 
     std::thread inputThread;
@@ -184,9 +185,18 @@ void ServerSession::Impl::publishEncodeStats(PlayerSlot& slot,
                                              double windowSec,
                                              const char* reason) {
     if (snap.frames == 0 || windowSec <= 0) return;
-    const double fps = snap.frames / windowSec;
+    // `fps` here is *tile/AU* rate (or full frames if untiled). Full-frame
+    // rate for compression math is tile-rate / tileCount.
+    const double auFps = snap.frames / windowSec;
+    const int tiles = std::max(1, slot.tileCount);
+    const double fullFps = auFps / double(tiles);
     const double bps =
         double(snap.keyBytes + snap.pBytes) * 8.0 / windowSec;
+    // Uncompressed RGBA bit-rate at the full-frame cadence.
+    const double rawBps =
+        double(slot.encW) * double(slot.encH) * 32.0 * fullFps;
+    const double comp =
+        (bps > 1.0 && rawBps > 0.0) ? (rawBps / bps) : 0.0;
     const double avgKey =
         snap.keyframes ? double(snap.keyBytes) / snap.keyframes : 0;
     const double avgP =
@@ -197,8 +207,12 @@ void ServerSession::Impl::publishEncodeStats(PlayerSlot& slot,
         {"sid", slot.id},
         {"w", slot.encW},
         {"h", slot.encH},
-        {"fps", fps},
+        {"fps", fullFps},
+        {"au_fps", auFps},
+        {"tiles", tiles},
         {"bps", bps},
+        {"raw_bps", rawBps},
+        {"comp", comp},
         {"n", snap.frames},
         {"nk", snap.keyframes},
         {"np", snap.pframes},
@@ -213,14 +227,17 @@ void ServerSession::Impl::publishEncodeStats(PlayerSlot& slot,
         std::lock_guard lock(slot.statsMu);
         slot.lastStreamStats = j;
     }
-    ge::appchannel::perfEmit("stream_fps", fps);
+    ge::appchannel::perfEmit("stream_fps", fullFps);
     ge::appchannel::perfEmit("stream_bps", bps);
+    ge::appchannel::perfEmit("stream_comp", comp);
     ge::appchannel::push("stream_stats", j);
     SPDLOG_INFO(
-        "StreamStats name={} sid={} encode={}x{} fps={:.1f} bps={:.0f} "
+        "StreamStats name={} sid={} encode={}x{} full_fps={:.1f} tiles={} "
+        "bps={:.0f} raw_bps={:.0f} comp={:.0f}x "
         "n={} nk={} np={} ak={:.0f} mk={} ap={:.0f} mp={}",
-        name, slot.id, slot.encW, slot.encH, fps, bps, snap.frames,
-        snap.keyframes, snap.pframes, avgKey, snap.maxKey, avgP, snap.maxP);
+        name, slot.id, slot.encW, slot.encH, fullFps, tiles, bps, rawBps,
+        comp, snap.frames, snap.keyframes, snap.pframes, avgKey, snap.maxKey,
+        avgP, snap.maxP);
 }
 
 void ServerSession::Impl::onEncoded(PlayerSlot& slot, VideoEncoder::Frame f) {
@@ -299,6 +316,10 @@ void ServerSession::Impl::encodeFrame(PlayerSlot& slot, const uint8_t* px,
                 int v = std::atoi(e);
                 if (v >= 16) tc.preferredTileEdge = v;
             }
+            if (const char* e = std::getenv("GE_STREAM_MAX_TILES")) {
+                int v = std::atoi(e);
+                if (v >= 1) tc.maxTiles = v;
+            }
             if (const char* e = std::getenv("GE_STREAM_BPS")) {
                 int v = std::atoi(e);
                 if (v > 0) tc.totalAverageBitRate = v;
@@ -308,15 +329,28 @@ void ServerSession::Impl::encodeFrame(PlayerSlot& slot, const uint8_t* px,
                 tc, [this, self](TiledVideoEncoder::TileFrame t) {
                     onTiled(*self, t);
                 });
+            slot.tileCount = std::max(
+                1, slot.tiledEncoder->cols() * slot.tiledEncoder->rows());
         }
         slot.tiledEncoder->encode(px, static_cast<size_t>(w) * 4);
         return;
     }
 
     if (!slot.encoder) {
+        slot.tileCount = 1;
         PlayerSlot* self = &slot;
+        VideoEncoder::Config ec;
+        ec.width = w;
+        ec.height = h;
+        ec.fps = 60;
+        // Match tiled total budget when untiled (legacy path was 16 Mbps).
+        ec.averageBitRate = 4'000'000;
+        if (const char* e = std::getenv("GE_STREAM_BPS")) {
+            int v = std::atoi(e);
+            if (v > 0) ec.averageBitRate = v;
+        }
         slot.encoder = std::make_unique<VideoEncoder>(
-            w, h, 60, [this, self](VideoEncoder::Frame f) {
+            ec, [this, self](VideoEncoder::Frame f) {
                 onEncoded(*self, f);
             });
     }
