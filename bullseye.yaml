@@ -442,9 +442,10 @@ targets:
     discovered: 2026-04-12
   T110:
     name: ge has an IDE-free iOS development build + deploy path (per-developer signing, headless device registration)
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 3.0
     acceptance:
     - build_project.rb supports a :development signing mode (CODE_SIGN_STYLE=Automatic + Apple Development, no match profile) selectable via GE_IOS_SIGNING=development; the default stays :appstore so the release/match path is unchanged.
     - '`make ge/ios-device` builds a Debug, development-signed .app and pairs it with `xcodebuild -allowProvisioningUpdates`, so each developer signs with their own cert (no match, no shared secret) and installs on the team''s registered devices.'
@@ -460,6 +461,7 @@ targets:
     - dev-workflow
     origin: manual
     discovered: 2026-06-07
+    achieved: 2026-07-11
   T111:
     name: expose-frame-perf-metrics-via-callback
     status: achieved

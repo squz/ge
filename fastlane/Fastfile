@@ -67,6 +67,53 @@ platform :ios do
     )
   end
 
+  # ── 🎯T110 headless device enrollment ─────────────────────────────────
+  # Registers hardware UDIDs with the Apple Developer Portal so Automatic
+  # development signing can include them without an Xcode GUI "Run".
+  # Prefer `make ge/ios-register-devices` (auto-discovers connected devices).
+  # Pass devices_file: (UDID\\tName per line) or devices: {"Name"=>"UDID"}.
+  desc "Register physical iOS devices with the Developer Portal (ASC API key)."
+  desc "Idempotent add-only. 🎯T110 — the open piece that closes IDE-free onboarding."
+  lane :register_dev_devices do |opts|
+    devices      = opts[:devices]
+    devices_file = opts[:devices_file] || ENV["FL_REGISTER_DEVICES_FILE"]
+
+    # Prefer the devices: hash form — devices_file parsing is picky about the
+    # Apple sample UDID layout. When only a file is supplied, parse
+    # "UDID\\tName" lines (optional "Device ID\\tDevice Name" header) into a hash.
+    if devices.nil? && devices_file && !devices_file.to_s.empty?
+      path = File.expand_path(devices_file.to_s)
+      UI.user_error!("devices_file not found: #{path}") unless File.file?(path)
+      devices = {}
+      File.readlines(path, chomp: true).each do |line|
+        next if line.strip.empty?
+        next if line.start_with?("Device ID")
+        # Accept TAB or multiple spaces as separator.
+        udid, name = line.split(/\t+|\s{2,}/, 2)
+        next if udid.nil? || udid.strip.empty?
+        udid = udid.strip
+        name = (name || udid).strip
+        # Name must be unique in the hash; disambiguate collisions.
+        if devices.key?(name)
+          name = "#{name} (#{udid[-4..]})"
+        end
+        devices[name] = udid
+      end
+      UI.user_error!("devices_file produced an empty device list: #{path}") if devices.empty?
+      UI.message("Parsed #{devices.size} device(s) from #{path}")
+    end
+
+    if devices.nil? || devices.empty?
+      UI.user_error!("register_dev_devices needs devices: or devices_file: (or make ge/ios-register-devices)")
+    end
+
+    team = opts[:team_id] || ENV["REGISTER_DEVICES_TEAM_ID"] || ENV["APPLE_TEAM_ID"]
+    args = { devices: devices, api_key: asc_api_key }
+    args[:team_id] = team if team && !team.to_s.empty?
+    register_devices(args)
+    UI.success("Devices registered (or already present) on the Developer Portal")
+  end
+
   # ── 🎯T64.2 ship lanes ──────────────────────────────────────────────────
 
   desc "Build the IPA via gym, using the resolved match certs."
