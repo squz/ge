@@ -88,7 +88,12 @@ void VideoDecoder::M::outputCallback(void* decompressionOutputRefCon,
                                       CMTime /*presentationTimeStamp*/,
                                       CMTime /*presentationDuration*/) {
     if (status != noErr) {
-        SPDLOG_ERROR("VideoDecoder callback error: {}", static_cast<int>(status));
+        // Rate-limit: multi-tile path can spam this under transient bad AUs.
+        static thread_local int errBudget = 0;
+        if (errBudget++ < 8 || (errBudget % 200) == 0) {
+            SPDLOG_ERROR("VideoDecoder callback error: {} (n={})",
+                         static_cast<int>(status), errBudget);
+        }
         return;
     }
     if (!imageBuffer) return;
@@ -157,41 +162,51 @@ void VideoDecoder::setParameterSets(const uint8_t* sps, size_t spsSize,
 }
 
 void VideoDecoder::decode(const uint8_t* nalData, size_t nalSize) {
-    if (!m->session || !m->formatDesc) return;
+    if (!m->session || !m->formatDesc || !nalData || nalSize == 0) return;
 
-    // Input is Annex B format (0x00000001 start code + NAL).
-    // VideoToolbox expects AVCC format (4-byte big-endian length + NAL).
-    // Strip the start code and prepend the length.
+    // Input is Annex B (start-code delimited NAL units, one or more). Convert
+    // the full access unit to AVCC (repeated 4-byte length + NAL body) so
+    // multi-slice IDRs land in a single CMSampleBuffer.
+    std::vector<uint8_t> avccData;
+    avccData.reserve(nalSize + 8);
 
-    // Find the NAL body after the start code
-    const uint8_t* nalBody = nullptr;
-    size_t nalBodySize = 0;
+    auto emitNal = [&](const uint8_t* body, size_t bodySize) {
+        if (!body || bodySize == 0) return;
+        uint32_t nalLen = static_cast<uint32_t>(bodySize);
+        avccData.push_back(static_cast<uint8_t>((nalLen >> 24) & 0xFF));
+        avccData.push_back(static_cast<uint8_t>((nalLen >> 16) & 0xFF));
+        avccData.push_back(static_cast<uint8_t>((nalLen >> 8) & 0xFF));
+        avccData.push_back(static_cast<uint8_t>(nalLen & 0xFF));
+        avccData.insert(avccData.end(), body, body + bodySize);
+    };
 
-    if (nalSize >= 4 && nalData[0] == 0x00 && nalData[1] == 0x00 &&
-        nalData[2] == 0x00 && nalData[3] == 0x01) {
-        nalBody = nalData + 4;
-        nalBodySize = nalSize - 4;
-    } else if (nalSize >= 3 && nalData[0] == 0x00 && nalData[1] == 0x00 &&
-               nalData[2] == 0x01) {
-        nalBody = nalData + 3;
-        nalBodySize = nalSize - 3;
+    // Scan Annex-B start codes. Also accept a single raw NAL (no start code).
+    size_t i = 0;
+    auto isStart4 = [&](size_t p) {
+        return p + 3 < nalSize && nalData[p] == 0 && nalData[p + 1] == 0 &&
+               nalData[p + 2] == 0 && nalData[p + 3] == 1;
+    };
+    auto isStart3 = [&](size_t p) {
+        return p + 2 < nalSize && nalData[p] == 0 && nalData[p + 1] == 0 &&
+               nalData[p + 2] == 1;
+    };
+    if (!isStart4(0) && !isStart3(0)) {
+        emitNal(nalData, nalSize);
     } else {
-        // No start code — assume raw NAL body
-        nalBody = nalData;
-        nalBodySize = nalSize;
+        while (i < nalSize) {
+            size_t sc = 0;
+            if (isStart4(i)) sc = 4;
+            else if (isStart3(i)) sc = 3;
+            else { ++i; continue; }
+            size_t body = i + sc;
+            size_t next = body;
+            while (next < nalSize && !isStart4(next) && !isStart3(next)) ++next;
+            emitNal(nalData + body, next - body);
+            i = next;
+        }
     }
-
-    if (nalBodySize == 0) return;
-
-    // Build AVCC packet: 4-byte big-endian length + NAL body
-    size_t avccSize = 4 + nalBodySize;
-    std::vector<uint8_t> avccData(avccSize);
-    uint32_t nalLen = static_cast<uint32_t>(nalBodySize);
-    avccData[0] = static_cast<uint8_t>((nalLen >> 24) & 0xFF);
-    avccData[1] = static_cast<uint8_t>((nalLen >> 16) & 0xFF);
-    avccData[2] = static_cast<uint8_t>((nalLen >> 8) & 0xFF);
-    avccData[3] = static_cast<uint8_t>(nalLen & 0xFF);
-    std::memcpy(avccData.data() + 4, nalBody, nalBodySize);
+    if (avccData.empty()) return;
+    const size_t avccSize = avccData.size();
 
     // Create CMBlockBuffer from the AVCC data
     CMBlockBufferRef blockBuffer = nullptr;

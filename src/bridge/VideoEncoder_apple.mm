@@ -342,16 +342,38 @@ struct TiledVideoEncoder::M {
 
 void TiledVideoEncoder::M::rebuildGrid() {
     encoders.clear();
-    tileEdge = std::max(16, cfg.preferredTileEdge);
-    // Grow tile edge until session count is practical.
-    for (;;) {
-        cols = (cfg.width + tileEdge - 1) / tileEdge;
-        rows = (cfg.height + tileEdge - 1) / tileEdge;
-        if (cols * rows <= cfg.maxTiles || tileEdge >= 512) break;
-        tileEdge += 16;
+    // Prefer a tile edge that *divides both* width and height so every tile
+    // is the same size. Uneven edge tiles (e.g. 128×96) produce flaky VT
+    // encode/decode and leave permanent black regions on the player mosaic.
+    tileEdge = 0;
+    const int prefer = std::max(16, cfg.preferredTileEdge);
+    // Search descending from a generous cap so we keep tiles large when possible.
+    for (int e = 512; e >= 16; e -= 16) {
+        if (cfg.width % e != 0 || cfg.height % e != 0) continue;
+        const int c = cfg.width / e;
+        const int r = cfg.height / e;
+        if (c < 1 || r < 1 || c > 255 || r > 255) continue;
+        if (c * r > cfg.maxTiles) continue;
+        // Prefer edges near the configured preference; among equals, larger.
+        if (tileEdge == 0 ||
+            std::abs(e - prefer) < std::abs(tileEdge - prefer) ||
+            (std::abs(e - prefer) == std::abs(tileEdge - prefer) && e > tileEdge)) {
+            tileEdge = e;
+        }
     }
-    cols = std::max(1, cols);
-    rows = std::max(1, rows);
+    if (tileEdge == 0) {
+        // No exact divisor under maxTiles — grow from preferred until session
+        // count fits (edge tiles will be smaller; padded encode below).
+        tileEdge = prefer;
+        for (;;) {
+            cols = (cfg.width + tileEdge - 1) / tileEdge;
+            rows = (cfg.height + tileEdge - 1) / tileEdge;
+            if (cols * rows <= cfg.maxTiles || tileEdge >= 512) break;
+            tileEdge += 16;
+        }
+    }
+    cols = std::max(1, (cfg.width + tileEdge - 1) / tileEdge);
+    rows = std::max(1, (cfg.height + tileEdge - 1) / tileEdge);
     if (cols > 255) {
         tileEdge = (cfg.width + 254) / 255;
         cols = (cfg.width + tileEdge - 1) / tileEdge;
@@ -366,23 +388,23 @@ void TiledVideoEncoder::M::rebuildGrid() {
     baseBps = std::max(80'000, cfg.totalAverageBitRate / std::max(1, n));
     encoders.resize(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
-        const int col = i % cols;
-        const int row = i / cols;
-        const int x0 = col * tileEdge;
-        const int y0 = row * tileEdge;
-        const int tw = std::min(tileEdge, cfg.width - x0) & ~1;
-        const int th = std::min(tileEdge, cfg.height - y0) & ~1;
-        if (tw < 2 || th < 2) {
+        // Every session is full tileEdge×tileEdge. Content that doesn't fill
+        // the cell is black-padded so SPS/AU dimensions stay uniform.
+        const int ew = tileEdge & ~1;
+        const int eh = tileEdge & ~1;
+        if (ew < 2 || eh < 2) {
             encoders[static_cast<size_t>(i)].reset();
             continue;
         }
         VideoEncoder::Config ec;
-        ec.width = tw;
-        ec.height = th;
+        ec.width = ew;
+        ec.height = eh;
         ec.fps = cfg.fps;
         ec.averageBitRate = baseBps;
-        ec.maxKeyFrameInterval = cfg.fps;
-        // No async fan-out — encodeSync reads last AU.
+        // Every AU is an IDR for now: independent tiles cannot share refs, and
+        // a dropped first P leaves the tile black until the next key. All-intra
+        // is heavier but fills the mosaic reliably (MTU pass-2 still applies).
+        ec.maxKeyFrameInterval = 1;
         encoders[static_cast<size_t>(i)] =
             std::make_unique<VideoEncoder>(ec, VideoEncoder::FrameCallback{});
     }
@@ -435,17 +457,21 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
 
             const int x0 = col * m->tileEdge;
             const int y0 = row * m->tileEdge;
-            int tw = std::min(m->tileEdge, m->cfg.width - x0) & ~1;
-            int th = std::min(m->tileEdge, m->cfg.height - y0) & ~1;
-            if (tw < 2 || th < 2) continue;
+            const int cell = m->tileEdge & ~1;
+            if (cell < 2) continue;
+            // Visible content in this cell (may be < cell on non-divisor grids).
+            const int contentW = std::min(cell, m->cfg.width - x0);
+            const int contentH = std::min(cell, m->cfg.height - y0);
+            if (contentW < 1 || contentH < 1) continue;
 
-            m->tileRgba.resize(static_cast<size_t>(tw) * th * 4);
-            for (int y = 0; y < th; ++y) {
+            // Black-pad to a uniform cell×cell RGBA buffer for the VT session.
+            m->tileRgba.assign(static_cast<size_t>(cell) * cell * 4, 0);
+            for (int y = 0; y < contentH; ++y) {
                 const uint8_t* src =
                     rgbaPixels + static_cast<size_t>(y0 + y) * bytesPerRow +
                     static_cast<size_t>(x0) * 4;
-                uint8_t* dst = m->tileRgba.data() + static_cast<size_t>(y) * tw * 4;
-                std::memcpy(dst, src, static_cast<size_t>(tw) * 4);
+                uint8_t* dst = m->tileRgba.data() + static_cast<size_t>(y) * cell * 4;
+                std::memcpy(dst, src, static_cast<size_t>(contentW) * 4);
             }
 
             std::vector<uint8_t> au;
@@ -454,8 +480,9 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
             if (enc->averageBitRate() != m->baseBps)
                 enc->setAverageBitRate(m->baseBps);
 
+            enc->forceNextKeyframe();
             bool ok = enc->encodeSync(m->tileRgba.data(),
-                                      static_cast<size_t>(tw) * 4, au, isKey);
+                                      static_cast<size_t>(cell) * 4, au, isKey);
 
             // Pass-2: ratchet bitrate on the same session (no session thrash).
             int bps = m->baseBps;
@@ -465,7 +492,7 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
                 enc->setAverageBitRate(bps);
                 enc->forceNextKeyframe();
                 ok = enc->encodeSync(m->tileRgba.data(),
-                                     static_cast<size_t>(tw) * 4, au, isKey);
+                                     static_cast<size_t>(cell) * 4, au, isKey);
                 ++attempts;
             }
 

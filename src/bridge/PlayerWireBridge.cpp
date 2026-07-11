@@ -90,6 +90,8 @@ struct PlayerWireBridge::Impl {
     uint16_t frameW = 0, frameH = 0;
     uint16_t tileEdge = 0;
     std::vector<uint8_t> mosaic;  // BGRA frameW×frameH
+    // Protects mosaic + tile slot pixel blits (VT decode threads + pump).
+    std::mutex mosaicMu;
 
     std::mutex frameMutex;
     DecodedFrame pending;
@@ -143,7 +145,10 @@ void PlayerWireBridge::Impl::publishFullFrame(const VideoFrame& f) {
 }
 
 void PlayerWireBridge::Impl::publishMosaic() {
-    if (frameW == 0 || frameH == 0 || mosaic.empty()) return;
+    // Caller must hold mosaicMu for a coherent snapshot, or we take both locks.
+    if (frameW == 0 || frameH == 0) return;
+    std::lock_guard<std::mutex> mlock(mosaicMu);
+    if (mosaic.empty()) return;
     std::lock_guard<std::mutex> lock(frameMutex);
     pending.format = VideoFrame::Format::BGRA;
     pending.width = frameW;
@@ -172,14 +177,15 @@ void PlayerWireBridge::Impl::handleLegacyVideo(const detail::VideoStreamPayload&
     }
     if (!decoder) return;
     static const uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
+    std::vector<uint8_t> annexB;
+    annexB.reserve(pl.avccSize + 16);
     for (auto& [nalBody, nalSize] : frameNals) {
         uint8_t nalType = nalBody[0] & 0x1F;
         if (nalType != 1 && nalType != 5) continue;
-        std::vector<uint8_t> annexB(4 + nalSize);
-        std::memcpy(annexB.data(), startCode, 4);
-        std::memcpy(annexB.data() + 4, nalBody, nalSize);
-        decoder->decode(annexB.data(), annexB.size());
+        annexB.insert(annexB.end(), startCode, startCode + 4);
+        annexB.insert(annexB.end(), nalBody, nalBody + nalSize);
     }
+    if (!annexB.empty()) decoder->decode(annexB.data(), annexB.size());
 }
 
 void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& pl) {
@@ -187,6 +193,7 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
 
     if (pl.cols != cols || pl.rows != rows || pl.frameW != frameW ||
         pl.frameH != frameH || pl.tileEdge != tileEdge) {
+        std::lock_guard<std::mutex> mlock(mosaicMu);
         cols = pl.cols;
         rows = pl.rows;
         frameW = pl.frameW;
@@ -203,32 +210,41 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
         const uint16_t tid = pl.tileId;
         slot.decoder = std::make_unique<VideoDecoder>(
             [this, tid](const VideoFrame& f) {
+                if (f.format != VideoFrame::Format::BGRA || !f.planes[0]) return;
+                std::lock_guard<std::mutex> mlock(mosaicMu);
                 auto it = tiles.find(tid);
                 if (it == tiles.end()) return;
-                TileSlot& s = it->second;
-                if (f.format != VideoFrame::Format::BGRA || !f.planes[0]) return;
-                s.w = f.width;
-                s.h = f.height;
-                s.stride = f.strides[0];
-                s.bgra.assign(f.planes[0],
-                              f.planes[0] + size_t(f.strides[0]) * f.height);
+                if (frameW == 0 || tileEdge == 0 || cols == 0) return;
 
-                // Blit into mosaic using server tile_edge origins.
-                if (frameW == 0 || tileEdge == 0) return;
+                // Blit only the content rect (cell may be padded on the encode side).
                 const int col = int(tid) % int(cols);
                 const int row = int(tid) / int(cols);
                 const int x0 = col * int(tileEdge);
                 const int y0 = row * int(tileEdge);
-                const int copyW = std::min(s.w, int(frameW) - x0);
-                const int copyH = std::min(s.h, int(frameH) - y0);
+                const int copyW = std::min({f.width, int(tileEdge), int(frameW) - x0});
+                const int copyH = std::min({f.height, int(tileEdge), int(frameH) - y0});
                 if (copyW <= 0 || copyH <= 0) return;
+                // Dense copy: use min(stride, width*4) source pitch.
+                const int srcStride = f.strides[0];
                 for (int y = 0; y < copyH; ++y) {
-                    const uint8_t* src = s.bgra.data() + size_t(y) * s.stride;
+                    const uint8_t* src = f.planes[0] + size_t(y) * srcStride;
                     uint8_t* dst = mosaic.data() +
                                    (size_t(y0 + y) * frameW + size_t(x0)) * 4;
                     std::memcpy(dst, src, size_t(copyW) * 4);
                 }
-                publishMosaic();
+                // Publish under mosaicMu; publishMosaic re-takes mosaicMu — avoid
+                // deadlock by inlining a frameMutex publish here.
+                std::lock_guard<std::mutex> lock(frameMutex);
+                pending.format = VideoFrame::Format::BGRA;
+                pending.width = frameW;
+                pending.height = frameH;
+                pending.stride0 = int(frameW) * 4;
+                pending.stride1 = 0;
+                pending.stride2 = 0;
+                pending.plane0 = mosaic;
+                pending.plane1.clear();
+                pending.plane2.clear();
+                pendingReady = true;
             });
     }
 
@@ -239,15 +255,20 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
             slot.avcc.pps.data(), slot.avcc.pps.size());
         slot.avcc.paramsDirty = false;
     }
+    // Feed VCL NALs as a single Annex-B access unit (SPS/PPS already in the
+    // format description). Splitting into one DecodeFrame per NAL left VT
+    // returning -12909 on nearly every tile under the multi-session path.
     static const uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
+    std::vector<uint8_t> annexB;
+    annexB.reserve(pl.avccSize + 16);
     for (auto& [nalBody, nalSize] : frameNals) {
         uint8_t nalType = nalBody[0] & 0x1F;
         if (nalType != 1 && nalType != 5) continue;
-        std::vector<uint8_t> annexB(4 + nalSize);
-        std::memcpy(annexB.data(), startCode, 4);
-        std::memcpy(annexB.data() + 4, nalBody, nalSize);
-        slot.decoder->decode(annexB.data(), annexB.size());
+        annexB.insert(annexB.end(), startCode, startCode + 4);
+        annexB.insert(annexB.end(), nalBody, nalBody + nalSize);
     }
+    if (!annexB.empty() && slot.decoder)
+        slot.decoder->decode(annexB.data(), annexB.size());
 }
 
 PlayerWireBridge::PlayerWireBridge(Config config)
