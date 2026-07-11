@@ -363,6 +363,7 @@ targets:
     depends_on:
     - T11.1
     - T11.2
+    - T151
     tags:
     - pigeon
     - transport
@@ -1794,6 +1795,29 @@ targets:
     - letterbox
     - large-screen
     - parked-design
+    origin: manual
+    discovered: 2026-07-11
+  T151:
+    name: Dev H.264 stream uses MTU-capped independent tiles (VT) with CRF-36 quality bar
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - Server stream path (Apple VideoToolbox) encodes the framebuffer as a grid of independent tile AUs, not one full-frame AU, when tiled mode is enabled (default on for brokered stream).
+    - Every delivered GE2V video packet payload (tile AU after wire header) is ≤ 1000 bytes application budget; oversize tiles are re-encoded harder (pass-2) and if still over are blanked (not sent / empty region) — never torn NALs.
+    - 'Quality default is calibrated to the Jevons ladder sweet spot: lab CRF 36 look (32 = perfect, 40 = noticeable artifacts). Production uses VT bitrate/quality knobs, not libx264 CRF.'
+    - Tile edge is chosen so that under default compression, P99-class sizes fit the budget where practical; larger tiles when compression allows, smaller when not; session count is capped so VT remains practical.
+    - Wire GE2V carries tile metadata (frame_seq, tile_id, grid, frame size) so the player mosaics tiles; missing/blank tiles leave prior/empty regions without stalling the pipeline.
+    - Legacy untiled GE2V (full-frame) still decodes for rollback via GE_STREAM_TILES=0.
+    - Unit tests cover tiled wire decode; a documented offline ladder tool remains at tools/mtu-tile-encode for visual calibration.
+    context: 'Locked 2026-07-11 from Jevons screenshot MTU-tile ladder: CRF 36 sweet spot, 1000 B budget, pass-2 + blank. Enables pigeon datagram path (T11.3) without all-or-nothing 700KB keyframes. Lab used libx264 CRF; product is VideoToolbox with the same size policy and perceptual bar.'
+    tags:
+    - stream
+    - h264
+    - mtu
+    - tiles
+    - videotoolbox
+    - jitter
     origin: manual
     discovered: 2026-07-11
   T16:
