@@ -264,7 +264,7 @@ ge/TEST_SRC = \
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
-CLEAN = bin build $(ge)/ged/web
+CLEAN = bin build
 COMPILE_DB_DEPS = $(ge/SRC) $(ge/TEST_SRC) $(ge)/Module.mk $(APP_SRC) Makefile
 
 # ────────────────────────────────────────────────
@@ -650,29 +650,6 @@ ge/init:
 	@brew install compiledb
 	@$(MAKE) compile_commands.json
 	@echo "  compile_commands.json generated"
-
-# Dashboard web app (Vite + React)
-.PHONY: web
-web:
-	cd $(ge)/web && npm install && npm run build
-
-# Game Engine Daemon (Go binary with embedded web UI)
-.PHONY: ged
-ged: web
-	@if [ ! -d $(ge)/web/dist ]; then \
-		echo "ERROR: $(ge)/web/dist not found. Run 'make web' first."; exit 1; \
-	fi
-	@rm -rf $(ge)/ged/web/dist
-	@mkdir -p $(ge)/ged/web
-	@cp -R $(ge)/web/dist $(ge)/ged/web/dist
-	cd $(ge)/ged && go build -o $(CURDIR)/bin/ged .
-
-.PHONY: ged-test
-ged-test:
-	@if [ ! -d $(ge)/ged/web/dist ]; then \
-		mkdir -p $(ge)/ged/web/dist && touch $(ge)/ged/web/dist/index.html; \
-	fi
-	cd $(ge)/ged && go test ./...
 
 # ────────────────────────────────────────────────
 # Debug build

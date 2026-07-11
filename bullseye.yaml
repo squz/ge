@@ -14,9 +14,10 @@ schema_version: 5
 targets:
   T1:
     name: Game servers can run inside the player via WebAssembly
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 8.0
+    set_aside_reason: 'Plateau P: WASM-in-player is a product future, not the closed control-plane migration.'
     acceptance:
     - A ge game server (C++ app using the ge API) can be compiled to WebAssembly and loaded directly into the player process. In this mode, the server's Dawn wire commands are routed in-process rather than over TCP, eliminating network latency and the need for a separate server process in single-player scenarios.
     context: |-
@@ -59,9 +60,10 @@ targets:
     achieved: 2026-04-26
   T100:
     name: ge's incremental build recompiles every dependent object when a header changes
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: incremental build hygiene; post-P engineering quality, not product migration.'
     acceptance:
     - Editing a public header (e.g. include/ge/*.h) and re-running the build recompiles every .o whose translation unit includes that header — no stale-object 'symbol(s) not found' link errors
     - 'Verified by a regression check: change a signature in a header used by a test + the sample, rebuild WITHOUT make clean, and confirm both the test and sample relink against the new signature'
@@ -250,9 +252,10 @@ targets:
     achieved: 2026-06-21
   T109:
     name: ge's sokol dispatch shim supports interposable instrumentation layers (trace / time / validate / capture) without recompiling a backend
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: instrumentation layers optional; parked post-P.'
     acceptance:
     - A wrapper ge_sg_api can be installed over the active backend table (via ge_sokol_set_api) that intercepts any subset of the 150 sg_* calls and delegates the rest to the real backend, with no change to the backend .so or the consumer app.
     - 'At least one built-in layer ships and is demonstrated on a ge consumer (e.g. tiltbuggy): a call tracer that logs sg_* name + salient args, toggled by an env var (default off).'
@@ -271,9 +274,10 @@ targets:
     discovered: 2026-06-07
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
-    status: identified
+    status: set_aside
     value: 13.0
     cost: 20.0
+    set_aside_reason: 'Plateau P (2026-07-11): pigeon not ready for production cutover (see pigeon T53/T48/T50/T52). Streaming stays on WebSocket via spyder relay until pigeon is explicitly reopened.'
     acceptance:
     - The player connects to the game server via pigeon's relay (Register/Connect or LAN bypass) — not via a WebSocket through ged. Wire framing is pigeon's stream + datagram protocol; payloads are ciphertext at the relay layer. ged's role is reduced to (a) issuing PairingArtifacts via pigeon.PairingHost so newly-installed players can establish first-contact with a server, and (b) the dashboard. ged is no longer on the runtime data path between server and player.
     - All session traffic is end-to-end encrypted via pigeon's X25519 ECDH + AES-256-GCM channel. Neither ged nor the relay can read plaintext. The QR scan that today carries a server name + port now carries a pigeon PairingArtifact (base64url) — one-time-use, TTL-bound (default 30 days), persistable on the player so reconnects skip the ceremony.
@@ -295,9 +299,10 @@ targets:
     discovered: 2026-04-12
   T11.1:
     name: ge's wire protocol has a single source of truth — magic numbers and message structs are generated for Go (ged), C / C++ (engine + Apple .mm), Kotlin / Java (Android), and Swift (iOS) instead of hand-rolled in parallel
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 2.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - 'A single canonical declaration of ge''s wire protocol exists in the repo — file format and tool choice are open (candidates: protobuf with `protoc`, FlatBuffers with `flatc`, Cap''n Proto, a small bespoke YAML+templated generator, or a hand-written C/C++ header authored as the source of truth and exported to other languages by tooling). The declaration covers every message currently defined in include/ge/Protocol.h: DeviceInfo, SafeAreaUpdate, AspectLock, MessageHeader, plus the eleven magic-number constants (kVideoStreamMagic, kSdlEventMagic, kSessionEndMagic, kStreamStartMagic, kStreamStopMagic, kServerAssignedMagic, kSafeAreaMagic, kAspectLockMagic, kSqlpipeMsgMagic, kDeviceInfoMagic, kProtocolVersion).'
     - A make-rule (or equivalent) regenerates language bindings from the canonical source. ge's build wires it as a normal codegen step; CI fails if the generated outputs are out of sync with the source.
@@ -317,9 +322,10 @@ targets:
     discovered: 2026-04-12
   T11.2:
     name: First-contact between player and server uses pigeon's PairingArtifact (QR scan delivers the artifact; player persists it for reconnect)
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - ged's web dashboard mints a PairingArtifact via pigeon.PairingHost.Mint() for each newly-launched server (server-side PairingRecord stored in ged's state). The QR code displayed by the dashboard now encodes the artifact (base64url text, ~few hundred bytes), not a name+port pair.
     - Player on first launch scans the QR, parses the PairingArtifact, calls pigeon.ConnectWithArtifact(), and is now in an E2E-encrypted session with the server.
@@ -339,9 +345,10 @@ targets:
     discovered: 2026-04-12
   T11.3:
     name: 'Server↔player runtime traffic flows over pigeon channels: video on datagrams, input/control on reliable streams'
-    status: identified
+    status: set_aside
     value: 5.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - The H.264 NAL-unit stream from server to player rides on a pigeon DatagramChannel. Pigeon's automatic fragmentation handles NAL units larger than the QUIC datagram MTU; the 5-second incomplete-set discard window is acceptable because lost frames are recoverable via the next keyframe.
     - Input events (SdlEvent, SafeAreaUpdate) from player to server ride on a pigeon reliable StreamChannel. Loss of an input event is unacceptable; reliable framing matches.
@@ -362,9 +369,10 @@ targets:
     discovered: 2026-04-12
   T11.4:
     name: LAN-co-located peers bypass the relay via pigeon's LAN server; falls back automatically when the network changes
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - When player and server detect they're on the same Wi-Fi (or wired LAN), pigeon's LAN bypass kicks in via pigeon.Config.LANServer + LAN-IP discovery. Traffic goes peer-to-peer over QUIC, the relay sees only the initial introduction handshake.
     - 'Player surfaces the connection mode in its UI (or at least logs it): ''connected via LAN'' vs ''connected via relay''. Useful for debugging and for users to understand performance characteristics.'
@@ -383,9 +391,10 @@ targets:
     discovered: 2026-04-12
   T11.5:
     name: Mobile players (bgfx-direct iOS + Android distribution builds) speak pigeon natively via the C library, with no Go runtime
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - The bgfx-direct iOS and Android distribution players link pigeon's C library (dist/pigeon.h + dist/pigeon.c) plus libsodium and ngtcp2 (vendored as submodules under ge/vendor/github.com/<org>/, per CLAUDE.md). No Go runtime is shipped to the device.
     - 'The mobile player can connect to a server via a stored PairingArtifact and run a session end-to-end: receive video, send input, decode, render. Functional parity with the desktop player on the same server.'
@@ -408,9 +417,10 @@ targets:
     discovered: 2026-04-12
   T11.6:
     name: All WebSocket plumbing is removed from ge and ged once every consumer has cut over to pigeon
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 3.0
+    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - ge/src/bridge/WebSocketClient.cpp and the matching WebSocketClient.h are deleted. No remaining call sites in ge.
     - PlayerWireBridge.cpp's WebSocket-specific code paths are deleted (the class itself may still exist as a thin wrapper around pigeon, or be replaced entirely — author's discretion).
@@ -732,9 +742,10 @@ targets:
     discovered: 2026-06-21
   T121:
     name: Android template wires NDK compiles through ccache
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: ccache is build polish; post-P.'
     acceptance:
     - tools/android-template/app/build.gradle.in sets CMAKE_C_COMPILER_LAUNCHER and CMAKE_CXX_COMPILER_LAUNCHER to ccache when available (overridable, e.g. CCACHE=no), so newly-scaffolded consumer Android projects cache NDK compiles out of the box
     - A clean Android rebuild after a prior build registers ccache hits (verified via ccache -s delta against the Android target)
@@ -884,9 +895,10 @@ targets:
     achieved: 2026-06-28
   T127:
     name: make ge/player links successfully in a direct-only (GE_DIRECT_ONLY) consumer configuration
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: player link flag hygiene; post-P.'
     acceptance:
     - From a consumer that sets ge/SRC = ge/SRC_DIRECT (GE_DIRECT_ONLY), `make ge/player` builds bin/player with no undefined-symbol link errors.
     - PlayerRender (ge/src/render/PlayerRender.cpp) and PlayerWireBridge (ge/src/bridge/PlayerWireBridge.cpp) symbols resolve when linking the player tool — either by adding the brokered sources/objects to the player link line, or by including them in libge.a.
@@ -901,9 +913,10 @@ targets:
     discovered: 2026-06-28
   T128:
     name: 'ge streaming negotiates the most advanced mutually-supported protocol: H.264 video as the retained baseline, a command stream (draw calls) as the top rung'
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 20.0
+    set_aside_reason: 'Plateau P: H.264 via spyder is the closed stream story; command-stream ladder is a post-P optional spike. Design note T128.1 remains achieved history.'
     acceptance:
     - After a player connects, server and player FEATURE-DETECT the player's rendering capability; a SOKOL-CAPABLE player (native) may select the command-stream transport (serialized sokol commands + ge framing), while a non-sokol player (the browser) uses H.264. The player is sokol-AWARE, not sokol-REQUIRED — no player is excluded.
     - In command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec encode; H.264 remains the universal fallback (browser, non-sokol players, and high-temporal-churn content). spyder's relay carries the command stream unchanged (payload-agnostic) — no ged.
@@ -930,9 +943,10 @@ targets:
     achieved: 2026-06-29
   T128.2:
     name: A command-stream spike measures the transport against video and yields a go/no-go
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - A serializing null sokol backend on the server and a minimal replay loop on the player, behind a session-negotiated capability, round-trip one tiltbuggy frame with the shipping video path untouched.
     - Time-to-first-coarse-frame (the headline metric), bandwidth vs the H.264 stream on tiltbuggy (diagnostic spin + parallax + button churn) and esfera, reconnect cost (warm vs cold asset cache), and flow-control under a janky/slow player are measured and recorded in the design note.
@@ -944,9 +958,10 @@ targets:
     discovered: 2026-06-29
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Per-frame draw lists (class A) are droppable under backpressure; resource creation + coarse mips + dynamic-texture updates + geometry/shaders/pipelines (class B) are ordered and never dropped; finer mips and later-frame resources (class C) are deferrable with zero correctness impact.
     - Frames unblock on a class-B epoch barrier at coarse detail and never gate on class C; required-channel delivery is ordered by the frame-1 working set so startup lag is independent of total content size.
@@ -958,9 +973,10 @@ targets:
     discovered: 2026-06-29
   T128.4:
     name: Textures stream coarse-mip-first behind stable handles; geometry ships whole
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Textures are delivered as raw-RGBA mip levels, coarsest-first, populated behind a stable sg_image handle so the game and the recorded draw commands are unaware of the deferred refinement (no block compression in MVP).
     - immutable images are LOD-eligible; dynamic/stream images deliver at full rate — classified from sg_image_desc.usage with no game cooperation.
@@ -973,9 +989,10 @@ targets:
     discovered: 2026-06-29
   T128.5:
     name: The transport has a content-addressed player transmission cache and a server computation-memoization cache
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - The player caches delivered artifacts by content hash and skips re-receiving them across sessions; reconnect against a warm cache transfers only the delta (reactive hit/miss baseline, reviving the Dawn-era hash-probe protocol over the sokol command stream).
     - The server memoizes expensive derivations (mip-gen, per-backend format/transcode) keyed by (source + derivation params), computed once and amortized across all players of a backend class; static assets are served from the offline bake (TextureEncoder/.getex) so the server cache is warm at boot.
@@ -987,9 +1004,10 @@ targets:
     discovered: 2026-06-29
   T128.6:
     name: A negotiated command-stream session runs the server with no per-session GPU-render or encode work (encoder retained)
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 3.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - When a session negotiates the command-stream rung, the server produces the stream through a serializing null backend and performs no GPU-render and no H.264 encode for that session.
     - The H.264 encoder and headless-GPU-render path remain compiled into ge and are used for sessions that negotiate the video baseline and for the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff) — they are NOT removed.
@@ -1002,9 +1020,10 @@ targets:
     discovered: 2026-06-29
   T128.7:
     name: ge rendering primitives ride the wire as recipe verbs (SVG, text, image) with a sokol-flatten fallback
-    status: identified
+    status: set_aside
     value: 5.0
     cost: 8.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - rasterizeSvg / renderSvgDocument (including a document plus a mutation stream re-rasterized at native resolution on the player), rasterizeText (with font delivered as a cacheable asset), and loadImage (encoded PNG/JPEG decoded on the player) are carried as ge protocol verbs and executed natively on the player.
     - Each verb is negotiated per session; a player that does not advertise it receives the server-side sokol-flattened equivalent (rasterize-then-stream) with an identical visible result — the verb is never required for correctness.
@@ -1031,9 +1050,10 @@ targets:
     discovered: 2026-06-29
   T128.9:
     name: Player and server negotiate the most advanced mutually-supported protocol; the broker relays bytes agnostically
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - 'On connect, player and server exchange capability advertisements and select the highest common protocol rung: H.264 video (universal baseline) or command stream (both ends must support it; the server must render through ge''s serializable sokol path).'
     - The negotiation is in-band and end-to-end; the broker (ged today, spyder as it absorbs the role) relays the bytes without inspecting the protocol, rides the same byte pipe H.264 uses, and is compatible with an E2E-encrypted relay (T11) — so adding the command-stream rung requires no broker-side change.
@@ -1046,9 +1066,10 @@ targets:
     discovered: 2026-07-05
   T129:
     name: ge provides an audio clip-player API (sfx + looping music) for direct-mode apps
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: audio API is engine feature theme R5; not migration.'
     acceptance:
     - 'ge exposes a clip-playback API usable by direct-mode (in-process) apps: load a file to an id, play(id), stop(id), with per-clip loop + volume options.'
     - Decodes at minimum WAV (sound effects) and a compressed music format (MP3 or OGG) for looping background tracks — the vendored SDL3 set currently has neither SDL_mixer nor an mp3 decoder.
@@ -1086,9 +1107,10 @@ targets:
     achieved: 2026-04-19
   T130:
     name: sample/tiltcal builds on sokol (or is retired) — its iOS CMake build is bgfx-era
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: tiltcal sample cleanup; park or delete later.'
     acceptance:
     - sample/tiltcal/ios/CMakeLists.txt no longer builds bgfx (no add_library(bgfx)/bx/bimg, no BGFX_CONFIG_RENDERER_METAL, no src/BgfxContext.mm in its GE_SOURCES) — it either builds against sokol_gfx (SokolContext.mm + the sokol-shdc shaders + dispatch) or the sample is retired.
     - grep -ri bgfx over sample/tiltcal/ returns nothing (or only historical comments). The tiltcal iOS CMakeLists currently references the now-deleted src/BgfxContext.mm.
@@ -1522,9 +1544,10 @@ targets:
     achieved: 2026-07-01
   T139:
     name: ge/ios-init generates a CMakeLists that builds a consuming app out of the box
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: ios-init CMakeLists; post-P tooling.'
     acceptance:
     - 'The iOS project ge/ios-init scaffolds (ios/CMakeLists.txt) builds the consuming app without per-app hand-editing: it discovers the app''s sources (or the app declares them once in a way the template consumes), bundles the app''s runtime assets, and — critically — runs a sokol-shdc pre-build step to generate the app''s build/shaders/*.h from shaders/*.glsl (GE_SHDC_LANGS), matching what the Makefile build does. Today the generated CMakeLists hardcodes a stale source list, globs obsolete bgfx *.bin shaders, omits most runtime assets, and has no shader-generation step, so a consuming app''s iOS target neither compiles nor bundles correctly.'
     - 'Verify with yourworld2: `make ios` then an xcodebuild compile (signing disabled) of the YourWorld target succeeds after only `ge/ios-init` + adding the app''s own sources/assets through the supported mechanism — no manual CMake surgery on the generated file (which is gitignored and regenerated).'
@@ -1627,7 +1650,7 @@ targets:
     discovered: 2026-07-02
   T145:
     name: The ged daemon is removed from ge; ge retains only the app-side (dial-out control channel + headless encode) and the wire-protocol schema, with the server streaming path dev-only
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -1638,11 +1661,13 @@ targets:
     context: 'The ge half of the ged→spyder consolidation (see spyder T91). Decision 2026-07-04: ge streaming is entirely dev tooling, so ged — both its control plane and its dev data plane — folds into spyder. ge keeps only the app-side: the dial-out control channel (the app-channel client, already in ge) plus the headless render+encode for the dev stream, both dev-only/NDEBUG-gated. ged''s MCP/dashboard/tweak-serving is deleted, not moved (spyder T91.2/T91.3 provide the equivalent). This retirement is blocked on the spyder capabilities landing and passing the T91.1 differential harness against ged''s recorded behaviour — delete ged only once spyder demonstrably reproduces it. Reframes T128/T34: they become optional dev-preview data-plane features hosted in spyder, not ge production infra.'
     origin: manual
     discovered: 2026-07-04
+    achieved: 2026-07-11
   T146:
     name: ge has evaluated arena / ZII / group-lifetime memory patterns against its real architecture and adopted the ones that fit, each accepted idea filed as a concrete target
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: memory-pattern spike; post-P engine research.'
     acceptance:
     - 'A written evaluation (this target''s context or a docs/ note) scores each of four candidate applications against ge''s ACTUAL code with a keep / defer / reject verdict + rationale: (1) a named ''zero-stub'' ZII convention; (2) a per-frame CPU arena on Context; (3) a per-session State arena folded into T99; (4) a handle-based sprite/texture pool as the N+1 for T135''s per-element Sprite RAII.'
     - 'The ZII zero-stub convention is decided: whether ge''s existing de-facto behaviour (Sprite{} / isNull() no-op draw, loadImage / rasterizeSvg / rasterizeText returning Sprite{} on failure, makePass(nullptr) no-op Pass, wire-mode zeroed Context) becomes a documented AGENTS.md design principle, and which remaining factories need auditing to conform.'
@@ -1669,9 +1694,10 @@ targets:
     discovered: 2026-07-04
   T147:
     name: ge's iOS project generator defines NDEBUG for the Release configuration
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: NDEBUG wiring; post-P release hygiene.'
     acceptance:
     - 'ge/tools/ios-build/build_project.rb splits GCC_PREPROCESSOR_DEFINITIONS per-config: Release includes NDEBUG=1, Debug includes DEBUG=1 (or equivalent)'
     - 'An xcodebuild Release archive with no manual overrides compiles out all #ifndef NDEBUG code — a `strings` scan of the device binary shows zero dev-overlay/wrench/FPS/telemetry markers'
@@ -1818,9 +1844,10 @@ targets:
     achieved: 2026-04-19
   T2:
     name: Smoke test validates network connectivity between laptop and device
-    status: identified
+    status: set_aside
     value: 1.0
     cost: 2.0
+    set_aside_reason: 'Plateau P: smoke network check; post-P CI.'
     acceptance:
     - '`smoke-test.sh` detects when the device cannot reach ged over the network, before any player launch or code debugging begins. Reports the specific failure (no WiFi IP, firewall blocking, device unreachable, or device→laptop path broken) with actionable remediation.'
     context: 'Lost 2+ hours debugging code when the actual problem was laptop WiFi silently stopped accepting incoming connections. All local checks passed (ged listening, device registered via USB). The device→laptop network path was broken but nothing detected it. Need two layers: local network sanity checks (WiFi IP, firewall, ping device) and a `ge-probe` iOS app for definitive device→laptop HTTP connectivity testing.'
@@ -2032,9 +2059,10 @@ targets:
     achieved: 2026-05-03
   T28.4:
     name: Android emulator distribution build exposes working AccelSynth
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: AccelSynth emu; post-P platform polish.'
     acceptance:
     - On an Android emulator running a distribution build of a tilt-driven sample app, SDL reports zero real sensors (or emulator's virtual sensors pass a simulator-detection check) and AccelSynth activates
     - Shift+mouse-drag inside the emulator window tilts the viewport and drives sensor-driven gameplay
@@ -2059,9 +2087,10 @@ targets:
     achieved: 2026-04-26
   T3:
     name: Player sends mip cache manifest before rendering begins
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: blocked on T128.5 command-stream cache; parked with stream ladder.'
     acceptance:
     - On connect, player sends all cached mip hash values to the server (via ge) before the first wire command. Server skips texture upload commands for any mip already cached on the device. Rendering pipeline is only mutated for uncached textures. Reconnection with a fully-cached device produces no texture upload wire commands.
     context: Currently the server sends all texture data and the player reactively checks its local mip cache (hit/miss). This still mutates the rendering pipeline with large WriteTexture commands even when the player already has the data. For ~270MB of initial textures, this dominates reconnection time. A preemptive cache manifest exchange would let the server skip cached uploads entirely.
@@ -2162,9 +2191,10 @@ targets:
     achieved: 2026-04-20
   T33:
     name: ge's mobile test infrastructure runs on spyder CLI — exit-code-driven, reservation-safe, with device-state post-run validation
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: matrix-on-spyder is post-P reliability/CI theme; not required to close ged migration.'
     acceptance:
     - 'ge/tools/smoke-test.sh and ge/tools/matrix-cell.sh shell out to `spyder` for every device-touching operation: device discovery, install, launch, terminate, screenshot, log retrieval, crash retrieval, reservation acquire/release. No direct calls to `xcrun simctl`, `xcrun devicectl`, `pymobiledevice3`, `idevice_id`, `adb`, or platform-branched equivalents remain in those scripts.'
     - Cells use `spyder run --device <alias> --as <cell-id>` to acquire a reservation under their own owner identity (e.g. owner=ios-sim-tablet-dist), perform work, release on exit, and forward exit codes. Parallel cells targeting different devices proceed concurrently; cells racing for the same device receive exit code 13 (reservation-conflict) and either back off with retry or fail loudly per the cell's policy.
@@ -2185,9 +2215,10 @@ targets:
     discovered: 2026-04-26
   T33.1:
     name: smoke-test.sh shells out to spyder CLI for device discovery, install, launch, log/crash retrieval — no direct platform tooling
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T33 (post-P CI theme).'
     acceptance:
     - ge/tools/smoke-test.sh's --platform branches (ios-sim, ios-device, android-emu, android-device, desktop) collapse into a unified flow that calls `spyder devices --json` for discovery and `spyder` subcommands for everything device-side. The --device flag's per-platform meaning (form-factor for ios-sim, name/UDID for ios-device, serial/model substring for android) is replaced by spyder's selector grammar passed via --on.
     - Direct calls to xcrun simctl, xcrun devicectl, pymobiledevice3, idevice_id, and adb are removed from smoke-test.sh. The only platform-specific shells that remain are for the build steps (xcodebuild, gradle) — runtime device interaction goes through spyder.
@@ -2205,9 +2236,10 @@ targets:
     discovered: 2026-04-26
   T33.2:
     name: matrix-cell.sh wraps each cell in `spyder run` so reservations are race-safe under parallel make
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T33 (post-P CI theme).'
     acceptance:
     - matrix-cell.sh's per-cell entry point becomes `spyder run --device <selector> --as <cell-id> --timeout <budget> -- <inner-cell-cmd>`. Reservation acquire/release is no longer hand-rolled in the script; spyder run handles it including opportunistic renewal during long-running cells.
     - Cells use selector predicates (--on platform=ios-sim,model_family=iPad,os>=17) instead of pinned device names where appropriate, so the matrix can target a class of devices and let spyder pick from the available pool.
@@ -2226,9 +2258,10 @@ targets:
     discovered: 2026-04-26
   T33.3:
     name: Visual regression cells use spyder screenshot + spyder diff against committed baselines, with `make update-baselines` for refresh
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T33 (post-P CI theme).'
     acceptance:
     - At least one matrix cell (e.g. ios-sim-tablet-dist or android-emu-dist) captures a screenshot via `spyder screenshot <device>` after rendering reaches a known-stable point, then calls `spyder diff --suite=<cell> --case=<scenario>` to compare against a baseline stored in spyder's baseline directory.
     - Baselines are committed to spyder's baseline tree (or to a ge-controlled location, depending on layout — pick whichever keeps the diff visible in PR review). Baseline format is whatever spyder's `baseline_update` produces (PNG + manifest).
@@ -2247,9 +2280,10 @@ targets:
     discovered: 2026-04-26
   T33.4:
     name: Soak-style cells call `spyder device_power_state` post-run to distinguish 'screen-asleep' false-pass from real success
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T33 (post-P CI theme).'
     acceptance:
     - matrix-cell-long-soak, the 🎯T25 reconnect sub-check cell, the 🎯T28.4 Android AccelSynth distribution cell, and any other cell with a soak phase >60 s call `spyder device_power_state <device>` immediately before exit (or before the success-marker is emitted).
     - 'If the post-run state is `display_off` or `asleep` on a cell that should have kept the device awake throughout, the cell exits with a distinct code (suggested: 50 or similar — outside spyder''s reserved 10–42 range) and the report flags the device-state regression rather than reporting the cell as a normal pass or fail.'
@@ -2267,9 +2301,10 @@ targets:
     discovered: 2026-04-26
   T33.5:
     name: Pre-warmed sim/emu pool reduces matrix-cell startup time; pool config lives in ge's repo
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T33 (post-P CI theme).'
     acceptance:
     - 'A pool.yaml file is committed to ge (under tools/ or a similar discoverable location) declaring the matrix''s sim and emu templates: at minimum the iOS tablet sim, iOS phone sim, Android phone emu (Pixel 9 Pro XL AVD per 🎯T24), each with a target warm count.'
     - ge's `make init` (or a dedicated `make pool-init`) symlinks tools/pool.yaml to ~/.spyder/pool.yaml, or copies it, or invokes `spyder pool_warm` per template — whichever path keeps the developer setup minimal. CLAUDE.md documents the one-time setup.
@@ -2288,9 +2323,10 @@ targets:
     discovered: 2026-04-26
   T34:
     name: The player is a regular ge app — bespoke networking and decoding stay, but rendering, windowing, and per-platform entry points come from ge like any other consumer
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: player-as-ge-app rewrite deferred; native player already works through spyder for closed loop.'
     acceptance:
     - 'The player''s main() is a thin ge app that calls ge::run(Factory) and returns a RunConfig with onUpdate / onRender / onEvent / onShutdown. ge owns the SDL window, the bgfx context, the frame loop, the SDL event pump, the tilt composite. The player''s app code provides only: wire connection setup, decoder management, the per-frame texture upload, and the bgfx draw call.'
     - tools/player.cpp and tools/player_core.cpp are deleted. The player's source moves to a ge-app layout (probably sample/player/main.cpp + sample/player/Net.cpp/h or similar) that mirrors how sample/tiltbuggy is laid out. The player has its own Makefile / android/ / ios/ trees the way every ge app does — generated from ge's templates via tools/init-android.sh / tools/init-ios.sh, not hand-maintained.
@@ -2315,9 +2351,10 @@ targets:
     discovered: 2026-04-26
   T34.1:
     name: 'The player-as-ge-app enables recursion-as-test-bed: a player connects to another player''s headless-server output, all the way down'
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: parked with T34.'
     acceptance:
     - 'A matrix cell exists that runs three processes on the same host: a server (e.g. tiltbuggy in headless mode), a player A that connects to the server, and a player B that connects to player A in *its* headless mode. Player B''s framebuffer should match (within visual-regression tolerance) the server''s framebuffer, modulo encode/decode round-trips.'
     - 'The cell is implemented via spyder reservations and the visual-regression infrastructure from 🎯T33.3 (committed baselines, spyder diff). End-to-end coverage: if any change to ge''s wire format, encoder, decoder, or render layer breaks the round trip, this cell catches it.'
@@ -2335,9 +2372,10 @@ targets:
     discovered: 2026-04-26
   T35:
     name: ge has a single CMake-driven build path; Module.mk and the hand-rolled iOS template retire
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: CMake migration is orthogonal build-system work; not part of control-plane closure.'
     acceptance:
     - Top-level `CMakeLists.txt` is the single source of truth for ge's source lists, compile flags, and link line
     - '`Module.mk` is removed from the tree; README and CLAUDE.md no longer reference it'
@@ -2775,9 +2813,10 @@ targets:
     achieved: 2026-05-09
   T46:
     name: ge ships cross-platform push notifications (FCM on both iOS and Android)
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: push notifications; post-P product feature.'
     acceptance:
     - 'Public API: Context::registerForPush() triggers the platform''s permission prompt + token acquisition. Idempotent — calling more than once does not re-prompt'
     - RunConfig.onPushToken(std::string token) fires when a token is acquired or rotates; the game forwards the string to its backend. Token format is FCM's (works for both APNs- and FCM-routed devices)
@@ -2867,9 +2906,10 @@ targets:
     achieved: 2026-05-09
   T5:
     name: Player has a connection management screen
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 3.0
+    set_aside_reason: 'Plateau P: player product UI; post-P after control plane sole.'
     acceptance:
     - Player has a gesture-accessible screen to scan a new QR code, manually enter a server address, or forget the saved address. Accessible from the connected state (not just on startup).
     context: The persistence mechanism works (player remembers server address), but there's no UI for the user to manage saved connections.
@@ -3157,9 +3197,10 @@ targets:
     achieved: 2026-05-11
   T6:
     name: Player can switch between active servers without QR
-    status: identified
+    status: set_aside
     value: 2.0
     cost: 2.0
+    set_aside_reason: 'Plateau P: player product UI; post-P after control plane sole.'
     acceptance:
     - Dashboard has a "move player to server" control. Player switches seamlessly via `kServerAssignedMagic`. No disconnect/reconnect visible to user.
     context: With persistent address, player auto-connects to saved server. If two servers are on the same network, player has no reason to fall back to QR. Dashboard is the natural control plane.
@@ -3249,9 +3290,10 @@ targets:
     achieved: 2026-05-24
   T64:
     name: Unified studio-wide deployment architecture across squz + minicadesmobile
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: studio-wide deploy architecture; portfolio work after multimaze ship.'
     acceptance:
     - Either engineer can ship any squz or minicadesmobile game by typing one command (/ge:ship or make ship-release VERSION=x)
     - Match-managed signing works from both laptops and CI for both portfolios via a single shared certs repo
@@ -3406,9 +3448,10 @@ targets:
     achieved: 2026-05-24
   T64.7:
     name: MinicadesKit back-ports ge's new pieces; both portfolios converge on shared signing + plugin UX
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: MinicadesKit back-port; parked with T64.'
     acceptance:
     - MinicadesKit's Modules.mk gains the MAX-of-two-sources fallback in bump-build (Transporter SQLite OR rev-list, whichever is higher)
     - MinicadesKit games use the studio-wide match repo from T64.1 (one Matchfile per game, same repo URL)
@@ -4067,9 +4110,10 @@ targets:
     achieved: 2026-05-30
   T8:
     name: Distribution iOS builds support accelerometer simulation in the simulator
-    status: identified
+    status: set_aside
     value: 3.0
     cost: 5.0
+    set_aside_reason: 'Plateau P: sim accelerometer; post-P.'
     acceptance:
     - ⌥+WASD tilts the simulated device's accelerometer in distribution/release iOS Simulator builds (not just Debug builds)
     - Test on a Release-configuration iOS Simulator build of any ge-based app
@@ -4078,9 +4122,10 @@ targets:
     discovered: 2026-04-15
   T80:
     name: ge coordinate types are unit-tagged via a generic Unit&lt;T, Dim&gt; wrapper
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: unit-tagged coordinates; R5 API ergonomics.'
     acceptance:
     - include/ge/unit.h exists with template Unit<T, Dim>, pointer-semantics access, same-dim arithmetic operators, .to<Dst>(factor) conversion, and .map(fn) escape hatch
     - include/ge/dim.h defines Dim as type-encoded exponents (Pt, Px, World, optionally Clip) with dim_mul_t / dim_div_t composition helpers; mixing dims at compile time produces a readable static_assert message, not raw Dim<a,b,c> gibberish
@@ -4367,9 +4412,10 @@ targets:
     discovered: 2026-04-15
   T90:
     name: ge's render context is internal and backend-neutral — no rendering-backend name on the public API surface
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: render context API hygiene; R5.'
     acceptance:
     - include/ge/ has no rendering-backend-specific class name on its public surface. SokolContext is either moved to src/render/ (internal-only — no consumer source references it, only DirectRenderHost does) or renamed to a backend-neutral name (e.g. RenderContext/GeContext) if it must stay public.
     - A future rendering-backend change does not force renaming a public ge class (the bgfx->sokol migration had to rename BgfxContext->SokolContext; that mistake is not repeated).
@@ -4604,9 +4650,10 @@ targets:
     achieved: 2026-06-02
   T93:
     name: AccelSynth consumes mouse button + finger events while shift is held
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: AccelSynth shift+drag; post-P input polish.'
     acceptance:
     - While shift is held on desktop or iOS Sim, ge::AccelSynth::handle returns true for SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_FINGER_DOWN, SDL_EVENT_FINGER_UP — not just SDL_EVENT_MOUSE_MOTION — so the consumer’s onEvent never sees the press/release pair that would otherwise start a game gesture.
     - Mouse / finger button events with NO shift held continue to pass through unmodified.
@@ -4680,9 +4727,10 @@ targets:
     achieved: 2026-06-01
   T96:
     name: RefreshRateBoost is removed from ge
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: RefreshRateBoost removal; post-P cleanup.'
     acceptance:
     - include/ge/RefreshRateBoost.h, src/render/RefreshRateBoost_apple.mm, and src/render/RefreshRateBoost_test.cpp are deleted, and removed from tools/ge-sources.mk (and any Module.mk / build references).
     - 'DirectRenderHost no longer references RefreshRateBoost: the i_->refreshRateBoost member is gone, and the press-counter wiring in pumpEvents (engagePress on FINGER/MOUSE_BUTTON_DOWN, releasePress on UP/CANCEL) plus the background drainPresses() calls are removed.'
@@ -4709,9 +4757,10 @@ targets:
     discovered: 2026-06-01
   T97:
     name: ge offers an opt-in, flag-toggleable debug-render layer that consumers can light up without per-call plumbing
-    status: converging
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: debug-render layer; R5.'
     acceptance:
     - A consumer using the ge submit-mesh convention can toggle a debug flag at runtime and see wireframes / sector tinting overlaid on every conforming draw without touching their own renderer code.
     - '`ge::debug::lines`, `tris`, `text` ad-hoc submission API exists and is documented.'
@@ -4757,9 +4806,10 @@ targets:
     achieved: 2026-06-29
   T99:
     name: ge offers an opt-in ge::app&lt;App&gt; wrapper binding a State-first App class to the run loop, with optional fixed-step simulation
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Plateau P: ge::app wrapper; R5 API ergonomics.'
     acceptance:
     - include/ge/app.h provides ge::app<App>(State&, LoopOpts={}) returning a ge::Factory that wires an App's conventionally-named methods to RunConfig callbacks via C++20 concept detection; State is always the first parameter
     - An App declaring step(State&, const Input&, float dt) is driven by a fixed-timestep accumulator (dt = 1/tickHz, constant) with double-buffered prev-state and an interpolation alpha handed to render; an App declaring only update/render runs variable-rate with no accumulator and no copyability requirement

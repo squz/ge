@@ -5,16 +5,27 @@ runtimes. `CLAUDE.md` is a one-line `@AGENTS.md` import so Claude Code reads the
 same content without a duplicated copy to keep in sync — edit guidance **here**,
 not in `CLAUDE.md`.
 
-**IMPORTANT: When creating any artefact — code, targets, documentation, plans, tests — always consider whether it belongs in `ge/` (general-purpose engine, usable by any app) or in the parent project (game-specific logic). If unsure, ask before creating it.** Anything concerning the player, ged, wire protocol, engine infrastructure, or engine design belongs in `ge/`, not the consuming project.
+**IMPORTANT: When creating any artefact — code, targets, documentation, plans, tests — always consider whether it belongs in `ge/` (general-purpose engine, usable by any app) or in the parent project (game-specific logic). If unsure, ask before creating it.** Anything concerning the player, wire protocol, engine infrastructure, or engine design belongs in `ge/`, not the consuming project. **Device inventory, launch, reservations, app inspect/tweak/logs, and the dev stream *relay* belong in [spyder](https://github.com/marcelocantos/spyder) — not here.** The old `ged` daemon has been removed (🎯T145 / Plateau P).
 
-Reusable rendering and streaming engine built on sokol_gfx + SDL3 (migrated from bgfx — 🎯T38). Consumed as a git submodule; build integration via `Module.mk`.
+Reusable rendering engine built on sokol_gfx + SDL3 (migrated from bgfx — 🎯T38). Consumed as a git submodule; build integration via `Module.mk`.
 
 homebrew_tap: disabled
 <!-- ge is a library consumed via git submodule; no binary to ship through brew. -->
 profile: game
 <!-- interactive rendering + streaming; "tests pass" doesn't guarantee visual correctness. -->
 
-Apps built on ge use a **server/player architecture**: the app (server) renders headless via sokol_gfx, encodes H.264 frames (VideoToolbox on Apple), and streams them to the player over a ged-brokered WebSocket. The player decodes the H.264 stream (VideoToolbox/MediaCodec) and displays it via SDL. Input events flow back over the same WebSocket channel. The app itself has zero platform-specific rendering code — ge handles encoding, framing, and the network link.
+## Architecture (Plateau P — closed)
+
+| Layer | Owner | Role |
+|---|---|---|
+| Simulation, render, encode, wire schema, app-channel **client** | **ge** | Engine |
+| Inventory, launch, reserve, inspect, tweak, logs, dashboard, stream **relay** | **spyder** | Dev control plane |
+
+**Primary app modality — direct:** `ge::run` opens a local window (or mobile surface) via `DirectRenderHost`. Dev builds dial spyder's app-channel when `SPYDER_APP_CHANNEL` is set (injected by `spyder launch` / desktop adapter). Agents drive tweaks, logs, state, and screenshots over that channel — **no streaming required**.
+
+**Optional dev modality — server stream:** a **server-mode build** (build variant, not a runtime switch) dials spyder's H.264 relay (`GE_SERVER` / stream host:port), encodes frames, and a native player attaches through spyder. Streaming is **developer-only**; release (`NDEBUG`) builds strip encode/stream/app-channel surfaces.
+
+**Do not start `ged`.** There is no `make ged` / `bin/ged`. Use spyder for all control-plane work.
 
 ## ge Claude Code Plugin
 
@@ -70,14 +81,15 @@ int main() {
 ```
 
 Key points:
-- **`ge::run(Factory)`** connects to the ged daemon broker and spawns sessions for attaching players
-- **State lives outside the factory** so it persists across player reconnects
+- **`ge::run(Factory)`** runs the direct host (local window / mobile surface). Optional **server-mode** builds dial spyder's stream relay instead of presenting a local player window.
+- **State lives outside the factory** so it persists across session reconnects when streaming
 - **App resources are created per session** (each reconnect gets a fresh `Context`)
 - The factory callback receives a `ge::Context` (rects, device class, DB) and returns a `RunConfig`
 - `RunConfig` uses designated initializers: `onUpdate`, `onRender`, `onEvent`, `onShutdown`
 - `onRender(const Context&)` is called each frame. The Context exposes three rects (`drawSafeRectInPts`, `uiSafeRectInPts`, `fullRectInPts`) — all in point space (🎯T60). The game must consciously pick the right one for each piece of work; there is no shortcut `width/height` to dodge the question. The engine refreshes them all before each call (the host's per-frame refresh runs before `onRender`). Future per-frame state (parallax delta, tilt, …) joins `Context`, not the signature. **🎯T101:** open this frame's render pass at the top of `onRender` with `auto p = c.swapchainPass();` *before any draws* — the returned `ge::Pass` holds the swapchain pass open for its lifetime and, on destruction, ends the pass + commits + presents. Open any `ge::offscreenPass` blocks before it.
-- `ge::run` blocks until SIGINT or all sessions end
+- `ge::run` blocks until SIGINT or the host exits
 - Ctrl+C terminates the process gracefully
+- **Dev control plane:** start [spyder](https://github.com/marcelocantos/spyder); launch/inspect via `app_exec` (or REST/CLI). Set `SPYDER_APP_CHANNEL` (or let spyder inject it) for tweaks/logs/state.
 
 **Makefile** — minimal integration:
 
@@ -115,26 +127,32 @@ $(BUILD_DIR)/%.o: %.cpp
 ### Running Your App
 
 ```bash
-make ged && bin/ged &       # Start the daemon broker
-make && bin/myapp           # Terminal 1: game server (connects to ged)
-make player && bin/player   # Terminal 2: desktop player (connects via ged)
+# Control plane (once per machine)
+brew services start spyder   # or: spyder serve
+
+# Direct modality — local window + app-channel when spyder launches the app
+make && bin/myapp
+
+# Optional server-stream modality (server-mode build + spyder relay + native player)
+# See sample/tiltbuggy and spyder docs/streaming-data-plane-plan.md
 ```
 
-The ged daemon manages player connections, QR codes, and session routing. Game servers and players both connect to ged.
+Inspect/tweak/logs: spyder `app_exec` builtins (`app_tweak_*`, `app_log_get`, `app_screenshot`, …) or the spyder dashboard. No second daemon.
 
 ### What ge Gives You
 
 | Concern | ge handles it | You write |
 |---------|--------------|-----------|
 | Rendering backend | sokol_gfx — Metal on Apple, Vulkan with GLES3 fallback on Android (🎯T107) | sokol_gfx (`sg_*`) draw calls in `onRender` |
-| H.264 encoding | `VideoEncoder_apple.mm` (VideoToolbox) | Nothing |
-| H.264 decoding | `VideoDecoder_apple.mm` (VideoToolbox) | Nothing |
+| H.264 encoding (server-mode / dev stream) | `VideoEncoder_apple.mm` (VideoToolbox) | Nothing |
+| H.264 decoding (native player) | `VideoDecoder_apple.mm` (VideoToolbox) | Nothing |
 | Frame loop | `ge::run` with delta timing + signal handling | `onUpdate(dt)` + `onRender(const Context&)` callbacks |
-| Input | Player captures SDL events, sends over WebSocket | `onEvent(e)` callback |
-| Reconnection | `ge::run` spawns new session per player | Separate State from App |
-| Session routing | ged daemon manages connections + QR codes | Nothing |
+| Input (direct) | SDL events on the local host | `onEvent(e)` callback |
+| Input (stream) | Player sends events over the wire; server applies | same `onEvent` |
+| App-channel client | msgpack RPC dial-out when `SPYDER_APP_CHANNEL` is set | optional app methods / tweaks |
+| Dev control plane | **spyder** (not ge) | register MCP / brew service |
 | Asset loading | `ge::loadManifest<T>()` for meshes + metadata | manifest.json + data files |
-| Mobile builds | iOS/Android player projects in `ge/tools/` (player port dormant — 🎯T34) | Nothing (shared player) |
+| Mobile builds | iOS/Android consumer templates under `ge/tools/` | app-specific wiring |
 
 ## Module.mk Integration
 
@@ -207,7 +225,6 @@ Module.mk defines these targets so the parent doesn't need to:
 |--------|--------|
 | `clean` | `rm -rf $(CLEAN)` |
 | `compile_commands.json` | Generate clangd compile database from `$(COMPILE_DB_DEPS)` |
-| `ged` | Build the ged daemon (`bin/ged`), compiling the dashboard first |
 | `ge/ios` | Generate the iOS Xcode project |
 | `ge/android` | Build the Android debug APK |
 | `ge/app-icons` | Expand `icons/icon.svg` into iOS + Android icon resources (🎯T50) |
@@ -381,28 +398,31 @@ Server → player:        MessageHeader{kAspectLockMagic} + AspectLock (optional
 |----------|-------|---------|
 | `kProtocolVersion` | 6 | Protocol version for compatibility checking |
 | `kMaxMessageSize` | 512 MB | Maximum single message size |
-| `kDeviceInfoMagic` | `0x47453244` | "GE2D" — player → ged: player dimensions/class |
+| `kDeviceInfoMagic` | `0x47453244` | "GE2D" — player → server: player dimensions/class |
 | `kSdlEventMagic` | `0x47453249` | "GE2I" — player → server: SDL input event |
-| `kSessionEndMagic` | `0x4745324D` | "GE2M" — ged → player: server disconnected |
-| `kServerAssignedMagic` | `0x4745324E` | "GE2N" — ged → player: assigned server name |
+| `kSessionEndMagic` | `0x4745324D` | "GE2M" — relay → player: server disconnected |
+| `kServerAssignedMagic` | `0x4745324E` | "GE2N" — relay → player: assigned server name |
 | `kSqlpipeMsgMagic` | `0x47453254` | "GE2T" — bidirectional sqlpipe messages |
-| `kVideoStreamMagic` | `0x47453256` | "GE2V" — server → ged: H.264 NAL units |
-| `kStreamStartMagic` | `0x47453257` | "GE2W" — ged → player: start streaming |
-| `kStreamStopMagic` | `0x47453258` | "GE2X" — ged → player: stop streaming |
+| `kVideoStreamMagic` | `0x47453256` | "GE2V" — server → player: H.264 NAL units |
+| `kStreamStartMagic` | `0x47453257` | "GE2W" — relay → player: start streaming |
+| `kStreamStopMagic` | `0x47453258` | "GE2X" — relay → player: stop streaming |
 | `kSafeAreaMagic` | `0x47453245` | "GE2E" — player → server: safe area update |
 | `kAspectLockMagic` | `0x47453260` | "GE2`" — server → player: lock aspect ratio |
 
-### Address Resolution
+### Address Resolution (server-mode / stream)
 
-Game servers connect to the ged daemon broker. `ge::run` resolves the daemon address in order:
-1. `GE_DAEMON_ADDR` environment variable (format: `"host:port"`)
-2. Default: `localhost:42069`
+Server-mode builds dial **spyder's stream relay** (not a local ge daemon). Typical env:
+1. `GE_SERVER` / stream host:port injected by the launch path (see sample/tiltbuggy)
+2. Local default when developing against a loopback spyder: `127.0.0.1:3030`
 
-Players connect via ged, which handles QR codes, WebSocket routing, and session management.
+Players attach through the same relay (`bin/player --host … --port … --name …`).
 
 ## Player
 
-The ge player is a standalone H.264 video player. It receives encoded frames from the server (via ged), decodes them via VideoToolbox (macOS/iOS) or MediaCodec (Android), and renders to an SDL window. Input is forwarded back to the server over the same WebSocket channel.
+The ge player is a standalone H.264 video player. It receives encoded frames from a
+server-mode ge app via **spyder's opaque stream relay**, decodes them via VideoToolbox
+(macOS/iOS) or MediaCodec (Android), and renders to an SDL window. Input is forwarded
+back over the wire.
 
 The player has no app-specific code — it works with any ge app.
 
@@ -443,27 +463,16 @@ The two "silence reasons" (background + focus lost) are independent: both must c
 
 Desktop builds are unaffected: SDL does not fire background/foreground events on macOS/Linux/Windows, and there is no audio focus concept.
 
-### Ged Quiet Mode
+### Dashboard
 
-Use `-no-open` to prevent ged from opening the dashboard in the browser on first server connection:
-
-```bash
-bin/ged -no-open
-```
-
-### Dashboard Development
-
-The ged dashboard is a React/Vite app in `ge/web/`. For hot-reload iteration:
-
-```bash
-cd ge/web && npm run dev   # Hot-reload dashboard on :5173, proxies API/WS/MCP to ged
-```
-
-The Vite dev server proxies `/api`, `/ws`, and `/mcp` to ged at `localhost:42069`.
+Use **spyder's** embedded dashboard (`http://127.0.0.1:3030/dashboard` when `spyder serve`
+is running) for tweaks, logs, state, and screenshots. The historical `ged` dashboard SPA
+(`ge/web/`) was removed with 🎯T145.
 
 ### Mobile Builds
 
-**iOS and Android player builds are currently dormant** — the player port to sokol_gfx + H.264 decode is pending 🎯T34. The CMakeLists files and build scripts have been scrubbed of the old Dawn/WebGPU references and marked TODO.
+Native mobile **player** packaging remains a follow-on (formerly 🎯T34, parked at Plateau P).
+Direct-mode consumer apps on iOS/Android are the primary ship path.
 
 ### iOS code signing — development vs ship (🎯T110)
 

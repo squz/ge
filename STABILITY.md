@@ -6,6 +6,9 @@ Snapshot as of: **v0.1.0** (first release).
 
 ---
 
+
+> **Plateau P (2026-07-11):** the `ged` daemon and its dashboard SPA (`web/`) were **removed**. Dev control plane is [spyder](https://github.com/marcelocantos/spyder); ge keeps app-side app-channel + optional server-mode H.264 encode. Entries below that catalogue `ged` HTTP/MCP routes are **historical** until rewritten.
+
 ## Stability commitment
 
 ge is **pre-1.0**. Breaking changes to the public C++ API, CLI / launch
