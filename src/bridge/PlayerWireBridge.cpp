@@ -448,10 +448,10 @@ bool PlayerWireBridge::pump() {
     i_->stats = {};
     // Drop-to-latest: drain the socket (bounded), keep only the newest N
     // video messages, then decode those. Decoding oldest-first while the
-    // server is ahead permanently lags (Android FFmpeg is sync and ~ms/tile).
-    // ~2 full mosaics of a 2×2 grid (or ~1 of a 4×3) per present tick.
-    constexpr int kMaxVideoDecodePerPump = 24;
-    constexpr int kMaxDrainPerPump = 256;
+    // server is ahead permanently lags. Mosaic blit is still CPU (NV12→BGRA);
+    // keep N small so present stays interactive (~2 full 2×2 frames).
+    constexpr int kMaxVideoDecodePerPump = 8;
+    constexpr int kMaxDrainPerPump = 128;
     std::vector<std::vector<char>> videoBatch;
     videoBatch.reserve(static_cast<size_t>(kMaxVideoDecodePerPump));
     int drained = 0;
