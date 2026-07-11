@@ -1799,7 +1799,7 @@ targets:
     discovered: 2026-07-11
   T151:
     name: Dev H.264 stream uses independent tiles (VT) with CRF-36 quality bar; most AUs near one datagram
-    status: identified
+    status: converging
     value: 8.0
     cost: 8.0
     acceptance:
@@ -1810,7 +1810,19 @@ targets:
     - Wire GE2V carries tile metadata (frame_seq, tile_id, grid, frame size) so the player mosaics tiles; missing tiles leave prior/empty regions without stalling the pipeline. Never feed torn H.264 NALs to the decoder.
     - Legacy untiled GE2V (full-frame) still decodes for rollback via GE_STREAM_TILES=0.
     - Unit tests cover tiled wire decode; docs/mtu-tiled-stream.md records the size policy.
-    context: 'Tiles stay the loss domain. Soft statistical size fit + pigeon auto-fragment for outliers (2026-07 policy). CRF 36 quality bar from Jevons ladder. Not a hard 1000 B blank ceiling.'
+    context: |-
+      Tiles stay the loss domain. Soft statistical size fit + pigeon auto-fragment for outliers (2026-07 policy). CRF 36 quality bar from Jevons ladder. Not a hard 1000 B blank ceiling.
+
+      HANDOFF 2026-07-11 (player work paused at user request):
+      Shipped on branch push/bullseye-unpark-pigeon-t11-family-clear-set-aside (local commits, not yet merged):
+      - Multi-session independent games per player (factory State per attach)
+      - AccelSynth on multi-session wire path (Shift+drag → SENSOR_UPDATE per session)
+      - Tiled GE2V encode (VT, parallel tiles, soft MTU; pigeon frags oversize)
+      - Android player: IYUV mosaic blit (was BGRA-only → black), bounded pump, MediaCodec HW decode path, decode newest mosaics only
+
+      Verified: Pixel Tablet renders tiltbuggy scene (buggy/ice/dirt) but FPS is unacceptably low; compression/quality visibility still weak (user report). Desktop Shift+drag AccelSynth works again.
+
+      Next when resumed: profile Pixel decode/present bottleneck (tile count vs HW decode vs publish cost), surface encode bitrate/size stats in stream telemetry (T149), decide grid/quality knobs for playable Android FPS. T150 (letterbox) remains separate product decision.
     tags:
     - stream
     - h264
@@ -1819,6 +1831,26 @@ targets:
     - videotoolbox
     - jitter
     - pigeon
+    origin: manual
+    discovered: 2026-07-11
+  T151.1:
+    name: Android device player stream is playable (acceptable FPS + visible compression quality)
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - Pixel Tablet (or equivalent Android device) playing tiltbuggy via brokered stream sustains a subjectively playable frame rate (target ≥ ~20 FPS end-to-end, not multi-second stutter).
+    - 'Stream compression is observable: stats and/or visual quality show H.264 tiles are meaningfully compressed (not near-raw frame floods), consistent with T151 CRF-36 / soft-MTU policy.'
+    - No black mosaic from pixel-format mismatch; IYUV/BGRA (or HW surface path) both keep a live texture.
+    - Desktop player path remains non-regressed (including AccelSynth Shift+drag).
+    context: 'Parked 2026-07-11 at user request ("give up on the player for now"). Partial: Android renders correct scene after IYUV mosaic + MediaCodec work, but FPS is extremely low and compression is not clearly evidenced. Resume from T151 handoff notes on the multi-session/tiled-stream branch.'
+    tags:
+    - stream
+    - android
+    - player
+    - fps
+    - h264
+    - parked
     origin: manual
     discovered: 2026-07-11
   T16:
