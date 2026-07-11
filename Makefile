@@ -20,7 +20,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
-        python-test dispatch-null-safety-test \
+        python-test dispatch-null-safety-test release-surface-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
         prebuild-libge-android-arm64 \
@@ -47,7 +47,7 @@ cell.%:
 # Standing invariants for /cv. Exit 0 means all green; non-zero means a
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
-bullseye: ruby-test python-test
+bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
@@ -82,6 +82,11 @@ dispatch-null-safety-test:
 	    tools/sokol-dispatch/generated/ge_sokol_dispatch.c \
 	    tools/sokol-dispatch/nullsafe_test.c
 	@build/dispatch-nullsafe-test
+
+# 🎯T145 acceptance #2: NDEBUG strips app-channel; default (non-GE_SERVER)
+# sample link dead-strips stream/encode symbols.
+release-surface-test:
+	@tools/check-release-surface.sh
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #

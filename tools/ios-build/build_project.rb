@@ -313,6 +313,7 @@ module GE
         [
           File.join(proj_rel, 'src'),
           File.join(proj_rel, 'include'),
+          File.join(proj_rel, 'vendor/include'),   # consumer's vendored headers (harmless if absent)
           File.join(ge_rel, 'include'),
           File.join(ge_rel, 'vendor/include'),
           # Header-only deps + SDL3 stack — lifted from their submodules

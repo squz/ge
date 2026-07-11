@@ -291,6 +291,9 @@ class BuildProjectTest < Minitest::Test
       "consumer app shader output dir must be on the include path"
     assert_match %r{\$\(SRCROOT\)/\.\./ge/vendor/github\.com/floooh/sokol}, paths,
       "sokol_gfx.h vendor dir must be on the include path"
+    # Consumer vendor/include (e.g. yourworld2's dr_mp3.h) — harmless if absent.
+    assert_match %r{\$\(SRCROOT\)/\.\./vendor/include}, paths,
+      "consumer vendor/include must be on the header search path"
   end
 
   # bgfx/bx/bimg are gone post-T38; the generated xcodeproj must not
