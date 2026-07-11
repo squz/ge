@@ -277,7 +277,7 @@ targets:
     status: set_aside
     value: 13.0
     cost: 20.0
-    set_aside_reason: 'Plateau P (2026-07-11): pigeon not ready for production cutover (see pigeon T53/T48/T50/T52). Streaming stays on WebSocket via spyder relay until pigeon is explicitly reopened.'
+    set_aside_reason: 'Plateau P (2026-07-11); refreshed 2026-07-11: pigeon T53 fixed in v0.29.0 (per-stream/datagram AEAD). Remaining gates before reopening: T48 (LAN Session API), T50 (non-Go reconnect keys), T52 (SAS MitM). Streaming stays on WebSocket/spyder relay until explicitly reopened.'
     acceptance:
     - The player connects to the game server via pigeon's relay (Register/Connect or LAN bypass) — not via a WebSocket through ged. Wire framing is pigeon's stream + datagram protocol; payloads are ciphertext at the relay layer. ged's role is reduced to (a) issuing PairingArtifacts via pigeon.PairingHost so newly-installed players can establish first-contact with a server, and (b) the dashboard. ged is no longer on the runtime data path between server and player.
     - All session traffic is end-to-end encrypted via pigeon's X25519 ECDH + AES-256-GCM channel. Neither ged nor the relay can read plaintext. The QR scan that today carries a server name + port now carries a pigeon PairingArtifact (base64url) — one-time-use, TTL-bound (default 30 days), persistable on the player so reconnects skip the ceremony.
