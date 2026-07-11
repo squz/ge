@@ -274,7 +274,7 @@ targets:
     discovered: 2026-06-07
   T11:
     name: ge's player↔server transport runs on pigeon (E2E-encrypted relay) instead of plain WebSocket through ged
-    status: set_aside
+    status: identified
     value: 13.0
     cost: 20.0
     set_aside_reason: Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.
@@ -287,7 +287,12 @@ targets:
     - ge/include/ge/Protocol.h's hand-rolled magic-number constants and MessageHeader struct are replaced by a pigeon protocol/ YAML declaration that generates Go (server-side / ged), Swift (iOS player), Kotlin (Android player), and C (mobile bgfx-direct player) bindings. No more parallel definitions of kVideoStreamMagic / kSdlEventMagic etc. across files.
     - All WebSocket plumbing — ge/src/bridge/WebSocketClient.cpp, ge/src/bridge/PlayerWireBridge.cpp, ge/src/bridge/SessionHost_brokered.mm's WS code path, ged's gorilla/websocket dependency — is removed once every consumer (server, player, ged dashboard) has cut over.
     - 'End-to-end test: a fresh player install scans a QR (or imports a PairingArtifact), connects to a server (via relay or LAN), receives video, sends input, disconnects, reconnects later (within TTL) without rescanning. Reproducible via ge''s matrix-cell.sh on at least one mobile platform.'
-    context: 'Rewritten 2026-04-26. The original T11 (''ged uses pigeon for all networking between server, player, and daemon'') and its sub-targets imagined pigeon as a daemon-style backend that ged would register against. Pigeon-as-it-actually-exists at v0.20.0 is structurally different: it''s an importable library across Go / Swift / Kotlin / C / TypeScript that does relay + E2E crypto + pairing + a runtime channel API as a single integrated story. Applications import pigeon as a library and call pigeon.Register / pigeon.Connect; the abstraction is at the runtime layer — point-to-point reliable streams and unreliable datagrams over E2E-encrypted, possibly-relayed QUIC. Applications speak their own wire protocols over those channels as opaque bytes; pigeon doesn''t care what the bytes are.\n\nKey shifts in pigeon''s surface that motivate the rewrite:\n- pigeon.Register() / pigeon.Connect() are application-level calls. The relay (cmd/pigeon, deployable as carrier-pigeon.fly.dev) is just QUIC bridging — it doesn''t know about ged at all. ged''s role under the new model is reduced to pairing-artifact issuance + dashboard, off the runtime data path.\n- E2E encryption is built in: X25519 ECDH + AES-256-GCM with monotonic-counter nonces. Neither relay nor any intermediary sees plaintext. Solves a security gap ge currently doesn''t address (today it relies on WebSocket TLS to a trusted ged).\n- PairingArtifact (v0.19.0) is a persistable, expirable envelope around a pairing record. Wire format is snake_case JSON / base64url text, portable across all SDKs. Player paired once can reconnect later within TTL without redoing the ceremony.\n- pigeon.PairingHost is the server-side artifact minter. The ''pigeon pair'' CLI subcommand exposes the same.\n- Reliable streams + unreliable datagrams in one channel. Datagrams have automatic fragmentation/reassembly with a 5-second discard window for incomplete sets. Video frames belong on datagrams; input events on streams.\n- LAN bypass: pigeon.Config.LANServer enables direct peer-to-peer when on the same network, falls back to relay otherwise. Saves the relay round-trip in the common ''phone+laptop'' scenario.\n- Multiple clients per instance ID. The relay maintains independent bridges per client. One server can fan out to N players without doing the multiplexing itself.\n- C library (dist/pigeon.h + libsodium + ngtcp2 transport) means iOS/Android player binaries can speak pigeon natively without a Go runtime — important for ge''s bgfx-direct mobile players that currently have no networking at all on the direct path.\n\nNote on internal pigeon machinery: pigeon implements its own protocol layer (pairing ceremony, session lifecycle, path switching) using a YAML-declared state-machine framework with a code generator (cmd/protogen). This is internal infrastructure, NOT a public codegen surface for pigeon consumers. ge''s own wire-protocol codegen needs are independent and tracked separately under 🎯T11.1, which is now tool-agnostic (protobuf / FlatBuffers / Cap''n Proto / bespoke — to be decided at implementation time).\n\nged''s role under the new model:\n- Pairing-artifact issuer: ged''s web dashboard mints a PairingArtifact via pigeon.PairingHost, presents it as a QR, and the player imports. Replaces today''s name+port QR.\n- Optional management dashboard. Today ged is on the runtime data path; under the new model it''s just the pairing/discovery service — once player and server are paired, all traffic flows directly through pigeon, ged is not needed at runtime.\n\nReadiness considerations:\n- pigeon v0.20.0 just shipped; not 1.0 eligible until 2026-06-25 minimum (settling clock reset by v0.19.0''s Swift PairingRecord JSON wire format change). PairingArtifact API is ''Needs Review'' — wants real-world consumer feedback before freezing. ge would be an ideal first consumer, with the caveat that the surface may shift slightly before 1.0.\n- pigeon''s TypeScript/web pairing-artifact parity is explicitly out of scope until web stabilises — relevant if the ge dashboard wants to embed pigeon-pairable web players. Defer that until pigeon ships it.\n- The C library is Fluid — stabilisation depends on real consumer feedback. ge mobile is again an ideal first consumer.\n\nDecomposition (sub-targets T11.1–T11.6) is rewritten to match this model.'
+    context: |-
+      Reopened 2026-07-11: user unparked pigeon work after pigeon ≥0.30 cutover gates (T48/T50/T52/T53/T57). Live stream still WebSocket/spyder; T11 is now the active transport cutover (parent of T11.1–T11.6).
+
+      Rewritten 2026-04-26. The original T11 ('ged uses pigeon for all networking between server, player, and daemon') and its sub-targets imagined pigeon as a daemon-style backend that ged would register against. Pigeon-as-it-actually-exists is an importable library (Go/Swift/Kotlin/C) for relay + E2E crypto + pairing + runtime channels. Applications call pigeon.Register / pigeon.Connect; payloads are opaque bytes on streams/datagrams.
+
+      Cutover gates closed in pigeon v0.30.0. Residual pigeon polish T43/T44.4/T55/T58 non-blocking. Pair with spyder 🎯T93 (rebuild stream integration on pigeon).
     tags:
     - pigeon
     - transport
@@ -299,7 +304,7 @@ targets:
     discovered: 2026-04-12
   T11.1:
     name: ge's wire protocol has a single source of truth — magic numbers and message structs are generated for Go (ged), C / C++ (engine + Apple .mm), Kotlin / Java (Android), and Swift (iOS) instead of hand-rolled in parallel
-    status: set_aside
+    status: identified
     value: 3.0
     cost: 2.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -310,7 +315,10 @@ targets:
     - 'include/ge/Protocol.h is deleted (or trimmed to a thin compatibility shim that just includes the generated header). Every existing #include or import of Protocol.h''s constants and structs across ge/src/bridge/, ge/src/render/, ged''s Go code, and consumer projects (multimaze2, sample/tiltbuggy where applicable) is replaced with the generated equivalent.'
     - 'Adding a new message becomes a one-place change: edit the canonical declaration, regenerate, the new constant + struct appears in every binding. No more searching for parallel definitions across .mm files, Go code, and Protocol.h.'
     - The choice of codegen tool is documented (in CLAUDE.md or a dedicated docs page) along with the rationale and the wire-format compatibility commitment — once chosen and shipped, the tool and the on-the-wire byte layout are stable contract.
-    context: 'Rewritten 2026-04-26 after the original framing turned out to rest on a misreading of pigeon''s design. The original T11.1 (''declare in pigeon-protocol YAML; bindings generated via cmd/protogen'') was filed assuming pigeon''s protogen was a public codegen surface for consumers. It isn''t — protogen is internal pigeon infrastructure for generating pigeon''s own pairing/session/pathswitch state-machine code. The abstraction pigeon offers third-party users is at the runtime layer (Conn, StreamChannel, DatagramChannel for streams and datagrams); applications speak their own wire protocols over those channels as opaque bytes.\n\nge''s actual problem is real: the same eleven magic numbers and four message structs are hand-defined in parallel across include/ge/Protocol.h (C/C++), ge/src/bridge/PlayerWireBridge.cpp / SessionHost_brokered.mm / ServerWireBridge.mm (Apple platforms), ged''s Go code (server side), and any client SDKs (Android, iOS, web dashboard). Adding a new message requires edits in every place; drift is silent until something breaks at runtime.\n\nWhat T11.1 is NOT: a particular tool choice. The original framing baked ''pigeon protogen'' into the target name, which forced the wrong shape on the work. The rewrite leaves the codegen-tool choice open. Reasonable candidates worth considering during implementation:\n\n- Protocol Buffers (protoc): mature, multi-language, well-documented wire format, tooling on every platform. Adds a dependency but a well-understood one.\n- FlatBuffers: zero-copy reads, smaller runtime, similar codegen story. Used in some game engines.\n- Cap''n Proto: similar tradeoffs to FlatBuffers, less common.\n- Bespoke YAML + small generator script: minimal external dep, full control over wire format. Most work to maintain but can match ge''s existing on-the-wire byte layout exactly (8-byte sequence number, 16-byte AES-GCM tag etc. in MessageHeader).\n- Hand-written C/C++ header as source of truth + small extractor scripts to emit Swift / Kotlin / Go from it. Closest to the status quo; cheapest to bootstrap.\n\nTradeoff to be settled at implementation time:\n- Do we change ge''s on-the-wire byte layout to match whatever the codegen tool produces, or keep the current layout exactly and shape the tool around it? Latter is more work but keeps the wire format stable for any external consumer that''s already speaking it.\n\nRelation to 🎯T11 parent: T11 is the migration of ge''s transport from WebSocket to pigeon. T11.1 (this) is the source-of-truth-for-message-shape work. They''re related but independent in tooling — T11.1 doesn''t require T11, and T11 doesn''t require T11.1. If T11.1 happens first, T11 picks up the cleaner Protocol bindings as a bonus; if T11 happens first, T11.1 still has the same parallel-definitions problem to solve.\n\nNote: ge PR #45 (now closed) made a partial start on this with pigeon-protogen YAML and committed the codegen outputs. The closure removes those artefacts; this target starts fresh with no commitment to which tool replaces them.'
+    context: |-
+      Reopened 2026-07-11 with parent T11 (pigeon unparked). Wire protocol single source of truth / codegen — independent of transport but in the T11 family.
+
+      (Prior Plateau P set-aside cleared.)
     depends_on:
     - T11
     tags:
@@ -322,7 +330,7 @@ targets:
     discovered: 2026-04-12
   T11.2:
     name: First-contact between player and server uses pigeon's PairingArtifact (QR scan delivers the artifact; player persists it for reconnect)
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 5.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -332,7 +340,7 @@ targets:
     - Player persists the PairingArtifact via pigeon's CredentialStore (FileCredentialStore on desktop; platform-appropriate equivalent on iOS Keychain / Android Keystore on mobile). On subsequent launches, the player loads the stored artifact and reconnects without re-scanning — unless the artifact is expired (default 30-day TTL) or the user explicitly re-pairs.
     - Player surfaces the 6-digit confirmation code from pigeon's pairing ceremony during first-contact (and only first-contact). User compares it visually to the code shown by the dashboard and confirms or rejects. MitM attempts are caught by code mismatch.
     - Server-side PairingRecord storage in ged survives ged restarts — paired players continue to reconnect after the daemon process bounces.
-    context: 'Replaces the previous T11.2 (''ged registers as a pigeon backend and accepts client connections''). ged isn''t a pigeon backend; pigeon backends are individual servers. ged''s role under the new model is pairing-artifact issuer, not relay endpoint.\n\nBenefits over the current ''QR carries name+port'' model:\n- Persistent across reconnects: today the player has to re-scan a QR (or rely on cached config) every time the server restarts. PairingArtifact + CredentialStore makes re-pair a one-time event.\n- MitM resistance: today a malicious actor on the same network could MitM the WebSocket. The 6-digit confirmation code rules this out.\n- Cross-platform pairing wire format: snake_case JSON / base64url text matches Go/Swift/Kotlin SDKs, so an artifact minted on the server can be read by any player.\n\nNotably, this target is technically achievable BEFORE the rest of T11 — the artifact-driven pairing can be deployed under today''s WebSocket transport as a first step (use the artifact''s pairing record to derive a key for WS-payload encryption), then the underlying transport gets swapped to pigeon in T11.3+. Allows incremental cutover instead of a big bang.'
+    context: Reopened 2026-07-11 with parent T11 (pigeon unparked). PairingArtifact first-contact.
     depends_on:
     - T11
     tags:
@@ -345,7 +353,7 @@ targets:
     discovered: 2026-04-12
   T11.3:
     name: 'Server↔player runtime traffic flows over pigeon channels: video on datagrams, input/control on reliable streams'
-    status: set_aside
+    status: identified
     value: 5.0
     cost: 5.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -355,7 +363,7 @@ targets:
     - Control messages (SessionConfig, StreamStart/Stop, ServerAssigned, SessionEnd, AspectLock) ride on a separate reliable StreamChannel. Control isolation prevents head-of-line blocking from queued video frames or input bursts.
     - Each channel uses an independently-keyed pigeon Channel (HKDF-derived from the pairing record's shared secret with channel-specific info strings). Different channels can't decrypt each other's messages even if a shared key were leaked.
     - Measured throughput meets or exceeds today's WebSocket-based path on a controlled local network. End-to-end frame latency is comparable; tail latency improves under packet loss because video doesn't wait for retransmits.
-    context: 'Replaces the previous T11.3 + T11.4 (''Game server sideband uses pigeon channel instead of WebSocket'' + ''Per-session wire uses pigeon channel instead of WebSocket''). The old framing assumed two parallel WebSocket-equivalent channels; pigeon''s reliable+unreliable model is a better fit and lets us split video off the reliable path entirely.\n\nMaps directly onto pigeon''s channel API: OpenChannel() for reliable, DatagramChannel() for unreliable. Each channel gets its own keys via PairingRecord.DeriveChannel(sendInfo, recvInfo).\n\nThe video-on-datagrams decision is the headline win: today''s WebSocket path waits for retransmits even on lost video frames, which is wasted because we''re going to send another frame imminently anyway. Datagrams let dropped video frames just fall through, while keyframes act as natural resync points.\n\nLow-priority follow-up worth noting: if measurement shows datagrams alone are insufficient under high loss (say, >5% sustained), the design can fall back to streaming keyframes specifically, rather than abandoning the datagram path. Don''t optimise for that until we measure it.'
+    context: Reopened 2026-07-11 with parent T11 (pigeon unparked). Video on datagrams, input on reliable streams.
     depends_on:
     - T11.1
     - T11.2
@@ -369,7 +377,7 @@ targets:
     discovered: 2026-04-12
   T11.4:
     name: LAN-co-located peers bypass the relay via pigeon's LAN server; falls back automatically when the network changes
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 5.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -379,7 +387,7 @@ targets:
     - When the LAN connection drops (peer leaves the network, Wi-Fi switches, etc.), pigeon's automatic FallbackToRelay() restores connectivity over the relay without dropping the session. Visible in logs; not user-visible if seamless.
     - Latency on LAN is measurably lower than via the relay (relay adds the round-trip to carrier-pigeon.fly.dev). Confirm with a basic measurement on at least one platform.
     - The transition relay→LAN→relay survives an active video stream without visible glitches — pigeon handles the underlying reconnect transparently to ge's application layer.
-    context: 'Net-new sub-target. The original T11 family didn''t have LAN-bypass; pigeon''s LAN-server feature only landed later. Highly relevant to ge''s most-common use case: phone-as-player + laptop-as-server on the same Wi-Fi at home or in a meeting room.\n\nThe relay round-trip to carrier-pigeon.fly.dev (presumably us-west or similar) adds 50–200 ms depending on the user''s location. Eliminating it for the LAN-co-located case is a meaningful UX improvement, especially for input latency in interactive games.\n\nTechnically pigeon does most of the work; ge''s job is mostly to enable LAN mode in pigeon.Config and to surface the resulting state in the player UI / logs.'
+    context: Reopened 2026-07-11 with parent T11 (pigeon unparked). LAN bypass.
     depends_on:
     - T11.3
     tags:
@@ -391,7 +399,7 @@ targets:
     discovered: 2026-04-12
   T11.5:
     name: Mobile players (bgfx-direct iOS + Android distribution builds) speak pigeon natively via the C library, with no Go runtime
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 5.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -401,7 +409,7 @@ targets:
     - Pigeon's C library generates the same wire-protocol bindings (T11.1) and the same pairing-ceremony state machine (T11.2) that the Swift/Kotlin/Go SDKs use, via pigeon's protocol/ codegen. No hand-translated state machines on the C side.
     - ge/CMakeLists.txt's Android branch and the iOS xcframework story include pigeon's C library + libsodium + ngtcp2 as transitive deps of `ge`. Consumer apps still consume ge via add_subdirectory(ge) (T30 principle) — pigeon is one more thing they get for free.
     - 'Apk / ipa size impact is acceptable: libsodium (~200KB), ngtcp2 (~500KB), pigeon (~100KB), generated state machines (~50KB) — about 1MB additional vs the current direct-mode build. Confirm with a measurement; reject the design if it''s more than ~3MB.'
-    context: 'Net-new sub-target. The original T11 family assumed the player would always have access to a Go runtime (via gomobile or similar). The pigeon C library makes it possible to ship a fully-native mobile player with no Go.\n\nWhy this matters for ge:\n- Today''s bgfx-direct mobile players (sample/tiltbuggy/android, sample/tiltbuggy/ios) have NO networking. They render locally only. There''s currently no path to add multiplayer / streaming to a direct-mode mobile build without either (a) shipping a Go runtime via gomobile (~10MB+) or (b) writing a custom networking layer per platform.\n- pigeon''s C library is the missing piece that lets ge''s direct-mode mobile builds participate in a pigeon session as a client. Server-side pigeon would still be Go (where the H.264 encoder lives anyway), but the player is C — small footprint, no GC pauses, no cross-language FFI.\n- The C library is currently ''Fluid'' per pigeon''s STABILITY.md — stabilisation depends on real consumer feedback. ge mobile would be an ideal first consumer and would help drive pigeon''s C surface to stable.\n\nTransport stack on the C side: ngtcp2 for QUIC, libsodium for crypto primitives, pigeon''s C glue on top. Both deps are vendored per CLAUDE.md (substantial libraries get git submodules under vendor/github.com/<org>/<repo>).'
+    context: Reopened 2026-07-11 with parent T11 (pigeon unparked). Mobile C library path.
     depends_on:
     - T11.1
     - T11.2
@@ -417,7 +425,7 @@ targets:
     discovered: 2026-04-12
   T11.6:
     name: All WebSocket plumbing is removed from ge and ged once every consumer has cut over to pigeon
-    status: set_aside
+    status: identified
     value: 3.0
     cost: 3.0
     set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
@@ -428,7 +436,7 @@ targets:
     - ged's gorilla/websocket dependency is removed from go.mod. The dashboard's WS endpoints (/ws/wire) are deleted; the dashboard still exists as the pairing-artifact issuer + management UI, just without WebSocket plumbing.
     - The 'Wire format' / 'Steady-State Messages' section in ge/CLAUDE.md is rewritten to document the pigeon-channel layout instead of WebSocket framing. The per-message magic-number table is replaced by a pointer to the protocol YAML.
     - ge/vendor/include/ws.h (and any WebSocket-specific transitive deps) are removed from vendor/ if not used elsewhere.
-    context: 'Carryover from the original T11.6 — same intent, slightly broader scope. The cleanup target. Lands AFTER all the cut-over targets (T11.2 through T11.5) so that no consumer is left needing the WebSocket path.\n\nIntentionally last in the chain so the migration can be incremental: each prior sub-target can land independently with WebSocket fallback still available, and only when every consumer is on pigeon does the WebSocket code go.\n\nAlso drives the CLAUDE.md documentation refresh — today''s wire-protocol section is one of the larger blocks and is heavily WebSocket-shaped. Once removed, the new pigeon-shaped doc should be considerably shorter (most of the framing detail moves into pigeon''s STABILITY.md by reference).'
+    context: Reopened 2026-07-11 with parent T11 (pigeon unparked). WebSocket removal after cutover.
     depends_on:
     - T11.3
     - T11.4
