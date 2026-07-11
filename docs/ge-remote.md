@@ -1,3 +1,5 @@
+> **Historical / superseded.** The Dawn command-stream "ge Remote" path and the `ged` broker are no longer the supported dev loop. Use **spyder** + direct mode (or server-mode H.264 through spyder's stream relay). Ports below that say 3030 reflect the spyder default; this document is kept only as archaeology.
+
 # ge Remote - Mobile Player Setup
 
 ge Remote is a mobile companion app that renders the game on an iOS or Android device. The game runs as a headless server on your Mac, streaming WebGPU draw calls over the local network to the phone/tablet via Dawn's wire protocol.
@@ -44,7 +46,7 @@ For quick iteration without a phone, use the desktop player:
 
 ```bash
 make player             # Build
-bin/player              # Run (connects to localhost:42069 by default)
+bin/player              # Run (connects to localhost:3030 by default)
 ```
 
 Run `make run` in another terminal to start the server. The desktop player connects automatically without QR scanning.
@@ -124,13 +126,13 @@ make run
 
 The server prints a QR code in the terminal. Scan it with the phone. The game should appear within a few seconds.
 
-Both devices must be on the same Wi-Fi network. The QR code encodes `ge-remote://<lan-ip>:42069`.
+Both devices must be on the same Wi-Fi network. The QR code encodes `ge-remote://<lan-ip>:3030`.
 
 ## Troubleshooting
 
 ### Phone doesn't connect after scanning
 
-- Check that port 42069 isn't blocked by a firewall
+- Check that port 3030 isn't blocked by a firewall
 - Verify the server's LAN IP is reachable from the phone (`ping` from the phone)
 
 ### Android: "SDK location not found"

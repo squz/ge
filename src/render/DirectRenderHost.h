@@ -5,7 +5,7 @@
 //
 // Owns the SDL window, the sokol swap-chain target (via SokolContext), and
 // the local input loop (SDL events + ⌥-mouse → synthetic accelerometer).
-// Used by distribution / standalone builds; no ged, no wire.
+// Used by distribution / standalone builds; no stream relay, no wire.
 #pragma once
 
 #include <ge/RenderHost.h>

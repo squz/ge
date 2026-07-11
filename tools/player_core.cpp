@@ -31,7 +31,7 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         return 1;
     }
 
-    // 1. Connect to ged and wait for SessionConfig (orientation hint must
+    // 1. Connect to stream relay and wait for SessionConfig (orientation hint must
     //    be applied BEFORE window creation, which happens in PlayerRender).
     ge::PlayerWireBridge wire({host, port, serverName});
     wire::SessionConfig cfg{};

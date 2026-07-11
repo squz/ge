@@ -92,10 +92,10 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
     i_->conn = ge::connectWebSocket(i_->cfg.host, i_->cfg.port, path,
                                     i_->cfg.connectTimeoutMs);
     if (!i_->conn || !i_->conn->isOpen()) {
-        SPDLOG_ERROR("PlayerWireBridge: failed to connect to ged");
+        SPDLOG_ERROR("PlayerWireBridge: failed to connect to stream relay");
         return false;
     }
-    SPDLOG_INFO("PlayerWireBridge: connected to ged");
+    SPDLOG_INFO("PlayerWireBridge: connected to stream relay");
 
     // Wait for SessionConfig (skip unrelated housekeeping messages).
     while (i_->conn->isOpen()) {

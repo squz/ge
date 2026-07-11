@@ -26,7 +26,7 @@ Two prompts:
 The Dawn/WebGPU era was built around **remote rendering via `dawn_wire`**. Architecture:
 
 ```
-game → WGPU calls → dawn_wire serialize → ged relay → player deserialize → native GPU
+game → WGPU calls → dawn_wire serialize → stream relay → player deserialize → native GPU
 ```
 
 This leveraged Chrome's own wire protocol, already production-hardened by the browser sandbox model. Nothing else in the ecosystem offered an equivalent: a standards-based, auto-generated serialization of a modern GPU API.

@@ -12,7 +12,7 @@ static_assert(std::endian::native == std::endian::little, "Little-endian require
 
 // Wire protocol for the H.264 streaming dev mode.
 // The server renders headless via sokol_gfx, encodes H.264 frames, and streams them
-// to the player over a ged-brokered WebSocket. The player decodes and displays
+// to the player over a spyder-brokered WebSocket (dev stream). The player decodes and displays
 // frames, and forwards SDL input back to the server over the same channel.
 //
 // The Dawn wire protocol that previously lived here has been removed along
@@ -20,14 +20,14 @@ static_assert(std::endian::native == std::endian::little, "Little-endian require
 namespace wire {
 
 // Magic numbers for message type identification (ASCII: "GE2x")
-constexpr uint32_t kDeviceInfoMagic     = 0x47453244;  // "GE2D" — player → ged: player dimensions/class
+constexpr uint32_t kDeviceInfoMagic     = 0x47453244;  // "GE2D" — player → relay: player dimensions/class
 constexpr uint32_t kSdlEventMagic       = 0x47453249;  // "GE2I" — player → server: SDL input event
-constexpr uint32_t kSessionEndMagic     = 0x4745324D;  // "GE2M" — ged → player: server disconnected
-constexpr uint32_t kServerAssignedMagic = 0x4745324E;  // "GE2N" — ged → player: assigned server name
+constexpr uint32_t kSessionEndMagic     = 0x4745324D;  // "GE2M" — relay → player: server disconnected
+constexpr uint32_t kServerAssignedMagic = 0x4745324E;  // "GE2N" — relay → player: assigned server name
 constexpr uint32_t kSqlpipeMsgMagic     = 0x47453254;  // "GE2T" — bidirectional sqlpipe messages
-constexpr uint32_t kVideoStreamMagic    = 0x47453256;  // "GE2V" — server → ged: H.264 NALs
-constexpr uint32_t kStreamStartMagic    = 0x47453257;  // "GE2W" — ged → player: start streaming
-constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — ged → player: stop streaming
+constexpr uint32_t kVideoStreamMagic    = 0x47453256;  // "GE2V" — server → relay: H.264 NALs
+constexpr uint32_t kStreamStartMagic    = 0x47453257;  // "GE2W" — relay → player: start streaming
+constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — relay → player: stop streaming
 constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → server: safe area update
 constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
 constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
@@ -35,7 +35,7 @@ constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → 
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)
 
-// Sent by player after connecting to the game server (via ged).
+// Sent by player after connecting to the game server (via the stream relay).
 struct DeviceInfo {
     uint32_t magic = kDeviceInfoMagic;
     uint16_t version = kProtocolVersion;

@@ -59,7 +59,7 @@ fail() { blocked_reasons+=("$*"); }
 # ---------------------------------------------------------------------------
 echo "preflight: checking git status..."
 # `--ignore-submodules=untracked` so generated artefacts inside submodules
-# (e.g. ge/web/dist/* built by the ged dashboard) don't trip the gate —
+# (e.g. ge/web/dist/* built by a historical dashboard) don't trip the gate —
 # they're untracked-in-submodule, not real changes to the parent. Real
 # parent-repo changes still count.
 if ! git -C "${REPO_ROOT}" diff --quiet HEAD --ignore-submodules=untracked -- 2>/dev/null || \
@@ -76,7 +76,7 @@ echo "preflight: checking ge submodule..."
 ge_submodule_path="${REPO_ROOT}/ge"
 if [ -d "${ge_submodule_path}" ]; then
     # `--untracked-files=no` so generated artefacts inside ge (e.g.
-    # web/dist/* from the ged dashboard build, build/* from local engine
+    # web/dist/* from a dashboard build, build/* from local engine
     # tests) don't trip the gate — they're not part of ge's source tree
     # and never committed. Real tracked-file modifications still count.
     if ! git -C "${ge_submodule_path}" diff --quiet HEAD -- 2>/dev/null || \

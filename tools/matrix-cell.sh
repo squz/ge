@@ -107,7 +107,7 @@ DEBUG_SOAK_TIMEOUT=10
 CAPTURE_REFS=0
 RMS=0.08
 VERBOSE=0
-GED_PORT=42069
+STREAM_PORT=3030
 PLAYER_BUNDLE_ID="com.squz.player"
 PLAYER_ANDROID_PKG="com.squz.player"
 PLAYER_ANDROID_ACTIVITY="com.squz.player/.GeActivity"
@@ -542,63 +542,33 @@ require_cmd() {
     command -v "$cmd" >/dev/null 2>&1 || { echo "FAIL [$CELL]: $msg" >&2; exit 2; }
 }
 
-# ── ged lifecycle ────────────────────────────────────────────────────
+# ── stream relay lifecycle ────────────────────────────────────────────────────
 
-GED_PID=""
-GED_MANAGED=0   # 1 if we started it ourselves
-
-ensure_ged() {
-    if curl -sf --max-time 2 "http://localhost:$GED_PORT/api/info" >/dev/null 2>&1; then
-        return 0  # already running
+# Stream relay is spyder (external). Cells never start a local broker.
+ensure_stream_relay() {
+    if curl -sf --max-time 2 "http://127.0.0.1:$STREAM_PORT/stream/servers" >/dev/null 2>&1; then
+        return 0
     fi
-    local ged_bin="$GE_ROOT/bin/ged"
-    if [[ ! -x "$ged_bin" ]]; then
-        echo "ged binary not found; run 'make ged' in $GE_ROOT" >&2
-        exit 2
-    fi
-    "$ged_bin" -no-open > "$ARTIFACTS/ged.log" 2>&1 &
-    GED_PID=$!
-    GED_MANAGED=1
-    local tries=0
-    while ! curl -sf --max-time 1 "http://localhost:$GED_PORT/api/info" >/dev/null 2>&1; do
-        sleep 0.2
-        tries=$((tries + 1))
-        if [[ $tries -gt 25 ]]; then
-            echo "ged failed to start within 5s" >&2
-            kill "$GED_PID" 2>/dev/null || true
-            exit 2
-        fi
-    done
+    echo "spyder stream relay not reachable at :$STREAM_PORT — start with: brew services start spyder" >&2
+    exit 2
 }
+ensure_ged() { ensure_stream_relay; }
 
-stop_ged() {
-    if [[ $GED_MANAGED -eq 1 && -n "$GED_PID" ]]; then
-        kill "$GED_PID" 2>/dev/null || true
-        wait "$GED_PID" 2>/dev/null || true
-        GED_PID=""
-        GED_MANAGED=0
-    fi
-}
+stop_ged() { :; }  # spyder is external — do not kill
 
+# Total player sessions across all registered stream servers (spyder JSON).
 current_sessions() {
-    curl -sf --max-time 1 "http://localhost:$GED_PORT/api/info" 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sessions',0))" \
-        2>/dev/null || echo 0
-}
-
-# Returns the total number of player sessions that are attached to any server.
-# Differs from current_sessions(): that counts all players connected to ged
-# (regardless of server assignment), while this counts only bridged sessions.
-# Use this for the reconnect check — a player session stays in ged's session
-# map across a server restart, so current_sessions() never drops/rises.
-server_attached_sessions() {
-    curl -sf --max-time 1 "http://localhost:$GED_PORT/api/info" 2>/dev/null \
+    curl -sf --max-time 1 "http://127.0.0.1:$STREAM_PORT/stream/servers" 2>/dev/null \
         | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-total = sum(s.get('sessions', 0) for s in d.get('servers', []))
-print(total)
+print(sum(s.get('sessions', 0) for s in d.get('servers', [])))
 " 2>/dev/null || echo 0
+}
+
+# Alias — same metric under spyder's /stream/servers shape.
+server_attached_sessions() {
+    current_sessions
 }
 
 wait_for_sessions() {
@@ -615,7 +585,7 @@ wait_for_sessions() {
 
 # Waits until at least $1 sessions are attached to a server (bridged).
 # Used for the reconnect sub-check: during a server restart the player stays
-# connected to ged (session count doesn't change) but sessions temporarily
+# connected to stream relay (session count doesn't change) but sessions temporarily
 # lose their server assignment, so current_sessions()/wait_for_sessions()
 # would never fire. This polls server_attached_sessions() instead.
 wait_for_server_sessions() {
@@ -1317,7 +1287,7 @@ cold_launch_player_desktop() {
     baseline=$(current_sessions)
     sleep 2
     if ! wait_for_sessions $((baseline + 1)); then
-        fail_check "$subcheck" "player did not connect to ged within ${COLD_LAUNCH_TIMEOUT}s"
+        fail_check "$subcheck" "player did not connect to stream relay within ${COLD_LAUNCH_TIMEOUT}s"
         kill_bg "$LAUNCH_PID"
         return 1
     fi
@@ -2122,7 +2092,7 @@ stop_server() {
 
 cleanup() {
     stop_server 2>/dev/null || true
-    stop_ged 2>/dev/null || true
+    stop_stream relay 2>/dev/null || true
     [[ -n "$LAUNCH_PID" ]] && kill_bg "$LAUNCH_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -2201,7 +2171,7 @@ run_ios_sim_player() {
     start_server
 
     cold_launch_ios_sim "$PLAYER_BUNDLE_ID" "$app_path" "$FORM_FACTOR" \
-        "-ged_addr localhost:$GED_PORT" || { stop_server; return; }
+        "-stream_addr localhost:$STREAM_PORT" || { stop_server; return; }
     check_startup_flash_ios "$SIM_UDID" "$PLAYER_BUNDLE_ID" || true
     check_soak_ios_sim "$SIM_UDID" "$PLAYER_BUNDLE_ID" || true
     check_rotation_ios_sim "$SIM_UDID" "$PLAYER_BUNDLE_ID" || true
@@ -2250,12 +2220,12 @@ run_ios_device_player() {
     host_ip=$(host_lan_ip)
     if [[ -z "$host_ip" ]]; then
         stop_server
-        fail_check "cold-launch" "could not determine host LAN IP for device→ged connection"
+        fail_check "cold-launch" "could not determine host LAN IP for device→stream relay connection"
         return
     fi
 
     cold_launch_ios_device "$PLAYER_BUNDLE_ID" "$app_path" "$FORM_FACTOR" \
-        "-ged_addr ${host_ip}:${GED_PORT}" || { stop_server; return; }
+        "-stream_addr ${host_ip}:${STREAM_PORT}" || { stop_server; return; }
     check_soak_ios_device "$IOS_DEVICE_UDID" "$PLAYER_BUNDLE_ID" || true
     check_bgfg_ios_device "$IOS_DEVICE_UDID" "$PLAYER_BUNDLE_ID" || true
     warn_check "reconnect" "skipped on physical device (NSUserDefaults ged_addr cleared after first use)"
@@ -2314,9 +2284,9 @@ run_android_emu_player() {
     start_server
 
     cold_launch_android_emu "$PLAYER_ANDROID_PKG" "$apk" "$FORM_FACTOR" "$PLAYER_ANDROID_ACTIVITY" \
-        "--es ged_addr 10.0.2.2:$GED_PORT" || { stop_server; return; }
+        "--es stream_addr 10.0.2.2:$STREAM_PORT" || { stop_server; return; }
     check_startup_flash_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" "$PLAYER_ANDROID_ACTIVITY" \
-        "--es ged_addr 10.0.2.2:$GED_PORT" || true
+        "--es stream_addr 10.0.2.2:$STREAM_PORT" || true
     check_soak_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" || true
     check_rotation_android_emu "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" || true
     check_bgfg_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" "$PLAYER_ANDROID_ACTIVITY" || true
@@ -2371,13 +2341,13 @@ run_android_device_player() {
     host_ip=$(host_lan_ip)
     if [[ -z "$host_ip" ]]; then
         stop_server
-        fail_check "cold-launch" "could not determine host LAN IP for device→ged connection"
+        fail_check "cold-launch" "could not determine host LAN IP for device→stream relay connection"
         return
     fi
     cold_launch_android_device "$PLAYER_ANDROID_PKG" "$apk" "$FORM_FACTOR" "$PLAYER_ANDROID_ACTIVITY" \
-        "--es ged_addr ${host_ip}:${GED_PORT}" || { stop_server; return; }
+        "--es stream_addr ${host_ip}:${STREAM_PORT}" || { stop_server; return; }
     check_startup_flash_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" "$PLAYER_ANDROID_ACTIVITY" \
-        "--es ged_addr ${host_ip}:${GED_PORT}" || true
+        "--es stream_addr ${host_ip}:${STREAM_PORT}" || true
     check_soak_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" || true
     check_bgfg_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" "$PLAYER_ANDROID_ACTIVITY" || true
     warn_check "reconnect" "skipped on physical device (intent extra consumed at launch)"
@@ -2466,7 +2436,7 @@ run_debug_player() {
             SERVER_ARGS="--brokered"
             start_server
             cold_launch_ios_sim "$PLAYER_BUNDLE_ID" "$app_path" "phone" \
-                "-ged_addr localhost:$GED_PORT" || { stop_server; DESKTOP_BIN=""; return; }
+                "-stream_addr localhost:$STREAM_PORT" || { stop_server; DESKTOP_BIN=""; return; }
             check_soak_ios_sim "$SIM_UDID" "$PLAYER_BUNDLE_ID" || true
             check_clean_exit_ios_sim "$SIM_UDID" "$PLAYER_BUNDLE_ID"
             DESKTOP_BIN=""
@@ -2486,7 +2456,7 @@ run_debug_player() {
             SERVER_ARGS="--brokered"
             start_server
             cold_launch_android_emu "$PLAYER_ANDROID_PKG" "$apk" "" "$PLAYER_ANDROID_ACTIVITY" \
-                "--es ged_addr 10.0.2.2:$GED_PORT" || { stop_server; DESKTOP_BIN=""; return; }
+                "--es stream_addr 10.0.2.2:$STREAM_PORT" || { stop_server; DESKTOP_BIN=""; return; }
             check_soak_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG" || true
             check_clean_exit_android "$ANDROID_SERIAL" "$PLAYER_ANDROID_PKG"
             DESKTOP_BIN=""

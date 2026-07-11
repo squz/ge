@@ -4,7 +4,7 @@
 // PlayerWireBridge — the wire half of the player (brokered modality).
 //
 // Counterpart to ServerWireBridge on the server side. Owns the player's
-// WebSocket to ged, the H.264 decoder, and the AVCC parameter-set parser.
+// WebSocket to the stream relay (spyder), the H.264 decoder, and the AVCC parameter-set parser.
 // Handles the SessionConfig → DeviceInfo handshake, buffers the latest
 // decoded frame for the render subsystem to consume, and sends input
 // events upstream to the server.
@@ -32,7 +32,7 @@ class PlayerWireBridge {
 public:
     struct Config {
         std::string host;
-        int port = 42069;
+        int port = 3030;
         std::string serverName = "server";
         int connectTimeoutMs = 2000;
     };
@@ -75,7 +75,7 @@ public:
     PlayerWireBridge(const PlayerWireBridge&) = delete;
     PlayerWireBridge& operator=(const PlayerWireBridge&) = delete;
 
-    // Connect to ged and wait for SessionConfig. Blocks until received
+    // Connect to the stream relay (spyder) and wait for SessionConfig. Blocks until received
     // or connection fails. Fills `outConfig` on success.
     bool connect(wire::SessionConfig& outConfig);
 

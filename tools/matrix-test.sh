@@ -22,9 +22,9 @@
 #   --app <path>        App root (default: current directory)
 #   --app-name <name>   App binary name (default: derived from --app basename)
 #   --app-id <id>       iOS bundle-id / Android package (for *-dist cells)
-#   --server-name <n>   Server name registered with ged (default: app-name)
-#   --ged-port <port>   ged port (default: 42069)
-#   --no-ged            Assume ged is already running; don't start/stop it
+#   --server-name <n>   Server name registered with stream relay (default: app-name)
+#   --stream-port <port>   stream-relay port (spyder) (default: 3030)
+#   --no-stream relay            Assume stream relay is already running; don't start/stop it
 #   --verbose           Echo sub-command stdout/stderr
 #
 # Cells (all IDs):
@@ -55,7 +55,7 @@ APP_DIR="$(pwd)"
 APP_NAME=""
 APP_ID=""
 SERVER_NAME=""
-GED_PORT=42069
+STREAM_PORT=3030
 NO_GED=0
 VERBOSE=0
 
@@ -69,8 +69,8 @@ while [[ $# -gt 0 ]]; do
         --app-name)      APP_NAME="$2"; shift 2 ;;
         --app-id)        APP_ID="$2"; shift 2 ;;
         --server-name)   SERVER_NAME="$2"; shift 2 ;;
-        --ged-port)      GED_PORT="$2"; shift 2 ;;
-        --no-ged)        NO_GED=1; shift ;;
+        --stream-port)      STREAM_PORT="$2"; shift 2 ;;
+        --no-ged|--no-stream-relay)        NO_GED=1; shift ;;
         --verbose)       VERBOSE=1; shift ;;
         -h|--help)
             sed -n '2,/^$/{ s/^# \{0,1\}//; p; }' "$0"
@@ -140,46 +140,20 @@ record() {
         "${notes:+ ($notes)}"
 }
 
-# ── ged lifecycle ───────────────────────────────────────────────────
+# ── stream relay lifecycle ───────────────────────────────────────────────────
 
-GED_PID=""
-ensure_ged() {
-    if [[ $NO_GED -eq 1 ]]; then
-        # Assume already running.
-        if ! curl -sf --max-time 2 "http://localhost:$GED_PORT/api/info" >/dev/null 2>&1; then
-            echo "ged not reachable at :$GED_PORT and --no-ged was set" >&2
-            exit 2
-        fi
-        return
+# Stream relay is spyder (external). Matrix never starts a local broker.
+ensure_stream_relay() {
+    if curl -sf --max-time 2 "http://127.0.0.1:$STREAM_PORT/stream/servers" >/dev/null 2>&1; then
+        return 0
     fi
-    if curl -sf --max-time 2 "http://localhost:$GED_PORT/api/info" >/dev/null 2>&1; then
-        # Already running — don't touch.
-        NO_GED=1
-        return
-    fi
-    local ged_bin="$GE_ROOT/bin/ged"
-    if [[ ! -x "$ged_bin" ]]; then
-        echo "ged binary not found; run 'make ged' in $GE_ROOT" >&2
-        exit 2
-    fi
-    "$ged_bin" -no-open > "$TMPDIR_ROOT/ged.log" 2>&1 &
-    GED_PID=$!
-    # Wait for port
-    local tries=0
-    while ! curl -sf --max-time 1 "http://localhost:$GED_PORT/api/info" >/dev/null 2>&1; do
-        sleep 0.2
-        tries=$((tries + 1))
-        if [[ $tries -gt 25 ]]; then
-            echo "ged failed to start within 5s" >&2
-            kill "$GED_PID" 2>/dev/null || true
-            exit 2
-        fi
-    done
+    echo "spyder stream relay not reachable at :$STREAM_PORT — start with: brew services start spyder  (or spyder serve --addr 127.0.0.1:$STREAM_PORT)" >&2
+    exit 2
 }
+# Back-compat alias for call sites not yet renamed.
+ensure_ged() { ensure_stream_relay; }
 
-cleanup_ged() {
-    [[ -n "$GED_PID" ]] && kill "$GED_PID" 2>/dev/null || true
-}
+cleanup_ged() { :; }  # spyder is external — do not kill
 trap 'cleanup_ged' EXIT
 
 # ── Helpers: process lifecycle + screenshot ─────────────────────────
@@ -203,8 +177,8 @@ kill_bg() {
 }
 
 current_sessions() {
-    curl -sf --max-time 1 "http://localhost:$GED_PORT/api/info" 2>/dev/null \
-        | jq -r '.sessions // 0' || echo 0
+    curl -sf --max-time 1 "http://127.0.0.1:$STREAM_PORT/stream/servers" 2>/dev/null \
+        | jq -r '[(.servers // [])[].sessions // 0] | add // 0' || echo 0
 }
 
 # wait_for_sessions <min-absolute>
@@ -577,7 +551,7 @@ cell_android_emu_dist() {
     # ground truth and follows APP_DISPLAY_NAME casing (e.g. TiltBuggy),
     # not the lowercase APP_NAME. Accept either short form ".Cls" or
     # fully-qualified "pkg.sub.Cls"; feed the extracted value through
-    # `adb am start -n <pkg>/<value>` unchanged (adb accepts both).
+    # `adb am start -n <pkg>/<value>` unchanstream relay (adb accepts both).
     local manifest="$APP_DIR/android/app/src/main/AndroidManifest.xml"
     local activity_raw=""
     if [[ -f "$manifest" ]]; then
@@ -709,7 +683,7 @@ if [[ ! -x "$APP_DIR/bin/imgdiff" ]]; then
         || { echo "Failed to build imgdiff" >&2; exit 2; }
 fi
 
-# Start ged (if brokered cells selected).
+# Start stream relay (if brokered cells selected).
 if echo " $SELECTED_CELLS " | grep -qE 'player'; then
     ensure_ged
 fi

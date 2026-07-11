@@ -6,10 +6,11 @@ settling — check `STABILITY.md` for stability annotations before modifying pub
 
 The engine supports two operating modalities. In **brokered (server/player) mode** the app renders
 headless via sokol_gfx, encodes frames as H.264 (VideoToolbox on Apple, FFmpeg on
-Android), and transmits them to a player over a WebSocket managed by the **ged** daemon. The player
+Android). Optional **server-mode** builds encode H.264 and transmit to a player over a WebSocket
+managed by **spyder's stream relay**. The player
 decodes the stream, displays it in an SDL window, and relays input back to the server over the same
 channel. In **direct mode** the app owns a real SDL window; sokol_gfx draws straight to it with no
-encoding and no ged involvement. Both modes share the same `ge::run()` entry point — the `RenderHost`
+encoding and no stream relay. Both modes share the same `ge::run()` entry point — the `RenderHost`
 abstraction hides which modality is active.
 
 `ge::run()` blocks until SIGINT or the last session ends. On each new player connect, it calls a
@@ -45,8 +46,6 @@ If unsure, ask before creating: see `CLAUDE.md` §"When to change what" for the 
 | `tools/ios/` | ge player iOS Xcode project |
 | `tools/android/` | ge player Android Gradle project |
 | `sample/tiltbuggy/` | In-tree sample app — canonical test vehicle for `make check` |
-| `ged/` | Go daemon (broker, dashboard, MCP server) |
-| `web/` | ged React/Vite dashboard |
 | `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | Former bgfx libraries (vendored; retained as historical reference — migrated to sokol_gfx in 🎯T38) |
 
 ### Key interfaces
@@ -148,7 +147,7 @@ make cell.ios-sim-tablet-dist
 
 ### `ge::run(factory, config)` — `include/ge/SessionHost.h`
 
-Main entry point. Connects to ged, spawns a session per attaching player, calls `factory(ctx)` for
+Main entry point. Runs the direct (or server-mode) host; calls `factory(ctx)` for
 each, and blocks until SIGINT or all sessions end.
 
 ```cpp
@@ -186,7 +185,7 @@ owns all SDL state (window, texture, display). Not a `RenderHost` — it wraps `
 ### Headless render to PNG — `ge::renderToPng` / `ge::renderBatch` (🎯T124)
 
 The hermetic counterpart to the app channel: render a saved **State** to a PNG on the
-dev box — no device, no ged, no spyder, no window. Where the app channel drives a
+dev box — no device, no spyder, no window. Where the app channel drives a
 *live* app, this replays a *serialized* one. An agent uses it to (a) see what a State
 looks like with no device in the loop and (b) run a fast pixel-regression against
 committed goldens.
@@ -243,7 +242,7 @@ if (header.version != wire::kProtocolVersion) { /* reject */ }
 
 ### `Tweak<T>` — `include/ge/Tweak.h`
 
-Runtime-tunable parameters. Declare at file scope; the ged dashboard discovers them automatically.
+Runtime-tunable parameters. Declare at file scope; spyder's app-channel / dashboard discovers them automatically.
 
 ```cpp
 static tweak::Tweak<float> speed("buggy.speed", 5.0f);
@@ -605,12 +604,12 @@ go there.
   ("lock yes/no") — *which* orientation gets locked is the plist's job. See `CLAUDE.md`'s
   "iOS orientation lock (iPadOS 26+)" section for the full background.
 
-- **`ged_addr` is consumed-once on Android.** Pass it via `--es ged_addr "host:port"` to
+- **`stream_addr` is consumed-once on Android.** Pass it via `--es stream_addr "host:port"` (legacy: `ged_addr`) to
   `am start`. Subsequent launches without the flag fall through to QR scan. The matrix-cell harness
   passes it automatically; manual `adb shell am start` invocations must include it explicitly.
 
-- **iOS launch param is `-ged_addr "host:port"`.** Add to `simctl launch` or `devicectl` args:
-  `xcrun simctl launch booted <bundle-id> -ged_addr localhost:42069`.
+- **iOS launch param is `-stream_addr "host:port"`** (legacy: `-ged_addr`). Example:
+  `xcrun simctl launch booted <bundle-id> -stream_addr localhost:3030`.
 
 - **Physical-device rotation is not automatable.** `matrix-cell.sh` skips the rotation round-trip
   sub-check for `ios-device-*` and `android-device-*` cells; it runs only on simulators/emulators.

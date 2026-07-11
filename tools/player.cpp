@@ -9,7 +9,7 @@
 int main(int argc, char* argv[]) {
     std::string name = "server";
     std::string host = "localhost";
-    int port = 42069;
+    int port = 3030;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
             name = argv[++i];

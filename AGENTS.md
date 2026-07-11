@@ -353,7 +353,7 @@ player: $(ge/PLAYER)
 |------|---------|
 | `ge/src/Resource.cpp` | Asset path resolution |
 | `ge/src/FileIO.cpp` | Platform-agnostic file I/O |
-| `ge/src/WebSocketClient.cpp` | WebSocket client (ged connection) |
+| `ge/src/WebSocketClient.cpp` | WebSocket client (stream relay) |
 | `ge/src/SokolContext.mm` | sokol_gfx device setup and frame management (Apple); `ge/src/SokolContext_android.cpp` on Android |
 | `ge/src/Signal.cpp` | SIGINT / graceful shutdown |
 | `ge/src/SessionHost.mm` | `ge::run()` — sideband connect, session lifecycle |
@@ -369,24 +369,24 @@ player: $(ge/PLAYER)
 
 ## H.264 Streaming Protocol
 
-The server and player communicate over WebSocket (brokered by ged) using binary-framed messages.
+The server and player communicate over WebSocket (brokered by **spyder's stream relay**) using binary-framed messages.
 
 ### Connection Flow
 
 ```
-Player → ged:    DeviceInfo   (dimensions, pixel ratio, device class, safe area)
-ged → player:    StreamStart  (ged signals player to begin receiving H.264 frames)
-Server → ged:    VideoStream  (encoded H.264 NAL units, each frame as one message)
-ged → player:    VideoStream  (ged forwards frames to the player)
+Player → relay:    DeviceInfo   (dimensions, pixel ratio, device class, safe area)
+relay → player:    StreamStart  (relay signals player to begin receiving H.264 frames)
+Server → relay:    VideoStream  (encoded H.264 NAL units, each frame as one message)
+relay → player:    VideoStream  (relay forwards frames to the player)
 Player → server: SdlEvent     (input events forwarded back to the server)
 Player → server: SafeAreaUpdate (on orientation change)
-ged → player:    StreamStop / SessionEnd (on server disconnect)
+relay → player:    StreamStop / SessionEnd (on server disconnect)
 ```
 
 ### Steady-State Messages
 
 ```
-Server → ged → player:  MessageHeader{kVideoStreamMagic} + H.264 NAL data
+Server → relay → player:  MessageHeader{kVideoStreamMagic} + H.264 NAL data
 Player → server:        MessageHeader{kSdlEventMagic} + SDL_Event structs (input)
 Player → server:        MessageHeader{kSafeAreaMagic} + SafeAreaUpdate (on resize)
 Server → player:        MessageHeader{kAspectLockMagic} + AspectLock (optional)
@@ -519,30 +519,13 @@ The engine narrows `UISupportedInterfaceOrientations` to the requested mask at r
 
 If `SessionConfig.orientation` is set but the plist's allowed set doesn't include the requested orientation, the engine logs a loud `SPDLOG_WARN` pointing at the mismatch — the override still works (swizzle overrides plist at runtime), but narrowing the plist matches engine intent and avoids brief launch flicker.
 
-## ged Features
-
-### MCP Server
-
-ged exposes an MCP server at `/mcp` (streamable HTTP) with tools: `info`, `tweak_list`, `tweak_get`, `tweak_set`, `tweak_reset`, `logs`. Configure in `.mcp.json`:
-
-```json
-{"mcpServers":{"ged":{"type":"http","url":"http://localhost:42069/mcp"}}}
-```
-
-### Server Supersede
-
-When a new game server connects with the same name as an existing one, ged sends SIGINT to the old server process. This enables seamless restarts — just `make && bin/myapp` without manually killing the old process.
-
-### launchd
-
-ged can run as a launchd agent for auto-start on login and restart-on-crash.
 
 ## Public API
 
 ### Session Host
 
-- **`ge::run(Factory, SessionHostConfig)`** (`SessionHost.h`) — Blocks until SIGINT or all sessions end. Connects to ged via sideband WebSocket, sets up sokol_gfx rendering (headless H.264 encode by default, or native window when `headless=false`), and calls the factory for each attaching player. The factory receives a `ge::Context` and returns a `RunConfig`. `SessionHostConfig` controls default dimensions, headless mode, and app identity for the persistent database path.
-- **`ge::renderToPng(Factory, SessionHostConfig, prepare, outPath)` / `ge::renderBatch(Factory, SessionHostConfig, items)`** (`SessionHost.h`, 🎯T124) — Headless one-shot render of a restored game State to a PNG, with no device, ged, spyder, or window in the loop. Builds a hidden `DirectRenderHost` (`SessionHostConfig.hidden` → off-screen drawable), runs the factory once, calls `prepare()` to set up the frame's State, renders one frame through the **unchanged** `onRender` / `swapchainPass()` path (capturing the swapchain to RGBA instead of presenting), and writes the PNG via `ge::writePng`. `renderBatch` amortises host + factory across many `RenderItem{prepare, outPath}` with per-item error capture (one bad fixture doesn't sink the run) and returns the count rendered; `renderToPng` is the single-item case. The reused host is leak-free — a batch frame is byte-identical to a fresh single render of the same State. **Determinism contract:** same State + same `SessionHostConfig` size ⇒ byte-stable PNG — gate any render-liveness animation behind a flag the render path disables (`sample/tiltbuggy`'s `Renderer::setDiagnosticSpin(false)`). Consumer apps parse their own `render` verb before `ge::run`; tiltbuggy is the reference (`render --state <file|-> --out <png> [--batch <manifest>] [--isolate] [--size WxH]`, plus a `make render-test` / `make update-render-goldens` golden loop over committed `fixtures/`). `ge::writePng(path, rgba, w, h)` (`png.h`) is the standalone RGBA8 → PNG writer.
+- **`ge::run(Factory, SessionHostConfig)`** (`SessionHost.h`) — Blocks until SIGINT or all sessions end. Runs the direct host (or server-mode stream under `GE_SERVER_BUILD`), sets up sokol_gfx rendering, and drives the factory callbacks. The factory receives a `ge::Context` and returns a `RunConfig`. `SessionHostConfig` controls default dimensions, headless mode, and app identity for the persistent database path.
+- **`ge::renderToPng(Factory, SessionHostConfig, prepare, outPath)` / `ge::renderBatch(Factory, SessionHostConfig, items)`** (`SessionHost.h`, 🎯T124) — Headless one-shot render of a restored game State to a PNG, with no device, spyder, or window in the loop. Builds a hidden `DirectRenderHost` (`SessionHostConfig.hidden` → off-screen drawable), runs the factory once, calls `prepare()` to set up the frame's State, renders one frame through the **unchanged** `onRender` / `swapchainPass()` path (capturing the swapchain to RGBA instead of presenting), and writes the PNG via `ge::writePng`. `renderBatch` amortises host + factory across many `RenderItem{prepare, outPath}` with per-item error capture (one bad fixture doesn't sink the run) and returns the count rendered; `renderToPng` is the single-item case. The reused host is leak-free — a batch frame is byte-identical to a fresh single render of the same State. **Determinism contract:** same State + same `SessionHostConfig` size ⇒ byte-stable PNG — gate any render-liveness animation behind a flag the render path disables (`sample/tiltbuggy`'s `Renderer::setDiagnosticSpin(false)`). Consumer apps parse their own `render` verb before `ge::run`; tiltbuggy is the reference (`render --state <file|-> --out <png> [--batch <manifest>] [--isolate] [--size WxH]`, plus a `make render-test` / `make update-render-goldens` golden loop over committed `fixtures/`). `ge::writePng(path, rgba, w, h)` (`png.h`) is the standalone RGBA8 → PNG writer.
 - **`ge::Context`** — Platform context passed to the factory once at session start and to `onRender` each frame. Provides `drawSafeRectInPts()` / `uiSafeRectInPts()` / `fullRectInPts()` (rect accessors in point space, 🎯T60, see `ge::Rect`), `drawSafeInsetsInPts()` / `uiSafeInsetsInPts()` (per-edge `SafeAreaInsets` in pt — 🎯T37 — reach for these only when aligning against a specific chrome edge), `deviceClass()`, `pixelsPerPt()` / `ptsPerPixel()` / `deviceUiScale()` (sizing scalars, below), `parallax()` (device-tilt parallax, see `SessionHostConfig.parallaxFactor`), and `db()` (the engine-managed sqlpipe database). The safe rect is *advisory*, not a clip region — games are free to draw anywhere on the surface but should keep the gameplay grid inside the safe rect so chrome doesn't intrude on it. Cheaply copyable (shared_ptr internals); accessors return live values that the engine updates before each callback. **🎯T60 migration**: pre-T60 `drawSafeRect()` / `uiSafeRect()` / `fullRect()` were renamed to `*InPts()` — consumers must update at compile time; no silent fallback exists.
 - **Sizing scalars on `Context`** — Two distinct axes for cross-device sizing:
   - `pixelsPerPt()` / `ptsPerPixel()` — physical-size axis. 1pt is OS-calibrated (1/163" on iPhones, 1/132" on iPads, etc.) so the same pt count yields a similar physical mm at the device's typical viewing distance. iPhone @3x: 3.0; iPad @2x: 2.0; desktop: 1.0. Use for **touch targets, body text, fixed-feel chrome** — anything where the constraint is "must be at least N physical mm". Reciprocal pair.
@@ -888,7 +871,7 @@ local-network-permission gotcha.
 ### I/O
 
 - **`FileIO`** (`FileIO.h`) — `ge::openFile(path)` returns a `std::unique_ptr<std::istream>`. Uses `SDL_IOFromFile` internally for platform-agnostic file access (Android APK assets, iOS bundles, normal filesystem).
-- **`WebSocketClient`** (`WebSocketClient.h`) — Async WebSocket client used by `SessionHost` to connect to ged. pImpl.
+- **`WebSocketClient`** (`WebSocketClient.h`) — Async WebSocket client used by server-mode / player wire paths to connect to the stream relay (spyder). pImpl.
 
 ### Video
 
@@ -1085,11 +1068,11 @@ Without `--install`, the script checks passively (is the app installed? is it in
 
 The script checks, in order:
 
-1. **ged reachable** — port listening, `/api/info` responds, game server connected, active session count
+1. **spyder stream relay reachable** — port listening, `GET /stream/servers` responds, game server listed
 2. **Game server running** — process alive (if `--server-pid` given)
 3. **Device reachable** — `spyder devices` / `spyder resolve` confirms device found and connected; branches on spyder exit codes (11 = not found, 12 = not connected, 40 = trust not granted, 41 = developer mode off, 42 = locked)
 4. **App deployed and running** — with `--install`: `spyder deploy` (atomic terminate→install→launch→PID-verify); without: `spyder list-apps` + `spyder device-state` for foreground app
-5. **Player connected** — polls ged `/api/info` for active sessions (up to `--timeout` seconds)
+5. **Player connected** — polls spyder `GET /stream/servers` for session counts (up to `--timeout` seconds)
 6. **Player logs** — `spyder log <device>` filtered to error/fatal/crash; falls back to `~/Library/Logs/DiagnosticReports` crash scan
 
 Each check prints PASS/FAIL/WARN. The script exits non-zero if any check fails. **Do not ask the user about visual output until this script passes.** If it fails, read the spyder exit code in the FAIL message and branch accordingly:
@@ -1108,7 +1091,7 @@ Each check prints PASS/FAIL/WARN. The script exits non-zero if any check fails. 
 | 41 | Developer Mode off | Enable in iOS Settings → Privacy & Security |
 | 42 | device locked | Unlock the device |
 
-Only after the smoke test passes and the problem is still unclear, ask the user what they see — but state what you already verified: "Smoke test passed (ged connected, player session active, no crash reports) — can you confirm whether the globe is rendering?"
+Only after the smoke test passes and the problem is still unclear, ask the user what they see — but state what you already verified: "Smoke test passed (spyder stream relay connected, player session active, no crash reports) — can you confirm whether the globe is rendering?"
 
 **Device preference**: When the user tells you which device to test on (e.g. "use Pippa"), save it to auto-memory so you remember across sessions. Always pass the preferred device via `--device`. If the smoke test fails because that device isn't found, tell the user which device was expected and list the devices that *are* available (the script prints them via `spyder devices`), then ask how they'd like to proceed.
 

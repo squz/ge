@@ -474,9 +474,9 @@ void registerBuiltins() {
 
     // ── tweaks (🎯T91.2) ──
     // Expose the shared `tweak::` library over the app-channel so a
-    // direct-mode app is tunable from spyder WITHOUT ged — this is what
-    // lets ged's control plane be deleted rather than reimplemented. list/get
-    // use the exact `tweak::allToJson` serialisation ged already proxies, so
+    // direct-mode app is tunable from spyder WITHOUT a separate broker daemon — this is what
+    // lets the control plane live in spyder rather than a ge-side daemon. list/get
+    // use the exact `tweak::allToJson` serialisation spyder app-channel proxies, so
     // the shapes match; set/reset apply + persist through the tweak DB.
     reg("tweak_list", [](const nlohmann::json&) {
         return nlohmann::json::parse(tweak::allToJson());
@@ -495,7 +495,7 @@ void registerBuiltins() {
         if (!tweak::parseAndApply(p.dump()))
             throw Error{-32602, "tweak_set: no such tweak or invalid value: " +
                                     p.value("name", std::string{})};
-        // Return the updated entry (JSON) — richer than ged's text ack; the
+        // Return the updated entry (JSON) — richer than a bare text ack; the
         // harness records this as an intentional divergence (Goodhart guard).
         const std::string name = p["name"].get<std::string>();
         for (auto& t : nlohmann::json::parse(tweak::allToJson()))
@@ -503,7 +503,7 @@ void registerBuiltins() {
         return nlohmann::json::object();
     });
     reg("tweak_reset", [](const nlohmann::json& p) -> nlohmann::json {
-        // {"name":..} resets one, {"all":true} resets all — same payload ged
+        // {"name":..} resets one, {"all":true} resets all — same payload the old broker
         // forwards, applied locally via the shared library. Returns the fresh
         // list so the caller sees the result in one round-trip.
         tweak::parseAndReset(p.dump());

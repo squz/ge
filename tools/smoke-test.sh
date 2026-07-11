@@ -25,7 +25,7 @@
 #                         Android: path to .apk file
 #   --bundle-id <id>    App bundle identifier / package name
 #                       (default: com.squz.yourworld2)
-#   --ged-port <port>   ged daemon port (default: 42069)
+#   --stream-port <port>   stream-relay port (spyder serve; default: 3030)
 #   --timeout <secs>    Max seconds to wait for player connection (default: 15)
 #   --server-pid <pid>  Game server PID to verify is running
 #   --platform <p>      Retained for backwards compatibility; ignored. Device
@@ -55,7 +55,7 @@ set -euo pipefail
 DEVICE=""
 INSTALL=""
 BUNDLE_ID="com.squz.yourworld2"
-GED_PORT=42069
+STREAM_PORT=3030
 TIMEOUT=15
 SERVER_PID=""
 PLATFORM=""  # accepted but ignored; kept for backwards compat
@@ -67,7 +67,7 @@ while [[ $# -gt 0 ]]; do
         --install)     INSTALL="$2"; shift 2 ;;
         --bundle-id)   BUNDLE_ID="$2"; shift 2 ;;
         --package)     BUNDLE_ID="$2"; shift 2 ;;  # Android alias
-        --ged-port)    GED_PORT="$2"; shift 2 ;;
+        --stream-port)    STREAM_PORT="$2"; shift 2 ;;
         --timeout)     TIMEOUT="$2"; shift 2 ;;
         --server-pid)  SERVER_PID="$2"; shift 2 ;;
         --platform)    PLATFORM="$2"; shift 2 ;;  # accepted, ignored
@@ -98,41 +98,39 @@ if ! command -v spyder &>/dev/null; then
     exit 1
 fi
 
-# ── Check: ged reachable ────────────────────────────────────────────
+# ── Check: stream relay reachable ────────────────────────────────────────────
 
-check_ged() {
-    echo "── ged daemon (port $GED_PORT) ──"
+check_stream_relay() {
+    echo "── stream relay / spyder (port $STREAM_PORT) ──"
 
     # Is anything listening on the port?
-    if ! lsof -iTCP:"$GED_PORT" -sTCP:LISTEN -P -n >/dev/null 2>&1; then
-        fail "Nothing listening on port $GED_PORT — is ged running?"
+    if ! lsof -iTCP:"$STREAM_PORT" -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+        fail "Nothing listening on port $STREAM_PORT — is spyder serve running?"
         return
     fi
-    pass "Port $GED_PORT is listening"
+    pass "Port $STREAM_PORT is listening"
 
-    # Query the info API
+    # Spyder stream relay: GET /stream/servers (JSON list of connected servers).
     local response
-    if ! response=$(curl -sf --max-time 3 "http://localhost:$GED_PORT/api/info" 2>/dev/null); then
-        fail "ged /api/info unreachable (curl failed)"
+    if ! response=$(curl -sf --max-time 3 "http://127.0.0.1:$STREAM_PORT/stream/servers" 2>/dev/null); then
+        fail "spyder /stream/servers unreachable (curl failed) — is this spyder, not something else?"
         return
     fi
-    pass "ged /api/info responded"
+    pass "spyder /stream/servers responded"
 
-    # Parse response
-    local connected sessions
-    connected=$(echo "$response" | jq -r '.connected // false')
-    sessions=$(echo "$response" | jq -r '.sessions // 0')
+    local count
+    count=$(echo "$response" | jq -r '(.servers // []) | length' 2>/dev/null || echo 0)
 
-    if [[ "$connected" == "true" ]]; then
-        pass "Game server connected to ged"
+    if [[ "$count" -gt 0 ]]; then
+        pass "Game server(s) registered with stream relay ($count)"
     else
-        fail "No game server connected to ged"
+        fail "No game server registered with stream relay (empty /stream/servers)"
     fi
 
-    info "Active sessions: $sessions"
+    info "Servers:"
     echo "$response" | jq -r '
-        .servers // [] | to_entries[] |
-        "  ....  Server: \(.value.name // "unknown") (pid \(.value.pid // "?"), sessions: \(.value.sessions // 0))"
+        (.servers // [])[]? |
+        "  ....  Server: \(.name // "unknown") sessions=\(.sessions // 0)"
     ' 2>/dev/null || true
 }
 
@@ -351,14 +349,14 @@ check_player_connection() {
 
     while [[ $elapsed -lt $TIMEOUT ]]; do
         local response
-        response=$(curl -sf --max-time 2 "http://localhost:$GED_PORT/api/info" 2>/dev/null) || {
+        response=$(curl -sf --max-time 2 "http://localhost:$STREAM_PORT/stream/servers" 2>/dev/null) || {
             sleep "$interval"
             elapsed=$((elapsed + interval))
             continue
         }
 
         local sessions
-        sessions=$(echo "$response" | jq -r '.sessions // 0')
+        sessions=$(echo "$response" | jq -r '[(.servers // [])[].sessions // 0] | add // 0' 2>/dev/null || echo 0)
 
         if [[ "$sessions" -gt 0 ]]; then
             pass "Player connected ($sessions active session(s))"
@@ -435,7 +433,7 @@ check_player_logs() {
 echo "ge smoke test${DEVICE:+ — device: $DEVICE}"
 echo
 
-check_ged
+check_stream_relay
 check_server
 
 if [[ "$PLATFORM" == "desktop" ]]; then

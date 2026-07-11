@@ -2,11 +2,11 @@
 // Scans a QR code on startup to discover the game server, then runs the shared
 // player core.
 //
-// Pass --es ged_addr "host:port" to adb am start to connect directly (highest priority):
-//   adb shell am start -n com.squz.player/.GeActivity --es ged_addr "10.0.2.2:42069"
-// Set debug.ge.address system property to connect directly without QR:
-//   adb shell setprop debug.ge.address "192.168.1.100:42069"
-// On the emulator, 10.0.2.2 is automatically used when neither override is present.
+// Stream relay address (spyder, default :3030):
+//   adb shell am start -n com.squz.player/.GeActivity --es stream_addr "10.0.2.2:3030"
+//   (legacy: --es ged_addr "…")
+//   adb shell setprop debug.ge.address "192.168.1.100:3030"
+// On the emulator, 10.0.2.2:3030 is used when neither override is present.
 
 #include "player_core.h"
 #include "QRScanner.h"
@@ -20,7 +20,8 @@
 
 namespace {
 
-constexpr int kDefaultPort = 42069;
+// Default matches spyder's loopback stream relay (spyder serve).
+constexpr int kDefaultPort = 3030;
 
 bool isEmulator() {
     char value[PROP_VALUE_MAX] = {};
@@ -38,16 +39,16 @@ ge::ScanResult parseAddr(const std::string& addr) {
     return {addr, static_cast<uint16_t>(kDefaultPort)};
 }
 
-// Retrieve the ged_addr intent extra set by GeActivity.getGedAddr() via JNI.
+// Retrieve stream_addr / ged_addr intent extra from GeActivity via JNI.
 // Returns empty string if absent or on JNI error.
-std::string intentGedAddr() {
+std::string intentStreamAddr() {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
     if (!env) return {};
 
     jclass cls = env->FindClass("com/squz/player/GeActivity");
     if (!cls) { env->ExceptionClear(); return {}; }
 
-    jmethodID mid = env->GetStaticMethodID(cls, "getGedAddr", "()Ljava/lang/String;");
+    jmethodID mid = env->GetStaticMethodID(cls, "getStreamAddr", "()Ljava/lang/String;");
     if (!mid) { env->ExceptionClear(); env->DeleteLocalRef(cls); return {}; }
 
     jobject obj = env->CallStaticObjectMethod(cls, mid);
@@ -62,7 +63,7 @@ std::string intentGedAddr() {
 }
 
 // Check debug.ge.address system property for direct connection (skips QR).
-// Set via: adb shell setprop debug.ge.address "192.168.1.100:42069"
+// Set via: adb shell setprop debug.ge.address "192.168.1.100:3030"
 // Clear:  adb shell setprop debug.ge.address ""
 ge::ScanResult directAddressProp() {
     char value[PROP_VALUE_MAX] = {};
@@ -80,12 +81,12 @@ int main(int argc, char* argv[]) {
 
     SPDLOG_INFO("ge player (Android) starting...");
 
-    // Priority 1: ged_addr intent extra (set via adb am start --es ged_addr host:port).
+    // Priority 1: stream_addr / ged_addr intent extra.
     {
-        std::string addr = intentGedAddr();
+        std::string addr = intentStreamAddr();
         if (!addr.empty()) {
             auto r = parseAddr(addr);
-            SPDLOG_INFO("Intent ged_addr: {}:{}", r.host, r.port);
+            SPDLOG_INFO("Intent stream_addr: {}:{}", r.host, r.port);
             return playerCore(r.host, r.port);
         }
     }
@@ -105,7 +106,7 @@ int main(int argc, char* argv[]) {
         return playerCore("10.0.2.2", kDefaultPort);
     }
 
-    // Priority 4: Physical device — scan QR code presented by ged dashboard.
+    // Priority 4: Physical device — scan QR code (spyder dashboard / printed URL).
     SPDLOG_INFO("Physical device — waiting for QR scan...");
     ge::ScanResult result = ge::scanQRCode();
     return playerCore(result.host, result.port);

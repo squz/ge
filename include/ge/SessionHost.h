@@ -1,7 +1,7 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Manages the server lifecycle: sokol context, ged sideband connection,
+// Manages the server lifecycle: sokol context, optional stream-relay connection,
 // H.264 encode pipeline, and per-session state. The game provides a
 // factory that creates session state and returns render loop callbacks.
 #pragma once
@@ -734,7 +734,7 @@ using Factory = std::function<RunConfig(Context)>;
 // Blocks until SIGINT or all sessions end.
 void run(Factory factory, const SessionHostConfig& config = {});
 
-// 🎯T124 Headless one-shot render. Builds a hidden-window direct host (no ged,
+// 🎯T124 Headless one-shot render. Builds a hidden-window direct host (no stream broker,
 // no run loop, nothing shown), runs `factory`, invokes `prepare` (restore your
 // State here — it runs after the factory and before the single onRender),
 // renders exactly one frame, and writes it to `outPath` as a PNG. Returns true

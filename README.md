@@ -100,24 +100,24 @@ native player at spyder's stream relay (same host/port as `spyder serve`, defaul
 bin/player --host 127.0.0.1 --port 3030 --name <server-name>
 ```
 
-**iOS Simulator** — pass `-ged_addr host:port` as a launch argument (flag name is historical):
+**iOS Simulator** — pass `-stream_addr host:port` as a launch argument :
 ```bash
-xcrun simctl launch <udid> com.squz.player -ged_addr localhost:3030
+xcrun simctl launch <udid> com.squz.player -stream_addr localhost:3030
 ```
 
 **iOS Device** — use `devicectl` with `--console-pty` and pass args after `--`:
 ```bash
-xcrun devicectl device process launch --console-pty --device <udid> com.squz.player -- -ged_addr 192.168.1.100:3030
+xcrun devicectl device process launch --console-pty --device <udid> com.squz.player -- -stream_addr 192.168.1.100:3030
 ```
 
-**Android Emulator** — pass `--es ged_addr host:port` to `am start`:
+**Android Emulator** — pass `--es stream_addr host:port` to `am start`:
 ```bash
-adb shell am start -n com.squz.player/.GeActivity --es ged_addr 10.0.2.2:3030
+adb shell am start -n com.squz.player/.GeActivity --es stream_addr 10.0.2.2:3030
 ```
 
 **Android Device** — same syntax with the Mac's LAN IP:
 ```bash
-adb shell am start -n com.squz.player/.GeActivity --es ged_addr 192.168.1.100:3030
+adb shell am start -n com.squz.player/.GeActivity --es stream_addr 192.168.1.100:3030
 ```
 
 If the parameter is absent the player falls back to any saved address, then QR scan.
