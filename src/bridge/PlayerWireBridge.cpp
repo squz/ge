@@ -70,6 +70,7 @@ struct PlayerWireBridge::Impl {
     std::shared_ptr<WsConnection> conn;
     std::unique_ptr<VideoDecoder> decoder;
     AVCCParser avcc;
+    std::string sessionId;  // 🎯T149 — spyder session id from GE2S
 
     // Frame buffer, written from decoder callback (VT thread), read from pump.
     std::mutex frameMutex;
@@ -95,10 +96,13 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
         SPDLOG_ERROR("PlayerWireBridge: failed to connect to stream relay");
         return false;
     }
-    SPDLOG_INFO("PlayerWireBridge: connected to stream relay");
+    SPDLOG_INFO("PlayerWireBridge: connected to stream relay {}:{} name={}",
+                i_->cfg.host, i_->cfg.port, i_->cfg.serverName);
 
-    // Wait for SessionConfig (skip unrelated housekeeping messages).
-    while (i_->conn->isOpen()) {
+    // Wait for SessionConfig (required for orientation). Session id (GE2S) may
+    // arrive before or after; both are accepted in this loop.
+    bool gotConfig = false;
+    while (i_->conn->isOpen() && !gotConfig) {
         std::vector<char> msg;
         if (!i_->conn->recvBinary(msg) || msg.size() < 8) return false;
         uint32_t magic = 0;
@@ -108,10 +112,38 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
             std::memcpy(&outConfig,
                         msg.data() + sizeof(wire::MessageHeader),
                         sizeof(wire::SessionConfig));
-            return true;
+            gotConfig = true;
+        } else if (magic == wire::kStreamSessionIdMagic &&
+                   msg.size() >= sizeof(wire::MessageHeader)) {
+            const auto* hdr =
+                reinterpret_cast<const wire::MessageHeader*>(msg.data());
+            if (sizeof(wire::MessageHeader) + hdr->length <= msg.size()) {
+                i_->sessionId.assign(msg.data() + sizeof(wire::MessageHeader),
+                                     hdr->length);
+                SPDLOG_INFO("PlayerWireBridge: stream session_id={}", i_->sessionId);
+            }
         }
     }
-    return false;
+    // Session id is often the message immediately after SessionConfig.
+    if (gotConfig && i_->sessionId.empty() && i_->conn->isOpen() &&
+        i_->conn->available() > 0) {
+        std::vector<char> msg;
+        if (i_->conn->recvBinary(msg) && msg.size() >= 8) {
+            uint32_t magic = 0;
+            std::memcpy(&magic, msg.data(), 4);
+            if (magic == wire::kStreamSessionIdMagic) {
+                const auto* hdr =
+                    reinterpret_cast<const wire::MessageHeader*>(msg.data());
+                if (sizeof(wire::MessageHeader) + hdr->length <= msg.size()) {
+                    i_->sessionId.assign(msg.data() + sizeof(wire::MessageHeader),
+                                         hdr->length);
+                    SPDLOG_INFO("PlayerWireBridge: stream session_id={}",
+                                i_->sessionId);
+                }
+            }
+        }
+    }
+    return gotConfig;
 }
 
 bool PlayerWireBridge::sendDeviceInfo(const wire::DeviceInfo& devInfo) {
@@ -221,6 +253,14 @@ bool PlayerWireBridge::pump() {
             }
             i_->stats.framesThisTick++;
             i_->stats.lastSeq = seq;
+        } else if (magic == wire::kStreamSessionIdMagic) {
+            const auto* hdr =
+                reinterpret_cast<const wire::MessageHeader*>(data.data());
+            if (sizeof(wire::MessageHeader) + hdr->length <= data.size()) {
+                i_->sessionId.assign(data.data() + sizeof(wire::MessageHeader),
+                                     hdr->length);
+                SPDLOG_INFO("PlayerWireBridge: stream session_id={}", i_->sessionId);
+            }
         } else if (magic == wire::kServerAssignedMagic) {
             SPDLOG_INFO("PlayerWireBridge: server assigned");
         } else if (magic == wire::kSessionEndMagic) {
@@ -241,6 +281,10 @@ bool PlayerWireBridge::pollFrame(DecodedFrame& out) {
 
 PlayerWireBridge::PumpStats PlayerWireBridge::lastPumpStats() const {
     return i_->stats;
+}
+
+const std::string& PlayerWireBridge::sessionId() const {
+    return i_->sessionId;
 }
 
 bool PlayerWireBridge::isOpen() const {

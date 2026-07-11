@@ -38,20 +38,32 @@ struct PlayerRender::Impl {
     // synthetic; that contract is the engine's, not the player's.
     SDL_Sensor* accelSensor = nullptr;
 
+    // True when the window and the video disagree on which axis is longer —
+    // e.g. landscape stream on a portrait tablet (system ignored our
+    // orientation lock; Pixel Tablet ignoreOrientationRequest). We rotate
+    // the texture 90° to fill the short axis instead of letterboxing.
+    static bool needsTexWindowRotation(int ww, int wh, int tw, int th) {
+        if (tw <= 0 || th <= 0 || ww <= 0 || wh <= 0) return false;
+        const bool winLandscape = ww > wh;
+        const bool texLandscape = tw > th;
+        return winLandscape != texLandscape;
+    }
+
     // Coordinate-map a window-pixel (sx, sy) to video-texture space.
-    // Accounts for aspect-fit scaling and portrait-in-landscape rotation.
+    // Accounts for aspect-fit scaling and 90° tex↔window rotation.
     void mapToTexture(float sx, float sy, float& ox, float& oy) const {
         if (!videoTex) { ox = sx; oy = sy; return; }
         int ww, wh;
         SDL_GetWindowSizeInPixels(window, &ww, &wh);
-        const bool rotated = (ww > wh) && (texH > texW);
+        const bool rotated = needsTexWindowRotation(ww, wh, texW, texH);
 
         float visW, visH;
         if (rotated) {
+            // Post-rotation on-screen size is (texH × texW) aspect.
             const float s = std::min(float(ww) / float(texH),
                                      float(wh) / float(texW));
-            visW = texW * s;
-            visH = texH * s;
+            visW = texH * s;
+            visH = texW * s;
         } else {
             const float s = std::min(float(ww) / float(texW),
                                      float(wh) / float(texH));
@@ -63,8 +75,16 @@ struct PlayerRender::Impl {
         const float nx = (sx - offX) / visW;
         const float ny = (sy - offY) / visH;
         if (rotated) {
-            ox = (1.f - ny) * texW;
-            oy = nx * texH;
+            // Inverse of +90° CW render (see render()): screen → texture.
+            // Portrait window + landscape tex: rotate so tex +x maps up-screen.
+            if (wh > ww) {
+                ox = ny * texW;
+                oy = (1.f - nx) * texH;
+            } else {
+                // Landscape window + portrait tex (existing path, −90°).
+                ox = (1.f - ny) * texW;
+                oy = nx * texH;
+            }
         } else {
             ox = nx * texW;
             oy = ny * texH;
@@ -157,8 +177,12 @@ void PlayerRender::getDeviceDimensions(int& w, int& h, int& pixelRatio) const {
 
     const bool wantPortrait  = (i_->requestedOrientation == wire::kOrientationPortrait ||
                                 i_->requestedOrientation == wire::kOrientationPortraitFlipped);
+    // AnyLandscape is a landscape lock (either side); DeviceInfo must report
+    // landscape dims so the server never treats a portrait tablet as the
+    // game's intended surface.
     const bool wantLandscape = (i_->requestedOrientation == wire::kOrientationLandscape ||
-                                i_->requestedOrientation == wire::kOrientationLandscapeFlipped);
+                                i_->requestedOrientation == wire::kOrientationLandscapeFlipped ||
+                                i_->requestedOrientation == wire::kOrientationAnyLandscape);
     if (wantPortrait  && w > h) std::swap(w, h);
     if (wantLandscape && h > w) std::swap(w, h);
 }
@@ -281,22 +305,26 @@ PlayerRender::RenderStats PlayerRender::render() {
     if (i_->videoTex) {
         int ww, wh;
         SDL_GetWindowSizeInPixels(i_->window, &ww, &wh);
-        const bool needsRotation = (ww > wh) && (i_->texH > i_->texW);
+        const bool needsRotation =
+            Impl::needsTexWindowRotation(ww, wh, i_->texW, i_->texH);
 
         if (needsRotation) {
-            // SDL_RenderTextureRotated rotates the texture within its
-            // dest rect. For a portrait texture rotated -90° in a
-            // landscape window, the dest rect matches the pre-rotation
-            // size (texW × texH) scaled to fit the post-rotation bbox.
+            // SDL_RenderTextureRotated rotates about the dest rect centre.
+            // Dest is pre-rotation tex size, scaled so the post-rotation
+            // axis-aligned bbox fills the window (contain).
             const float scale = std::min(float(ww) / float(i_->texH),
                                          float(wh) / float(i_->texW));
             const float dstW = i_->texW * scale;
             const float dstH = i_->texH * scale;
             SDL_FRect dst{ (ww - dstW) * 0.5f, (wh - dstH) * 0.5f,
                            dstW, dstH };
+            // Portrait window + landscape stream: +90° fills the short axis
+            // (system letterboxing on tablets that ignore orientation locks).
+            // Landscape window + portrait stream: −90° (original path).
+            const double deg = (wh > ww) ? 90.0 : -90.0;
             SDL_RenderTextureRotated(i_->renderer, i_->videoTex,
                                      nullptr, &dst,
-                                     -90.0, nullptr, SDL_FLIP_NONE);
+                                     deg, nullptr, SDL_FLIP_NONE);
         } else {
             const float scale = std::min(float(ww) / float(i_->texW),
                                          float(wh) / float(i_->texH));

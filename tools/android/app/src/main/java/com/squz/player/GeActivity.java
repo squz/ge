@@ -1,6 +1,7 @@
 package com.squz.player;
 
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import org.libsdl.app.SDLActivity;
 
@@ -55,6 +56,39 @@ public class GeActivity extends SDLActivity {
     /** @deprecated Use {@link #getStreamAddr()}; kept for any old native stubs. */
     public static String getGedAddr() {
         return getStreamAddr();
+    }
+
+    /**
+     * Force Activity orientation from native {@code playerForceOrientation}.
+     * Values match {@code ge::wire::kOrientation*} / SDL_DisplayOrientation:
+     * 1=Landscape, 2=LandscapeFlipped, 3=Portrait, 4=PortraitFlipped,
+     * 0xFE=AnyLandscape (sensor landscape). 0 = no-op.
+     */
+    public static void forceOrientation(int orientation) {
+        final SDLActivity act = mSingleton;
+        if (act == null || orientation == 0) return;
+
+        final int mode;
+        switch (orientation) {
+            case 0xFE: // kOrientationAnyLandscape
+                mode = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+                break;
+            case 1: // SDL_ORIENTATION_LANDSCAPE → reverse of device left tilt
+                mode = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                break;
+            case 2: // SDL_ORIENTATION_LANDSCAPE_FLIPPED
+                mode = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+                break;
+            case 3: // SDL_ORIENTATION_PORTRAIT
+                mode = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                break;
+            case 4: // SDL_ORIENTATION_PORTRAIT_FLIPPED
+                mode = ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+                break;
+            default:
+                return;
+        }
+        act.runOnUiThread(() -> act.setRequestedOrientation(mode));
     }
 
     @Override

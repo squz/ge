@@ -31,6 +31,9 @@ constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — relay → p
 constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → server: safe area update
 constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
 constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
+// 🎯T149: spyder session id (e.g. "s1") so server/player/spyder logs correlate.
+// Payload is the UTF-8 id bytes (no NUL); length is MessageHeader.length.
+constexpr uint32_t kStreamSessionIdMagic = 0x47453253;  // "GE2S" — server → player
 
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)

@@ -6,15 +6,19 @@
 #include <ge/Protocol.h>
 #include <ge/VideoEncoder.h>
 #include <ge/WebSocketClient.h>
+#include <ge/appchannel.h>
 
 #include <SDL3/SDL.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 #include <unistd.h>  // getpid
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -79,11 +83,31 @@ struct ServerSession::Impl {
     std::atomic<int> deviceClass{0};
     std::atomic<int> pixelRatio{0};
 
+    // 🎯T149 encode-side stream telemetry (spyder session id for grepping).
+    std::mutex sessionMu;
+    std::string sessionId;
+    std::mutex encodeStatsMu;
+    struct EncodeWindow {
+        uint64_t frames = 0;
+        uint64_t keyframes = 0;
+        uint64_t pframes = 0;
+        uint64_t keyBytes = 0;
+        uint64_t pBytes = 0;
+        size_t maxKey = 0;
+        size_t maxP = 0;
+        std::chrono::steady_clock::time_point windowStart{};
+    } encodeWin;
+    nlohmann::json lastStreamStats = nlohmann::json::object();
+
     void sidebandLoop();
     void openWire(const std::string& sessionId);
     void closeWire();
     void inputLoop();
     void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread
+    void noteEncoded(const VideoEncoder::Frame& f);
+    void flushEncodeStats(const char* reason);
+    void publishEncodeStats(const EncodeWindow& snap, double windowSec,
+                            const char* reason);
 
     void sendWire(uint32_t magic, const void* payload, uint32_t payloadLen) {
         wire::MessageHeader hdr{magic, payloadLen};
@@ -95,8 +119,121 @@ struct ServerSession::Impl {
     }
 };
 
+// Publish one encode window via app-channel (MessagePack on the wire) + spdlog.
+// 🎯T149 — identity is the app-channel session (spyder connection), not a field
+// in the payload. Optional stream_session is only the relay pipe id (sN) for
+// joining /stream/sessions when useful.
+void ServerSession::Impl::publishEncodeStats(const EncodeWindow& snap, double windowSec,
+                                             const char* reason) {
+    std::string streamSession;
+    {
+        std::lock_guard sl(sessionMu);
+        streamSession = sessionId;
+    }
+    const double sec = windowSec > 0 ? windowSec : 1.0;
+    const double fps = snap.frames / sec;
+    const double bps = double(snap.keyBytes + snap.pBytes) / sec;
+    const size_t avgKey =
+        snap.keyframes ? size_t(snap.keyBytes / snap.keyframes) : 0;
+    const size_t avgP = snap.pframes ? size_t(snap.pBytes / snap.pframes) : 0;
+
+    // Compact keys (msgpack): hot path is ~1 Hz, still keep names short.
+    nlohmann::json j = {
+        {"role", "server"},
+        {"name", name},
+        {"w", encW},
+        {"h", encH},
+        {"dt", sec},
+        {"fps", fps},
+        {"bps", bps},
+        {"n", snap.frames},
+        {"nk", snap.keyframes},
+        {"np", snap.pframes},
+        {"ak", avgKey},
+        {"mk", snap.maxKey},
+        {"ap", avgP},
+        {"mp", snap.maxP},
+    };
+    if (!streamSession.empty()) j["sid"] = streamSession;  // relay pipe id, optional
+    if (reason && *reason) j["why"] = reason;
+
+    // Scalars for dashboard / app_perf_get (tightest recurring path).
+    ge::appchannel::perfEmit("stream_fps", fps);
+    ge::appchannel::perfEmit("stream_bps", bps);
+    ge::appchannel::perfEmit("stream_mk", double(snap.maxKey));
+    ge::appchannel::perfEmit("stream_w", double(encW));
+    ge::appchannel::perfEmit("stream_h", double(encH));
+
+    {
+        std::lock_guard lock(encodeStatsMu);
+        lastStreamStats = j;
+    }
+    ge::appchannel::push("stream_stats", j);
+
+    SPDLOG_INFO(
+        "StreamStats name={} sid={} encode={}x{} fps={:.1f} bps={:.0f} "
+        "n={} nk={} np={} ak={} mk={} ap={} mp={}",
+        name, streamSession.empty() ? "-" : streamSession, encW, encH, fps, bps,
+        snap.frames, snap.keyframes, snap.pframes, avgKey, snap.maxKey, avgP,
+        snap.maxP);
+}
+
+void ServerSession::Impl::noteEncoded(const VideoEncoder::Frame& f) {
+    const auto now = std::chrono::steady_clock::now();
+    EncodeWindow snap{};
+    double windowSec = 0;
+    bool publish = false;
+    {
+        std::lock_guard lock(encodeStatsMu);
+        if (encodeWin.windowStart.time_since_epoch().count() == 0)
+            encodeWin.windowStart = now;
+        encodeWin.frames++;
+        if (f.isKeyframe) {
+            encodeWin.keyframes++;
+            encodeWin.keyBytes += f.size;
+            if (f.size > encodeWin.maxKey) encodeWin.maxKey = f.size;
+        } else {
+            encodeWin.pframes++;
+            encodeWin.pBytes += f.size;
+            if (f.size > encodeWin.maxP) encodeWin.maxP = f.size;
+        }
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - encodeWin.windowStart)
+                            .count();
+        if (ms >= 2000) {
+            snap = encodeWin;
+            windowSec = ms / 1000.0;
+            encodeWin = {};
+            encodeWin.windowStart = now;
+            publish = true;
+        }
+    }
+    if (publish) publishEncodeStats(snap, windowSec, nullptr);
+}
+
+void ServerSession::Impl::flushEncodeStats(const char* reason) {
+    EncodeWindow snap{};
+    double windowSec = 1.0;
+    {
+        std::lock_guard lock(encodeStatsMu);
+        if (encodeWin.frames == 0) return;
+        const auto now = std::chrono::steady_clock::now();
+        const auto ms =
+            encodeWin.windowStart.time_since_epoch().count() == 0
+                ? 0
+                : std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now - encodeWin.windowStart)
+                      .count();
+        snap = encodeWin;
+        windowSec = ms > 0 ? ms / 1000.0 : 1.0;
+        encodeWin = {};
+    }
+    publishEncodeStats(snap, windowSec, reason);
+}
+
 void ServerSession::Impl::onEncoded(VideoEncoder::Frame f) {
     if (!wire || !wire->isOpen() || !f.data || f.size == 0) return;
+    noteEncoded(f);
     uint32_t s = seq.fetch_add(1);
     uint8_t flags = f.isKeyframe ? 1 : 0;
     uint32_t payloadSize = uint32_t(sizeof(flags) + sizeof(s) + f.size);
@@ -115,11 +252,23 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
         SPDLOG_ERROR("ServerSession: wire open failed for session {}", sessionId);
         return;
     }
+    {
+        std::lock_guard lock(sessionMu);
+        this->sessionId = sessionId;
+    }
+    {
+        std::lock_guard lock(encodeStatsMu);
+        encodeWin = {};
+        encodeWin.windowStart = std::chrono::steady_clock::now();
+    }
     hasPlayer.store(true);
 
     // Advertise session requirements (sensors, orientation) BEFORE the player
     // creates its window — the player blocks on this in PlayerWireBridge::connect.
     sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
+    // 🎯T149: same id spyder logs as session= — greppable across hops.
+    sendWire(wire::kStreamSessionIdMagic, sessionId.data(),
+             uint32_t(sessionId.size()));
 
     inputThread = std::thread([this] { inputLoop(); });
     SPDLOG_INFO("ServerSession: player attached (session {}), streaming", sessionId);
@@ -127,6 +276,7 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
 
 void ServerSession::Impl::closeWire() {
     if (!hasPlayer.exchange(false)) return;
+    flushEncodeStats("player_detached");
     if (encoder) {
         encoder->flush();
         encoder.reset();
@@ -135,6 +285,10 @@ void ServerSession::Impl::closeWire() {
     if (wire) wire->close();
     if (inputThread.joinable()) inputThread.join();
     wire.reset();
+    {
+        std::lock_guard lock(sessionMu);
+        sessionId.clear();
+    }
     SPDLOG_INFO("ServerSession: player detached");
 }
 
@@ -209,6 +363,40 @@ ServerSession::ServerSession(std::string host, int port, std::string name,
 ServerSession::~ServerSession() { stop(); }
 
 void ServerSession::start() {
+    // 🎯T149: pull path for spyder (app_state slice=stream). Safe to register
+    // after installFromEnv — state_query resolves by name on the live registry.
+    ge::appchannel::registerStateSlice(
+        "stream",
+        [this]() -> nlohmann::json {
+            std::lock_guard lock(i_->encodeStatsMu);
+            if (i_->lastStreamStats.empty()) {
+                std::string sid;
+                {
+                    std::lock_guard sl(i_->sessionMu);
+                    sid = i_->sessionId;
+                }
+                nlohmann::json o{
+                    {"role", "server"},
+                    {"name", i_->name},
+                    {"w", i_->encW},
+                    {"h", i_->encH},
+                    {"on", i_->hasPlayer.load()},
+                };
+                if (!sid.empty()) o["sid"] = sid;
+                return o;
+            }
+            return i_->lastStreamStats;
+        },
+        nlohmann::json{
+            {"role", "server"},
+            {"name", "tiltbuggy"},
+            {"w", 1024},
+            {"h", 768},
+            {"fps", 60.0},
+            {"bps", 1000000.0},
+            {"mk", 100000},
+        });
+
     i_->running.store(true);
     i_->sidebandThread = std::thread([this] { i_->sidebandLoop(); });
 }

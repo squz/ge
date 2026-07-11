@@ -291,7 +291,12 @@ sourceSets {
 
 **Every ge Android build produces 16 KB page-aligned shared libraries.** This is a hard contract, not a per-app opt-in: Google Play rejects submissions whose `.so` files are not 16 KB-aligned (Android 15+ devices ship 16 KB memory pages; Android 16 hard-blocks installs of 4 KB-aligned apps with an "ELF alignment check failed" system dialog).
 
-The contract is enforced in **one ge-owned place** — `cmake/android-arm64.cmake` appends `-Wl,-z,max-page-size=16384` to `CMAKE_SHARED_LINKER_FLAGS` before the consumer's `add_library(main SHARED …)` and before ge's SDL `add_subdirectory()` calls. Because `include()` does not open a new scope and the SDL subdirectories copy the flag at entry, **every** shared object in the build inherits it: `libmain.so`, `libSDL3.so`, `libSDL3_image.so`, `libSDL3_ttf.so`, and their transitive deps (freetype, harfbuzz, plutovg). Consumer apps need no Gradle or CMakeLists changes — bumping the ge submodule pointer is enough.
+The contract is enforced in **two ge-owned places**:
+
+1. **`cmake/android-arm64.cmake`** (consumer games via the template) — appends `-Wl,-z,max-page-size=16384` to `CMAKE_SHARED_LINKER_FLAGS` before the consumer's `add_library(main SHARED …)` and before ge's SDL `add_subdirectory()` calls. Because `include()` does not open a new scope and the SDL subdirectories copy the flag at entry, **every** shared object in the build inherits it: `libmain.so`, `libSDL3.so`, `libSDL3_image.so`, `libSDL3_ttf.so`, and their transitive deps.
+2. **`tools/android/app/src/main/cpp/CMakeLists.txt`** (standalone native player) — does **not** include `android-arm64.cmake` (lean brokered path). It applies the same `CMAKE_SHARED_LINKER_FLAGS` line itself and uses `ANDROID_STL=c++_static` so NDK `libc++_shared.so` is not packaged (r27's copy is 4 KB-aligned and triggers the Android 16 system dialog). Verify with `tools/android/check-16kb.sh`.
+
+Consumer game apps need no Gradle or CMakeLists changes — bumping the ge submodule pointer is enough. The standalone player must keep its own flag (regression: 2026-07-11 Pixel Tablet "ELF alignment check failed" dialog).
 
 **Why an explicit flag rather than relying on the NDK default:** NDK r28+ links 16 KB-aligned by default, but r27 and earlier default to 4 KB, and it is the consumer's *Gradle* build — not ge's `prebuild.sh` — that chooses the NDK linking the final `.so`. The explicit flag makes the contract NDK-version-independent. (The prebuilt `libge.a` and vendor `.a` static archives have no PT_LOAD segments, so alignment only matters at this final `.so` link.)
 
