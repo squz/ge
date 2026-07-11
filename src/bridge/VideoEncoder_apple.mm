@@ -535,19 +535,13 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
             if (job.wantKey) enc->forceNextKeyframe();
 
             const auto& buf = m->tileRgba[static_cast<size_t>(job.tileId)];
+            // Encode once. Do not pass-2-crush for MTU: size the grid so most
+            // tiles fit a datagram; pigeon auto-frags the rest (app sees frags).
+            // budget is retained for telemetry / future soft targets only.
+            (void)budget;
             bool ok = enc->encodeSync(buf.data(), static_cast<size_t>(cell) * 4,
                                       o.au, o.isKey);
-            int bps = m->baseBps;
-            int attempts = 0;
-            while (ok && o.au.size() > static_cast<size_t>(budget) && attempts < 4) {
-                bps = std::max(40'000, bps / 2);
-                enc->setAverageBitRate(bps);
-                enc->forceNextKeyframe();
-                ok = enc->encodeSync(buf.data(), static_cast<size_t>(cell) * 4,
-                                     o.au, o.isKey);
-                ++attempts;
-            }
-            o.blank = !ok || o.au.size() > static_cast<size_t>(budget);
+            o.blank = !ok || o.au.empty();
             if (o.blank) o.au.clear();
             outs[i] = std::move(o);
         }

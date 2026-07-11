@@ -354,7 +354,7 @@ targets:
     value: 5.0
     cost: 5.0
     acceptance:
-    - The H.264 NAL-unit stream from server to player rides on a pigeon DatagramChannel. Pigeon's automatic fragmentation handles NAL units larger than the QUIC datagram MTU; the 5-second incomplete-set discard window is acceptable because lost frames are recoverable via the next keyframe.
+    - The H.264 tile AU stream from server to player rides on a pigeon DatagramChannel. Pigeon auto-fragments oversized AUs on send; the app receives fragments as they arrive (no auto-unfragment). App policy owns partial delivery, miss maps, and timeouts. Tiles are sized so most AUs fit one datagram; a minority may span fragments.
     - Input events (SdlEvent, SafeAreaUpdate) from player to server ride on a pigeon reliable StreamChannel. Loss of an input event is unacceptable; reliable framing matches.
     - Control messages (SessionConfig, StreamStart/Stop, ServerAssigned, SessionEnd, AspectLock) ride on a separate reliable StreamChannel. Control isolation prevents head-of-line blocking from queued video frames or input bursts.
     - Each channel uses an independently-keyed pigeon Channel (HKDF-derived from the pairing record's shared secret with channel-specific info strings). Different channels can't decrypt each other's messages even if a shared key were leaked.
@@ -1798,19 +1798,19 @@ targets:
     origin: manual
     discovered: 2026-07-11
   T151:
-    name: Dev H.264 stream uses MTU-capped independent tiles (VT) with CRF-36 quality bar
+    name: Dev H.264 stream uses independent tiles (VT) with CRF-36 quality bar; most AUs near one datagram
     status: identified
     value: 8.0
     cost: 8.0
     acceptance:
     - Server stream path (Apple VideoToolbox) encodes the framebuffer as a grid of independent tile AUs, not one full-frame AU, when tiled mode is enabled (default on for brokered stream).
-    - Every delivered GE2V video packet payload (tile AU after wire header) is ≤ 1000 bytes application budget; oversize tiles are re-encoded harder (pass-2) and if still over are blanked (not sent / empty region) — never torn NALs.
+    - Tile sizing targets most AUs near a single-datagram envelope under normal compression; a minority may exceed it. No hard blank/pass-2 solely for MTU fit — pigeon auto-frags oversized AUs; app handles fragment arrival (no transport unfragment).
     - 'Quality default is calibrated to the Jevons ladder sweet spot: lab CRF 36 look (32 = perfect, 40 = noticeable artifacts). Production uses VT bitrate/quality knobs, not libx264 CRF.'
-    - Tile edge is chosen so that under default compression, P99-class sizes fit the budget where practical; larger tiles when compression allows, smaller when not; session count is capped so VT remains practical.
-    - Wire GE2V carries tile metadata (frame_seq, tile_id, grid, frame size) so the player mosaics tiles; missing/blank tiles leave prior/empty regions without stalling the pipeline.
+    - Tile edge and session count stay practical for VT (prefer divisors of frame size; cap session count).
+    - Wire GE2V carries tile metadata (frame_seq, tile_id, grid, frame size) so the player mosaics tiles; missing tiles leave prior/empty regions without stalling the pipeline. Never feed torn H.264 NALs to the decoder.
     - Legacy untiled GE2V (full-frame) still decodes for rollback via GE_STREAM_TILES=0.
-    - Unit tests cover tiled wire decode; a documented offline ladder tool remains at tools/mtu-tile-encode for visual calibration.
-    context: 'Locked 2026-07-11 from Jevons screenshot MTU-tile ladder: CRF 36 sweet spot, 1000 B budget, pass-2 + blank. Enables pigeon datagram path (T11.3) without all-or-nothing 700KB keyframes. Lab used libx264 CRF; product is VideoToolbox with the same size policy and perceptual bar.'
+    - Unit tests cover tiled wire decode; docs/mtu-tiled-stream.md records the size policy.
+    context: 'Tiles stay the loss domain. Soft statistical size fit + pigeon auto-fragment for outliers (2026-07 policy). CRF 36 quality bar from Jevons ladder. Not a hard 1000 B blank ceiling.'
     tags:
     - stream
     - h264
@@ -1818,6 +1818,7 @@ targets:
     - tiles
     - videotoolbox
     - jitter
+    - pigeon
     origin: manual
     discovered: 2026-07-11
   T16:

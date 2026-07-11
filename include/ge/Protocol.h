@@ -43,11 +43,10 @@ constexpr uint8_t kVideoFlagKeyframe = 1u << 0;
 constexpr uint8_t kVideoFlagTiled    = 1u << 1;
 constexpr uint8_t kVideoFlagBlank    = 1u << 2;
 
-// Application budget for one delivered tile AU (H.264 bytes after GE2V tile
-// header). 🎯T151 / pigeon datagram path wants ~1000 B; the live path is still
-// WebSocket (often loopback), which has no such limit — use a generous default
-// so pass-2 does not invent "network" quality loss on LAN. Set GE_STREAM_MTU=1000
-// to exercise the hard datagram budget.
+// Soft size hint for one tile AU (H.264 bytes after GE2V tile header).
+// 🎯T151: size tiles so *most* AUs fit a datagram envelope; pigeon auto-frags
+// the rest (app sees fragments, no auto-unfragment). Not a hard blank ceiling.
+// Live WS/LAN uses a generous default; GE_STREAM_MTU can lower for experiments.
 constexpr size_t kVideoTileMtuBudget = 16 * 1024;
 
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed

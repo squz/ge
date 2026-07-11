@@ -74,9 +74,9 @@ private:
     std::unique_ptr<M> m;
 };
 
-// 🎯T151: independent-tile H.264 encoder with a hard per-tile AU budget.
-// Crops the framebuffer into a grid, encodes each cell with its own VT session,
-// re-encodes oversize tiles harder, blanks if still over budget.
+// 🎯T151: independent-tile H.264 encoder. Grid of VT sessions; most tiles
+// sized to land near a datagram payload. Oversized AUs are fine on the wire
+// (pigeon auto-frags; app handles fragment arrival). No hard MTU blank.
 class TiledVideoEncoder {
 public:
     struct Config {
@@ -86,7 +86,7 @@ public:
         // Prefer large tiles: 48× sequential VT encodes kills full-frame FPS.
         // 512 on 2048×1536 → 4×3 = 12 sessions (see maxTiles).
         int preferredTileEdge = 512;
-        int mtuBudget = 16 * 1024;    // wire::kVideoTileMtuBudget (WS/LAN default)
+        int mtuBudget = 16 * 1024;    // soft hint only (wire::kVideoTileMtuBudget)
         int totalAverageBitRate = 8'000'000;  // softer than legacy 16 Mbps
         int maxTiles = 16;            // cap sessions — grow edge if needed
         int encodeParallelism = 0;    // 0 → min(n, hardware_concurrency)
