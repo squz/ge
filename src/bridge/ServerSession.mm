@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -68,7 +69,9 @@ struct ServerSession::Impl {
     std::shared_ptr<WsConnection> wire;
     std::mutex wireSendMu;
 
-    std::unique_ptr<VideoEncoder> encoder;
+    std::unique_ptr<VideoEncoder> encoder;           // legacy full-frame
+    std::unique_ptr<TiledVideoEncoder> tiledEncoder; // 🎯T151 MTU tiles
+    bool useTiles = true;
     int encW = 0, encH = 0;
     std::atomic<uint32_t> seq{0};
 
@@ -103,8 +106,12 @@ struct ServerSession::Impl {
     void openWire(const std::string& sessionId);
     void closeWire();
     void inputLoop();
-    void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread
-    void noteEncoded(const VideoEncoder::Frame& f);
+    void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread (legacy)
+    void onTiled(TiledVideoEncoder::TileFrame t);
+    void noteEncoded(size_t size, bool isKeyframe);
+    void noteEncoded(const VideoEncoder::Frame& f) {
+        noteEncoded(f.size, f.isKeyframe);
+    }
     void flushEncodeStats(const char* reason);
     void publishEncodeStats(const EncodeWindow& snap, double windowSec,
                             const char* reason);
@@ -178,7 +185,7 @@ void ServerSession::Impl::publishEncodeStats(const EncodeWindow& snap, double wi
         snap.maxP);
 }
 
-void ServerSession::Impl::noteEncoded(const VideoEncoder::Frame& f) {
+void ServerSession::Impl::noteEncoded(size_t size, bool isKeyframe) {
     const auto now = std::chrono::steady_clock::now();
     EncodeWindow snap{};
     double windowSec = 0;
@@ -188,14 +195,14 @@ void ServerSession::Impl::noteEncoded(const VideoEncoder::Frame& f) {
         if (encodeWin.windowStart.time_since_epoch().count() == 0)
             encodeWin.windowStart = now;
         encodeWin.frames++;
-        if (f.isKeyframe) {
+        if (isKeyframe) {
             encodeWin.keyframes++;
-            encodeWin.keyBytes += f.size;
-            if (f.size > encodeWin.maxKey) encodeWin.maxKey = f.size;
+            encodeWin.keyBytes += size;
+            if (size > encodeWin.maxKey) encodeWin.maxKey = size;
         } else {
             encodeWin.pframes++;
-            encodeWin.pBytes += f.size;
-            if (f.size > encodeWin.maxP) encodeWin.maxP = f.size;
+            encodeWin.pBytes += size;
+            if (size > encodeWin.maxP) encodeWin.maxP = size;
         }
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                             now - encodeWin.windowStart)
@@ -235,13 +242,42 @@ void ServerSession::Impl::onEncoded(VideoEncoder::Frame f) {
     if (!wire || !wire->isOpen() || !f.data || f.size == 0) return;
     noteEncoded(f);
     uint32_t s = seq.fetch_add(1);
-    uint8_t flags = f.isKeyframe ? 1 : 0;
+    uint8_t flags = f.isKeyframe ? wire::kVideoFlagKeyframe : 0;
     uint32_t payloadSize = uint32_t(sizeof(flags) + sizeof(s) + f.size);
     WireWriter w(sizeof(wire::MessageHeader) + payloadSize);
     w.put(wire::MessageHeader{wire::kVideoStreamMagic, payloadSize});
     w.put(flags);
     w.put(s);
     w.append(f.data, f.size);
+    std::lock_guard<std::mutex> lk(wireSendMu);
+    if (wire && wire->isOpen()) wire->sendBinary(w.data(), w.size());
+}
+
+void ServerSession::Impl::onTiled(TiledVideoEncoder::TileFrame t) {
+    if (!wire || !wire->isOpen()) return;
+    if (!t.blank) noteEncoded(t.size, t.isKeyframe);
+    else noteEncoded(0, t.isKeyframe);
+
+    uint8_t flags = wire::kVideoFlagTiled;
+    if (t.isKeyframe) flags |= wire::kVideoFlagKeyframe;
+    if (t.blank) flags |= wire::kVideoFlagBlank;
+
+    // flags(1)+seq(4)+tile(2)+cols(1)+rows(1)+fw(2)+fh(2)+edge(2) = 15; + avcc
+    const uint32_t header = 15;
+    const uint32_t avcc = t.blank ? 0u : uint32_t(t.size);
+    const uint32_t payloadSize = header + avcc;
+    WireWriter w(sizeof(wire::MessageHeader) + payloadSize);
+    w.put(wire::MessageHeader{wire::kVideoStreamMagic, payloadSize});
+    w.put(flags);
+    w.put(t.frameSeq);
+    w.put(t.tileId);
+    w.put(t.cols);
+    w.put(t.rows);
+    w.put(t.frameW);
+    w.put(t.frameH);
+    w.put(t.tileEdge);
+    if (!t.blank && t.data && t.size)
+        w.append(t.data, t.size);
     std::lock_guard<std::mutex> lk(wireSendMu);
     if (wire && wire->isOpen()) wire->sendBinary(w.data(), w.size());
 }
@@ -418,9 +454,47 @@ void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     // Encode at the CAPTURED frame's actual dimensions (StreamClient's original
     // behaviour): the frame we hand VideoToolbox is exactly what the swapchain
     // presented. DeviceInfo is a hint, not a resize trigger.
-    if (!i_->encoder || i_->encW != w || i_->encH != h) {
+    if (i_->encW != w || i_->encH != h) {
         i_->encW = w;
         i_->encH = h;
+        i_->encoder.reset();
+        i_->tiledEncoder.reset();
+    }
+
+    // 🎯T151: MTU-capped tiles by default. GE_STREAM_TILES=0 → legacy full-frame.
+    static const bool tilesEnv = [] {
+        const char* e = std::getenv("GE_STREAM_TILES");
+        if (!e) return true;
+        return std::strcmp(e, "0") != 0 && std::strcmp(e, "false") != 0;
+    }();
+    i_->useTiles = tilesEnv;
+
+    if (i_->useTiles) {
+        if (!i_->tiledEncoder) {
+            TiledVideoEncoder::Config tc;
+            tc.width = w;
+            tc.height = h;
+            tc.fps = 60;
+            if (const char* e = std::getenv("GE_STREAM_MTU")) {
+                int v = std::atoi(e);
+                if (v > 0) tc.mtuBudget = v;
+            }
+            if (const char* e = std::getenv("GE_STREAM_TILE")) {
+                int v = std::atoi(e);
+                if (v >= 16) tc.preferredTileEdge = v;
+            }
+            if (const char* e = std::getenv("GE_STREAM_BPS")) {
+                int v = std::atoi(e);
+                if (v > 0) tc.totalAverageBitRate = v;
+            }
+            i_->tiledEncoder = std::make_unique<TiledVideoEncoder>(
+                tc, [this](TiledVideoEncoder::TileFrame t) { i_->onTiled(t); });
+        }
+        i_->tiledEncoder->encode(px, static_cast<size_t>(w) * 4);
+        return;
+    }
+
+    if (!i_->encoder) {
         i_->encoder = std::make_unique<VideoEncoder>(
             w, h, 60, [this](VideoEncoder::Frame f) { i_->onEncoded(f); });
     }

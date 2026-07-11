@@ -35,6 +35,18 @@ constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → 
 // Payload is the UTF-8 id bytes (no NUL); length is MessageHeader.length.
 constexpr uint32_t kStreamSessionIdMagic = 0x47453253;  // "GE2S" — server → player
 
+// GE2V flags (first payload byte after MessageHeader).
+// bit0: keyframe (IDR / sync sample)
+// bit1: tiled — payload is a tile unit (see docs/mtu-tiled-stream.md 🎯T151)
+// bit2: blank — no AVCC body; player leaves that tile region unchanged/empty
+constexpr uint8_t kVideoFlagKeyframe = 1u << 0;
+constexpr uint8_t kVideoFlagTiled    = 1u << 1;
+constexpr uint8_t kVideoFlagBlank    = 1u << 2;
+
+// Application budget for one delivered tile AU (H.264 bytes after GE2V tile
+// header). Matches tools/mtu-tile-encode ladder / 🎯T151.
+constexpr size_t kVideoTileMtuBudget = 1000;
+
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)
 

@@ -99,6 +99,71 @@ TEST_CASE("decodeVideoStreamMessage rejects a truncated header (size < 8)") {
     CHECK_FALSE(decodeVideoStreamMessage(data, seq, avccData, avccSize));
 }
 
+TEST_CASE("decodeVideoStreamMessage accepts a tiled tile unit (🎯T151)") {
+    // flags|seq|tile|cols|rows|fw|fh|edge|avcc(3) = 15+3 = 18 payload
+    std::vector<char> v;
+    putU32(v, wire::kVideoStreamMagic);
+    putU32(v, 18);
+    uint8_t flags = wire::kVideoFlagTiled | wire::kVideoFlagKeyframe;
+    v.push_back(static_cast<char>(flags));
+    putU32(v, 42);  // frame_seq
+    v.push_back(3); // tile_id lo
+    v.push_back(0); // tile_id hi
+    v.push_back(4); // cols
+    v.push_back(3); // rows
+    v.push_back(100); v.push_back(0); // frame_w = 100
+    v.push_back(static_cast<char>(200)); v.push_back(0); // frame_h = 200
+    v.push_back(64); v.push_back(0);  // tile_edge = 64
+    v.push_back(0xAA); v.push_back(0xBB); v.push_back(0xCC);
+
+    ge::detail::VideoStreamPayload pl;
+    REQUIRE(ge::detail::decodeVideoStreamMessage(v, pl));
+    CHECK(pl.tiled);
+    CHECK((pl.flags & wire::kVideoFlagKeyframe) != 0);
+    CHECK(pl.seq == 42u);
+    CHECK(pl.tileId == 3u);
+    CHECK(pl.cols == 4);
+    CHECK(pl.rows == 3);
+    CHECK(pl.frameW == 100);
+    CHECK(pl.frameH == 200);
+    CHECK(pl.tileEdge == 64);
+    CHECK(pl.avccSize == 3u);
+    CHECK_FALSE(pl.blank);
+}
+
+TEST_CASE("decodeVideoStreamMessage accepts a blank tile (no AVCC)") {
+    std::vector<char> v;
+    putU32(v, wire::kVideoStreamMagic);
+    putU32(v, 15);
+    uint8_t flags = wire::kVideoFlagTiled | wire::kVideoFlagBlank;
+    v.push_back(static_cast<char>(flags));
+    putU32(v, 1);
+    v.push_back(0); v.push_back(0); // tile 0
+    v.push_back(2); v.push_back(2);
+    v.push_back(64); v.push_back(0);
+    v.push_back(64); v.push_back(0);
+    v.push_back(64); v.push_back(0); // edge
+
+    ge::detail::VideoStreamPayload pl;
+    REQUIRE(ge::detail::decodeVideoStreamMessage(v, pl));
+    CHECK(pl.tiled);
+    CHECK(pl.blank);
+    CHECK(pl.avccSize == 0u);
+}
+
+TEST_CASE("legacy decodeVideoStreamMessage rejects tiled payload") {
+    std::vector<char> v;
+    putU32(v, wire::kVideoStreamMagic);
+    putU32(v, 15);
+    v.push_back(static_cast<char>(wire::kVideoFlagTiled));
+    putU32(v, 0);
+    for (int i = 0; i < 10; ++i) v.push_back(1);
+    uint32_t seq = 0;
+    const uint8_t* avcc = nullptr;
+    size_t avccSize = 0;
+    CHECK_FALSE(decodeVideoStreamMessage(v, seq, avcc, avccSize));
+}
+
 TEST_CASE("wsPayloadWithinCap accepts lengths up to kMaxMessageSize") {
     CHECK(wsPayloadWithinCap(0, 0));
     CHECK(wsPayloadWithinCap(1000, 0));

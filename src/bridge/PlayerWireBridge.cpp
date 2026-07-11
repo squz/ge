@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/PlayerWireBridge.h>
+#include <ge/Protocol.h>
 #include <ge/VideoDecoder.h>
 #include <ge/WebSocketClient.h>
 
@@ -9,8 +10,11 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cstring>
+#include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -63,22 +67,188 @@ struct AVCCParser {
     bool hasParams() const { return !sps.empty() && !pps.empty(); }
 };
 
+struct TileSlot {
+    std::unique_ptr<VideoDecoder> decoder;
+    AVCCParser avcc;
+    // Last decoded BGRA for this tile (owning).
+    std::vector<uint8_t> bgra;
+    int w = 0, h = 0, stride = 0;
+};
+
 } // namespace
 
 struct PlayerWireBridge::Impl {
     Config cfg;
     std::shared_ptr<WsConnection> conn;
-    std::unique_ptr<VideoDecoder> decoder;
+    std::unique_ptr<VideoDecoder> decoder;  // legacy full-frame
     AVCCParser avcc;
-    std::string sessionId;  // 🎯T149 — spyder session id from GE2S
+    std::string sessionId;
 
-    // Frame buffer, written from decoder callback (VT thread), read from pump.
+    // 🎯T151 tiled mosaic
+    std::unordered_map<uint16_t, TileSlot> tiles;
+    uint8_t cols = 0, rows = 0;
+    uint16_t frameW = 0, frameH = 0;
+    uint16_t tileEdge = 0;
+    std::vector<uint8_t> mosaic;  // BGRA frameW×frameH
+
     std::mutex frameMutex;
     DecodedFrame pending;
     bool pendingReady = false;
 
     PumpStats stats;
+
+    void publishFullFrame(const VideoFrame& f);
+    void publishMosaic();
+    void handleLegacyVideo(const detail::VideoStreamPayload& pl);
+    void handleTiledVideo(const detail::VideoStreamPayload& pl);
 };
+
+void PlayerWireBridge::Impl::publishFullFrame(const VideoFrame& f) {
+    std::lock_guard<std::mutex> lock(frameMutex);
+    pending.format = f.format;
+    pending.width = f.width;
+    pending.height = f.height;
+    pending.stride0 = f.strides[0];
+    pending.stride1 = f.strides[1];
+    pending.stride2 = f.strides[2];
+
+    auto copyPlane = [](std::vector<uint8_t>& dst,
+                        const uint8_t* src, int stride, int rows) {
+        if (!src || stride <= 0 || rows <= 0) {
+            dst.clear();
+            return;
+        }
+        size_t bytes = static_cast<size_t>(stride) * rows;
+        dst.assign(src, src + bytes);
+    };
+
+    switch (f.format) {
+    case VideoFrame::Format::BGRA:
+        copyPlane(pending.plane0, f.planes[0], f.strides[0], f.height);
+        pending.plane1.clear();
+        pending.plane2.clear();
+        break;
+    case VideoFrame::Format::NV12:
+        copyPlane(pending.plane0, f.planes[0], f.strides[0], f.height);
+        copyPlane(pending.plane1, f.planes[1], f.strides[1], f.height / 2);
+        pending.plane2.clear();
+        break;
+    case VideoFrame::Format::IYUV:
+        copyPlane(pending.plane0, f.planes[0], f.strides[0], f.height);
+        copyPlane(pending.plane1, f.planes[1], f.strides[1], f.height / 2);
+        copyPlane(pending.plane2, f.planes[2], f.strides[2], f.height / 2);
+        break;
+    }
+    pendingReady = true;
+}
+
+void PlayerWireBridge::Impl::publishMosaic() {
+    if (frameW == 0 || frameH == 0 || mosaic.empty()) return;
+    std::lock_guard<std::mutex> lock(frameMutex);
+    pending.format = VideoFrame::Format::BGRA;
+    pending.width = frameW;
+    pending.height = frameH;
+    pending.stride0 = int(frameW) * 4;
+    pending.stride1 = 0;
+    pending.stride2 = 0;
+    pending.plane0 = mosaic;
+    pending.plane1.clear();
+    pending.plane2.clear();
+    pendingReady = true;
+}
+
+void PlayerWireBridge::Impl::handleLegacyVideo(const detail::VideoStreamPayload& pl) {
+    if (!decoder) {
+        decoder = std::make_unique<VideoDecoder>(
+            [this](const VideoFrame& f) { publishFullFrame(f); });
+    }
+    auto frameNals = avcc.parse(pl.avccData, pl.avccSize);
+    if (decoder && avcc.paramsDirty && avcc.hasParams()) {
+        decoder->setParameterSets(
+            avcc.sps.data(), avcc.sps.size(),
+            avcc.pps.data(), avcc.pps.size());
+        avcc.paramsDirty = false;
+        SPDLOG_INFO("PlayerWireBridge: decoder initialized with SPS/PPS");
+    }
+    if (!decoder) return;
+    static const uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
+    for (auto& [nalBody, nalSize] : frameNals) {
+        uint8_t nalType = nalBody[0] & 0x1F;
+        if (nalType != 1 && nalType != 5) continue;
+        std::vector<uint8_t> annexB(4 + nalSize);
+        std::memcpy(annexB.data(), startCode, 4);
+        std::memcpy(annexB.data() + 4, nalBody, nalSize);
+        decoder->decode(annexB.data(), annexB.size());
+    }
+}
+
+void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& pl) {
+    if (pl.blank) return;  // leave prior pixels
+
+    if (pl.cols != cols || pl.rows != rows || pl.frameW != frameW ||
+        pl.frameH != frameH || pl.tileEdge != tileEdge) {
+        cols = pl.cols;
+        rows = pl.rows;
+        frameW = pl.frameW;
+        frameH = pl.frameH;
+        tileEdge = pl.tileEdge;
+        tiles.clear();
+        mosaic.assign(static_cast<size_t>(frameW) * frameH * 4, 0);
+        SPDLOG_INFO("PlayerWireBridge: tiled mosaic {}x{} grid {}x{} edge={}",
+                    frameW, frameH, int(cols), int(rows), int(tileEdge));
+    }
+
+    TileSlot& slot = tiles[pl.tileId];
+    if (!slot.decoder) {
+        const uint16_t tid = pl.tileId;
+        slot.decoder = std::make_unique<VideoDecoder>(
+            [this, tid](const VideoFrame& f) {
+                auto it = tiles.find(tid);
+                if (it == tiles.end()) return;
+                TileSlot& s = it->second;
+                if (f.format != VideoFrame::Format::BGRA || !f.planes[0]) return;
+                s.w = f.width;
+                s.h = f.height;
+                s.stride = f.strides[0];
+                s.bgra.assign(f.planes[0],
+                              f.planes[0] + size_t(f.strides[0]) * f.height);
+
+                // Blit into mosaic using server tile_edge origins.
+                if (frameW == 0 || tileEdge == 0) return;
+                const int col = int(tid) % int(cols);
+                const int row = int(tid) / int(cols);
+                const int x0 = col * int(tileEdge);
+                const int y0 = row * int(tileEdge);
+                const int copyW = std::min(s.w, int(frameW) - x0);
+                const int copyH = std::min(s.h, int(frameH) - y0);
+                if (copyW <= 0 || copyH <= 0) return;
+                for (int y = 0; y < copyH; ++y) {
+                    const uint8_t* src = s.bgra.data() + size_t(y) * s.stride;
+                    uint8_t* dst = mosaic.data() +
+                                   (size_t(y0 + y) * frameW + size_t(x0)) * 4;
+                    std::memcpy(dst, src, size_t(copyW) * 4);
+                }
+                publishMosaic();
+            });
+    }
+
+    auto frameNals = slot.avcc.parse(pl.avccData, pl.avccSize);
+    if (slot.avcc.paramsDirty && slot.avcc.hasParams()) {
+        slot.decoder->setParameterSets(
+            slot.avcc.sps.data(), slot.avcc.sps.size(),
+            slot.avcc.pps.data(), slot.avcc.pps.size());
+        slot.avcc.paramsDirty = false;
+    }
+    static const uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
+    for (auto& [nalBody, nalSize] : frameNals) {
+        uint8_t nalType = nalBody[0] & 0x1F;
+        if (nalType != 1 && nalType != 5) continue;
+        std::vector<uint8_t> annexB(4 + nalSize);
+        std::memcpy(annexB.data(), startCode, 4);
+        std::memcpy(annexB.data() + 4, nalBody, nalSize);
+        slot.decoder->decode(annexB.data(), annexB.size());
+    }
+}
 
 PlayerWireBridge::PlayerWireBridge(Config config)
     : i_(std::make_unique<Impl>()) {
@@ -99,8 +269,6 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
     SPDLOG_INFO("PlayerWireBridge: connected to stream relay {}:{} name={}",
                 i_->cfg.host, i_->cfg.port, i_->cfg.serverName);
 
-    // Wait for SessionConfig (required for orientation). Session id (GE2S) may
-    // arrive before or after; both are accepted in this loop.
     bool gotConfig = false;
     while (i_->conn->isOpen() && !gotConfig) {
         std::vector<char> msg;
@@ -124,7 +292,6 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
             }
         }
     }
-    // Session id is often the message immediately after SessionConfig.
     if (gotConfig && i_->sessionId.empty() && i_->conn->isOpen() &&
         i_->conn->available() > 0) {
         std::vector<char> msg;
@@ -155,50 +322,7 @@ bool PlayerWireBridge::sendDeviceInfo(const wire::DeviceInfo& devInfo) {
     std::memcpy(msg.data(), &hdr, sizeof(hdr));
     std::memcpy(msg.data() + sizeof(hdr), &devInfo, sizeof(devInfo));
     i_->conn->sendBinary(msg.data(), msg.size());
-
-    // Lazily build the decoder on first DeviceInfo send so the frame
-    // callback captures a stable `this`.
-    if (!i_->decoder) {
-        i_->decoder = std::make_unique<VideoDecoder>(
-            [this](const VideoFrame& f) {
-                std::lock_guard<std::mutex> lock(i_->frameMutex);
-                i_->pending.format = f.format;
-                i_->pending.width = f.width;
-                i_->pending.height = f.height;
-                i_->pending.stride0 = f.strides[0];
-                i_->pending.stride1 = f.strides[1];
-                i_->pending.stride2 = f.strides[2];
-
-                auto copyPlane = [](std::vector<uint8_t>& dst,
-                                    const uint8_t* src, int stride, int rows) {
-                    if (!src || stride <= 0 || rows <= 0) {
-                        dst.clear();
-                        return;
-                    }
-                    size_t bytes = static_cast<size_t>(stride) * rows;
-                    dst.assign(src, src + bytes);
-                };
-
-                switch (f.format) {
-                case VideoFrame::Format::BGRA:
-                    copyPlane(i_->pending.plane0, f.planes[0], f.strides[0], f.height);
-                    i_->pending.plane1.clear();
-                    i_->pending.plane2.clear();
-                    break;
-                case VideoFrame::Format::NV12:
-                    copyPlane(i_->pending.plane0, f.planes[0], f.strides[0], f.height);
-                    copyPlane(i_->pending.plane1, f.planes[1], f.strides[1], f.height / 2);
-                    i_->pending.plane2.clear();
-                    break;
-                case VideoFrame::Format::IYUV:
-                    copyPlane(i_->pending.plane0, f.planes[0], f.strides[0], f.height);
-                    copyPlane(i_->pending.plane1, f.planes[1], f.strides[1], f.height / 2);
-                    copyPlane(i_->pending.plane2, f.planes[2], f.strides[2], f.height / 2);
-                    break;
-                }
-                i_->pendingReady = true;
-            });
-    }
+    // Decoders are created lazily on first video (legacy or per-tile).
     return true;
 }
 
@@ -223,36 +347,15 @@ bool PlayerWireBridge::pump() {
         uint32_t magic = 0;
         std::memcpy(&magic, data.data(), 4);
         if (magic == wire::kVideoStreamMagic) {
-            // 🎯T142: validate the wire length before deriving any pointer/size.
-            // Guards unsigned underflow of (length - 5), 32-bit overflow of
-            // (8 + length), and the OOB seq/AVCC reads on a malformed message.
-            uint32_t seq = 0;
-            const uint8_t* avccData = nullptr;
-            size_t avccSize = 0;
-            if (!detail::decodeVideoStreamMessage(data, seq, avccData, avccSize))
+            detail::VideoStreamPayload pl;
+            if (!detail::decodeVideoStreamMessage(data, pl))
                 continue;
-
-            auto frameNals = i_->avcc.parse(avccData, avccSize);
-            if (i_->decoder && i_->avcc.paramsDirty && i_->avcc.hasParams()) {
-                i_->decoder->setParameterSets(
-                    i_->avcc.sps.data(), i_->avcc.sps.size(),
-                    i_->avcc.pps.data(), i_->avcc.pps.size());
-                i_->avcc.paramsDirty = false;
-                SPDLOG_INFO("PlayerWireBridge: decoder initialized with SPS/PPS");
-            }
-            if (i_->decoder) {
-                static const uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
-                for (auto& [nalBody, nalSize] : frameNals) {
-                    uint8_t nalType = nalBody[0] & 0x1F;
-                    if (nalType != 1 && nalType != 5) continue;
-                    std::vector<uint8_t> annexB(4 + nalSize);
-                    std::memcpy(annexB.data(), startCode, 4);
-                    std::memcpy(annexB.data() + 4, nalBody, nalSize);
-                    i_->decoder->decode(annexB.data(), annexB.size());
-                }
-            }
+            if (pl.tiled)
+                i_->handleTiledVideo(pl);
+            else
+                i_->handleLegacyVideo(pl);
             i_->stats.framesThisTick++;
-            i_->stats.lastSeq = seq;
+            i_->stats.lastSeq = pl.seq;
         } else if (magic == wire::kStreamSessionIdMagic) {
             const auto* hdr =
                 reinterpret_cast<const wire::MessageHeader*>(data.data());
@@ -266,7 +369,6 @@ bool PlayerWireBridge::pump() {
         } else if (magic == wire::kSessionEndMagic) {
             SPDLOG_INFO("PlayerWireBridge: session ended");
         }
-        // Late SessionConfig or unknown magics are ignored.
     }
     return i_->conn->isOpen();
 }
@@ -293,6 +395,8 @@ bool PlayerWireBridge::isOpen() const {
 
 void PlayerWireBridge::close() {
     if (i_->decoder) i_->decoder->flush();
+    for (auto& [_, slot] : i_->tiles)
+        if (slot.decoder) slot.decoder->flush();
     if (i_->conn) i_->conn->close();
 }
 
