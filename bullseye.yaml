@@ -3782,9 +3782,10 @@ targets:
     achieved: 2026-05-24
   T69:
     name: ge has shipped everything multimaze2 needs for its iOS App Store v1.0
-    status: converging
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 0.0
     acceptance:
     - All declared dependency targets are achieved and retired.
     - multimaze2's iOS build consumes a released ge version that contains all of the above; no fork or local patch on the ge side.
@@ -3853,6 +3854,7 @@ targets:
     - consumer-game
     origin: manual
     discovered: 2026-05-24
+    achieved: 2026-07-11
   T7:
     name: Audio pauses when the app is backgrounded
     status: achieved
@@ -4013,9 +4015,10 @@ targets:
     achieved: 2026-05-30
   T74:
     name: tiltbuggy uses StoreKit LocalStore for IAP so iOS launches don't prompt for sandbox sign-in
-    status: identified
+    status: set_aside
     value: 0.0
     cost: 0.0
+    set_aside_reason: 'Won''t fix via LocalStore: 🎯T85 proved SKTestSession/StoreKitTest requires XCTest and crashes in a plain app process. Superseded for sim/dev by stub mode (🎯T86) and the cleaner debug→stub default tracked as 🎯T118. Acceptance (bundled .storekit + GE_IAP_MODE=local + no sandbox modal via LocalStore path) will not be met as written.'
     acceptance:
     - sample/tiltbuggy/ios/StoreKit.storekit exists (copied from ge/ios/StoreKit.storekit via make ge/storekit-init) and lists com.squz.tiltbuggy.pro (NonConsumable) plus com.squz.tiltbuggy.powerboost10 (Consumable) matching tiltbuggy setCatalogue
     - sample/tiltbuggy/ios/CMakeLists.txt adds StoreKit.storekit to bundle resources and links StoreKitTest.framework as Optional
