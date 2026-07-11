@@ -4,10 +4,9 @@
 // Internal bridge between the modality dispatcher (SessionHost.mm) and the
 // wire TU's runServer (src/bridge/SessionHost_server.mm) — 🎯T92.2.2.
 //
-// Server mode is a hidden-window variant of the direct run loop: one render
-// host (DirectRenderHost), one wire (ge's canonical H.264). runServer builds a
-// ServerSession, packs its frame sink + active flag into a ServerHook, and
-// hands it to runDirectHosted here so the whole loop stays in SessionHost.mm.
+// Server mode historically used ServerHook + runDirectHosted (single player).
+// Multi-session is now implemented entirely in SessionHost_server.mm; this
+// hook remains for any residual single-sink tooling.
 // SessionHost.mm never names the ServerSession type (only the type-erased
 // std::function / atomic in ServerHook), so it keeps compiling clean under
 // GE_DIRECT_ONLY — where the wire TU (and thus runServer) is absent.
