@@ -277,7 +277,7 @@ targets:
     status: set_aside
     value: 13.0
     cost: 20.0
-    set_aside_reason: 'Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.'
+    set_aside_reason: Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.
     acceptance:
     - The player connects to the game server via pigeon's relay (Register/Connect or LAN bypass) — not via a WebSocket through ged. Wire framing is pigeon's stream + datagram protocol; payloads are ciphertext at the relay layer. ged's role is reduced to (a) issuing PairingArtifacts via pigeon.PairingHost so newly-installed players can establish first-contact with a server, and (b) the dashboard. ged is no longer on the runtime data path between server and player.
     - All session traffic is end-to-end encrypted via pigeon's X25519 ECDH + AES-256-GCM channel. Neither ged nor the relay can read plaintext. The QR scan that today carries a server name + port now carries a pigeon PairingArtifact (base64url) — one-time-use, TTL-bound (default 30 days), persistable on the player so reconnects skip the ceremony.
@@ -1733,6 +1733,25 @@ targets:
     - multimaze-audit
     origin: manual
     discovered: 2026-07-07
+  T149:
+    name: Stream hops (server + player) emit correlated structured stats keyed by spyder session_id so lag can be attributed to encode, wire, or decode
+    status: achieved
+    value: 12.0
+    cost: 5.0
+    acceptance:
+    - 'ServerSession logs encode stats every ~2s while a player is attached: session_id, encode WxH, fps estimate, avg/max keyframe bytes, avg/max p-frame bytes, encode callback lag if available'
+    - PlayerLog (or successor) lines include the stream session_id once known, plus path (host:port dialed) and the existing pump/decode/gap metrics
+    - Server and player logs are greppable by the same session_id string that spyder /stream/sessions returns
+    - docs note (or pointer from spyder docs/stream-observability.md) covers the ge-side fields
+    context: 'Achieved 2026-07-11: ServerSession publishes StreamStats via appchannel push(stream_stats)+perfEmit (MessagePack wire) and spdlog; state slice stream for pull. Player publishes same via appchannel when SPYDER_APP_CHANNEL set. App-channel connection is identity; optional sid=relay pipe id only. Desktop verified: StreamStats encode=2048x1536 fps≈60 bps≈1MB/s max_key≈700KB–1.1MB.'
+    tags:
+    - streaming
+    - observability
+    - player
+    - server
+    origin: manual
+    discovered: 2026-07-11
+    achieved: 2026-07-11
   T15:
     name: Player binary restructured around named PlayerWireBridge + PlayerRender classes
     status: achieved
@@ -1755,6 +1774,27 @@ targets:
     origin: 'deferred from PR #11 (subsystem split)'
     discovered: 2026-04-16
     achieved: 2026-04-17
+  T150:
+    name: Android large-screen player does not letterbox landscape streams into a portrait shell (product design + implementation)
+    status: identified
+    value: 8.0
+    cost: 8.0
+    acceptance:
+    - 'Product decision recorded: on tablets that ignore orientation requests (ignoreOrientationRequest / Android large-screen policy), choose one of: (A) require physical landscape, (B) force full-screen landscape via an OS-supported opt-out if any remains viable, or (C) rotate/fit the video to fill the portrait window without black bars — and document why, citing AGENTS.md iOS orientation history and that this is NOT a T36 reuse problem'
+    - Implementation matches the chosen option for the native Android player (tools/android) when SessionConfig.orientation is AnyLandscape or a specific landscape lock
+    - 'HIL on Pixel Tablet (portrait-held): stream of a landscape server (e.g. tiltbuggy) shows no large black letterbox bars above/below a thin landscape strip; screenshot attached to the PR or run artefacts'
+    - Does not re-try approaches listed as failed for iOS in tools/player_orientation_ios.mm without new evidence they apply to Android large screens
+    - Depends on stream path remaining usable (jitter/bitrate work may land first; not blocked on encode perfection)
+    context: 'Parked 2026-07-11 after Pixel Tablet stream demo. 16 KB ELF dialog fixed (standalone player now aligns PT_LOAD to 0x4000). Letterboxing remains: system logs show ignoreOrientationRequest=true and letterboxBounds mid-screen. Long iOS orientation history (T36, TN3192 dual-knob, multimaze2 silent mismatch) lives in AGENTS.md + player_orientation_ios.mm — do NOT grind the same failed knobs. Android large-screen OS letterboxing is a different problem class; needs an explicit product choice before code. Partial work may exist (player_orientation_android.cpp, SENSOR_LANDSCAPE, experimental tex rotation in PlayerRender) — reassess against the decision, do not extend blindly.'
+    tags:
+    - android
+    - player
+    - orientation
+    - letterbox
+    - large-screen
+    - parked-design
+    origin: manual
+    discovered: 2026-07-11
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
