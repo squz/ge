@@ -71,6 +71,25 @@ bundle exec fastlane sync_certs
 # double-check MATCH_PASSWORD and the squz/certs SSH key.
 ```
 
+## Step 4b — Enroll a new test device (🎯T110, optional)
+
+Physical-device **development** installs need the device UDID on the team.
+Do this **once per device**, without opening Xcode:
+
+```sh
+# Auto-discover connected devices (spyder or xctrace) and register them
+# with the Developer Portal via the ASC API key from Step 1–2.
+make ge/ios-register-devices
+
+# Then build a Debug, Automatic-signed .app:
+make ge/ios-device
+# Install via spyder / devicectl as usual.
+```
+
+`REGISTER_DEVICES=1 make ge/ios-device` enrolls then builds. Re-running
+registration is safe (add-only). Hardware UDIDs only (`00008110-…`), not
+CoreDevice UUIDs from `devicectl list devices`.
+
 ## Step 5 — Run ship-preflight
 
 ```sh

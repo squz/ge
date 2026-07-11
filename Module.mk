@@ -716,17 +716,20 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 
 # ── iOS physical-device DEVELOPMENT build (deploy to your own devices) ─
 # `make ge/ios-device` builds a Debug, development-signed .app for installing
-# on a developer's own registered test devices. GE_IOS_SIGNING=development makes
-# build_project.rb emit Automatic signing + Apple Development (no match), and
-# `-allowProvisioningUpdates` lets Xcode mint/renew the per-developer dev cert,
-# create the Team Provisioning Profile, and register any connected+trusted
-# device. No shared certs, no match passphrase — each developer signs with their
-# own identity (the ship path stays on match AppStore via ge/ios-device-release).
+# on a developer's own *already-registered* test devices.
+# GE_IOS_SIGNING=development → Automatic + Apple Development (no match);
+# `-allowProvisioningUpdates` mints/renews the per-developer cert + Team
+# Provisioning Profile for devices the portal already knows. It does NOT
+# enroll a brand-new UDID — use `make ge/ios-register-devices` first (🎯T110).
+# Optional: REGISTER_DEVICES=1 make ge/ios-device  enrolls then builds.
 .PHONY: ge/ios-device
 ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
+	fi
+	@if [ "$(REGISTER_DEVICES)" = "1" ]; then \
+	    $(MAKE) ge/ios-register-devices; \
 	fi
 	GE_IOS_SIGNING=development bundle exec ruby ios/project.rb
 	cd ios && xcodebuild \
@@ -735,6 +738,22 @@ ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    -derivedDataPath build-device-dev \
 	    -allowProvisioningUpdates \
 	    build
+
+# ── iOS device enrollment (Developer Portal) — 🎯T110 ────────────────
+# Headless UDID registration via ASC API key + fastlane register_devices.
+# Once per device, ever. Idempotent. Does not require Xcode GUI.
+#
+#   make ge/ios-register-devices
+#   make ge/ios-register-devices UDID=00008110-… NAME="iPhone 13"
+#   DEVICES_FILE=./devices.txt make ge/ios-register-devices
+#   make ge/ios-register-devices LIST_ONLY=1   # discovery smoke, no ASC call
+.PHONY: ge/ios-register-devices
+ge/ios-register-devices:
+	@flags=""; \
+	  [ "$(LIST_ONLY)" = "1" ] && flags="$$flags --list-only"; \
+	  [ "$(DRY_RUN)" = "1" ] && flags="$$flags --dry-run"; \
+	  UDID="$(UDID)" NAME="$(NAME)" DEVICES_FILE="$(DEVICES_FILE)" \
+	    $(ge)/tools/ios-register-devices.sh $$flags
 
 # (ge player iOS physical-device build target retired in 🎯T73.3 — see
 # the player section above.)

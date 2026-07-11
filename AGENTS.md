@@ -483,11 +483,25 @@ Two signing paths, deliberately separate. `build_project.rb` owns the `CODE_SIGN
 
 **The Apple model in one line:** a *certificate* says **who** signed; a *provisioning profile* says **what that signature may do** (which app, which devices — or any device for App Store — which entitlements). The cert's display name (`Apple Development: MARCELO CANTOS`) names the *member*; the `TeamIdentifier` (`SWA3H3N7TW`) is what attributes the build to **Squz**. They are not the same entity — a dev cert under Team Squz is still a Squz build.
 
-**A new device needs one-time enrollment.** `-allowProvisioningUpdates` reuses *already-registered* devices but will **not** enroll a brand-new one headlessly (`error: Device … isn't registered`). Today: connect it and Run once from Xcode (which enrolls it), then every later CLI build/deploy just works. The headless equivalent — a `fastlane register_devices` step keyed on the ASC API key — is the open piece of 🎯T110; until it lands, a never-before-seen device needs that single Xcode Run. Enrollment is **once per device, ever** — not per build.
+**A new device needs one-time enrollment (headless).** `-allowProvisioningUpdates` reuses *already-registered* devices but will **not** enroll a brand-new UDID (`error: Device … isn't registered`). Enroll without Xcode:
+
+```bash
+# Discovers connected devices (spyder inventory, else xctrace) and registers
+# their hardware UDIDs with the Developer Portal via the ASC API key.
+make ge/ios-register-devices
+
+# Or one explicit device:
+make ge/ios-register-devices UDID=00008110-… NAME="iPhone 13"
+
+# Or enroll then build in one shot:
+REGISTER_DEVICES=1 make ge/ios-device
+```
+
+Requires the same ASC API key env as ship (`APP_STORE_CONNECT_API_KEY_*`, or `~/.appstoreconnect/api_key.json` — see `docs/release-setup.md`). Uses fastlane lane `register_dev_devices` (ge `fastlane/Fastfile`). Enrollment is **once per device, ever** — re-runs are add-only no-ops for known UDIDs. Use **hardware** UDIDs (`00008110-…`), not CoreDevice UUIDs from `devicectl`.
 
 **Deployment floor is iOS 16.3** (`build_project.rb` default). Dropping to iOS 15 buys ~2–4% of old/weak/low-spend devices and costs `@available` guards around the iOS-16+ orientation-lock stack — not worth it.
 
-**Installing to a device:** modern devices via `spyder deploy_app` (or Apple `devicectl`, iOS 17+ only); iOS ≤16 devices use go-ios's lockdown path (spyder's high-level deploy/launch/screenshot assume the iOS-17 RemoteXPC tunnel — gap tracked as spyder 🎯T78).
+**Installing to a device:** modern devices via `spyder deploy_app` (or Apple `devicectl`, iOS 17+ only); iOS ≤16 devices use go-ios's lockdown path (spyder's high-level deploy/launch/screenshot assume the iOS-17 RemoteXPC tunnel — gap tracked as spyder 🎯T78). Spyder is the usual *installer*, not a dependency of the signing/enrollment path.
 
 ### iOS orientation lock (iPadOS 26+)
 
