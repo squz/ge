@@ -44,8 +44,11 @@ constexpr uint8_t kVideoFlagTiled    = 1u << 1;
 constexpr uint8_t kVideoFlagBlank    = 1u << 2;
 
 // Application budget for one delivered tile AU (H.264 bytes after GE2V tile
-// header). Matches tools/mtu-tile-encode ladder / 🎯T151.
-constexpr size_t kVideoTileMtuBudget = 1000;
+// header). 🎯T151 / pigeon datagram path wants ~1000 B; the live path is still
+// WebSocket (often loopback), which has no such limit — use a generous default
+// so pass-2 does not invent "network" quality loss on LAN. Set GE_STREAM_MTU=1000
+// to exercise the hard datagram budget.
+constexpr size_t kVideoTileMtuBudget = 16 * 1024;
 
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)

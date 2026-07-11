@@ -335,6 +335,7 @@ struct TiledVideoEncoder::M {
     uint32_t frameSeq = 0;
     int baseBps = 50'000;
     std::vector<std::unique_ptr<VideoEncoder>> encoders;
+    std::vector<uint8_t> sawKey;  // first IDR delivered for tile
     std::vector<uint8_t> tileRgba;
 
     void rebuildGrid();
@@ -384,9 +385,12 @@ void TiledVideoEncoder::M::rebuildGrid() {
     }
 
     const int n = cols * rows;
-    // Floor high enough that pass-2 has room; split total across tiles.
+    // Equal share per tile — scene complexity is often uniform; quality
+    // banding by row was from encode order (always top→bottom under VT load)
+    // and all-intra, not from content-weighted rate.
     baseBps = std::max(80'000, cfg.totalAverageBitRate / std::max(1, n));
     encoders.resize(static_cast<size_t>(n));
+    sawKey.assign(static_cast<size_t>(n), 0);
     for (int i = 0; i < n; ++i) {
         // Every session is full tileEdge×tileEdge. Content that doesn't fill
         // the cell is black-padded so SPS/AU dimensions stay uniform.
@@ -401,18 +405,17 @@ void TiledVideoEncoder::M::rebuildGrid() {
         ec.height = eh;
         ec.fps = cfg.fps;
         ec.averageBitRate = baseBps;
-        // Every AU is an IDR for now: independent tiles cannot share refs, and
-        // a dropped first P leaves the tile black until the next key. All-intra
-        // is heavier but fills the mosaic reliably (MTU pass-2 still applies).
-        ec.maxKeyFrameInterval = 1;
+        // Inter frames (GOP ≈ 1s). Stagger forced IDRs by tile id so keys are
+        // not synchronized across the grid (avoids a global bitrate spike).
+        ec.maxKeyFrameInterval = std::max(1, cfg.fps);
         encoders[static_cast<size_t>(i)] =
             std::make_unique<VideoEncoder>(ec, VideoEncoder::FrameCallback{});
     }
     SPDLOG_INFO(
         "TiledVideoEncoder: {}x{} tile={} grid={}x{} ({} sessions) "
-        "perTileBps={} totalBps={} mtu={}",
+        "perTileBps={} totalBps={} mtu={} gop={}",
         cfg.width, cfg.height, tileEdge, cols, rows, n, baseBps,
-        cfg.totalAverageBitRate, cfg.mtuBudget);
+        cfg.totalAverageBitRate, cfg.mtuBudget, std::max(1, cfg.fps));
 }
 
 TiledVideoEncoder::TiledVideoEncoder(Config cfg, TileCallback onTile)
@@ -421,7 +424,9 @@ TiledVideoEncoder::TiledVideoEncoder(Config cfg, TileCallback onTile)
     if (m->cfg.mtuBudget <= 0) m->cfg.mtuBudget = int(wire::kVideoTileMtuBudget);
     if (m->cfg.preferredTileEdge <= 0) m->cfg.preferredTileEdge = 64;
     if (m->cfg.maxTiles <= 0) m->cfg.maxTiles = 64;
-    if (m->cfg.totalAverageBitRate <= 0) m->cfg.totalAverageBitRate = 6'000'000;
+    // Slightly above the all-intra experiment default — P-frames make this
+    // land as quality, not as fat keys.
+    if (m->cfg.totalAverageBitRate <= 0) m->cfg.totalAverageBitRate = 8'000'000;
     m->onTile = std::move(onTile);
     m->rebuildGrid();
 }
@@ -448,76 +453,86 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
     if (!rgbaPixels || m->cols <= 0 || m->rows <= 0) return;
     const uint32_t frameSeq = m->frameSeq++;
     const int budget = m->cfg.mtuBudget;
+    const int gop = std::max(1, m->cfg.fps);
+    const int n = m->cols * m->rows;
+    const int cell = m->tileEdge & ~1;
+    if (cell < 2) return;
 
-    for (int row = 0; row < m->rows; ++row) {
-        for (int col = 0; col < m->cols; ++col) {
-            const int tileId = row * m->cols + col;
-            auto& enc = m->encoders[static_cast<size_t>(tileId)];
-            if (!enc) continue;
+    // Round-robin starting tile so VT load does not always hit the same rows
+    // last (top→bottom order made the bottom third systematically noisier
+    // under sequential multi-session encode, even on uniform content).
+    const int start = int(frameSeq % uint32_t(std::max(1, n)));
 
-            const int x0 = col * m->tileEdge;
-            const int y0 = row * m->tileEdge;
-            const int cell = m->tileEdge & ~1;
-            if (cell < 2) continue;
-            // Visible content in this cell (may be < cell on non-divisor grids).
-            const int contentW = std::min(cell, m->cfg.width - x0);
-            const int contentH = std::min(cell, m->cfg.height - y0);
-            if (contentW < 1 || contentH < 1) continue;
+    for (int k = 0; k < n; ++k) {
+        const int tileId = (start + k) % n;
+        auto& enc = m->encoders[static_cast<size_t>(tileId)];
+        if (!enc) continue;
 
-            // Black-pad to a uniform cell×cell RGBA buffer for the VT session.
-            m->tileRgba.assign(static_cast<size_t>(cell) * cell * 4, 0);
-            for (int y = 0; y < contentH; ++y) {
-                const uint8_t* src =
-                    rgbaPixels + static_cast<size_t>(y0 + y) * bytesPerRow +
-                    static_cast<size_t>(x0) * 4;
-                uint8_t* dst = m->tileRgba.data() + static_cast<size_t>(y) * cell * 4;
-                std::memcpy(dst, src, static_cast<size_t>(contentW) * 4);
-            }
+        const int col = tileId % m->cols;
+        const int row = tileId / m->cols;
+        const int x0 = col * m->tileEdge;
+        const int y0 = row * m->tileEdge;
+        const int contentW = std::min(cell, m->cfg.width - x0);
+        const int contentH = std::min(cell, m->cfg.height - y0);
+        if (contentW < 1 || contentH < 1) continue;
 
-            std::vector<uint8_t> au;
-            bool isKey = false;
-            // Restore nominal bitrate if a prior pass-2 left it low.
-            if (enc->averageBitRate() != m->baseBps)
-                enc->setAverageBitRate(m->baseBps);
-
-            enc->forceNextKeyframe();
-            bool ok = enc->encodeSync(m->tileRgba.data(),
-                                      static_cast<size_t>(cell) * 4, au, isKey);
-
-            // Pass-2: ratchet bitrate on the same session (no session thrash).
-            int bps = m->baseBps;
-            int attempts = 0;
-            while (ok && au.size() > static_cast<size_t>(budget) && attempts < 4) {
-                bps = std::max(20'000, bps / 2);
-                enc->setAverageBitRate(bps);
-                enc->forceNextKeyframe();
-                ok = enc->encodeSync(m->tileRgba.data(),
-                                     static_cast<size_t>(cell) * 4, au, isKey);
-                ++attempts;
-            }
-
-            TileFrame tf;
-            tf.frameSeq = frameSeq;
-            tf.tileId = static_cast<uint16_t>(tileId);
-            tf.cols = static_cast<uint8_t>(m->cols);
-            tf.rows = static_cast<uint8_t>(m->rows);
-            tf.frameW = static_cast<uint16_t>(m->cfg.width);
-            tf.frameH = static_cast<uint16_t>(m->cfg.height);
-            tf.tileEdge = static_cast<uint16_t>(m->tileEdge);
-            tf.isKeyframe = isKey;
-
-            if (!ok || au.size() > static_cast<size_t>(budget)) {
-                tf.blank = true;
-                tf.data = nullptr;
-                tf.size = 0;
-                if (m->onTile) m->onTile(tf);
-                continue;
-            }
-            tf.blank = false;
-            tf.data = au.data();
-            tf.size = au.size();
-            if (m->onTile) m->onTile(tf);
+        m->tileRgba.assign(static_cast<size_t>(cell) * cell * 4, 0);
+        for (int y = 0; y < contentH; ++y) {
+            const uint8_t* src =
+                rgbaPixels + static_cast<size_t>(y0 + y) * bytesPerRow +
+                static_cast<size_t>(x0) * 4;
+            uint8_t* dst = m->tileRgba.data() + static_cast<size_t>(y) * cell * 4;
+            std::memcpy(dst, src, static_cast<size_t>(contentW) * 4);
         }
+
+        std::vector<uint8_t> au;
+        bool isKey = false;
+        if (enc->averageBitRate() != m->baseBps)
+            enc->setAverageBitRate(m->baseBps);
+
+        // First AU for a tile, or staggered GOP tick → force IDR.
+        const bool wantKey =
+            !m->sawKey[static_cast<size_t>(tileId)] ||
+            ((frameSeq + uint32_t(tileId)) % uint32_t(gop)) == 0;
+        if (wantKey) enc->forceNextKeyframe();
+
+        bool ok = enc->encodeSync(m->tileRgba.data(),
+                                  static_cast<size_t>(cell) * 4, au, isKey);
+
+        // Pass-2: ratchet bitrate on the same session until under MTU.
+        int bps = m->baseBps;
+        int attempts = 0;
+        while (ok && au.size() > static_cast<size_t>(budget) && attempts < 4) {
+            bps = std::max(40'000, bps / 2);
+            enc->setAverageBitRate(bps);
+            enc->forceNextKeyframe();
+            ok = enc->encodeSync(m->tileRgba.data(),
+                                 static_cast<size_t>(cell) * 4, au, isKey);
+            ++attempts;
+        }
+
+        TileFrame tf;
+        tf.frameSeq = frameSeq;
+        tf.tileId = static_cast<uint16_t>(tileId);
+        tf.cols = static_cast<uint8_t>(m->cols);
+        tf.rows = static_cast<uint8_t>(m->rows);
+        tf.frameW = static_cast<uint16_t>(m->cfg.width);
+        tf.frameH = static_cast<uint16_t>(m->cfg.height);
+        tf.tileEdge = static_cast<uint16_t>(m->tileEdge);
+        tf.isKeyframe = isKey;
+
+        if (!ok || au.size() > static_cast<size_t>(budget)) {
+            tf.blank = true;
+            tf.data = nullptr;
+            tf.size = 0;
+            if (m->onTile) m->onTile(tf);
+            continue;
+        }
+        if (isKey) m->sawKey[static_cast<size_t>(tileId)] = 1;
+        tf.blank = false;
+        tf.data = au.data();
+        tf.size = au.size();
+        if (m->onTile) m->onTile(tf);
     }
 }
 

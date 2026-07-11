@@ -84,8 +84,8 @@ public:
         int height = 0;
         int fps = 60;
         int preferredTileEdge = 64;   // CRF-36 lab default
-        int mtuBudget = 1000;         // wire::kVideoTileMtuBudget
-        int totalAverageBitRate = 6'000'000;  // softer than legacy 16 Mbps
+        int mtuBudget = 16 * 1024;    // wire::kVideoTileMtuBudget (WS/LAN default)
+        int totalAverageBitRate = 8'000'000;  // softer than legacy 16 Mbps
         int maxTiles = 64;            // VT session cap — grow tile edge if needed
     };
 
