@@ -1835,9 +1835,10 @@ targets:
     discovered: 2026-07-11
   T151.1:
     name: Android device player stream is playable (acceptable FPS + visible compression quality)
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: Parked 2026-07-11 at user request — stop player work and move to other priorities. Partial render works on Pixel; FPS/compression quality not done. Resume when player streaming is back on the agenda.
     acceptance:
     - Pixel Tablet (or equivalent Android device) playing tiltbuggy via brokered stream sustains a subjectively playable frame rate (target ≥ ~20 FPS end-to-end, not multi-second stutter).
     - 'Stream compression is observable: stats and/or visual quality show H.264 tiles are meaningfully compressed (not near-raw frame floods), consistent with T151 CRF-36 / soft-MTU policy.'
