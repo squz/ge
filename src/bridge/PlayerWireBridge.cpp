@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -75,6 +76,69 @@ struct TileSlot {
     int w = 0, h = 0, stride = 0;
 };
 
+// Clamp helper for YUV→RGB.
+inline uint8_t clampByte(int v) {
+    return uint8_t(v < 0 ? 0 : (v > 255 ? 255 : v));
+}
+
+// Blit a decoded tile into a dense BGRA mosaic. Desktop VT delivers BGRA;
+// Android FFmpeg delivers IYUV (planar YUV420) — both must compose.
+// Returns false if the frame format is unsupported.
+bool blitTileToMosaic(uint8_t* mosaic, int frameW, int frameH,
+                      int x0, int y0, int copyW, int copyH,
+                      const VideoFrame& f) {
+    if (!mosaic || !f.planes[0] || copyW <= 0 || copyH <= 0) return false;
+    if (x0 < 0 || y0 < 0 || x0 + copyW > frameW || y0 + copyH > frameH)
+        return false;
+
+    if (f.format == VideoFrame::Format::BGRA) {
+        const int srcStride = f.strides[0];
+        if (srcStride < copyW * 4) return false;
+        for (int y = 0; y < copyH; ++y) {
+            const uint8_t* src = f.planes[0] + size_t(y) * srcStride;
+            uint8_t* dst =
+                mosaic + (size_t(y0 + y) * frameW + size_t(x0)) * 4;
+            std::memcpy(dst, src, size_t(copyW) * 4);
+        }
+        return true;
+    }
+
+    if (f.format == VideoFrame::Format::IYUV) {
+        // Planar YUV 4:2:0 → BGRA (BT.601 limited range). Matches what
+        // VideoDecoder_ffmpeg delivers; mosaic stays BGRA so desktop VT
+        // and Android FFmpeg share one compose path.
+        if (!f.planes[1] || !f.planes[2]) return false;
+        const int yStride = f.strides[0];
+        const int uStride = f.strides[1];
+        const int vStride = f.strides[2];
+        if (yStride < copyW || uStride < (copyW + 1) / 2 ||
+            vStride < (copyW + 1) / 2)
+            return false;
+        for (int y = 0; y < copyH; ++y) {
+            const uint8_t* yRow = f.planes[0] + size_t(y) * yStride;
+            const uint8_t* uRow = f.planes[1] + size_t(y / 2) * uStride;
+            const uint8_t* vRow = f.planes[2] + size_t(y / 2) * vStride;
+            uint8_t* dst =
+                mosaic + (size_t(y0 + y) * frameW + size_t(x0)) * 4;
+            for (int x = 0; x < copyW; ++x) {
+                const int C = int(yRow[x]) - 16;
+                const int U = int(uRow[x / 2]) - 128;
+                const int V = int(vRow[x / 2]) - 128;
+                const int R = (298 * C + 409 * V + 128) >> 8;
+                const int G = (298 * C - 100 * U - 208 * V + 128) >> 8;
+                const int B = (298 * C + 516 * U + 128) >> 8;
+                dst[x * 4 + 0] = clampByte(B);
+                dst[x * 4 + 1] = clampByte(G);
+                dst[x * 4 + 2] = clampByte(R);
+                dst[x * 4 + 3] = 255;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace
 
 struct PlayerWireBridge::Impl {
@@ -92,6 +156,10 @@ struct PlayerWireBridge::Impl {
     std::vector<uint8_t> mosaic;  // BGRA frameW×frameH
     // Protects mosaic + tile slot pixel blits (VT decode threads + pump).
     std::mutex mosaicMu;
+    // Set when any tile blits into mosaic; cleared when publishMosaic runs.
+    // Avoids copying the full 12 MB mosaic on every tile (Android FFmpeg is
+    // sync-in-pump — publishing per tile never returned to pollFrame/render).
+    std::atomic<bool> mosaicDirty{false};
 
     std::mutex frameMutex;
     DecodedFrame pending;
@@ -160,6 +228,7 @@ void PlayerWireBridge::Impl::publishMosaic() {
     pending.plane1.clear();
     pending.plane2.clear();
     pendingReady = true;
+    mosaicDirty.store(false, std::memory_order_release);
 }
 
 void PlayerWireBridge::Impl::handleLegacyVideo(const detail::VideoStreamPayload& pl) {
@@ -210,7 +279,7 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
         const uint16_t tid = pl.tileId;
         slot.decoder = std::make_unique<VideoDecoder>(
             [this, tid](const VideoFrame& f) {
-                if (f.format != VideoFrame::Format::BGRA || !f.planes[0]) return;
+                if (!f.planes[0]) return;
                 std::lock_guard<std::mutex> mlock(mosaicMu);
                 auto it = tiles.find(tid);
                 if (it == tiles.end()) return;
@@ -224,27 +293,22 @@ void PlayerWireBridge::Impl::handleTiledVideo(const detail::VideoStreamPayload& 
                 const int copyW = std::min({f.width, int(tileEdge), int(frameW) - x0});
                 const int copyH = std::min({f.height, int(tileEdge), int(frameH) - y0});
                 if (copyW <= 0 || copyH <= 0) return;
-                // Dense copy: use min(stride, width*4) source pitch.
-                const int srcStride = f.strides[0];
-                for (int y = 0; y < copyH; ++y) {
-                    const uint8_t* src = f.planes[0] + size_t(y) * srcStride;
-                    uint8_t* dst = mosaic.data() +
-                                   (size_t(y0 + y) * frameW + size_t(x0)) * 4;
-                    std::memcpy(dst, src, size_t(copyW) * 4);
+                // Desktop VT → BGRA; Android FFmpeg → IYUV. Mosaic is BGRA.
+                // Do NOT copy the full mosaic to pending here — at multi-hundred
+                // tile msgs/sec that starves pollFrame/render (black screen).
+                if (!blitTileToMosaic(mosaic.data(), int(frameW), int(frameH),
+                                     x0, y0, copyW, copyH, f)) {
+                    static bool logged = false;
+                    if (!logged) {
+                        logged = true;
+                        SPDLOG_ERROR(
+                            "PlayerWireBridge: tiled blit rejected format "
+                            "(need BGRA or IYUV), fmt={}",
+                            int(f.format));
+                    }
+                    return;
                 }
-                // Publish under mosaicMu; publishMosaic re-takes mosaicMu — avoid
-                // deadlock by inlining a frameMutex publish here.
-                std::lock_guard<std::mutex> lock(frameMutex);
-                pending.format = VideoFrame::Format::BGRA;
-                pending.width = frameW;
-                pending.height = frameH;
-                pending.stride0 = int(frameW) * 4;
-                pending.stride1 = 0;
-                pending.stride2 = 0;
-                pending.plane0 = mosaic;
-                pending.plane1.clear();
-                pending.plane2.clear();
-                pendingReady = true;
+                mosaicDirty.store(true, std::memory_order_release);
             });
     }
 
@@ -361,6 +425,12 @@ void PlayerWireBridge::sendEvent(const SDL_Event& e) {
 bool PlayerWireBridge::pump() {
     if (!i_->conn) return false;
     i_->stats = {};
+    // Cap decode work so the present loop keeps up. The server can push
+    // hundreds of tile msgs/s; Android FFmpeg is sync and each tile is
+    // expensive — draining until the socket is empty never returns to
+    // pollFrame/render (black screen). ~3 full 4×3 mosaics per tick.
+    constexpr int kMaxVideoMsgsPerPump = 36;
+    int videoMsgs = 0;
     while (i_->conn->isOpen() && i_->conn->available() > 0) {
         std::vector<char> data;
         if (!i_->conn->recvBinary(data) || data.size() < 8) break;
@@ -377,6 +447,7 @@ bool PlayerWireBridge::pump() {
                 i_->handleLegacyVideo(pl);
             i_->stats.framesThisTick++;
             i_->stats.lastSeq = pl.seq;
+            if (++videoMsgs >= kMaxVideoMsgsPerPump) break;
         } else if (magic == wire::kStreamSessionIdMagic) {
             const auto* hdr =
                 reinterpret_cast<const wire::MessageHeader*>(data.data());
@@ -391,10 +462,18 @@ bool PlayerWireBridge::pump() {
             SPDLOG_INFO("PlayerWireBridge: session ended");
         }
     }
+    // One mosaic snapshot per pump — tiles already blitted above (or on VT
+    // decode threads). Sync FFmpeg path never returns to the game loop if we
+    // memcpy the full frame on every tile.
+    if (i_->mosaicDirty.load(std::memory_order_acquire))
+        i_->publishMosaic();
     return i_->conn->isOpen();
 }
 
 bool PlayerWireBridge::pollFrame(DecodedFrame& out) {
+    // Late async VT tiles may dirty the mosaic after pump returned.
+    if (i_->mosaicDirty.load(std::memory_order_acquire))
+        i_->publishMosaic();
     std::lock_guard<std::mutex> lock(i_->frameMutex);
     if (!i_->pendingReady) return false;
     std::swap(out, i_->pending);
