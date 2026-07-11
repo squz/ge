@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <vector>
 
 // Forward declare CoreVideo type to avoid importing ObjC headers
 typedef struct __CVBuffer* CVPixelBufferRef;
@@ -49,6 +50,11 @@ public:
 
     // Encode from CVPixelBuffer directly — zero-copy when backed by IOSurface.
     void encode(CVPixelBufferRef pixelBuffer);
+
+    // Synchronous encode for the tiled path: drains VT, copies the AU into
+    // `out`, sets `isKey`. Returns false if encode produced no data.
+    bool encodeSync(const uint8_t* rgbaPixels, size_t bytesPerRow,
+                    std::vector<uint8_t>& out, bool& isKey);
 
     // Force the next encode to be a keyframe (e.g. pass-2 retry).
     void forceNextKeyframe();

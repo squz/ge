@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
@@ -99,8 +100,8 @@ void VideoEncoder::M::createSession() {
     CFRelease(keyFrameRef);
 
     VTCompressionSessionPrepareToEncodeFrames(session);
-    SPDLOG_INFO("VideoEncoder: created {}x{} @ {} fps, {} bps H.264 High, key every {}",
-                cfg.width, cfg.height, cfg.fps, cfg.averageBitRate, maxKeyFrameInterval);
+    SPDLOG_DEBUG("VideoEncoder: created {}x{} @ {} fps, {} bps H.264 High, key every {}",
+                 cfg.width, cfg.height, cfg.fps, cfg.averageBitRate, maxKeyFrameInterval);
 }
 
 void VideoEncoder::M::outputCallback(void* ctx, void* /*sourceFrameRefCon*/,
@@ -208,7 +209,16 @@ void VideoEncoder::forceNextKeyframe() { m->forceKey = true; }
 void VideoEncoder::setAverageBitRate(int bps) {
     if (bps <= 0 || bps == m->cfg.averageBitRate) return;
     m->cfg.averageBitRate = bps;
-    m->createSession();
+    // Prefer in-session update — recreating 60+ VT sessions per pass-2 is death.
+    if (m->session) {
+        int32_t bitrate = bps;
+        CFNumberRef bitrateRef = CFNumberCreate(nullptr, kCFNumberSInt32Type, &bitrate);
+        VTSessionSetProperty(m->session, kVTCompressionPropertyKey_AverageBitRate,
+                             bitrateRef);
+        CFRelease(bitrateRef);
+    } else {
+        m->createSession();
+    }
 }
 
 int VideoEncoder::width() const { return m->cfg.width; }
@@ -275,11 +285,30 @@ void VideoEncoder::encode(CVPixelBufferRef pixelBuffer) {
 
     if (err != noErr) {
         SPDLOG_ERROR("VTCompressionSessionEncodeFrame failed: {}", static_cast<int>(err));
+        std::lock_guard lock(m->mu);
+        m->encodeDone = true;
         return;
     }
     // Drain so the callback has run before the caller continues (needed for
     // MTU size checks on the tiled path).
     VTCompressionSessionCompleteFrames(m->session, kCMTimeInvalid);
+}
+
+bool VideoEncoder::encodeSync(const uint8_t* rgbaPixels, size_t bytesPerRow,
+                              std::vector<uint8_t>& out, bool& isKey) {
+    out.clear();
+    isKey = false;
+    if (!m->session || !rgbaPixels) return false;
+    encode(rgbaPixels, bytesPerRow);
+    std::unique_lock lock(m->mu);
+    // CompleteFrames is synchronous for the VT callback on this thread in
+    // practice; still wait briefly in case the callback is deferred.
+    m->cv.wait_for(lock, std::chrono::milliseconds(50),
+                   [&] { return m->encodeDone; });
+    if (m->lastData.empty()) return false;
+    out = m->lastData;
+    isKey = m->lastKey;
+    return true;
 }
 
 void VideoEncoder::flush() {
@@ -304,16 +333,11 @@ struct TiledVideoEncoder::M {
     int cols = 0;
     int rows = 0;
     uint32_t frameSeq = 0;
+    int baseBps = 50'000;
     std::vector<std::unique_ptr<VideoEncoder>> encoders;
     std::vector<uint8_t> tileRgba;
-    // Last encoded AU captured without going through VideoEncoder callback fan-out.
-    std::vector<uint8_t> lastAu;
-    bool lastKey = false;
 
     void rebuildGrid();
-    bool encodeTileSync(int tileId, const uint8_t* rgba, size_t stride,
-                        int tileW, int tileH, int bps, bool forceKey,
-                        std::vector<uint8_t>& out, bool& outKey);
 };
 
 void TiledVideoEncoder::M::rebuildGrid() {
@@ -328,84 +352,45 @@ void TiledVideoEncoder::M::rebuildGrid() {
     }
     cols = std::max(1, cols);
     rows = std::max(1, rows);
-    // Wire uses u8 cols/rows — clamp.
-    if (cols > 255) { tileEdge = (cfg.width + 254) / 255; cols = (cfg.width + tileEdge - 1) / tileEdge; }
-    if (rows > 255) { tileEdge = std::max(tileEdge, (cfg.height + 254) / 255); rows = (cfg.height + tileEdge - 1) / tileEdge; }
+    if (cols > 255) {
+        tileEdge = (cfg.width + 254) / 255;
+        cols = (cfg.width + tileEdge - 1) / tileEdge;
+    }
+    if (rows > 255) {
+        tileEdge = std::max(tileEdge, (cfg.height + 254) / 255);
+        rows = (cfg.height + tileEdge - 1) / tileEdge;
+    }
 
     const int n = cols * rows;
-    const int perTileBps = std::max(50'000, cfg.totalAverageBitRate / std::max(1, n));
+    // Floor high enough that pass-2 has room; split total across tiles.
+    baseBps = std::max(80'000, cfg.totalAverageBitRate / std::max(1, n));
     encoders.resize(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         const int col = i % cols;
         const int row = i / cols;
         const int x0 = col * tileEdge;
         const int y0 = row * tileEdge;
-        const int tw = std::min(tileEdge, cfg.width - x0);
-        const int th = std::min(tileEdge, cfg.height - y0);
-        // VT wants even dimensions for yuv420.
-        const int ew = tw & ~1;
-        const int eh = th & ~1;
-        if (ew < 2 || eh < 2) {
+        const int tw = std::min(tileEdge, cfg.width - x0) & ~1;
+        const int th = std::min(tileEdge, cfg.height - y0) & ~1;
+        if (tw < 2 || th < 2) {
             encoders[static_cast<size_t>(i)].reset();
             continue;
         }
         VideoEncoder::Config ec;
-        ec.width = ew;
-        ec.height = eh;
+        ec.width = tw;
+        ec.height = th;
         ec.fps = cfg.fps;
-        ec.averageBitRate = perTileBps;
+        ec.averageBitRate = baseBps;
         ec.maxKeyFrameInterval = cfg.fps;
-        // Capture into shared lastAu under lock via lambda — each encoder has its own.
-        encoders[static_cast<size_t>(i)] = std::make_unique<VideoEncoder>(
-            ec, [](VideoEncoder::Frame) {});
+        // No async fan-out — encodeSync reads last AU.
+        encoders[static_cast<size_t>(i)] =
+            std::make_unique<VideoEncoder>(ec, VideoEncoder::FrameCallback{});
     }
     SPDLOG_INFO(
-        "TiledVideoEncoder: {}x{} tile={} grid={}x{} ({} sessions) totalBps={} mtu={}",
-        cfg.width, cfg.height, tileEdge, cols, rows, n, cfg.totalAverageBitRate,
-        cfg.mtuBudget);
-}
-
-bool TiledVideoEncoder::M::encodeTileSync(int tileId, const uint8_t* rgba,
-                                          size_t stride, int tileW, int tileH,
-                                          int bps, bool forceKey,
-                                          std::vector<uint8_t>& out, bool& outKey) {
-    auto& enc = encoders[static_cast<size_t>(tileId)];
-    if (!enc) return false;
-    if (enc->averageBitRate() != bps) enc->setAverageBitRate(bps);
-    if (forceKey) enc->forceNextKeyframe();
-
-    // Capture result via temporary callback replacement is not available —
-    // use CompleteFrames and read from a one-shot wrapper. Instead, re-create
-    // a local encoder for pass-2 when needed. For the happy path, replace
-    // encoder callback by encoding into a scratch VideoEncoder.
-
-    // Simpler: each call builds a one-shot encode using the persistent session
-    // by swapping in a capturing callback via a dedicated helper encoder.
-    // Persistent encoders already complete frames synchronously; we need the
-    // AU bytes. Re-bind by encoding with a fresh VideoEncoder when capturing:
-
-    VideoEncoder::Config ec;
-    ec.width = tileW & ~1;
-    ec.height = tileH & ~1;
-    if (ec.width < 2 || ec.height < 2) return false;
-    ec.fps = cfg.fps;
-    ec.averageBitRate = bps;
-    ec.maxKeyFrameInterval = cfg.fps;
-
-    std::vector<uint8_t> captured;
-    bool capturedKey = false;
-    VideoEncoder oneShot(ec, [&](VideoEncoder::Frame f) {
-        captured.assign(f.data, f.data + f.size);
-        capturedKey = f.isKeyframe;
-    });
-    if (forceKey) oneShot.forceNextKeyframe();
-    oneShot.encode(rgba, stride);
-    oneShot.flush();
-    if (captured.empty()) return false;
-    out = std::move(captured);
-    outKey = capturedKey;
-    (void)enc;  // persistent slots reserved for future warm sessions
-    return true;
+        "TiledVideoEncoder: {}x{} tile={} grid={}x{} ({} sessions) "
+        "perTileBps={} totalBps={} mtu={}",
+        cfg.width, cfg.height, tileEdge, cols, rows, n, baseBps,
+        cfg.totalAverageBitRate, cfg.mtuBudget);
 }
 
 TiledVideoEncoder::TiledVideoEncoder(Config cfg, TileCallback onTile)
@@ -440,22 +425,20 @@ void TiledVideoEncoder::flush() {
 void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
     if (!rgbaPixels || m->cols <= 0 || m->rows <= 0) return;
     const uint32_t frameSeq = m->frameSeq++;
-    const int n = m->cols * m->rows;
-    const int baseBps = std::max(50'000, m->cfg.totalAverageBitRate / std::max(1, n));
     const int budget = m->cfg.mtuBudget;
 
     for (int row = 0; row < m->rows; ++row) {
         for (int col = 0; col < m->cols; ++col) {
             const int tileId = row * m->cols + col;
+            auto& enc = m->encoders[static_cast<size_t>(tileId)];
+            if (!enc) continue;
+
             const int x0 = col * m->tileEdge;
             const int y0 = row * m->tileEdge;
-            int tw = std::min(m->tileEdge, m->cfg.width - x0);
-            int th = std::min(m->tileEdge, m->cfg.height - y0);
-            tw &= ~1;
-            th &= ~1;
+            int tw = std::min(m->tileEdge, m->cfg.width - x0) & ~1;
+            int th = std::min(m->tileEdge, m->cfg.height - y0) & ~1;
             if (tw < 2 || th < 2) continue;
 
-            // Crop tile into contiguous RGBA buffer.
             m->tileRgba.resize(static_cast<size_t>(tw) * th * 4);
             for (int y = 0; y < th; ++y) {
                 const uint8_t* src =
@@ -467,18 +450,22 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
 
             std::vector<uint8_t> au;
             bool isKey = false;
-            int bps = baseBps;
-            bool ok = m->encodeTileSync(tileId, m->tileRgba.data(),
-                                        static_cast<size_t>(tw) * 4, tw, th, bps,
-                                        /*forceKey=*/false, au, isKey);
+            // Restore nominal bitrate if a prior pass-2 left it low.
+            if (enc->averageBitRate() != m->baseBps)
+                enc->setAverageBitRate(m->baseBps);
 
-            // Pass-2: ratchet bitrate down until under budget or floor.
+            bool ok = enc->encodeSync(m->tileRgba.data(),
+                                      static_cast<size_t>(tw) * 4, au, isKey);
+
+            // Pass-2: ratchet bitrate on the same session (no session thrash).
+            int bps = m->baseBps;
             int attempts = 0;
             while (ok && au.size() > static_cast<size_t>(budget) && attempts < 4) {
                 bps = std::max(20'000, bps / 2);
-                ok = m->encodeTileSync(tileId, m->tileRgba.data(),
-                                       static_cast<size_t>(tw) * 4, tw, th, bps,
-                                       /*forceKey=*/true, au, isKey);
+                enc->setAverageBitRate(bps);
+                enc->forceNextKeyframe();
+                ok = enc->encodeSync(m->tileRgba.data(),
+                                     static_cast<size_t>(tw) * 4, au, isKey);
                 ++attempts;
             }
 
