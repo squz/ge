@@ -1,11 +1,14 @@
 // iOS ge player entry point.
 // Scans a QR code on startup to discover the game server, then runs the shared player core.
 //
-// Pass -ged_addr host:port as a launch argument to connect directly (highest priority).
-// Set GE_DAEMON_ADDR=host:port to connect directly via environment variable.
-// Example (simulator):  xcrun simctl launch <udid> com.squz.player -ged_addr 192.168.1.217:42069
-// Example (device):     xcrun devicectl device process launch --console-pty -- com.squz.player -ged_addr 192.168.1.217:42069
-// Example (env var):    xcrun devicectl device process launch -e '{"GE_DAEMON_ADDR":"192.168.1.217:42069"}' ...
+// Stream relay address (spyder, default :3030):
+//   -stream_addr host:port   (preferred; simctl/devicectl launch arg)
+//   -ged_addr host:port      (legacy alias)
+//   GE_STREAM_ADDR=host:port (preferred env)
+//   GE_DAEMON_ADDR=host:port (legacy env)
+// Example (simulator):  xcrun simctl launch <udid> com.squz.player -stream_addr 192.168.1.217:3030
+// Example (device):     xcrun devicectl device process launch --console-pty -- com.squz.player -stream_addr 192.168.1.217:3030
+// Example (env var):    xcrun devicectl device process launch -e '{"GE_STREAM_ADDR":"192.168.1.217:3030"}' ...
 
 #include <TargetConditionals.h>
 #include "player_core.h"
@@ -21,7 +24,7 @@
 #include <thread>
 
 // HTTP PUT sink — sends each log line to a logging server on the host.
-// Uses the GE_DAEMON_ADDR host (or localhost for simulator).
+// Uses the stream-relay host (or localhost for simulator).
 static std::string g_logHost = "192.168.1.217";
 
 template<typename Mutex>
@@ -54,7 +57,8 @@ protected:
     void flush_() override {}
 };
 
-static constexpr uint16_t kDefaultPort = 42069;
+// Default matches spyder's loopback stream relay (spyder serve).
+static constexpr uint16_t kDefaultPort = 3030;
 
 int main(int argc, char* argv[]) {
     auto sink = std::make_shared<http_sink<std::mutex>>();
@@ -76,24 +80,31 @@ int main(int argc, char* argv[]) {
         }
     };
 
-    // Priority 1: -ged_addr launch argument (xcrun simctl launch … -ged_addr host:port).
+    // Priority 1: launch arg -stream_addr (preferred) or legacy -ged_addr.
     // simctl stores launch args as NSUserDefaults. Read once and do not persist.
     @autoreleasepool {
-        NSString* gedAddr = [[NSUserDefaults standardUserDefaults] stringForKey:@"ged_addr"];
-        if (gedAddr && gedAddr.length > 0) {
-            std::string s = gedAddr.UTF8String;
-            parseAddr(s);
-            SPDLOG_INFO("ged_addr launch arg: {}:{}", host, port);
-            // Remove the key so it doesn't persist across launches without the arg.
-            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"ged_addr"];
+        NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
+        NSString* key = @"stream_addr";
+        NSString* addr = [defs stringForKey:key];
+        if (!addr || addr.length == 0) {
+            key = @"ged_addr";
+            addr = [defs stringForKey:key];
+        }
+        if (addr && addr.length > 0) {
+            parseAddr(std::string(addr.UTF8String));
+            SPDLOG_INFO("{} launch arg: {}:{}", key.UTF8String, host, port);
+            [defs removeObjectForKey:key];
         }
     }
 
-    // Priority 2: GE_DAEMON_ADDR environment variable.
+    // Priority 2: GE_STREAM_ADDR (preferred) or legacy GE_DAEMON_ADDR.
     if (host.empty()) {
-        if (const char* addr = std::getenv("GE_DAEMON_ADDR")) {
+        if (const char* addr = std::getenv("GE_STREAM_ADDR")) {
             parseAddr(std::string(addr));
-            SPDLOG_INFO("GE_DAEMON_ADDR: {}:{}", host, port);
+            SPDLOG_INFO("GE_STREAM_ADDR: {}:{}", host, port);
+        } else if (const char* addr = std::getenv("GE_DAEMON_ADDR")) {
+            parseAddr(std::string(addr));
+            SPDLOG_INFO("GE_DAEMON_ADDR (legacy): {}:{}", host, port);
         }
     }
 

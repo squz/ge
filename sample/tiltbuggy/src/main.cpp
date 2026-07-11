@@ -341,7 +341,7 @@ int main(int argc, char* argv[]) {
     };
 
     // 🎯T124 Headless render mode: `tiltbuggy render --out <png> [--state <f>] [--size WxH]`.
-    // Renders one frame of the given state to a PNG with no window, no ged — the
+    // Renders one frame of the given state to a PNG with no window, no stream broker — the
     // hermetic primitive an agent uses to eyeball a state after a code change.
     if (renderMode) {
         // 🎯T124 batch: `render --batch <manifest.json>`, manifest =

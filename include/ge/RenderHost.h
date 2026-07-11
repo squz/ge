@@ -13,7 +13,7 @@
 //
 //   DirectRenderHost — owns a real SDL window + Metal/Vulkan surface;
 //     sokol_gfx draws straight to it; SDL events come from local input. Used by
-//     distribution builds (one binary, no ged, no wire) AND by server mode
+//     distribution builds (one binary, no stream relay, no wire) AND by server mode
 //     (🎯T92.2.2), where the same host runs hidden and a ServerSession captures
 //     each presented frame, H.264-encodes it, and streams it over ge's
 //     canonical wire to a player attached via spyder's relay. One render host,
@@ -59,7 +59,7 @@ public:
 
     // Per-frame pre-render refresh, called once each frame before onUpdate /
     // onRender. `dt` is this frame's wall-clock delta in seconds (🎯T111 — feeds
-    // the Context frame-time EMA behind fps() / frameTime()). Adopts any staged
+    // the Context frame-time EMA behind fps() / frameTime()). Adopts any stastream relay
     // resize and updates the live Context's per-frame fields (dimensions,
     // safe-area insets, parallax, presentation tilt, frame timing) so the
     // callbacks observe current values. It does NOT open a render pass (🎯T101):

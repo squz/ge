@@ -1,4 +1,4 @@
-# 🎯T124 Headless render regression — dev-box only (Metal), no device / ged.
+# 🎯T124 Headless render regression — dev-box only (Metal), no device / stream broker.
 #
 # `make render-test`            batch-render fixtures/*.json -> build/render/,
 #                               imgdiff each vs fixtures/golden/ (RMS threshold).

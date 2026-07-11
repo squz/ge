@@ -12,7 +12,7 @@ Snapshot as of: **v0.1.0** (first release).
 ## Stability commitment
 
 ge is **pre-1.0**. Breaking changes to the public C++ API, CLI / launch
-surface, Makefile / `Module.mk` exports, wire protocol, ged HTTP/MCP
+surface, Makefile / `Module.mk` exports, wire protocol (historical ged HTTP/MCP catalogue retired)
 surface, and file formats may land in any minor release while we remain
 pre-1.0. The pre-1.0 period exists so that these surfaces can be refined
 without ecosystem friction.
@@ -92,8 +92,8 @@ All public API lives under `include/ge/*.h`.
 
 - `wire::kProtocolVersion = 6` (`uint16_t`). **Fluid**. Bumped on breaking change.
 - `wire::kMaxMessageSize = 512 * 1024 * 1024`. **Stable**.
-- All 11 message magic constants (`kDeviceInfoMagic` … `kSessionConfigMagic`) — listed under **Wire + ged API surface** below. **Fluid** collectively; new message types added with features.
-- `wire::DeviceInfo`, `wire::SafeAreaUpdate`, `wire::AspectLock`, `wire::SessionConfig`, `wire::MessageHeader` — POD struct layouts documented under **Wire + ged API surface**. **Stable** for layout; **Fluid** for field set.
+- All 11 message magic constants (`kDeviceInfoMagic` … `kSessionConfigMagic`) — listed under **Wire + stream-relay API surface** below. **Fluid** collectively; new message types added with features.
+- `wire::DeviceInfo`, `wire::SafeAreaUpdate`, `wire::AspectLock`, `wire::SessionConfig`, `wire::MessageHeader` — POD struct layouts documented under **Wire + stream-relay API surface**. **Stable** for layout; **Fluid** for field set.
 - `wire::kSensorAccelerometer = 1`. **Stable**.
 - `wire::kOrientationLandscape / LandscapeFlipped / Portrait / PortraitFlipped`. **Stable** (aliases for SDL_DisplayOrientation).
 
@@ -150,7 +150,7 @@ All public API lives under `include/ge/*.h`.
 Both introduced in PR #11 (engine/render/bridge split).
 
 - `ge::PlayerRender` — SDL window + renderer for the brokered player. `Config { initialW, initialH, borderless, orientation }`, `enableAccelerometer()`, `getDeviceDimensions(...)`, `updateVideoTexture(...)`, `pumpEvents() → PumpResult`, `render() → RenderStats`, `window()`. **Fluid**.
-- `ge::PlayerWireBridge` — wire half of the player. `Config { host, port = 42069, serverName, connectTimeoutMs = 2000 }`, `DecodedFrame`, `PumpStats`, `connect(out SessionConfig)`, `sendDeviceInfo(...)`, `sendEvent(...)`, `pump()`, `pollFrame(out DecodedFrame)`, `lastPumpStats()`, `isOpen`, `close()`. **Fluid**.
+- `ge::PlayerWireBridge` — wire half of the player. `Config { host, port = 3030, serverName, connectTimeoutMs = 2000 }`, `DecodedFrame`, `PumpStats`, `connect(out SessionConfig)`, `sendDeviceInfo(...)`, `sendEvent(...)`, `pump()`, `pollFrame(out DecodedFrame)`, `lastPumpStats()`, `isOpen`, `close()`. **Fluid**.
 
 ### Utilities
 
@@ -220,7 +220,7 @@ All namespaced `ge/`; read-only from the consumer.
 | `ge/player`, `ge/imgdiff` | Engine tools. | **Stable** / **Fluid** |
 | `ge/init`, `compile_commands.json` | Dev setup + clangd DB. | **Stable** |
 | `depgraph`, `clean-depgraph` | Dependency-graph SVG. | **Fluid** |
-| `ged`, `ged-test`, `web` | Daemon + dashboard. | **Stable** / **Stable** / **Fluid** |
+| ~~`ged`, `ged-test`, `web`~~ | **Removed** (Plateau P / T145). Use spyder. | **Removed** |
 | `ge/ios-init`, `ge/ios`, `ge/ios-release`, `ge/ios-device-release` | iOS app build targets. | **Stable** |
 | `ge/android-init`, `ge/android`, `ge/android-release` | Android app build targets. | **Stable** |
 | `ge/player-ios*`, `ge/player-android*` | Engine-side mobile player builds. | **Needs review** (marked broken in CLAUDE.md, being rebuilt) |
@@ -250,17 +250,17 @@ desktop-{dist,player}
 ### ge root Makefile delegator
 
 - `SAMPLE ?= sample/tiltbuggy` — only user-facing variable. **Stable**.
-- Forwarded targets: `all`, `check`, `matrix-test`, `check-list`, `unit-test`, `clean`, `run`, `ged`, `init`, `ge/%`, `cell.%`. **Stable**.
+- Forwarded targets: `all`, `check`, `matrix-test`, `check-list`, `unit-test`, `clean`, `run`, `init`, `ge/%`, `cell.%`. **Stable**.
 
 ---
 
-## Wire + ged API surface
+## Wire + stream-relay API surface
 
 ### Wire protocol version
 
-- `wire::kProtocolVersion = 6` (mirrored by `protocolVersion = 6` in `ged/daemon.go`). **Stable** within 0.x; bumped on breaking structural change.
+- `wire::kProtocolVersion = 6` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change.
 - Little-endian byte order (static-asserted).
-- Max frame: `kMaxMessageSize = 512 MB` (matched by `maxFrameSize` in `ged/bridge.go`).
+- Max frame: `kMaxMessageSize = 512 MB` (ge `kMaxMessageSize` is the wire limit).
 
 ### Wire message magic constants
 
@@ -271,12 +271,12 @@ All share the ASCII prefix `GE2` (`0x474532xx`).
 | `kDeviceInfoMagic` | 0x47453244 | `GE2D` | player → server | Device dims, class, pixel ratio, safe area, orientation | **Stable** |
 | `kSafeAreaMagic` | 0x47453245 | `GE2E` | player → server | Safe-area update on orientation change | **Stable** |
 | `kSdlEventMagic` | 0x47453249 | `GE2I` | player → server | Raw SDL input event | **Stable** |
-| `kSessionEndMagic` | 0x4745324D | `GE2M` | ged → player | Server disconnected | **Stable** |
-| `kServerAssignedMagic` | 0x4745324E | `GE2N` | ged → player | Server name for this session | **Stable** |
+| `kSessionEndMagic` | 0x4745324D | `GE2M` | relay → player | Server disconnected | **Stable** |
+| `kServerAssignedMagic` | 0x4745324E | `GE2N` | relay → player | Server name for this session | **Stable** |
 | `kSqlpipeMsgMagic` | 0x47453254 | `GE2T` | bidirectional | sqlpipe channel messages | **Needs review** |
-| `kVideoStreamMagic` | 0x47453256 | `GE2V` | server → ged / player → ged | H.264 NAL frames | **Stable** |
-| `kStreamStartMagic` | 0x47453257 | `GE2W` | ged → player | Begin H.264 upload | **Stable** |
-| `kStreamStopMagic` | 0x47453258 | `GE2X` | ged → player | Stop H.264 upload | **Stable** |
+| `kVideoStreamMagic` | 0x47453256 | `GE2V` | server → relay / player → relay | H.264 NAL frames | **Stable** |
+| `kStreamStartMagic` | 0x47453257 | `GE2W` | relay → player | Begin H.264 upload | **Stable** |
+| `kStreamStopMagic` | 0x47453258 | `GE2X` | relay → player | Stop H.264 upload | **Stable** |
 | `kAspectLockMagic` | 0x47453260 | `` GE2` `` | server → player | Lock aspect ratio | **Stable** |
 | `kSessionConfigMagic` | 0x47453243 | `GE2C` | server → player | Session requirements (sensors, orientation) | **Stable** |
 
@@ -290,24 +290,24 @@ All share the ASCII prefix `GE2` (`0x474532xx`).
 
 ### H.264 video frame wire format
 
-Carried by `kVideoStreamMagic` frames; intercepted by ged, not forwarded verbatim. Payload: `[1-byte flags][optional SPS/PPS][NAL data]`. **Needs review** (internal ged↔player contract).
+Carried by `kVideoStreamMagic` frames; intercepted by the stream relay, not forwarded verbatim. Payload: `[1-byte flags][optional SPS/PPS][NAL data]`. **Needs review** (internal relay↔player contract).
 
 ### Server sideband WebSocket protocol
 
 - `/ws/server` text JSON and binary frames.
-- Hello (first frame): `{ "type": "hello", "name": <server-name>, "pid": <n>, "version": 6 }`. ged rejects mismatched versions.
-- Server → ged text `type`s: `log`, `preview`, `preview_bin`, `accel`, `tweaks`, plus opaque `<any> { type, data }`.
-- ged → server text `type`s: `player_attached`, `player_detached`, `tweak_set`, `tweak_reset`.
+- Hello (first frame): `{ "type": "hello", "name": <server-name>, "pid": <n>, "version": 6 }`. Relay/session setup rejects mismatched versions.
+- Server → relay text (historical control sideband; control plane is now app-channel) `type`s: `log`, `preview`, `preview_bin`, `accel`, `tweaks`, plus opaque `<any> { type, data }`.
+- relay → server text (historical; player_attached/detached remain on stream sideband) `type`s: `player_attached`, `player_detached`, `tweak_set`, `tweak_reset`.
 - **Needs review** — set of sideband types is growing; may be renamed before 1.0.
 
-### ged connection addresses
+### Stream-relay connection addresses
 
-- Default listen `:42069` (all interfaces). **Stable**.
-- `GE_DAEMON_ADDR` env var (iOS only) in `host:port` format. **Stable**.
+- Default spyder stream relay `:3030` (historical ged was `:42069`) (all interfaces). **Stable**.
+- `GE_STREAM_ADDR` / legacy `GE_DAEMON_ADDR` env var (iOS) in `host:port` format. **Stable**.
 - `--port <n>` CLI override. **Stable**.
 - LAN IP discovery via UDP dial against `8.8.8.8:53`. **Needs review** (air-gapped networks).
 
-### ged HTTP / WebSocket routes
+### ~~ged HTTP / WebSocket routes~~ (removed)
 
 | Route | Method | Purpose | Stability |
 |---|---|---|---|
@@ -330,9 +330,9 @@ Carried by `kVideoStreamMagic` frames; intercepted by ged, not forwarded verbati
 | `/ws/preview` | WebSocket | Dashboard preview frames | **Needs review** |
 | `/ws/stream/{sid}` | WebSocket | Browser-playable fMP4 H.264 stream | **Needs review** |
 
-### ged `/mcp` — MCP server
+### ~~ged `/mcp`~~ (removed — use spyder MCP / app_exec)
 
-Streamable HTTP at `/mcp`; server name `"ged"`, version `"1.0.0"`.
+**Removed.** Spyder serves MCP at `http://127.0.0.1:3030/mcp` (`app_exec`).
 
 | Tool | Inputs | Output | Stability |
 |---|---|---|---|
@@ -349,23 +349,23 @@ Streamable HTTP at `/mcp`; server name `"ged"`, version `"1.0.0"`.
 
 | Priority | Method | Consumed-once? | Stability |
 |---|---|---|---|
-| 1 | `--es ged_addr "host:port"` intent extra (`adb shell am start`) | Yes | **Stable** |
+| 1 | `--es stream_addr` (legacy `ged_addr`) "host:port"` intent extra (`adb shell am start`) | Yes | **Stable** |
 | 2 | `debug.ge.address` sysprop (`adb shell setprop`) | No | **Stable** |
-| 3 | Emulator auto-connect `10.0.2.2:42069` | N/A | **Needs review** (hardcoded port) |
+| 3 | Emulator auto-connect `10.0.2.2:3030` | N/A | **Needs review** (hardcoded port) |
 | 4 | QR code scan (fallback) | N/A | **Stable** |
 
 #### iOS
 
 | Priority | Method | Consumed-once? | Stability |
 |---|---|---|---|
-| 1 | `-ged_addr "host:port"` launch arg (→ NSUserDefaults) | Yes | **Stable** |
+| 1 | `-stream_addr` (legacy `-ged_addr`) "host:port"` launch arg (→ NSUserDefaults) | Yes | **Stable** |
 | 2 | `GE_DAEMON_ADDR` env var (via `devicectl … -e`) | No | **Stable** |
-| 3 | Simulator auto-connect `localhost:42069` | N/A | **Needs review** (hardcoded port) |
+| 3 | Simulator auto-connect `localhost:3030` | N/A | **Needs review** (hardcoded port) |
 | 4 | QR code scan (fallback) | N/A | **Stable** |
 
 ### QR-pairing protocol
 
-- Content: `ge-remote://<LAN-IP>:<port>` (e.g. `ge-remote://192.168.1.42:42069`). **Stable**.
+- Content: `ge-remote://<LAN-IP>:<port>` (e.g. `ge-remote://192.168.1.42:3030`). **Stable**.
 - Both Android and iOS QR scanners validate the `ge-remote://` prefix; non-matching codes silently ignored.
 
 ---
@@ -515,12 +515,12 @@ contract:
 - [ ] **Remove stale doc comments**: `SdlContext::nativeSurface()` still references WebGPU/Dawn.
 - [ ] **Add C++-level version macros**: `GE_VERSION_MAJOR/MINOR/PATCH` + `GE_VERSION_STRING` in a public header. Not present today; important for the 1.0 contract.
 
-### Wire + ged API
+### Wire + stream-relay API
 
 - [ ] **Sideband message set consolidation**: the open set of `/ws/server` text types should be narrowed to a known enum before 1.0.
 - [ ] **`tweak_set` MCP input**: accept non-numeric values (arrays, booleans, strings).
-- [ ] **ged HTTP response schemas**: several endpoints return ad-hoc JSON; a documented schema (or OpenAPI) would make post-1.0 audits easier.
-- [ ] **Hardcoded port `42069` in player auto-connect paths**: respect ged's `--port` override instead.
+- [ ] **historical ged HTTP schemas** (removed): several endpoints return ad-hoc JSON; a documented schema (or OpenAPI) would make post-1.0 audits easier.
+- [ ] **Player default port is **3030** (spyder). Prefer `GE_STREAM_ADDR` / `-stream_addr` over hardcoded values.
 - [ ] **Protocol version bump policy**: document when a bump is required (field added vs. structural change vs. renamed message).
 
 ### Build system
@@ -561,6 +561,6 @@ Features deliberately deferred beyond the first stable release:
 - **🎯T3 — Mip-cache manifest preflight.** Optimisation for reconnect latency. Nice-to-have.
 - **🎯T5 — In-player connection management UI.** Dashboard-driven switching (🎯T6) is the 1.0 path.
 - **🎯T9 — Device tilt parallax as a first-class RunConfig option.** Designing the `Context::parallax()` contract is non-trivial; ship without it.
-- **🎯T11.* — pigeon replacement for ged's WebSocket stack.** Transport swap for LAN / internet NAT traversal. Post-1.0.
+- **🎯T11.* — pigeon replacement for the stream WebSocket stack (parked).** Transport swap for LAN / internet NAT traversal. Post-1.0.
 
 These remain on the bullseye frontier and are scheduled independently.

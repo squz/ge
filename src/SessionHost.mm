@@ -49,7 +49,7 @@ void runServer(Factory factory, const SessionHostConfig& config);
 
 // ── runDirectHosted: standalone / distribution / server modality ──
 //
-// Render + engine in one process, no ged. Uses DirectRenderHost for window +
+// Render + engine in one process, no stream broker. Uses DirectRenderHost for window +
 // sokol + input. The host owns the session Context (db setup, dimensions,
 // safe-area); the run loop just relays it. When `server` is non-null the same
 // loop drives server mode: the host is hidden, capture is armed each frame, and
@@ -259,7 +259,7 @@ void run(Factory factory, const SessionHostConfig& config) {
 int renderBatch(Factory factory, SessionHostConfig config,
                 const std::vector<RenderItem>& items) {
     ge::log::install();
-    config.headless = false;   // direct host, no ged / wire
+    config.headless = false;   // direct host, no stream broker / wire
     config.hidden   = true;    // unmapped window — nothing shown
     DirectRenderHost host(config);
     applyImmersive(false);
