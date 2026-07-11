@@ -9,10 +9,12 @@ public class GeActivity extends SDLActivity {
     // can retrieve it via JNI. Set before SDL's native thread starts; cleared
     // after first read.
     private static volatile String sStreamAddr = null;
+    // Stream server name registered with spyder (e.g. "tiltbuggy").
+    private static volatile String sServerName = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Read intent extra before super.onCreate() loads native libraries
+        // Read intent extras before super.onCreate() loads native libraries
         // and starts the SDL thread — available when SDL_main runs.
         Intent intent = getIntent();
         if (intent != null) {
@@ -22,6 +24,13 @@ public class GeActivity extends SDLActivity {
             }
             if (addr != null && !addr.isEmpty()) {
                 sStreamAddr = addr;
+            }
+            String name = intent.getStringExtra("server_name");
+            if (name == null || name.isEmpty()) {
+                name = intent.getStringExtra("name");
+            }
+            if (name != null && !name.isEmpty()) {
+                sServerName = name;
             }
         }
         super.onCreate(savedInstanceState);
@@ -34,6 +43,13 @@ public class GeActivity extends SDLActivity {
         String addr = sStreamAddr;
         sStreamAddr = null;
         return addr;
+    }
+
+    /** Stream server name (e.g. "tiltbuggy"), or null if not supplied. */
+    public static String getServerName() {
+        String name = sServerName;
+        sServerName = null;
+        return name;
     }
 
     /** @deprecated Use {@link #getStreamAddr()}; kept for any old native stubs. */

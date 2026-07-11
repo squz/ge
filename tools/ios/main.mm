@@ -6,9 +6,12 @@
 //   -ged_addr host:port      (legacy alias)
 //   GE_STREAM_ADDR=host:port (preferred env)
 //   GE_DAEMON_ADDR=host:port (legacy env)
-// Example (simulator):  xcrun simctl launch <udid> com.squz.player -stream_addr 192.168.1.217:3030
-// Example (device):     xcrun devicectl device process launch --console-pty -- com.squz.player -stream_addr 192.168.1.217:3030
-// Example (env var):    xcrun devicectl device process launch -e '{"GE_STREAM_ADDR":"192.168.1.217:3030"}' ...
+// Stream server name (default: tiltbuggy):
+//   -server_name NAME   or -name NAME
+//   GE_STREAM_NAME=NAME
+// Example (simulator):  xcrun simctl launch <udid> com.squz.player -stream_addr 192.168.1.217:3030 -server_name tiltbuggy
+// Example (device):     xcrun devicectl device process launch --console-pty -- com.squz.player -stream_addr 192.168.1.217:3030 -server_name tiltbuggy
+// Example (env var):    xcrun devicectl device process launch -e '{"GE_STREAM_ADDR":"192.168.1.217:3030","GE_STREAM_NAME":"tiltbuggy"}' ...
 
 #include <TargetConditionals.h>
 #include "player_core.h"
@@ -59,6 +62,8 @@ protected:
 
 // Default matches spyder's loopback stream relay (spyder serve).
 static constexpr uint16_t kDefaultPort = 3030;
+// Matches ge sample server appName when no override is supplied.
+static constexpr const char* kDefaultServerName = "tiltbuggy";
 
 int main(int argc, char* argv[]) {
     auto sink = std::make_shared<http_sink<std::mutex>>();
@@ -70,6 +75,7 @@ int main(int argc, char* argv[]) {
 
     std::string host;
     uint16_t port = kDefaultPort;
+    std::string serverName;
 
     // Helper: parse "host:port" or "host" into host/port.
     auto parseAddr = [&](const std::string& s) {
@@ -95,6 +101,17 @@ int main(int argc, char* argv[]) {
             SPDLOG_INFO("{} launch arg: {}:{}", key.UTF8String, host, port);
             [defs removeObjectForKey:key];
         }
+        NSString* nameKey = @"server_name";
+        NSString* name = [defs stringForKey:nameKey];
+        if (!name || name.length == 0) {
+            nameKey = @"name";
+            name = [defs stringForKey:nameKey];
+        }
+        if (name && name.length > 0) {
+            serverName = std::string(name.UTF8String);
+            SPDLOG_INFO("{} launch arg: {}", nameKey.UTF8String, serverName);
+            [defs removeObjectForKey:nameKey];
+        }
     }
 
     // Priority 2: GE_STREAM_ADDR (preferred) or legacy GE_DAEMON_ADDR.
@@ -105,6 +122,12 @@ int main(int argc, char* argv[]) {
         } else if (const char* addr = std::getenv("GE_DAEMON_ADDR")) {
             parseAddr(std::string(addr));
             SPDLOG_INFO("GE_DAEMON_ADDR (legacy): {}:{}", host, port);
+        }
+    }
+    if (serverName.empty()) {
+        if (const char* n = std::getenv("GE_STREAM_NAME")) {
+            serverName = n;
+            SPDLOG_INFO("GE_STREAM_NAME: {}", serverName);
         }
     }
 
@@ -122,5 +145,7 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
-    return playerCore(host, port);
+    if (serverName.empty()) serverName = kDefaultServerName;
+    SPDLOG_INFO("Connecting to {}:{} server_name={}", host, port, serverName);
+    return playerCore(host, port, serverName);
 }

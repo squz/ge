@@ -13,36 +13,26 @@ add_subdirectory(
 # FFmpeg (prebuilt, H.264 decode only)
 set(FFMPEG_DIR ${GE_ROOT}/vendor/ffmpeg)
 
-# Sources — Android entry point + shared H.264 player core + FFmpeg decoder
+# Sources — Android entry point + shared H.264 player core + FFmpeg decoder.
+# Keep this lean: full libge (Resource/sokol/sqlite/…) is not required for the
+# brokered player path and would pull in sokol_gfx headers the NDK build does
+# not need.
 add_library(main SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/QRScanner_android.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/appchannel_stub.cpp
     ${GE_ROOT}/tools/player_core.cpp
     ${GE_ROOT}/tools/player_orientation_stub.cpp
-    ${GE_ROOT}/tools/AudioPlayer.cpp
     ${GE_ROOT}/src/bridge/PlayerWireBridge.cpp
     ${GE_ROOT}/src/bridge/WebSocketClient.cpp
     ${GE_ROOT}/src/bridge/VideoDecoder_ffmpeg.cpp
     ${GE_ROOT}/src/render/PlayerRender.cpp
     ${GE_ROOT}/src/Signal.cpp
-    ${GE_ROOT}/src/Resource.cpp
-    ${GE_ROOT}/src/FileIO.cpp
-    ${GE_ROOT}/vendor/src/sqlite3.c
-    ${GE_ROOT}/vendor/src/sqlpipe.cpp
-    ${GE_ROOT}/vendor/src/lz4.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/arena.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/liteparser.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_tokenize.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_unparse.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/parse.c
 )
 
 target_compile_definitions(main PRIVATE
     GE_ANDROID
     ASIO_STANDALONE
-    SQLITE_ENABLE_SESSION
-    SQLITE_ENABLE_PREUPDATE_HOOK
-    SQLITE_ENABLE_DESERIALIZE
 )
 
 target_include_directories(main PRIVATE
@@ -51,7 +41,6 @@ target_include_directories(main PRIVATE
     ${GE_ROOT}/vendor/github.com/gabime/spdlog/include
     ${GE_ROOT}/vendor/github.com/chriskohlhoff/asio/include
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL/include
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src
     ${GE_ROOT}/tools
     ${FFMPEG_DIR}/include
     ${GE_ROOT}/vendor/github.com/FFmpeg/FFmpeg
