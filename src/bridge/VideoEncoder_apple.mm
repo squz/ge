@@ -14,7 +14,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <future>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace ge {
@@ -336,7 +338,8 @@ struct TiledVideoEncoder::M {
     int baseBps = 50'000;
     std::vector<std::unique_ptr<VideoEncoder>> encoders;
     std::vector<uint8_t> sawKey;  // first IDR delivered for tile
-    std::vector<uint8_t> tileRgba;
+    // Per-tile crop buffers so parallel workers never share a scratch.
+    std::vector<std::vector<uint8_t>> tileRgba;
 
     void rebuildGrid();
 };
@@ -391,6 +394,7 @@ void TiledVideoEncoder::M::rebuildGrid() {
     baseBps = std::max(80'000, cfg.totalAverageBitRate / std::max(1, n));
     encoders.resize(static_cast<size_t>(n));
     sawKey.assign(static_cast<size_t>(n), 0);
+    tileRgba.assign(static_cast<size_t>(n), {});
     for (int i = 0; i < n; ++i) {
         // Every session is full tileEdge×tileEdge. Content that doesn't fill
         // the cell is black-padded so SPS/AU dimensions stay uniform.
@@ -411,19 +415,23 @@ void TiledVideoEncoder::M::rebuildGrid() {
         encoders[static_cast<size_t>(i)] =
             std::make_unique<VideoEncoder>(ec, VideoEncoder::FrameCallback{});
     }
+    const int par = cfg.encodeParallelism > 0
+                        ? cfg.encodeParallelism
+                        : std::max(1, int(std::thread::hardware_concurrency()));
     SPDLOG_INFO(
         "TiledVideoEncoder: {}x{} tile={} grid={}x{} ({} sessions) "
-        "perTileBps={} totalBps={} mtu={} gop={}",
+        "perTileBps={} totalBps={} mtu={} gop={} parallel~{}",
         cfg.width, cfg.height, tileEdge, cols, rows, n, baseBps,
-        cfg.totalAverageBitRate, cfg.mtuBudget, std::max(1, cfg.fps));
+        cfg.totalAverageBitRate, cfg.mtuBudget, std::max(1, cfg.fps),
+        std::min(par, n));
 }
 
 TiledVideoEncoder::TiledVideoEncoder(Config cfg, TileCallback onTile)
     : m(std::make_unique<M>()) {
     m->cfg = cfg;
     if (m->cfg.mtuBudget <= 0) m->cfg.mtuBudget = int(wire::kVideoTileMtuBudget);
-    if (m->cfg.preferredTileEdge <= 0) m->cfg.preferredTileEdge = 64;
-    if (m->cfg.maxTiles <= 0) m->cfg.maxTiles = 64;
+    if (m->cfg.preferredTileEdge <= 0) m->cfg.preferredTileEdge = 512;
+    if (m->cfg.maxTiles <= 0) m->cfg.maxTiles = 16;
     // Slightly above the all-intra experiment default — P-frames make this
     // land as quality, not as fat keys.
     if (m->cfg.totalAverageBitRate <= 0) m->cfg.totalAverageBitRate = 8'000'000;
@@ -456,18 +464,26 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
     const int gop = std::max(1, m->cfg.fps);
     const int n = m->cols * m->rows;
     const int cell = m->tileEdge & ~1;
-    if (cell < 2) return;
+    if (cell < 2 || n < 1) return;
 
-    // Round-robin starting tile so VT load does not always hit the same rows
-    // last (top→bottom order made the bottom third systematically noisier
-    // under sequential multi-session encode, even on uniform content).
-    const int start = int(frameSeq % uint32_t(std::max(1, n)));
+    struct Job {
+        int tileId = 0;
+        bool wantKey = false;
+    };
+    struct Out {
+        int tileId = 0;
+        bool isKey = false;
+        bool blank = true;
+        std::vector<uint8_t> au;
+    };
 
+    std::vector<Job> jobs;
+    jobs.reserve(static_cast<size_t>(n));
+    // Round-robin start so the same rows are not always last under load.
+    const int start = int(frameSeq % uint32_t(n));
     for (int k = 0; k < n; ++k) {
         const int tileId = (start + k) % n;
-        auto& enc = m->encoders[static_cast<size_t>(tileId)];
-        if (!enc) continue;
-
+        if (!m->encoders[static_cast<size_t>(tileId)]) continue;
         const int col = tileId % m->cols;
         const int row = tileId / m->cols;
         const int x0 = col * m->tileEdge;
@@ -476,62 +492,97 @@ void TiledVideoEncoder::encode(const uint8_t* rgbaPixels, size_t bytesPerRow) {
         const int contentH = std::min(cell, m->cfg.height - y0);
         if (contentW < 1 || contentH < 1) continue;
 
-        m->tileRgba.assign(static_cast<size_t>(cell) * cell * 4, 0);
+        auto& buf = m->tileRgba[static_cast<size_t>(tileId)];
+        buf.assign(static_cast<size_t>(cell) * cell * 4, 0);
         for (int y = 0; y < contentH; ++y) {
             const uint8_t* src =
                 rgbaPixels + static_cast<size_t>(y0 + y) * bytesPerRow +
                 static_cast<size_t>(x0) * 4;
-            uint8_t* dst = m->tileRgba.data() + static_cast<size_t>(y) * cell * 4;
+            uint8_t* dst = buf.data() + static_cast<size_t>(y) * cell * 4;
             std::memcpy(dst, src, static_cast<size_t>(contentW) * 4);
         }
 
-        std::vector<uint8_t> au;
-        bool isKey = false;
-        if (enc->averageBitRate() != m->baseBps)
-            enc->setAverageBitRate(m->baseBps);
+        Job j;
+        j.tileId = tileId;
+        j.wantKey = !m->sawKey[static_cast<size_t>(tileId)] ||
+                    ((frameSeq + uint32_t(tileId)) % uint32_t(gop)) == 0;
+        jobs.push_back(j);
+    }
+    if (jobs.empty()) return;
 
-        // First AU for a tile, or staggered GOP tick → force IDR.
-        const bool wantKey =
-            !m->sawKey[static_cast<size_t>(tileId)] ||
-            ((frameSeq + uint32_t(tileId)) % uint32_t(gop)) == 0;
-        if (wantKey) enc->forceNextKeyframe();
+    const int hw = m->cfg.encodeParallelism > 0
+                       ? m->cfg.encodeParallelism
+                       : std::max(1, int(std::thread::hardware_concurrency()));
+    const int workers = std::clamp(std::min(int(jobs.size()), hw), 1, 16);
 
-        bool ok = enc->encodeSync(m->tileRgba.data(),
-                                  static_cast<size_t>(cell) * 4, au, isKey);
+    std::vector<Out> outs(jobs.size());
+    std::atomic<size_t> next{0};
 
-        // Pass-2: ratchet bitrate on the same session until under MTU.
-        int bps = m->baseBps;
-        int attempts = 0;
-        while (ok && au.size() > static_cast<size_t>(budget) && attempts < 4) {
-            bps = std::max(40'000, bps / 2);
-            enc->setAverageBitRate(bps);
-            enc->forceNextKeyframe();
-            ok = enc->encodeSync(m->tileRgba.data(),
-                                 static_cast<size_t>(cell) * 4, au, isKey);
-            ++attempts;
+    auto worker = [&] {
+        for (;;) {
+            const size_t i = next.fetch_add(1);
+            if (i >= jobs.size()) return;
+            const Job& job = jobs[i];
+            auto& enc = m->encoders[static_cast<size_t>(job.tileId)];
+            Out o;
+            o.tileId = job.tileId;
+            if (!enc) {
+                outs[i] = std::move(o);
+                continue;
+            }
+            if (enc->averageBitRate() != m->baseBps)
+                enc->setAverageBitRate(m->baseBps);
+            if (job.wantKey) enc->forceNextKeyframe();
+
+            const auto& buf = m->tileRgba[static_cast<size_t>(job.tileId)];
+            bool ok = enc->encodeSync(buf.data(), static_cast<size_t>(cell) * 4,
+                                      o.au, o.isKey);
+            int bps = m->baseBps;
+            int attempts = 0;
+            while (ok && o.au.size() > static_cast<size_t>(budget) && attempts < 4) {
+                bps = std::max(40'000, bps / 2);
+                enc->setAverageBitRate(bps);
+                enc->forceNextKeyframe();
+                ok = enc->encodeSync(buf.data(), static_cast<size_t>(cell) * 4,
+                                     o.au, o.isKey);
+                ++attempts;
+            }
+            o.blank = !ok || o.au.size() > static_cast<size_t>(budget);
+            if (o.blank) o.au.clear();
+            outs[i] = std::move(o);
         }
+    };
 
+    if (workers == 1) {
+        worker();
+    } else {
+        std::vector<std::future<void>> futs;
+        futs.reserve(static_cast<size_t>(workers));
+        for (int w = 0; w < workers; ++w)
+            futs.push_back(std::async(std::launch::async, worker));
+        for (auto& f : futs) f.get();
+    }
+
+    // Emit in job order (already round-robin); callback may take wire locks.
+    for (auto& o : outs) {
         TileFrame tf;
         tf.frameSeq = frameSeq;
-        tf.tileId = static_cast<uint16_t>(tileId);
+        tf.tileId = static_cast<uint16_t>(o.tileId);
         tf.cols = static_cast<uint8_t>(m->cols);
         tf.rows = static_cast<uint8_t>(m->rows);
         tf.frameW = static_cast<uint16_t>(m->cfg.width);
         tf.frameH = static_cast<uint16_t>(m->cfg.height);
         tf.tileEdge = static_cast<uint16_t>(m->tileEdge);
-        tf.isKeyframe = isKey;
-
-        if (!ok || au.size() > static_cast<size_t>(budget)) {
-            tf.blank = true;
+        tf.isKeyframe = o.isKey;
+        tf.blank = o.blank;
+        if (o.blank) {
             tf.data = nullptr;
             tf.size = 0;
-            if (m->onTile) m->onTile(tf);
-            continue;
+        } else {
+            tf.data = o.au.data();
+            tf.size = o.au.size();
+            if (o.isKey) m->sawKey[static_cast<size_t>(o.tileId)] = 1;
         }
-        if (isKey) m->sawKey[static_cast<size_t>(tileId)] = 1;
-        tf.blank = false;
-        tf.data = au.data();
-        tf.size = au.size();
         if (m->onTile) m->onTile(tf);
     }
 }

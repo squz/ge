@@ -83,10 +83,13 @@ public:
         int width = 0;
         int height = 0;
         int fps = 60;
-        int preferredTileEdge = 64;   // CRF-36 lab default
+        // Prefer large tiles: 48× sequential VT encodes kills full-frame FPS.
+        // 512 on 2048×1536 → 4×3 = 12 sessions (see maxTiles).
+        int preferredTileEdge = 512;
         int mtuBudget = 16 * 1024;    // wire::kVideoTileMtuBudget (WS/LAN default)
         int totalAverageBitRate = 8'000'000;  // softer than legacy 16 Mbps
-        int maxTiles = 64;            // VT session cap — grow tile edge if needed
+        int maxTiles = 16;            // cap sessions — grow edge if needed
+        int encodeParallelism = 0;    // 0 → min(n, hardware_concurrency)
     };
 
     struct TileFrame {
