@@ -277,7 +277,6 @@ targets:
     status: identified
     value: 13.0
     cost: 20.0
-    set_aside_reason: Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.
     acceptance:
     - The player connects to the game server via pigeon's relay (Register/Connect or LAN bypass) — not via a WebSocket through ged. Wire framing is pigeon's stream + datagram protocol; payloads are ciphertext at the relay layer. ged's role is reduced to (a) issuing PairingArtifacts via pigeon.PairingHost so newly-installed players can establish first-contact with a server, and (b) the dashboard. ged is no longer on the runtime data path between server and player.
     - All session traffic is end-to-end encrypted via pigeon's X25519 ECDH + AES-256-GCM channel. Neither ged nor the relay can read plaintext. The QR scan that today carries a server name + port now carries a pigeon PairingArtifact (base64url) — one-time-use, TTL-bound (default 30 days), persistable on the player so reconnects skip the ceremony.
@@ -307,7 +306,6 @@ targets:
     status: identified
     value: 3.0
     cost: 2.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - 'A single canonical declaration of ge''s wire protocol exists in the repo — file format and tool choice are open (candidates: protobuf with `protoc`, FlatBuffers with `flatc`, Cap''n Proto, a small bespoke YAML+templated generator, or a hand-written C/C++ header authored as the source of truth and exported to other languages by tooling). The declaration covers every message currently defined in include/ge/Protocol.h: DeviceInfo, SafeAreaUpdate, AspectLock, MessageHeader, plus the eleven magic-number constants (kVideoStreamMagic, kSdlEventMagic, kSessionEndMagic, kStreamStartMagic, kStreamStopMagic, kServerAssignedMagic, kSafeAreaMagic, kAspectLockMagic, kSqlpipeMsgMagic, kDeviceInfoMagic, kProtocolVersion).'
     - A make-rule (or equivalent) regenerates language bindings from the canonical source. ge's build wires it as a normal codegen step; CI fails if the generated outputs are out of sync with the source.
@@ -333,7 +331,6 @@ targets:
     status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - ged's web dashboard mints a PairingArtifact via pigeon.PairingHost.Mint() for each newly-launched server (server-side PairingRecord stored in ged's state). The QR code displayed by the dashboard now encodes the artifact (base64url text, ~few hundred bytes), not a name+port pair.
     - Player on first launch scans the QR, parses the PairingArtifact, calls pigeon.ConnectWithArtifact(), and is now in an E2E-encrypted session with the server.
@@ -356,7 +353,6 @@ targets:
     status: identified
     value: 5.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - The H.264 NAL-unit stream from server to player rides on a pigeon DatagramChannel. Pigeon's automatic fragmentation handles NAL units larger than the QUIC datagram MTU; the 5-second incomplete-set discard window is acceptable because lost frames are recoverable via the next keyframe.
     - Input events (SdlEvent, SafeAreaUpdate) from player to server ride on a pigeon reliable StreamChannel. Loss of an input event is unacceptable; reliable framing matches.
@@ -380,7 +376,6 @@ targets:
     status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - When player and server detect they're on the same Wi-Fi (or wired LAN), pigeon's LAN bypass kicks in via pigeon.Config.LANServer + LAN-IP discovery. Traffic goes peer-to-peer over QUIC, the relay sees only the initial introduction handshake.
     - 'Player surfaces the connection mode in its UI (or at least logs it): ''connected via LAN'' vs ''connected via relay''. Useful for debugging and for users to understand performance characteristics.'
@@ -402,7 +397,6 @@ targets:
     status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - The bgfx-direct iOS and Android distribution players link pigeon's C library (dist/pigeon.h + dist/pigeon.c) plus libsodium and ngtcp2 (vendored as submodules under ge/vendor/github.com/<org>/, per CLAUDE.md). No Go runtime is shipped to the device.
     - 'The mobile player can connect to a server via a stored PairingArtifact and run a session end-to-end: receive video, send input, decode, render. Functional parity with the desktop player on the same server.'
@@ -428,7 +422,6 @@ targets:
     status: identified
     value: 3.0
     cost: 3.0
-    set_aside_reason: 'Plateau P: parked with T11 (pigeon transport deferred).'
     acceptance:
     - ge/src/bridge/WebSocketClient.cpp and the matching WebSocketClient.h are deleted. No remaining call sites in ge.
     - PlayerWireBridge.cpp's WebSocket-specific code paths are deleted (the class itself may still exist as a thin wrapper around pigeon, or be replaced entirely — author's discretion).
