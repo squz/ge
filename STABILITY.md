@@ -2,20 +2,21 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.1.0** (first release).
+Snapshot as of: **v0.74.0** (Plateau P closed — ged removed; spyder is sole control plane).
 
 ---
 
-
-> **Plateau P (2026-07-11):** the `ged` daemon and its dashboard SPA (`web/`) were **removed**. Dev control plane is [spyder](https://github.com/marcelocantos/spyder); ge keeps app-side app-channel + optional server-mode H.264 encode. Entries below that catalogue `ged` HTTP/MCP routes are **historical** until rewritten.
+> **Plateau P (2026-07-11):** the `ged` daemon and dashboard SPA were **removed**.
+> Dev control plane is [spyder](https://github.com/marcelocantos/spyder).
+> ge keeps the app-side app-channel client + optional `GE_SERVER` H.264 encode.
+> Release-surface oracle: `make release-surface-test` (🎯T145 acceptance #2).
 
 ## Stability commitment
 
 ge is **pre-1.0**. Breaking changes to the public C++ API, CLI / launch
-surface, Makefile / `Module.mk` exports, wire protocol (historical ged HTTP/MCP catalogue retired)
-surface, and file formats may land in any minor release while we remain
-pre-1.0. The pre-1.0 period exists so that these surfaces can be refined
-without ecosystem friction.
+surface, Makefile / `Module.mk` exports, wire protocol, and file formats may
+land in any minor release while we remain pre-1.0. The pre-1.0 period exists
+so that these surfaces can be refined without ecosystem friction.
 
 Once **1.0** ships, every item in the interaction surface catalogue
 below becomes a binding backwards-compatibility contract. Post-1.0
@@ -55,38 +56,44 @@ All public API lives under `include/ge/*.h`.
 
 - `ge::` — primary engine namespace; session host, rendering, platform, I/O, assets, animation.
 - `wire::` — C-style POD structs and constants for the H.264 streaming wire protocol.
-- `tweak::` — runtime parameter tweak system (dashboard-driven live editing).
+- `tweak::` — runtime parameter tweak system (spyder / app-channel live editing).
 - `imgdiff::` — image comparison utilities (testing).
 - Top-level (no namespace) — `DampedRotation`, `DampedValue`, `DeltaTimer`, `SdlContext`, `EventWatchHandle`, `FrameLog<Entry>`.
 
 ### Session host / entry point
 
-- `ge::run(Factory factory, const SessionHostConfig& config = {}) → void`. Blocks until SIGINT or all sessions end; drives the bgfx loop, H.264 pipeline, and per-session state. **Stable**.
+- `ge::run(Factory factory, const SessionHostConfig& config = {}) → void`. Blocks until SIGINT / host exit; drives the sokol frame loop (direct) or server-mode stream path when built with `GE_SERVER_BUILD`. **Stable**.
 - `ge::Factory = std::function<RunConfig(Context)>`. **Stable**.
-- `ge::Context` — cheaply copyable (shared_ptr internals) platform context passed to the factory.
-  - `int width() const` / `int height() const` — **Stable**
+- `ge::Context` — cheaply copyable (shared_ptr internals) platform context.
+  - `drawSafeRectInPts()` / `uiSafeRectInPts()` / `fullRectInPts()` → `Rect` — **Stable** (🎯T60; point space)
+  - `pixelsPerPt()` / `ptsPerPixel()` / `deviceUiScale()` — **Stable**
   - `DeviceClass deviceClass() const` — **Stable**
-  - `std::shared_ptr<sqlpipe::Database> db() const` — **Needs review**. The `db()` getter exposes a concrete `sqlpipe::Database`; interface may change when the persistence story stabilises.
+  - `Pass swapchainPass() const` — **Stable** (🎯T101; open at top of `onRender`)
+  - `std::shared_ptr<sqlpipe::Database> db() const` — **Needs review** (concrete sqlpipe type)
+  - `parallax()`, `fps()` / `frameTime()`, render-on-demand controls — **Needs review** / **Fluid**
 - `ge::DeviceClass : uint8_t { Unknown=0, Phone=1, Tablet=2, Desktop=3 }`. **Stable**.
 - `ge::RunConfig` — designated-initialiser struct of render-loop callbacks.
   - `std::function<void(float dt)> onUpdate` — **Stable**
-  - `std::function<void(int w, int h)> onRender` — **Stable**
+  - `std::function<void(const Context&)> onRender` — **Stable**
   - `std::function<void(const SDL_Event&)> onEvent` — **Stable**
   - `std::function<void()> onShutdown` — **Stable**
+  - Optional: `onBackPressed`, `onMemoryWarning`, `onMetrics` — **Needs review**
 - `ge::SessionHostConfig` — configuration passed to `ge::run`.
   - `int width`, `int height` — **Stable**
-  - `bool headless` — **Stable**
+  - `bool headless` / `hidden` — **Stable** / **Needs review**
   - `const char* orgName`, `const char* appName` — **Stable**
-  - `std::string schemaDdl` — **Needs review**. sqlpipe auto-migration API is still evolving.
-  - `uint8_t sensors` — **Needs review**. Raw bitmask; a named enum would be cleaner before 1.0.
-  - `uint8_t orientation` — **Needs review**. Raw byte; could be typed `wire::Orientation`.
-  - `bool disableScreenSaver` — **Stable**.
+  - `std::string schemaDdl` — **Needs review**
+  - `uint8_t sensors`, `uint8_t orientation` — **Needs review** (raw bytes)
+  - `bool disableScreenSaver`, `parallaxFactor`, `metricsReportThreshold`, `crashDiagnostics` — **Needs review**
+- `ge::renderToPng` / `ge::renderBatch` — headless one-shot PNG (🎯T124). **Stable**.
 
 ### Rendering
 
-- `ge::BgfxConfig` — POD struct (`width`, `height`, `headless`, `title`). **Needs review**.
-- `ge::BgfxContext` — RAII bgfx init/shutdown, exposes `width()`, `height()`, `shouldQuit()`, `window()`. **Needs review**. Exposed to consumers wanting manual bgfx control, but `ge::run` wraps all typical usage.
-- `ge::RenderHost` — abstract interface between engine and render subsystem. Pure-virtual methods: `width()`, `height()`, `deviceClass()`, `send(const wire::SessionConfig&)`, `setEventHandler(...)`, `pumpEvents()`, `beginFrame()`, `endFrame(uint32_t frameNumber)`, `shouldQuit()`. **Fluid**. Introduced in PR #11 (engine/render/bridge split); actively evolving.
+- sokol_gfx is the only live backend (bgfx removed — 🎯T38/T98). Consumers call `sg_*` after opening `Context::swapchainPass()`.
+- `ge::Pass` — move-only RAII pass (swapchain / offscreen). **Stable**.
+- `ge::Sprite` — move-only owning textured quad (🎯T135). **Stable**.
+- `ge::sprite` / `svg` / `png` / `text` / `debug` factories — **Stable** / **Needs review** collectively.
+- `ge::RenderHost` — abstract host interface used internally by direct / server paths. **Fluid**.
 
 ### Protocol types and constants (`wire::`)
 
@@ -178,7 +185,7 @@ ge is consumed via `-include $(ge)/Module.mk`. The contract below is what apps r
 | `APP_SHADERS` | — | `.bin` shader targets under `$(BUILD_DIR)`. | **Stable** |
 | `BUILD_DIR` | `build` | Output root. | **Stable** |
 | `CXX` / `CC` | `clang++` / `clang` | Compilers. | **Stable** |
-| `CXXFLAGS` | `$(ge/CXXFLAGS_BASE) -Isrc` | Overrides OK, must retain `$(ge/INCLUDES)` and `$(ge/BGFX_ALL_INCLUDES)`. | **Stable** |
+| `CXXFLAGS` | `$(ge/CXXFLAGS_BASE) -Isrc` | Overrides OK; must retain `$(ge/INCLUDES)`. | **Stable** |
 | `SDL_CFLAGS` | `-I$(ge)/vendor/sdl3/include` | SDL3 headers. | **Stable** |
 | `FRAMEWORKS` | `$(ge/FRAMEWORKS)` | macOS/iOS frameworks; extend with `+=`. | **Stable** |
 | `APP_LIBS` | `$(ge/BOX2D_OBJ)` | Extra app static libs. | **Needs review**. |
@@ -195,14 +202,13 @@ All namespaced `ge/`; read-only from the consumer.
 
 | Category | Variables | Stability |
 |---|---|---|
-| Includes / flags | `ge/INCLUDES`, `ge/BGFX_ALL_INCLUDES`, `ge/CXXFLAGS_BASE`, `ge/FRAMEWORKS` | **Stable** |
-| Library targets | `ge/LIB` (`libge.a`), `ge/BGFX_LIBS` (`libbgfx.a libbimg.a libbx.a`) | **Stable** |
+| Includes / flags | `ge/INCLUDES`, `ge/CXXFLAGS_BASE`, `ge/FRAMEWORKS` | **Stable** |
+| Library targets | `ge/LIB` (`libge.a`) | **Stable** |
 | | `ge/SDL_LIBS` (prebuilt SDL3 stack) | **Needs review** (hard-coded macos-arm64 paths) |
 | Source / object lists | `ge/SRC`, `ge/OBJ`, `ge/SRC_DIRECT`, `ge/SRC_BROKERED`, `ge/TEST_SRC`, `ge/TEST_OBJ` | **Needs review** (direct/brokered split is internal) |
 | | `ge/BOX2D_OBJ` | **Stable** |
 | | `ge/TRIANGLE_OBJ` | **Fluid** |
-| Shaders | `ge/RENDER_SHADERS`, `ge/APP_SHADERS_GLES`, `ge/RENDER_SHADERS_GLES`, `ge/SHADERC`, `ge/SHADER_DIR`, `ge/SHADERC_VARYINGDEF` | **Stable** |
-| | `ge/SHADERC_PROFILE`, `ge/SHADERC_PLATFORM` | **Needs review** |
+| Shaders | `ge/SHADER_DIR`, sokol-shdc outputs under `$(BUILD_DIR)/…/shaders` | **Stable** / **Needs review** |
 | Binaries | `ge/PLAYER` (`bin/player`) | **Stable** |
 | | `ge/IMGDIFF` (`bin/imgdiff`) | **Fluid** |
 | Test matrix | `ge/CELLS`, `ge/CHECK_CELLS` | **Stable** |
@@ -216,7 +222,7 @@ All namespaced `ge/`; read-only from the consumer.
 | Target | Purpose | Stability |
 |---|---|---|
 | `all`, `run`, `clean` | Standard lifecycle. | **Stable** |
-| `ge/debug` | Debug-variant binary (`bin/$(APP_NAME)-debug`, `-O0 -g -DDEBUG -DBX_CONFIG_DEBUG=1`). | **Stable** |
+| `ge/debug` | Debug-variant binary (`bin/$(APP_NAME)-debug`). | **Stable** |
 | `ge/player`, `ge/imgdiff` | Engine tools. | **Stable** / **Fluid** |
 | `ge/init`, `compile_commands.json` | Dev setup + clangd DB. | **Stable** |
 | `depgraph`, `clean-depgraph` | Dependency-graph SVG. | **Fluid** |
@@ -292,56 +298,27 @@ All share the ASCII prefix `GE2` (`0x474532xx`).
 
 Carried by `kVideoStreamMagic` frames; intercepted by the stream relay, not forwarded verbatim. Payload: `[1-byte flags][optional SPS/PPS][NAL data]`. **Needs review** (internal relay↔player contract).
 
-### Server sideband WebSocket protocol
+### Server sideband (stream path)
 
-- `/ws/server` text JSON and binary frames.
-- Hello (first frame): `{ "type": "hello", "name": <server-name>, "pid": <n>, "version": 6 }`. Relay/session setup rejects mismatched versions.
-- Server → relay text (historical control sideband; control plane is now app-channel) `type`s: `log`, `preview`, `preview_bin`, `accel`, `tweaks`, plus opaque `<any> { type, data }`.
-- relay → server text (historical; player_attached/detached remain on stream sideband) `type`s: `player_attached`, `player_detached`, `tweak_set`, `tweak_reset`.
-- **Needs review** — set of sideband types is growing; may be renamed before 1.0.
+Server-mode builds dial spyder's stream relay (`GE_SERVER` / default `127.0.0.1:3030`).
+Hello + wire frames use `wire::kProtocolVersion`. Control plane (tweaks, logs, state,
+screenshots) is **not** the stream sideband — it is the **app-channel**
+(`SPYDER_APP_CHANNEL`, compiled out under `NDEBUG`; see `appchannel.h`).
 
-### Stream-relay connection addresses
+Historical ged text sideband types (`log`, `preview`, `tweak_*`, …) are **removed**
+with the daemon. Do not document them as live API.
 
-- Default spyder stream relay `:3030` (historical ged was `:42069`) (all interfaces). **Stable**.
-- `GE_STREAM_ADDR` / legacy `GE_DAEMON_ADDR` env var (iOS) in `host:port` format. **Stable**.
-- `--port <n>` CLI override. **Stable**.
-- LAN IP discovery via UDP dial against `8.8.8.8:53`. **Needs review** (air-gapped networks).
+### Dev control plane (spyder — not ge)
 
-### ~~ged HTTP / WebSocket routes~~ (removed)
+| Surface | Where | Stability |
+|---|---|---|
+| Stream relay (H.264 + wire) | spyder `serve` default `:3030` | **Stable** (spyder owns routes) |
+| App-channel msgpack RPC | `SPYDER_APP_CHANNEL=host:port` | **Stable** (ge client; spyder server) |
+| MCP / dashboard / `app_exec` | spyder | **Fluid** (spyder versioned surface) |
+| `make release-surface-test` | ge | **Stable** (T145 NDEBUG + non-server symbol oracle) |
 
-| Route | Method | Purpose | Stability |
-|---|---|---|---|
-| `/api/info` | GET | Server state: `{connected, servers[], sessions}` | **Stable** |
-| `/api/url` | GET | QR pairing URL `{url: "ge-remote://ip:port"}` | **Stable** |
-| `/api/qr` | GET | QR code PNG 256×256 | **Stable** |
-| `/api/state/{type}` | GET | Cached sideband state | **Needs review** |
-| `/api/tweaks` | GET | Alias for `/api/state/tweaks` | **Needs review** |
-| `/api/servers/{id}/select` | POST | Switch all players to server | **Needs review** |
-| `/api/sessions/{sid}/server/{serverID}` | POST | Switch session to server by ID | **Needs review** |
-| `/api/sessions/{sid}/select/{serverName}` | POST | Switch session by name (player-driven) | **Stable** |
-| `/api/sideband` | POST | Forward arbitrary JSON to server(s) | **Needs review** |
-| `/api/tweaks`, `/api/tweaks/reset` | POST | Back-compat wrappers for sideband | **Needs review** |
-| `/api/stop` | POST | SIGINT game server(s) | **Needs review** |
-| `/quitquitquit` | POST | Graceful self-shutdown (supersession) | **Fluid** (internal) |
-| `/ws/wire` | WebSocket | Player binary wire bridge; `?name=...&preference=...` | **Stable** |
-| `/ws/server` | WebSocket | Game server sideband | **Stable** |
-| `/ws/server/wire/{sid}` | WebSocket | Per-session wire from server | **Stable** |
-| `/ws/logs` | WebSocket | Dashboard log stream | **Needs review** |
-| `/ws/preview` | WebSocket | Dashboard preview frames | **Needs review** |
-| `/ws/stream/{sid}` | WebSocket | Browser-playable fMP4 H.264 stream | **Needs review** |
-
-### ~~ged `/mcp`~~ (removed — use spyder MCP / app_exec)
-
-**Removed.** Spyder serves MCP at `http://127.0.0.1:3030/mcp` (`app_exec`).
-
-| Tool | Inputs | Output | Stability |
-|---|---|---|---|
-| `info` | — | Same as `GET /api/info` | **Stable** |
-| `tweak_list` | — | Cached `tweaks` sideband state | **Stable** |
-| `tweak_get` | `name: string` | Tweak object | **Stable** |
-| `tweak_set` | `name`, `value: number` | Confirmation | **Needs review** (numeric only; arrays/bools not yet) |
-| `tweak_reset` | `name?: string` | Confirmation | **Stable** |
-| `logs` | `count?: number` (def 20, max 200) | Newline-separated JSON entries | **Stable** |
+The retired ged HTTP/WebSocket/MCP route catalogue is **gone** (Plateau P). Use
+spyder's docs for current control-plane endpoints.
 
 ### Player launch-param protocol
 
@@ -359,7 +336,7 @@ Carried by `kVideoStreamMagic` frames; intercepted by the stream relay, not forw
 | Priority | Method | Consumed-once? | Stability |
 |---|---|---|---|
 | 1 | `-stream_addr` (legacy `-ged_addr`) "host:port"` launch arg (→ NSUserDefaults) | Yes | **Stable** |
-| 2 | `GE_DAEMON_ADDR` env var (via `devicectl … -e`) | No | **Stable** |
+| 2 | `GE_STREAM_ADDR` / legacy `GE_DAEMON_ADDR` env var | No | **Stable** |
 | 3 | Simulator auto-connect `localhost:3030` | N/A | **Needs review** (hardcoded port) |
 | 4 | QR code scan (fallback) | N/A | **Stable** |
 
@@ -379,27 +356,12 @@ Carried by `kVideoStreamMagic` frames; intercepted by the stream relay, not forw
 - `<app>/shaders/varying.def.sc` must declare `vec3 a_position : POSITION` — `vec2` triggers a glsl-optimizer NaN-clip defect in `-p 300_es` on Android GLES. **Stable** (workaround documented).
 - App-supplied `.sc` files live under `$(ge/SHADER_DIR)` (default `shaders/`); `APP_SHADERS` lists their `.bin` outputs. **Stable**.
 
-#### Shader compilation
+#### Shader compilation (sokol-shdc)
 
-| Target | `--platform` | `-p` | Output |
-|---|---|---|---|
-| macOS / iOS (Metal) | `osx` | `metal` | `$(BUILD_DIR)/shaders/*.bin` |
-| Android (Vulkan / SPIRV) | `android` | `spirv` | `$(BUILD_DIR)/shaders-gles/*.bin` |
+- App shaders: `.glsl` → generated headers under `$(BUILD_DIR)/…/shaders` via sokol-shdc.
+- `GE_SHDC_LANGS` must include the languages needed per platform (Metal + `spirv_vk` for Android Vulkan). **Stable**.
+- Engine sprites/debug ship with internal sokol programs (no consumer bgfx `.sc` pipeline). **Stable**.
 
-- `ge/SHADERC_PROFILE` default `metal`; `ge/SHADERC_PLATFORM` default `osx`. **Stable**.
-- Android uses bgfx Vulkan backend via SPIRV shaders; GLES profiles (`300_es` / `310_es`) are intentionally not used. **Stable**.
-- The Android Gradle `syncAssets` task flattens `build/shaders-gles/` and `build/ge/shaders-gles/` into `assets/build/shaders/` and `assets/build/ge/shaders/` respectively. **Stable**.
-
-#### ge-provided shaders
-
-- `src/render/shaders/ge_compose_vs.sc` / `ge_compose_fs.sc` — fullscreen-quad compose pass.
-- Engine-internal `varying.def.sc` declares `v_texcoord0 : TEXCOORD0`, `a_position : POSITION`, `a_texcoord0 : TEXCOORD0`. **Stable**.
-- Bound sampler: `s_tex` at slot 0. **Stable**.
-
-#### Cross-platform caveats
-
-- Android GLES glsl-optimizer `vec4(vec2, f, f)` bug → workaround via `vec3 a_position` + `vec4(a_position, 1.0)`. **Stable**.
-- Android emulator EGL 3.1 `BAD_CONFIG` on Apple-Silicon host → switched to Vulkan / SPIRV. **Stable**.
 
 ### Asset-manifest format
 
@@ -517,11 +479,10 @@ contract:
 
 ### Wire + stream-relay API
 
-- [ ] **Sideband message set consolidation**: the open set of `/ws/server` text types should be narrowed to a known enum before 1.0.
-- [ ] **`tweak_set` MCP input**: accept non-numeric values (arrays, booleans, strings).
-- [ ] **historical ged HTTP schemas** (removed): several endpoints return ad-hoc JSON; a documented schema (or OpenAPI) would make post-1.0 audits easier.
-- [ ] **Player default port is **3030** (spyder). Prefer `GE_STREAM_ADDR` / `-stream_addr` over hardcoded values.
+- [x] **Player default port is 3030** (spyder). Prefer `GE_STREAM_ADDR` / `-stream_addr` (legacy `ged_*` aliases remain).
+- [x] **Release surface oracle** (`make release-surface-test`): NDEBUG strips app-channel; non-`GE_SERVER` link drops encode symbols.
 - [ ] **Protocol version bump policy**: document when a bump is required (field added vs. structural change vs. renamed message).
+- [ ] **Standalone wire protocol doc**: concise `docs/wire-protocol.md` for second implementers.
 
 ### Build system
 
@@ -548,19 +509,19 @@ contract:
 
 ### Documentation
 
-- [ ] **Agent guide**: added in v0.1.0 (`agents-guide.md`). Keep the Gotchas list pruned against each release.
-- [ ] **Wire protocol reference doc**: concise standalone `docs/wire-protocol.md` would help second implementers (e.g. web player).
+- [x] **README matches sokol + spyder** (post Plateau P). Keep `AGENTS.md` canonical for depth.
+- [ ] **Agent guide**: keep `agents-guide.md` Gotchas pruned against each release.
 
 ---
 
-## Out of scope for 1.0
+## Out of scope for 1.0 (Plateau P parks)
 
-Features deliberately deferred beyond the first stable release:
+Deferred / set-aside after the control-plane migration; not required to ship multimaze/IAP:
 
-- **🎯T1 — WebAssembly in-process game servers.** Single-binary deployment via Wasm — substantial cross-cutting work; not required for 1.0.
-- **🎯T3 — Mip-cache manifest preflight.** Optimisation for reconnect latency. Nice-to-have.
-- **🎯T5 — In-player connection management UI.** Dashboard-driven switching (🎯T6) is the 1.0 path.
-- **🎯T9 — Device tilt parallax as a first-class RunConfig option.** Designing the `Context::parallax()` contract is non-trivial; ship without it.
-- **🎯T11.* — pigeon replacement for the stream WebSocket stack (parked).** Transport swap for LAN / internet NAT traversal. Post-1.0.
+- **🎯T1 — WebAssembly in-process game servers.**
+- **🎯T11.* — pigeon transport** (parked; WebSocket via spyder remains).
+- **🎯T128.* — command-stream ladder** (H.264 via spyder is the closed stream story).
+- **🎯T5 / T6 / T34 — player product UI / player-as-ge-app.**
+- **🎯T33.* — matrix-on-spyder reliability theme.**
 
-These remain on the bullseye frontier and are scheduled independently.
+Active ship cluster: multimaze/IAP (T69, T65.*, T74, T118) and related ergonomics — see `bullseye_frontier`.

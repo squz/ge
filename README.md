@@ -1,127 +1,146 @@
 # ge
 
-Rendering and asset engine for Dawn (WebGPU) + SDL3 applications. Provides RAII resource management, manifest-driven asset loading, and animation utilities.
+Reusable C++20 rendering engine for Squz games. Built on **sokol_gfx** + **SDL3**
+(Metal on Apple; Vulkan with GLES3 fallback on Android). Consumed as a git
+submodule via `Module.mk`.
+
+**Dev control plane is [spyder](https://github.com/marcelocantos/spyder)** —
+device inventory, launch, tweaks, logs, screenshots, and the optional H.264
+stream relay. The historical `ged` daemon has been removed (🎯T145 / Plateau P).
+Do not start `ged`; there is no `make ged` / `bin/ged`.
+
+Full agent/developer guide: [`AGENTS.md`](AGENTS.md). Agent-drivable app-channel
+and state slices: [`agents-guide.md`](agents-guide.md).
+
+## Architecture
+
+| Layer | Owner |
+|---|---|
+| Simulation, render, encode, wire schema, app-channel **client** | **ge** |
+| Inventory, launch, reserve, inspect, tweak, logs, dashboard, stream **relay** | **spyder** |
+
+**Primary modality — direct:** `ge::run` opens a local window (or mobile
+surface). Dev builds dial spyder's app-channel when `SPYDER_APP_CHANNEL` is set
+(injected by `spyder launch`). No streaming required for inspect/tweak/logs.
+
+**Optional — server stream (dev only):** a `GE_SERVER=1` build dials spyder's
+H.264 relay; a native player attaches through spyder. Release (`NDEBUG`) builds
+compile the app-channel out; streaming lives only in the server-mode variant.
+
+## Quick start
+
+```bash
+# Control plane (once per machine)
+brew services start spyder   # or: spyder serve
+
+# Sample (from this repo)
+make                         # builds sample/tiltbuggy
+make -C sample/tiltbuggy run # or: bin/tiltbuggy from the sample tree
+make unit-test               # doctest suite
+```
+
+## Integrating into an app
+
+```makefile
+BUILD_DIR := build
+CXX := clang++
+
+-include ge/Module.mk
+ge/Module.mk:
+	git submodule update --init --recursive
+
+CXXFLAGS := -std=c++20 -O2 $(ge/INCLUDES)
+# … link against $(ge/LIB) $(ge/SDL_LIBS) and platform frameworks
+```
+
+```cpp
+#include <ge/SessionHost.h>
+
+int main() {
+    MyState state;
+    ge::run([&](ge::Context ctx) -> ge::RunConfig {
+        auto app = std::make_shared<MyApp>(ctx);
+        return {
+            .onUpdate   = [&, app](float dt) { app->update(dt, state); },
+            .onRender   = [&, app](const ge::Context& c) {
+                auto p = c.swapchainPass();  // open before any draws
+                app->render(state, c);
+            },
+            .onEvent    = [&, app](const SDL_Event& e) { app->event(e, state); },
+            .onShutdown = [&, app]() { app->shutdown(); },
+        };
+    });
+}
+```
+
+See `sample/tiltbuggy/` for a complete reference app.
 
 ## Dependencies
 
-- [Dawn](https://dawn.googlesource.com/dawn) — WebGPU implementation
-- [SDL3](https://libsdl.org/) + SDL3_image — Windowing, input, image loading
-- [spdlog](https://github.com/gabime/spdlog) — Logging (header-only)
-- [linalg.h](https://github.com/sgorsten/linalg) — Linear algebra (header-only)
-- [doctest](https://github.com/doctest/doctest) — Testing (header-only)
-- [Triangle](https://www.cs.cmu.edu/~quake/triangle.html) — Constrained Delaunay triangulation *(opt-in only; not linked into `libge.a`. Non-commercial license — see [`NOTICES.md`](NOTICES.md#triangle-j-r-shewchuk) before shipping in a paid product.)*
+Vendored under `vendor/` (submodules / amalgams):
 
-Dependencies live in `vendor/` as git submodules or vendored sources.
-
-## Integration
-
-ge is consumed as a git submodule. The parent project includes `Module.mk` from its own Makefile:
-
-```makefile
-include ge/Module.mk
-```
-
-This exports variables (`ge/LIB`, `ge/OBJ`, `ge/FRAMEWORK_LIBS`, etc.) and pattern rules for compiling engine sources, test sources, and shaders. There is no standalone build.
-
-### iOS / iPad orientation lock
-
-iPadOS 26+ ignores the usual single-knob orientation locks (`UIRequiresFullScreen`, `SDL_HINT_ORIENTATIONS`, `requestGeometryUpdate`, even narrowing `UISupportedInterfaceOrientations` alone). To lock orientation on iPad you need **two things together**:
-
-1. Narrow `UISupportedInterfaceOrientations` in your `Info.plist` to the orientation(s) you want allowed (e.g. just `LandscapeLeft` and `LandscapeRight` for a landscape-only game).
-2. Set `SessionHostConfig.orientation = wire::kOrientationLandscape` (or any other non-zero `wire::kOrientation*`) when calling `ge::run`. The engine handles the swizzle (Apple TN3192 — `prefersInterfaceOrientationLocked`) for you, and the orientation source is linked into `libge` from v0.3.0+.
-
-Plist alone won't survive iPad multitasking; the swizzle alone locks "whatever orientation the user happened to be holding the device in at launch." Ship both. Setting different `kOrientation*` constants is currently a boolean ("lock yes/no"); the plist decides *which* orientation. See `agents-guide.md` and `CLAUDE.md` (search for "iOS orientation lock") for the full background and history.
+- [sokol](https://github.com/floooh/sokol) — `sokol_gfx` (Metal / Vulkan / GLES3)
+- [SDL3](https://libsdl.org/) + SDL3_image + SDL3_ttf
+- [spdlog](https://github.com/gabime/spdlog), [linalg.h](https://github.com/sgorsten/linalg), [doctest](https://github.com/doctest/doctest)
+- [lunasvg](https://github.com/sammycage/lunasvg) (SVG), box2d (optional consumer), sqlite/sqlpipe
+- [Triangle](https://www.cs.cmu.edu/~quake/triangle.html) — **opt-in only**; not linked into `libge.a`. Non-commercial license — see [`NOTICES.md`](NOTICES.md)
 
 ## Structure
 
 ```
-include/        Public headers (one per class)
-src/            Implementation + unit tests (*_test.cpp)
-shaders/        Test shaders (app shaders live in the parent project)
-vendor/         Third-party dependencies
-Module.mk       Build rules and exported variables
+include/ge/     Public headers
+src/            Implementation + *_test.cpp
+tools/          Player, prebuild, matrix, ship, icon-gen, iOS/Android templates
+sample/         In-tree apps (tiltbuggy is the reference)
+prebuilt/       Cross-arch libge.a + manifests
+Module.mk       Consumer build contract
+AGENTS.md       Canonical project instructions
 ```
 
-## API Overview
+## Public surface (pointers)
 
-### Platform
+| Area | Headers |
+|------|---------|
+| Session / entry | `SessionHost.h` — `ge::run`, `Context`, `RunConfig` |
+| Render | `Pass.h`, `sprite.h`, `svg.h`, `png.h`, `text.h`, `debug.h` |
+| Input / UI | `button.h`, `sdl_input.h`, `gesture.h`, `long_press.h` |
+| Animation | `GlobeController.h`, `DampedRotation.h`, `DampedValue.h` |
+| Platform | `audio.h`, `iap.h`, `log.h`, `Resource.h` |
+| Dev channel | `appchannel.h` (compiled out under `NDEBUG`) |
+| Wire protocol | `Protocol.h` (`wire::`), player/bridge headers |
 
-| Header | Description |
-|--------|-------------|
-| `GpuContext.h` | WebGPU device/queue/surface lifecycle |
-| `SdlContext.h` | RAII SDL3 window and event loop setup |
+Stability catalogue (pre-1.0): [`STABILITY.md`](STABILITY.md).
 
-### Resources
+## Player stream address
 
-| Header | Description |
-|--------|-------------|
-| `WgpuResource.h` | Move-only RAII wrapper for WebGPU handles (`BufferHandle`, `TextureHandle`, `SamplerHandle`, etc.) |
-| `CaptureTarget.h` | Offscreen framebuffer with RGBA8 color texture for readback |
-| `ShaderUtil.h` | `ge::loadProgram()` — load compiled vertex + fragment shaders |
+Native player default port is **3030** (spyder `serve`). Prefer
+`stream_addr` / `GE_STREAM_ADDR` (legacy aliases: `ged_addr` / `GE_DAEMON_ADDR`).
 
-### Assets
-
-| Header | Description |
-|--------|-------------|
-| `Mesh.h` | Vertex/index buffer pair with binary stream loader |
-| `Texture.h` | GPU texture loaded from image files via SDL3_image |
-| `svg.h` | SVG rasterization, live-document rendering, hit testing, font registration, and post-layout document/element bounds measurement |
-| `Model.h` | Mesh + texture binding |
-| `ModelFormat.h` | `ge::MeshVertex` — vertex layout (pos3f + uv2f) |
-| `ManifestSchema.h` | JSON-serializable manifest types, templated on app metadata |
-| `ManifestLoader.h` | `ge::loadManifest<Meta>()` — loads manifest + mesh pack + textures |
-
-### Animation
-
-| Header | Description |
-|--------|-------------|
-| `DampedRotation.h` | Quaternion rotation with angular velocity and exponential decay |
-| `DampedValue.h` | 1D value with velocity and exponential decay |
-| `DeltaTimer.h` | Frame delta-time tracking |
-
-### Testing
-
-| Header | Description |
-|--------|-------------|
-| `ImageDiff.h` | CPU and GPU pixel comparison (RMS difference) |
-
-## Dev control plane
-
-Use **[spyder](https://github.com/marcelocantos/spyder)** for device inventory, launch, tweaks, logs, screenshots, and the optional H.264 stream relay. The historical `ged` daemon has been removed from this repo.
-
-## Launching the Player with a Specific Stream Relay Address
-
-For automated and scripted launches (CI, matrix testing, agent workflows), point the
-native player at spyder's stream relay (same host/port as `spyder serve`, default
-`127.0.0.1:3030` for local; use the machine LAN IP from a phone).
-
-**Desktop**
 ```bash
+# Desktop
 bin/player --host 127.0.0.1 --port 3030 --name <server-name>
-```
 
-**iOS Simulator** — pass `-stream_addr host:port` as a launch argument :
-```bash
+# iOS Simulator
 xcrun simctl launch <udid> com.squz.player -stream_addr localhost:3030
-```
 
-**iOS Device** — use `devicectl` with `--console-pty` and pass args after `--`:
-```bash
+# iOS device (devicectl)
 xcrun devicectl device process launch --console-pty --device <udid> com.squz.player -- -stream_addr 192.168.1.100:3030
-```
 
-**Android Emulator** — pass `--es stream_addr host:port` to `am start`:
-```bash
+# Android emulator / device
 adb shell am start -n com.squz.player/.GeActivity --es stream_addr 10.0.2.2:3030
-```
-
-**Android Device** — same syntax with the Mac's LAN IP:
-```bash
 adb shell am start -n com.squz.player/.GeActivity --es stream_addr 192.168.1.100:3030
 ```
 
-If the parameter is absent the player falls back to any saved address, then QR scan.
+## iOS orientation lock
+
+On iPadOS 26+ you need **both**:
+
+1. Narrow `UISupportedInterfaceOrientations` in `Info.plist`.
+2. Set `SessionHostConfig.orientation` to a non-zero `wire::kOrientation*`.
+
+Details: `AGENTS.md` (iOS orientation lock).
 
 ## License
 
-See individual files and `vendor/` subdirectories for license terms.
+See individual files and `vendor/` for license terms. Engine code is Apache-2.0
+unless noted. Triangle is not linked into `libge.a` by default — see `NOTICES.md`.
