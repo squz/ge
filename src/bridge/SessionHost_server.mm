@@ -11,11 +11,18 @@
 // (same constraint as the historical bgfx multi-session path: one context,
 // N sessions → shared frame budget). Capture is routed via
 // ServerSession::setCaptureTarget before each session's onRender.
+//
+// Input: wire events do NOT go through DirectRenderHost::pumpEvents (that
+// only drains local SDL). Per-session AccelSynth converts raw Shift+drag
+// from desktop players into SDL_EVENT_SENSOR_UPDATE before onEvent —
+// same engine-side contract as single-session direct mode.
 
 #include "../RunDirect.h"
+#include "../render/AccelSynth.h"
 #include "../render/DirectRenderHost.h"
 #include "ServerSession.h"
 
+#include <ge/Linalg.h>
 #include <ge/Protocol.h>
 #include <ge/SessionHost.h>
 #include <ge/Signal.h>
@@ -25,12 +32,32 @@
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
 namespace ge {
+
+namespace {
+
+// Per-player game + its own AccelSynth (Shift+drag state is not shared).
+struct SessionGame {
+    RunConfig rc;
+    std::optional<AccelSynth> synth;
+};
+
+// Match DirectRenderHost's presentation-tilt deadzone / axis convention.
+la::float2 presentationTiltFromSynth(const AccelSynth& synth) {
+    const Tilt t = synth.current();
+    if (std::sqrt(t.x * t.x + t.y * t.y) <= 0.7f) return {0.f, 0.f};
+    // Y negated: SDL mouse-y grows downward; presentation tilt is y-up.
+    return la::float2{t.x, -t.y} * kTiltRadPerPixel;
+}
+
+} // namespace
 
 void runServer(Factory factory, const SessionHostConfig& config) {
     const std::string name =
@@ -73,8 +100,11 @@ void runServer(Factory factory, const SessionHostConfig& config) {
     ge::setCrashDiagnosticsEnabled(config.crashDiagnostics);
     if (config.crashDiagnostics) ge::installCrashHandlers();
 
+    const bool wantAccelSynth =
+        (config.sensors & wire::kSensorAccelerometer) != 0;
+
     // Per-player game instances (factory called once per attach).
-    std::unordered_map<std::string, RunConfig> games;
+    std::unordered_map<std::string, SessionGame> games;
 
     uint64_t freq = SDL_GetPerformanceFrequency();
     uint64_t last = SDL_GetPerformanceCounter();
@@ -111,12 +141,28 @@ void runServer(Factory factory, const SessionHostConfig& config) {
                     if (games.count(id)) return;
                     SPDLOG_INFO("runServer: creating game instance for session {}",
                                 id);
-                    games[id] = factory(renderHost.context());
+                    SessionGame g;
+                    g.rc = factory(renderHost.context());
+                    if (wantAccelSynth) {
+                        // Engine-side synth: players forward raw Shift+drag;
+                        // no setWindow — relative mouse mode is the player's job.
+                        g.synth.emplace();
+                        auto onEvent = g.rc.onEvent;
+                        g.synth->setEmit([onEvent](const SDL_Event& e) {
+                            if (onEvent) {
+                                ge::guardCallback("onEvent",
+                                                  [&] { onEvent(e); });
+                            }
+                        });
+                        SPDLOG_INFO(
+                            "runServer: AccelSynth enabled for session {}", id);
+                    }
+                    games.emplace(id, std::move(g));
                 },
                 [&](const std::string& id) {
                     auto it = games.find(id);
                     if (it == games.end()) return;
-                    if (it->second.onShutdown) it->second.onShutdown();
+                    if (it->second.rc.onShutdown) it->second.rc.onShutdown();
                     games.erase(it);
                     SPDLOG_INFO("runServer: destroyed game instance {}", id);
                 });
@@ -128,7 +174,8 @@ void runServer(Factory factory, const SessionHostConfig& config) {
                 for (const auto& id : live) liveSet[id] = true;
                 for (auto it = games.begin(); it != games.end();) {
                     if (!liveSet.count(it->first)) {
-                        if (it->second.onShutdown) it->second.onShutdown();
+                        if (it->second.rc.onShutdown)
+                            it->second.rc.onShutdown();
                         it = games.erase(it);
                     } else {
                         ++it;
@@ -153,39 +200,51 @@ void runServer(Factory factory, const SessionHostConfig& config) {
 
             ge::appchannel::perfTick(dt * 1000.0f);
 
-            // Per-session input (not global SDL queue — no cross-talk).
-            for (auto& [id, rc] : games) {
+            // Per-session input through AccelSynth, then onEvent.
+            // Wire events never enter DirectRenderHost::pumpEvents, so this
+            // is the only path that restores Shift+drag → SENSOR_UPDATE.
+            for (auto& [id, g] : games) {
                 server->drainInput(id, [&](const SDL_Event& e) {
-                    if (rc.onEvent) {
-                        ge::guardCallback("onEvent", [&] { rc.onEvent(e); });
+                    if (g.synth && g.synth->handle(e)) return;
+                    if (g.rc.onEvent) {
+                        ge::guardCallback("onEvent",
+                                          [&] { g.rc.onEvent(e); });
                     }
                 });
+                // Ease-back after Shift release (emits SENSOR_UPDATE via setEmit).
+                if (g.synth) g.synth->update();
             }
 
             // Update all instances.
-            for (auto& [id, rc] : games) {
-                if (rc.onUpdate) {
+            for (auto& [id, g] : games) {
+                if (g.rc.onUpdate) {
                     ge::guardCallback("onUpdate", [&] {
-                        rc.onUpdate(ge::appchannel::applyTimeControl(dt));
+                        g.rc.onUpdate(ge::appchannel::applyTimeControl(dt));
                     });
                 }
             }
 
             // Render + capture + encode each instance independently.
-            for (auto& [id, rc] : games) {
+            for (auto& [id, g] : games) {
                 server->setCaptureTarget(id);
                 renderHost.refreshFrame(dt);
-                if (rc.onRender) {
+                // Host synth is local-SDL only and unused for wire players;
+                // override presentation tilt from this session's AccelSynth.
+                if (g.synth) {
+                    const_cast<Context&>(renderHost.context())
+                        .setPresentationTilt(presentationTiltFromSynth(*g.synth));
+                }
+                if (g.rc.onRender) {
                     ge::guardCallback("onRender", [&] {
-                        rc.onRender(renderHost.context());
+                        g.rc.onRender(renderHost.context());
                     });
                 }
             }
         }
     }
 
-    for (auto& [id, rc] : games) {
-        if (rc.onShutdown) rc.onShutdown();
+    for (auto& [id, g] : games) {
+        if (g.rc.onShutdown) g.rc.onShutdown();
     }
     games.clear();
     server->stop();
