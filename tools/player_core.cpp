@@ -13,14 +13,28 @@
 #include <ge/PlayerWireBridge.h>
 #include <ge/Protocol.h>
 #include <ge/Signal.h>
+#include <ge/appchannel.h>
 
 #include <SDL3/SDL.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
+#include <mutex>
+#include <string>
+
+namespace {
+// Shared with FrameLog dumper thread for app-channel / greppable logs (🎯T149).
+std::mutex gPlayerObsMu;
+std::string gPlayerSessionId;
+std::string gPlayerStreamLabel;  // host:port/name
+} // namespace
 
 int playerCore(const std::string& host, int port, const std::string& serverName) {
     ge::installSignalHandlers();
+    // When spyder launches the player with SPYDER_APP_CHANNEL, stream stats
+    // ride the same channel as game perf/state (not the opaque video pipe).
+    ge::appchannel::installFromEnv("ge-player", "dev");
     SPDLOG_INFO("H.264 player starting");
 
     // No synthetic mouse/touch events — each input source stays native.
@@ -39,6 +53,15 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         SDL_Quit();
         return 1;
     }
+    {
+        std::lock_guard lock(gPlayerObsMu);
+        gPlayerStreamLabel = host + ":" + std::to_string(port) + "/" + serverName;
+        gPlayerSessionId = wire.sessionId();
+    }
+    if (!wire.sessionId().empty()) {
+        SPDLOG_INFO("Player stream session_id={} stream={}", wire.sessionId(),
+                    host + ":" + std::to_string(port) + "/" + serverName);
+    }
     if (cfg.orientation != 0) {
         const char* hint = nullptr;
         switch (cfg.orientation) {
@@ -46,6 +69,8 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         case wire::kOrientationLandscapeFlipped: hint = "LandscapeRight"; break;
         case wire::kOrientationPortrait:         hint = "Portrait"; break;
         case wire::kOrientationPortraitFlipped:  hint = "PortraitUpsideDown"; break;
+        // AnyLandscape: both landscapes (matches iOS mask / Android SENSOR_LANDSCAPE).
+        case wire::kOrientationAnyLandscape:     hint = "LandscapeLeft LandscapeRight"; break;
         }
         if (hint) SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
     }
@@ -103,15 +128,43 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
                     maxSeq = std::max(maxSeq, f.lastSeq);
                 }
             }
-            SPDLOG_INFO("PlayerLog: {} ticks, {} decoded ({} empty), seq {}-{} ({} gaps), "
-                        "maxDrain={:.1f}ms maxRender={:.1f}ms maxGap={:.1f}ms "
-                        "pump avg={:.1f}/max={:.1f}ms ev avg={:.1f}/max={:.1f}ms "
-                        "upload avg={:.1f}/max={:.1f}ms",
+            std::string sid, stream;
+            {
+                std::lock_guard lock(gPlayerObsMu);
+                sid = gPlayerSessionId;
+                stream = gPlayerStreamLabel;
+            }
+            const float avgPump = frames.empty() ? 0.f : sumPump / frames.size();
+            const float avgEv = frames.empty() ? 0.f : sumEv / frames.size();
+            const float avgUp = frames.empty() ? 0.f : sumUp / frames.size();
+            // App-channel identity = connection; payload is metrics only.
+            // MessagePack on the wire (not JSON text). Scalars via perfEmit.
+            ge::appchannel::perfEmit("player_max_gap_ms", maxGap);
+            ge::appchannel::perfEmit("player_max_pump_ms", maxPump);
+            ge::appchannel::perfEmit("player_decoded", double(total));
+            ge::appchannel::perfEmit("player_seq_gaps", double(gaps));
+            nlohmann::json j{
+                {"role", "player"},
+                {"n", frames.size()},
+                {"dec", total},
+                {"emp", empty},
+                {"s0", minSeq == UINT32_MAX ? 0 : minSeq},
+                {"s1", maxSeq},
+                {"gaps", gaps},
+                {"mg", maxGap},
+                {"mp", maxPump},
+                {"ap", avgPump},
+            };
+            // Optional relay pipe id (sN) for joining /stream/sessions — not
+            // app-channel identity (spyder already knows the connection).
+            if (!sid.empty()) j["sid"] = sid;
+            if (!stream.empty()) j["tgt"] = stream;
+            ge::appchannel::push("stream_stats", std::move(j));
+            SPDLOG_INFO("PlayerLog sid={} tgt={} ticks={} decoded={} empty={} "
+                        "seq {}-{} gaps={} maxGap={:.1f}ms pump avg={:.1f}/max={:.1f}ms",
+                        sid.empty() ? "-" : sid, stream.empty() ? "-" : stream,
                         frames.size(), total, empty, minSeq, maxSeq, gaps,
-                        maxDrain, maxRender, maxGap,
-                        frames.empty() ? 0.f : sumPump / frames.size(), maxPump,
-                        frames.empty() ? 0.f : sumEv / frames.size(), maxEv,
-                        frames.empty() ? 0.f : sumUp / frames.size(), maxUp);
+                        maxGap, avgPump, maxPump);
         });
 
     uint64_t frameCount = 0;
@@ -125,6 +178,11 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         const uint64_t tPump0 = SDL_GetPerformanceCounter();
         if (!wire.pump()) break;
         const uint64_t tPump1 = SDL_GetPerformanceCounter();
+        // Session id may arrive after connect (late GE2S).
+        if (gPlayerSessionId.empty() && !wire.sessionId().empty()) {
+            std::lock_guard lock(gPlayerObsMu);
+            gPlayerSessionId = wire.sessionId();
+        }
 
         if (wire.pollFrame(decodedFrame)) {
             render.updateVideoTexture(decodedFrame.view());

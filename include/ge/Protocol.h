@@ -31,6 +31,23 @@ constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — relay → p
 constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → server: safe area update
 constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
 constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
+// 🎯T149: spyder session id (e.g. "s1") so server/player/spyder logs correlate.
+// Payload is the UTF-8 id bytes (no NUL); length is MessageHeader.length.
+constexpr uint32_t kStreamSessionIdMagic = 0x47453253;  // "GE2S" — server → player
+
+// GE2V flags (first payload byte after MessageHeader).
+// bit0: keyframe (IDR / sync sample)
+// bit1: tiled — payload is a tile unit (see docs/mtu-tiled-stream.md 🎯T151)
+// bit2: blank — no AVCC body; player leaves that tile region unchanged/empty
+constexpr uint8_t kVideoFlagKeyframe = 1u << 0;
+constexpr uint8_t kVideoFlagTiled    = 1u << 1;
+constexpr uint8_t kVideoFlagBlank    = 1u << 2;
+
+// Soft size hint for one tile AU (H.264 bytes after GE2V tile header).
+// 🎯T151: size tiles so *most* AUs fit a datagram envelope; pigeon auto-frags
+// the rest (app sees fragments, no auto-unfragment). Not a hard blank ceiling.
+// Live WS/LAN uses a generous default; GE_STREAM_MTU can lower for experiments.
+constexpr size_t kVideoTileMtuBudget = 16 * 1024;
 
 constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)

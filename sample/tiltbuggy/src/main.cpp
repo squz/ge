@@ -72,6 +72,10 @@ struct State {
     bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
 };
 
+// Last factory instance (for app-channel slices / headless prepare). Multi-session
+// live servers allocate a fresh State per player_attached; this is "most recent".
+std::shared_ptr<State> g_primary;
+
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
 // restore and the headless render path. The static arena is rebuilt by the
 // Scene ctor; only the dynamic buggy pose + gravity + entitlement round-trip.
@@ -205,16 +209,17 @@ int main(int argc, char* argv[]) {
     // physics state uniformly across ge games (and an agent can diff it across
     // an input sequence). TiltBuggy has one dynamic body; a richer consumer
     // (multimaze2's marbles + walls) fills in the constraints / sensors arrays.
-    ge::appchannel::registerStateSlice("geometry", [&state] {
+    ge::appchannel::registerStateSlice("geometry", [] {
         // 🎯T117 The whole physics world as data, read out by
         // ge::box2d::worldGeometry — no hand-rolled body formatting. It walks
         // every body/shape (the arena walls, surface patches, and the named
         // "buggy"); the app just adds the unit + bounds context box2d can't know.
-        nlohmann::json geo = state.scene
-            ? ge::box2d::worldGeometry(state.scene->worldId())
+        auto state = g_primary;
+        nlohmann::json geo = (state && state->scene)
+            ? ge::box2d::worldGeometry(state->scene->worldId())
             : nlohmann::json{{"bodies", nlohmann::json::array()}};
         geo["units"] = "metres";
-        const float e = state.scene ? state.scene->halfExtent() : 0.0f;
+        const float e = (state && state->scene) ? state->scene->halfExtent() : 0.0f;
         geo["bounds"] = {{"min", {-e, -e}}, {"max", {e, e}}};
         return geo;
     },
@@ -233,20 +238,34 @@ int main(int argc, char* argv[]) {
         {"bounds", {{"min", {-10.0, -10.0}}, {"max", {10.0, 10.0}}}},
     });
     ge::appchannel::registerStateSerializer(
-        [&state] {
+        [] {
+            auto state = g_primary;
             nlohmann::json j{
-                {"pro",     ge::iap::owned("pro")},
-                {"gravity", {{"x", state.gravity.x}, {"y", state.gravity.y}}},
+                {"pro", ge::iap::owned("pro")},
+                {"gravity",
+                 {{"x", state ? state->gravity.x : 0.0f},
+                  {"y", state ? state->gravity.y : 0.0f}}},
             };
-            if (state.scene) {
-                const auto p = state.scene->buggyPose();
+            if (state && state->scene) {
+                const auto p = state->scene->buggyPose();
                 j["buggy"] = {{"x", p.x}, {"y", p.y}, {"angle", p.angle}};
             }
             return j;
         },
-        [&state](const nlohmann::json& j) { applyState(state, j); });
+        [](const nlohmann::json& j) {
+            if (g_primary) applyState(*g_primary, j);
+        });
 
-    auto factory = [&](ge::Context ctx) -> ge::RunConfig {
+    // Each factory() call allocates an independent State so multi-session
+    // server mode (desktop + Pixel, …) runs fully separate games — matching
+    // the pre-spyder multi-session design (e7968cf).
+    auto factory = [renderMode](ge::Context ctx) -> ge::RunConfig {
+        auto state = std::make_shared<State>();
+        g_primary = state;
+        // 🎯T131.5 Opt into render-on-demand only for live runs, not headless goldens.
+        state->renderOnDemand =
+            !renderMode && std::getenv("GE_RENDER_ON_DEMAND") != nullptr;
+
         // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
         // settled scene lets the loop idle (onEvent wakes it on a real tilt).
         // 🎯T137.3 Aspect-scale the arena to the display (like the 2013 game),
@@ -254,87 +273,65 @@ int main(int argc, char* argv[]) {
         const auto surf0 = ctx.fullRectInPts();
         const float arenaAspect = (surf0.h > 0)
             ? static_cast<float>(surf0.w) / static_cast<float>(surf0.h) : 1.0f;
-        state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent,
-                                                         arenaAspect,
-                                                         state.renderOnDemand);
-        state.renderer = std::make_unique<tiltbuggy::Renderer>();
-        state.rendererInited = false;
+        state->scene = std::make_unique<tiltbuggy::Scene>(
+            kWorldHalfExtent, arenaAspect, state->renderOnDemand);
+        state->renderer = std::make_unique<tiltbuggy::Renderer>();
+        state->rendererInited = false;
 
-        // 🎯T131.5 Render-on-demand demo (opt-in via GE_RENDER_ON_DEMAND). The
-        // buggy is a physics body: render every frame while it's moving (box2d
-        // island-awake trigger), idle once the whole world sleeps.
-        if (state.renderOnDemand) {
+        if (state->renderOnDemand) {
             ctx.setContinuousRendering(false);
-            ge::box2d::renderWhileAwake(ctx, state.scene->worldId());
+            ge::box2d::renderWhileAwake(ctx, state->scene->worldId());
             SPDLOG_INFO("tiltbuggy: render-on-demand ON (box2d-awake trigger)");
         }
 
         return {
-            .onUpdate = [&](float dt) {
-                state.scene->step(dt, state.gravity);
-                auto p = state.scene->buggyPose();
-                // 🎯T92.4 Sample app-channel perf counter — the copyable
-                // proving-ground pattern for ge consumers. Surfaces in
-                // spyder's app_perf_get alongside the engine's frame_ms.
+            .onUpdate = [state](float dt) {
+                state->scene->step(dt, state->gravity);
+                auto p = state->scene->buggyPose();
                 ge::appchannel::perfEmit("buggy_x", p.x);
                 static int frame = 0;
                 if (++frame % 60 == 0) {
-                    const auto gr = state.scene->gripState();
-                    SPDLOG_INFO("tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] grip=[{:.0f},{:.0f}] pro={}",
-                                dt, state.gravity.x, state.gravity.y, p.x, p.y, p.angle,
-                                gr.front, gr.rear, ge::iap::owned("pro"));
+                    const auto gr = state->scene->gripState();
+                    SPDLOG_INFO(
+                        "tick: dt={:.4f} g=[{:.2f},{:.2f}] pose=[{:.2f},{:.2f},{:.2f}] "
+                        "grip=[{:.0f},{:.0f}] pro={}",
+                        dt, state->gravity.x, state->gravity.y, p.x, p.y, p.angle,
+                        gr.front, gr.rear, ge::iap::owned("pro"));
                 }
             },
-            .onRender = [&](const ge::Context& c) {
-                if (!state.rendererInited) {
-                    state.renderer->init(ge::resource(ge::shaderDir()).c_str());
-                    state.rendererInited = true;
+            .onRender = [state](const ge::Context& c) {
+                if (!state->rendererInited) {
+                    state->renderer->init(ge::resource(ge::shaderDir()).c_str());
+                    state->rendererInited = true;
                 }
-                state.renderer->drawFrame(*state.scene, c);
-                // 🎯T131.5 Push the present counter so a spyder matrix cell can
-                // assert it goes flat when the buggy settles (idle) and resumes
-                // on tilt. Pushed from onRender, so it only advances on a drawn
-                // frame — exactly the signal we want — and reads as stale (flat)
-                // to app_perf_get while the loop idles.
-                ge::appchannel::perfEmit("frames_presented", double(c.framesPresented()));
+                state->renderer->drawFrame(*state->scene, c);
+                ge::appchannel::perfEmit("frames_presented",
+                                         double(c.framesPresented()));
             },
-            .onEvent = [&, ctx](const SDL_Event& e) {
+            .onEvent = [state, ctx](const SDL_Event& e) {
                 SPDLOG_INFO("onEvent type=0x{:x}", e.type);
                 if (e.type == SDL_EVENT_SENSOR_UPDATE) {
-                    // Engine delivers device acceleration in screen frame.
-                    // The world/board accelerates in that direction, so the
-                    // buggy (free on the board) experiences gravity in the
-                    // opposite direction — hence the negation.
-                    const b2Vec2 oldG = state.gravity;
-                    state.gravity.x = -e.sensor.data[0] * kGravityGain;
-                    state.gravity.y = -e.sensor.data[1] * kGravityGain;
-                    // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
-                    // idle loop on its own, but a *meaningful tilt change* must:
-                    // otherwise a tilt while the buggy is asleep would update
-                    // gravity and never step it (no frame runs), so the buggy
-                    // would never start moving. Threshold filters accelerometer
-                    // noise so a still device still idles; the box2d-awake trigger
-                    // then keeps rendering until the buggy settles again.
-                    if (state.renderOnDemand) {
-                        const float dx = state.gravity.x - oldG.x;
-                        const float dy = state.gravity.y - oldG.y;
+                    const b2Vec2 oldG = state->gravity;
+                    state->gravity.x = -e.sensor.data[0] * kGravityGain;
+                    state->gravity.y = -e.sensor.data[1] * kGravityGain;
+                    if (state->renderOnDemand) {
+                        const float dx = state->gravity.x - oldG.x;
+                        const float dy = state->gravity.y - oldG.y;
                         if (dx * dx + dy * dy > 0.04f) {
-                            state.scene->wakeBuggy();  // re-apply gravity to a settled buggy
-                            ctx.requestRedraw();       // and draw the frame that steps it
+                            state->scene->wakeBuggy();
+                            ctx.requestRedraw();
                         }
                     }
-                    SPDLOG_INFO("ACCEL accel=[{:+.2f},{:+.2f},{:+.2f}] gravity=[{:+.2f},{:+.2f}]",
-                                e.sensor.data[0], e.sensor.data[1], e.sensor.data[2],
-                                state.gravity.x, state.gravity.y);
+                    SPDLOG_INFO(
+                        "ACCEL accel=[{:+.2f},{:+.2f},{:+.2f}] gravity=[{:+.2f},{:+.2f}]",
+                        e.sensor.data[0], e.sensor.data[1], e.sensor.data[2],
+                        state->gravity.x, state->gravity.y);
                     return;
                 }
-                // (The IAP buy-button is an engine showcase, not part of the
-                // 2013 game — reintroduce later, 🎯T137.6. The catalogue stays
-                // registered below so ge::iap is exercised, just not drawn.)
             },
-            .onShutdown = [&] {
-                state.scene.reset();
-                state.renderer.reset();
+            .onShutdown = [state] {
+                state->scene.reset();
+                state->renderer.reset();
                 SPDLOG_INFO("TiltBuggy shutdown");
             },
         };
@@ -383,7 +380,8 @@ int main(int argc, char* argv[]) {
                     std::ifstream sin(e["state"].get<std::string>());
                     if (sin) { try { sin >> sj; } catch (...) {} }
                 }
-                items.push_back({[&state, sj] {                    if (!sj.is_null()) applyState(state, sj);
+                items.push_back({[sj] {
+                    if (!sj.is_null() && g_primary) applyState(*g_primary, sj);
                 }, of});
             }
             const int ok = ge::renderBatch(factory,
@@ -402,7 +400,8 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        auto prepare = [&] {            if (!stateJson.is_null()) applyState(state, stateJson);
+        auto prepare = [&] {
+            if (!stateJson.is_null() && g_primary) applyState(*g_primary, stateJson);
         };
         const bool ok = ge::renderToPng(factory,
             {.width = renderW, .height = renderH, .appName = "tiltbuggy"},
@@ -410,15 +409,10 @@ int main(int argc, char* argv[]) {
         return ok ? 0 : 1;
     }
 
-    // 🎯T131.5 Opt into the render-on-demand demo for the live run only — the
-    // headless render path above must stay continuous/deterministic.
-    state.renderOnDemand = std::getenv("GE_RENDER_ON_DEMAND") != nullptr;
-
     // 🎯T92.2.2 Mode-agnostic: the app calls ge::run() identically in every
-    // build. A server build (GE_SERVER_BUILD) makes ge::run a hidden-window
-    // streaming host that dials spyder's relay (address from the GE_SERVER env);
-    // a desktop/mobile build makes it windowed. The app neither knows nor cares —
-    // no server fields, no env parsing here.
+    // build. Server builds run multi-session (independent game per player
+    // attach). Desktop/mobile builds are windowed. The app neither knows nor
+    // cares — no server fields, no env parsing here.
     ge::run(factory, {
         .width = 1024,
         .height = 768,

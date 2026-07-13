@@ -1,37 +1,35 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// ServerSession — the server side of the canonical brokered wire, as a
-// sink/pump the direct run loop drives (🎯T92.2.2). It is NOT a RenderHost:
-// server mode is a hidden-window variant of DirectRenderHost that streams ge's
-// canonical H.264 wire, so the render host stays DirectRenderHost and this
-// object only owns the relay sockets, the encoder, and the input pump.
+// ServerSession — multi-session server side of the brokered wire (restored
+// per-player independence from the Dawn/bgfx multi-session design, adapted
+// for sokol + spyder).
 //
-// Lifecycle: constructed from the relay's host/port/name + the game's
-// wire::SessionConfig, start() spins the sideband thread that waits for a
-// player to attach (/ws/server?name=), openWire() dials the per-session wire
-// (/ws/server/wire/<id>), and while a player is attached active() is true so
-// DirectRenderHost arms per-frame capture. Each captured frame is handed to
-// onCapturedFrame() on the game thread, H.264-encoded, and sent as a
-// kVideoStreamMagic packet. Relayed SDL events arrive on the input thread and
-// are pushed into the SDL event queue (DirectRenderHost's pumpEvents dispatches
-// them). Single player. LAN/dev only.
+// One sideband to the relay (/ws/server?name=). Each player_attached opens an
+// independent /ws/server/wire/<id> with its own encoder and input queue. There
+// is no broadcast: each session is a fully independent game (factory + render +
+// encode + wire). The game loop (runServer) owns RunConfig state per session;
+// this class owns networking + encode only.
+//
+// Capture routing: setCaptureTarget(sessionId) then render; onCapturedFrame
+// encodes only to that session's wire.
 #pragma once
 
 #include <ge/Protocol.h>
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <SDL3/SDL_events.h>
 
 namespace ge {
 
 class ServerSession {
 public:
-    // host:port is the relay (spyder's HTTP addr); name identifies the server
-    // in the relay catalogue (/stream/servers). cfg is the game-wide session
-    // requirements (sensors, orientation) sent to the player on attach.
     ServerSession(std::string host, int port, std::string name,
                   const wire::SessionConfig& cfg);
     ~ServerSession();
@@ -39,25 +37,31 @@ public:
     ServerSession(const ServerSession&) = delete;
     ServerSession& operator=(const ServerSession&) = delete;
 
-    // Spawn the relay connection thread (returns immediately).
     void start();
-    // Tear down: stop capture, close sockets, join threads.
     void stop();
 
-    // True while a player is attached — DirectRenderHost gates its per-frame
-    // capture arming on this (via activeFlag()).
+    // True while at least one player session is attached.
     bool active() const;
-
-    // The atomic DirectRenderHost polls each frame to decide whether to arm
-    // capture. Lives as long as this ServerSession.
     std::atomic<bool>* activeFlag();
 
-    // Game thread: a just-presented frame's pixels (as delivered by
-    // SokolContext::captureNextFrame). Encodes + sends when a player is
-    // attached; a no-op otherwise. The encode dimensions are the CAPTURED
-    // frame's actual w×h — NOT any DeviceInfo the player advertised — so the
-    // player receives frames at the server's own render resolution and
-    // letterboxes/scales as it sees fit.
+    // Game-thread lifecycle: poll attach/detach queues filled by the sideband.
+    // onAttach is called once per new session (wire already open). onDetach
+    // after the wire is closed — drop game state for that id.
+    void pollLifecycle(const std::function<void(const std::string& id)>& onAttach,
+                       const std::function<void(const std::string& id)>& onDetach);
+
+    // Active session ids (stable for the current frame after pollLifecycle).
+    std::vector<std::string> sessionIds() const;
+
+    // Drain queued SDL events for one session (from its wire). Call on the
+    // game thread; do not share input across sessions.
+    void drainInput(const std::string& sessionId,
+                    const std::function<void(const SDL_Event&)>& deliver);
+
+    // Which session receives the next onCapturedFrame encode.
+    void setCaptureTarget(const std::string& sessionId);
+
+    // Game thread: encode + send a just-captured frame to the capture target.
     void onCapturedFrame(const std::uint8_t* px, int w, int h);
 
 private:

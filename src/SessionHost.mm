@@ -3,14 +3,10 @@
 //
 // ge::run() dispatcher + runDirectHosted() (direct + server modality).
 //
-// 🎯T92.2.2 One render host, one wire. The windowed path and server mode share
-// runDirectHosted() (a hidden-window DirectRenderHost streaming ge's canonical
-// wire); server mode is grafted on via a ServerHook (RunDirect.h). runServer —
-// which builds the ServerSession and calls runDirectHosted — lives in the wire
-// TU (src/bridge/SessionHost_server.mm), compiled only when the parent build
-// wants wire support (i.e. not mobile distribution). Define GE_DIRECT_ONLY to
-// compile just the windowed path without pulling in the bridge subsystem
-// (ServerSession, WebSocketClient, VideoEncoder); runServer is then stubbed.
+// Direct windowed path: runDirectHosted(). Server mode: runServer in
+// src/bridge/SessionHost_server.mm — multi-session (independent game per
+// player_attached), restored after the spyder first-cut singleton. GE_DIRECT_ONLY
+// stubs runServer so mobile distribution builds omit the bridge subsystem.
 
 #include <ge/SessionHost.h>
 #include <ge/Signal.h>

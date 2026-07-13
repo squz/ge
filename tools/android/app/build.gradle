@@ -15,14 +15,24 @@ android {
 
         ndk {
             abiFilters 'arm64-v8a'
+            // Prefer NDK r28+ so packaged libc++_shared is 16 KB-aligned
+            // (r27 ships 4 KB-aligned STL; Android 16 dialog names it).
+            // Linker flag for our own .so's is in CMakeLists (🎯T75).
         }
 
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_STL=c++_shared"
+                // c++_static avoids packaging NDK libc++_shared.so entirely —
+                // that prebuilt is the third lib the system dialog listed when
+                // we used c++_shared under NDK r27. Our .so's still get
+                // -Wl,-z,max-page-size=16384 from CMakeLists.
+                arguments "-DANDROID_STL=c++_static"
             }
         }
     }
+
+    // Pin a 16 KB-capable NDK when several are installed (AGP may pick r27).
+    ndkVersion "29.0.14206865"
 
     signingConfigs {
         release {

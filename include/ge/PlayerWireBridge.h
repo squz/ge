@@ -101,6 +101,9 @@ public:
     };
     PumpStats lastPumpStats() const;
 
+    // 🎯T149 spyder session id (e.g. "s1") once received on the wire.
+    const std::string& sessionId() const;
+
     bool isOpen() const;
     void close();
 
