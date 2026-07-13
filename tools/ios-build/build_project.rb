@@ -305,6 +305,16 @@ module GE
         @app_target.build_configurations.each do |config|
           config.build_settings.merge!(common_settings)
           config.build_settings['ONLY_ACTIVE_ARCH'] = (config.name == 'Debug') ? 'YES' : 'NO'
+          # Oracle HTTP/UDP instrumentation is #ifndef NDEBUG — strip it from
+          # Release / Archive so store builds never bind :18765 or follow UDP.
+          defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
+          defs = defs.is_a?(Array) ? defs.join(' ') : defs.to_s
+          if config.name == 'Release'
+            defs = "#{defs} NDEBUG=1".strip unless defs.include?('NDEBUG')
+          elsif config.name == 'Debug'
+            defs = "#{defs} DEBUG=1".strip unless defs.include?('DEBUG=1') || defs.include?('DEBUG ')
+          end
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
         end
       end
 
