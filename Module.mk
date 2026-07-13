@@ -146,12 +146,14 @@ ge/SHADER_DIR ?= shaders
 # so the headers exist on disk at compile time — the sprite/render code
 # `#include`s them out of build/ge/shaders/.
 # T38: ge_compose.* dropped (compose pass stripped from DirectRenderHost).
-# ge_sprite.h (ge::Sprite/SpriteBatch) + ge_debug.h (🎯T97 ge::debug overlay),
-# each generated from the matching .glsl in $(ge/RENDER_SHADER_DIR).
+# ge_sprite.h (ge::Sprite/SpriteBatch) + ge_debug.h (🎯T97 ge::debug overlay) +
+# ge_solid.h (ge::drawSolid unlit mesh fill), each generated from the matching
+# .glsl in $(ge/RENDER_SHADER_DIR).
 ge/RENDER_SHADER_DIR = $(ge)/src/render/shaders
 ge/RENDER_SHADERS = \
 	$(BUILD_DIR)/ge/shaders/ge_sprite.h \
-	$(BUILD_DIR)/ge/shaders/ge_debug.h
+	$(BUILD_DIR)/ge/shaders/ge_debug.h \
+	$(BUILD_DIR)/ge/shaders/ge_solid.h
 
 # Android shader variants — no longer separated (sokol-shdc bakes all
 # backends into one header per shader). Kept as aliases of the base set

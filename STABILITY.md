@@ -92,6 +92,7 @@ All public API lives under `include/ge/*.h`.
 - sokol_gfx is the only live backend (bgfx removed — 🎯T38/T98). Consumers call `sg_*` after opening `Context::swapchainPass()`.
 - `ge::Pass` — move-only RAII pass (swapchain / offscreen). **Stable**.
 - `ge::Sprite` — move-only owning textured quad (🎯T135). **Stable**.
+- `ge::drawSolid` — unlit solid-color indexed mesh fill (`<ge/solid.h>`). MVP × position + flat colour. **Stable** (new).
 - `ge::sprite` / `svg` / `png` / `text` / `debug` factories — **Stable** / **Needs review** collectively.
 - `ge::RenderHost` — abstract host interface used internally by direct / server paths. **Fluid**.
 
