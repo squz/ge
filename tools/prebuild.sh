@@ -366,8 +366,8 @@ GE_INCLUDES=(
   -I headers/box2d/include
 )
 
-# T38/🎯T97: generate ge_sprite.h + ge_debug.h via sokol-shdc so src/sprite.cpp
-# and src/debug.cpp can #include them.
+# T38/🎯T97/drawSolid: generate ge_sprite.h + ge_debug.h + ge_solid.h via
+# sokol-shdc so sprite.cpp / debug.cpp / solid.cpp can #include them.
 GE_SHADER_OUT_DIR="$OBJ_DIR/ge-shaders"
 mkdir -p "$GE_SHADER_OUT_DIR"
 SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
@@ -375,10 +375,10 @@ SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
 # so the headers need a metal_sim slot or sg_make_shader aborts there.
 # Keep this lang list in sync with Module.mk's ge/SOKOL_SHDC_LANGS.
 # 🎯T107: spirv_vk emits the SOKOL_VULKAN variant of ge's internal shaders
-# (ge_sprite.h / ge_debug.h). Without it, sprite_shader_desc(sg_query_backend())
-# returns NULL on a Vulkan-selected device → sg_make_shader(NULL) aborts.
+# (ge_sprite.h / ge_debug.h / ge_solid.h). Without it, *_shader_desc returns
+# NULL on a Vulkan-selected device → sg_make_shader(NULL) aborts.
 GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk"
-for sh in ge_sprite ge_debug; do
+for sh in ge_sprite ge_debug ge_solid; do
   "$SOKOL_SHDC" -i "src/render/shaders/$sh.glsl" \
                 -o "$GE_SHADER_OUT_DIR/$sh.h" \
                 -l "$GE_SHDC_LANGS" -f sokol
