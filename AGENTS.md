@@ -628,6 +628,10 @@ ge ships [lunasvg](https://github.com/sammycage/lunasvg) (with its bundled pluto
 
 `<ge/sprite.h>` also provides `ge::SpriteBatch` for high-volume sprite rendering. `addSprite(modelToWorld, sprite, color)` queues a quad with the matrix applied to the unit-square corners on the CPU; `submit(view)` flushes runs of same-texture sprites in one draw call per (texture, view) pair. Premultiplied-alpha blend by default; override via `setBlendState`. UV sub-rect overload supports atlasing.
 
+#### `ge::drawSolid` — solid-color mesh fill
+
+`<ge/solid.h>` draws an **indexed** triangle mesh with a flat unlit colour: MVP × `float3` position in the vertex stage, constant premultiplied colour in the fragment stage. No textures, lighting, or normals. Designed for silhouettes (e.g. carousel country shapes) and other untextured mesh fills. Vertices must be position-first with **20-byte stride** (`ge::MeshVertex`). Colour is straight-alpha `ge::Color` (premultiplied in the draw path). Cull mode selectable (`BACK` / `FRONT` / `NONE`).
+
 #### Patterns
 
 **Static SVG sprite (e.g. tiltbuggy's icy pond):**
