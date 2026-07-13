@@ -1854,6 +1854,37 @@ targets:
     - parked
     origin: manual
     discovered: 2026-07-11
+  T152:
+    name: ge provides a reusable diagnostic bounding-box overlay with edge-highlight and sticky z-order
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Apps can register named axis-aligned diagnostic frames (id + rect + colour) each frame without per-box draw/hit-test code.
+    - 'Edge-contact highlight only: a frame highlights when the probe point is within a configurable margin of its perimeter (default ~4 layout units), not when the point merely lies inside the rectangle. Tiny frames treat the whole outer band as edge.'
+    - Highlighted frames use 3× border thickness; multiple frames whose edges are near the probe all highlight.
+    - Highlighted frames draw after non-highlighted ones; highlighting moves those frames to the end of a sticky draw-order list that persists when the probe ends.
+    - 'Probe input is platform-appropriate and fully overrides app gameplay while active: free pointer/hover where available; on iOS Simulator (and other environments without reliable free mouse-move), ⌘ (GUI) + touch/click probes the same path and must not drive globe/carousel/pinch/HUD.'
+    - Works for direct-mode consumers on desktop and iOS without requiring app-local UIView or ad-hoc overlay code.
+    - At least one sample or existing consumer (e.g. yourworld2 dual-oracle path) uses the ge API instead of a private OracleBoxOverlay / EAGLView registry copy.
+    - Public header + short usage note in ge docs or CLAUDE/API surface so other games can adopt it in a few lines.
+    - Design notes whether the feature is in-process only, Spyder app-channel–mediated, or both (app-channel is an explicit implementation option for host-driven debug chrome, including remote highlight of residuals).
+    context: 'Surfaced by yourworld2 dual-oracle layout work: original YourWorld and yourworld2 both grew ad-hoc oracle AABB overlays. Proven consumer behaviour to absorb into ge: (1) unified register-by-id frame registry; (2) edge-only hit test (outer expanded band minus shrunken interior — not full-rect contains); (3) ~4pt hover margin (doubled from 2 after fiddly edge targeting); (4) 3× stroke when highlighted; (5) sticky z-order so inspected frames stay on top after the probe leaves; (6) free mouse hover was a dead end on iOS Simulator (no GCMouse / UIHover delivery) — working probe is ⌘+touch, fully overriding normal touch/gesture handling for the gesture (⌥ is wrong: Simulator uses it for pinch). yourworld2: OracleBoxOverlay.h + Application.cpp ⌘ probe; original: UIView registry + EAGLView ⌘ probe. That behaviour is shared dual-oracle / layout-debug infrastructure and belongs in ge, not reimplemented per game. Implementation option: Spyder app-channel can drive or mirror registration and highlight from host/devtools, not only an in-process draw helper. Tag: yourworld2-audit.'
+    tags:
+    - debug
+    - overlay
+    - oracle
+    - layout
+    - hover
+    - highlight
+    - edge-hit
+    - ui
+    - yourworld2-audit
+    - devtools
+    - spyder
+    - app-channel
+    origin: yourworld2 dual-oracle bbox edge-highlight
+    discovered: 2026-07-13
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
