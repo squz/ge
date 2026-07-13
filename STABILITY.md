@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.74.0** (Plateau P closed — ged removed; spyder is sole control plane).
+Snapshot as of: **v0.75.0** (ge::drawSolid solid-color mesh fill).
 
 ---
 
