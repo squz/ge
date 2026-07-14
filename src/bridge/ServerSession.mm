@@ -307,12 +307,19 @@ void ServerSession::onFrameEnd() {
     const auto st = i_->live.stats();
     i_->sendWire(wire::kCommandStreamMagic, payload.data(),
                  static_cast<uint32_t>(payload.size()));
+    // Bandwidth telemetry: every frame when GE_CMDSTREAM_BW_LOG=1, else
+    // first 5 frames + every 60th (steady-state sample).
     static uint32_t logN = 0;
     const uint32_t n = ++logN;
-    if (n <= 3 || (n % 60) == 0) {
-        SPDLOG_INFO("ServerSession: GE2S SpriteRun frame wire={}B runs={} "
+    static const bool every =
+        [] {
+            const char* e = std::getenv("GE_CMDSTREAM_BW_LOG");
+            return e && e[0] == '1';
+        }();
+    if (every || n <= 5 || (n % 60) == 0) {
+        SPDLOG_INFO("ServerSession: GE2S frame#{} wire={}B runs={} "
                     "full_blobs={} refs={} full_blob_bytes={}",
-                    payload.size(), i_->live.runCount(),
+                    n, payload.size(), i_->live.runCount(),
                     st.fullBlobCount, st.refBlobCount, st.fullBlobBytes);
     }
 }
