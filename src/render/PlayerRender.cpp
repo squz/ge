@@ -1,6 +1,7 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 
+#include <ge/AccelScreen.h>
 #include <ge/PlayerRender.h>
 #include <ge/Protocol.h>
 
@@ -361,9 +362,20 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
             break;
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP:
-        case SDL_EVENT_SENSOR_UPDATE:
             r.upstreamEvents.push_back(e);
             break;
+        case SDL_EVENT_SENSOR_UPDATE: {
+            // Match DirectRenderHost: hardware frame → screen frame before
+            // the game sees the sample. Server must not re-rotate (its host
+            // orientation is the Mac streaming box, not this device).
+            SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
+            if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->window)) {
+                o = SDL_GetCurrentDisplayOrientation(disp);
+            }
+            ge::rotateAccelToScreen(o, e.sensor.data);
+            r.upstreamEvents.push_back(e);
+            break;
+        }
         }
     }
     if (hasMotion) r.upstreamEvents.push_back(lastMotion);

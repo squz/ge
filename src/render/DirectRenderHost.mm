@@ -17,6 +17,7 @@
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
 
+#include <ge/AccelScreen.h>
 #include <ge/audio.h>
 #include <ge/FileIO.h>
 #include <ge/Protocol.h>
@@ -148,40 +149,6 @@ int mapAndroidTrimLevel(int level) {
     }
 }
 #endif
-
-// Rotate a 3-axis accelerometer sample from the device-hardware frame
-// (SDL3's reported convention: +X = physical right edge up, +Y = physical
-// top edge up, +Z = screen up) into the game's screen frame.
-//
-// The rotation is keyed on the LIVE display orientation reported by SDL
-// (SDL_GetCurrentDisplayOrientation) — not on SessionConfig.orientation,
-// which only records what the app *requested*. The live value reflects
-// what the OS actually rotated to (post-lock-if-honored, or the live
-// rotation when no lock was requested), so this stays correct in both
-// locked and free-orientation modes and across the brief window between
-// a lock request and the OS settling.
-//
-// Touch and mouse coordinates are NOT rotated — both iOS and Android
-// already deliver those in the rotated UI frame. Accelerometer is the
-// outlier because the sensor chip is fixed to the chassis and has no
-// notion of UI orientation. Z (out of screen) is invariant under any
-// in-plane UI rotation, so it passes through.
-void rotateAccelToScreen(SDL_DisplayOrientation orient, float d[/*≥3*/]) {
-    const float x = d[0];
-    const float y = d[1];
-    switch (orient) {
-    case SDL_ORIENTATION_LANDSCAPE:
-        d[0] = -y; d[1] =  x; break;
-    case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
-        d[0] =  y; d[1] = -x; break;
-    case SDL_ORIENTATION_PORTRAIT_FLIPPED:
-        d[0] = -x; d[1] = -y; break;
-    case SDL_ORIENTATION_PORTRAIT:
-    case SDL_ORIENTATION_UNKNOWN:
-    default:
-        break;  // identity — fall back to device frame on unknown
-    }
-}
 
 } // namespace
 
@@ -860,12 +827,16 @@ void DirectRenderHost::pumpEvents() {
         // display orientation. AccelSynth events bypass — they arrive
         // via setEmit() callback, already in screen frame
         // (mouse-displacement physics).
-        if (e.type == SDL_EVENT_SENSOR_UPDATE) {
+        // Server mode: player-side already screen-framed SENSOR_UPDATE
+        // (PlayerRender) before the wire; re-rotating with the Mac host's
+        // display orientation would swap/invert axes. Skip when streaming.
+        if (e.type == SDL_EVENT_SENSOR_UPDATE &&
+            !(i_->serverActive && i_->serverActive->load())) {
             SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
             if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
                 o = SDL_GetCurrentDisplayOrientation(disp);
             }
-            rotateAccelToScreen(o, e.sensor.data);
+            ge::rotateAccelToScreen(o, e.sensor.data);
         }
         // 🎯T63 High-refresh-rate during press.
         // Track all pointer down/up events to maintain an accurate press

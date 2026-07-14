@@ -263,7 +263,8 @@ ge/TEST_SRC = \
 	$(ge)/src/render/RefreshRateBoost_test.cpp \
 	$(ge)/src/wire_input_test.cpp \
 	$(ge)/src/VideoRoundtrip_test.cpp \
-	$(ge)/src/CmdStream_test.cpp
+	$(ge)/src/CmdStream_test.cpp \
+	$(ge)/src/AccelScreen_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
