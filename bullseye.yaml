@@ -914,21 +914,17 @@ targets:
     origin: manual
     discovered: 2026-06-28
   T128:
-    name: 'ge streaming negotiates the most advanced mutually-supported protocol: H.264 video as the retained baseline, a command stream (draw calls) as the top rung'
+    name: ge streaming negotiates H.264 baseline vs a pass-through command-stream rung with content-addressed caching
     status: identified
     value: 8.0
-    cost: 20.0
+    cost: 13.0
     acceptance:
-    - After a player connects, server and player FEATURE-DETECT the player's rendering capability; a SOKOL-CAPABLE player (native) may select the command-stream transport (serialized sokol commands + ge framing), while a non-sokol player (the browser) uses H.264. The player is sokol-AWARE, not sokol-REQUIRED — no player is excluded.
-    - In command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec encode; H.264 remains the universal fallback (browser, non-sokol players, and high-temporal-churn content). spyder's relay carries the command stream unchanged (payload-agnostic) — no ged.
-    - tiltbuggy runs end-to-end over the command-stream transport to a sokol player with parity to its H.264-streamed appearance. The web MVP supports H.264 only (a sokol-in-browser port is explicitly out of scope).
-    context: |-
-      REOPENED 2026-07-14. Driver is OTA full-resolution bandwidth: H.264 at full res cannot be delivered efficiently over the air on the devices we care about (measured Pixel / tiled-stream work). Command-stream (sokol sg_* + ge verbs) is the alternative rung: sizable but *cacheable* upfront asset/shader hit, then negligible per-frame cost for ge's geometrically simple content — vs video's flat keyframe×resolution floor every reconnect. H.264 remains the permanent universal baseline (browser, non-sokol, high-churn). Native player is sokol-aware via post-connect feature detect; web MVP stays H.264-only (often same-host as server). Design: docs/command-stream-transport.md. Spike-then-decide via T128.2 before T128.3–T128.6 fan-out.
-
-      Prior: UN-PARKED 2026-07-05 then Plateau-P set_aside. Correction: player optionally sokol-aware, not sokol-required.
+    - 'After connect, player and server feature-detect: a sokol-capable native player may select the command-stream transport (serialized sg_* + ge framing, pass-through); non-sokol players (browser) use H.264. No player is excluded.'
+    - 'Command-stream mode is pass-through + cache: the server serializes the sokol call stream without progressive LOD / epoch priority machinery; large resource payloads are content-addressed so the player cache skips re-fetch across reconnects. Create/modify of large assets may incur a one-time wire hit — accepted for MVP.'
+    - In command-stream mode the server uses a serializing null backend (no per-session GPU render / H.264 encode for that session). H.264 path remains for baseline sessions. spyder relays bytes agnostically.
+    - tiltbuggy runs end-to-end over command-stream to a native sokol player with visual parity to H.264 stream; web MVP stays H.264-only.
+    context: 'REFRAMED 2026-07-14: MVP is pass-through + content-addressed cache, not the full progressive/epoch design. Driver remains OTA full-res H.264 bandwidth. Upfront create/modify tax for large assets is accepted as rare in the dev-preview loop. T128.3/T128.4 (priority classes, mip-first) parked as optional upgrades after the spike. Design: docs/command-stream-transport.md § MVP model.'
     depends_on:
-    - T128.3
-    - T128.4
     - T128.5
     - T128.6
     - T128.9
@@ -946,24 +942,26 @@ targets:
     discovered: 2026-06-29
     achieved: 2026-06-29
   T128.2:
-    name: A command-stream spike measures the transport against video and yields a go/no-go
+    name: A pass-through + cache command-stream spike measures against H.264 OTA and yields go/no-go
     status: identified
     value: 8.0
     cost: 5.0
     acceptance:
-    - A serializing null sokol backend on the server and a minimal replay loop on the player, behind a session-negotiated capability, round-trip one tiltbuggy frame with the shipping video path untouched.
-    - Time-to-first-coarse-frame (the headline metric), bandwidth vs the H.264 stream on tiltbuggy (diagnostic spin + parallax + button churn) and esfera, reconnect cost (warm vs cold asset cache), and flow-control under a janky/slow player are measured and recorded in the design note.
-    - A go/no-go decision on the implementation fan-out (T128.3–T128.6) is recorded in docs/command-stream-transport.md.
-    context: 'REOPENED 2026-07-14 with T128. Spike-then-decide gate for the command-stream rung. Headline comparison is OTA full-res H.264 vs command-stream on real Wi-Fi: time-to-first-coarse-frame, steady-state bandwidth (tiltbuggy churn + esfera), reconnect cost warm vs cold player cache (expect large first connect, tiny subsequent frames / reconnects against warm cache). Serializing null sokol backend binds g_ge_sg_api (T107); shipping video path untouched. Go/no-go recorded in docs/command-stream-transport.md before unblocking T128.3–T128.6 implementation.'
+    - Serializing null sokol backend (g_ge_sg_api) + minimal player replay round-trip at least one tiltbuggy frame; video path untouched.
+    - 'Player content-addressed cache: cold connect pays full asset bytes; warm reconnect shows hash-hit path with draw-list-only traffic.'
+    - 'Measured on Wi-Fi (not only loopback): cold time-to-first-frame, warm reconnect bytes, steady-state bandwidth under tiltbuggy churn vs full-res H.264; one deliberate large-asset-change trial documents the create-tax.'
+    - 'Go/no-go recorded in docs/command-stream-transport.md: go means pass-through+cache is enough to beat OTA H.264 for ge content without building epoch/mip-first first.'
+    context: Spike for the simplified MVP. Do not implement T128.3/T128.4 in the spike. Cache is the only optimisation layer.
     depends_on:
     - T128.1
     origin: manual
     discovered: 2026-06-29
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: 'Deferred 2026-07-14: MVP is pass-through + cache. Ephemeral/durable-required/durable-refinement classes and epoch barriers are optimisations for backpressure and progressive delivery — not required if create/modify of large assets is rare. Reopen only if the spike or production use shows head-of-line blocking or drop-under-pressure needs a priority model.'
     acceptance:
     - Per-frame draw lists (class A) are droppable under backpressure; resource creation + coarse mips + dynamic-texture updates + geometry/shaders/pipelines (class B) are ordered and never dropped; finer mips and later-frame resources (class C) are deferrable with zero correctness impact.
     - Frames unblock on a class-B epoch barrier at coarse detail and never gate on class C; required-channel delivery is ordered by the frame-1 working set so startup lag is independent of total content size.
@@ -975,9 +973,10 @@ targets:
     discovered: 2026-06-29
   T128.4:
     name: Textures stream coarse-mip-first behind stable handles; geometry ships whole
-    status: identified
+    status: set_aside
     value: 8.0
     cost: 8.0
+    set_aside_reason: 'Deferred 2026-07-14: MVP ships full texture/geometry bytes on first cache miss (pass-through). Coarse-mip-first progressive delivery optimises cold-start and create-tax; user judgement is that large asset create/modify is rare enough not to matter up front. Reopen if cold-connect or asset-edit hitches dominate the measured experience.'
     acceptance:
     - Textures are delivered as raw-RGBA mip levels, coarsest-first, populated behind a stable sg_image handle so the game and the recorded draw commands are unaware of the deferred refinement (no block compression in MVP).
     - immutable images are LOD-eligible; dynamic/stream images deliver at full rate — classified from sg_image_desc.usage with no game cooperation.
@@ -989,17 +988,18 @@ targets:
     origin: manual
     discovered: 2026-06-29
   T128.5:
-    name: The transport has a content-addressed player transmission cache and a server computation-memoization cache
+    name: Command-stream resources are content-addressed on the player so warm reconnects skip re-transfer
     status: identified
     value: 8.0
-    cost: 8.0
+    cost: 5.0
     acceptance:
-    - The player caches delivered artifacts by content hash and skips re-receiving them across sessions; reconnect against a warm cache transfers only the delta (reactive hit/miss baseline, reviving the Dawn-era hash-probe protocol over the sokol command stream).
-    - The server memoizes expensive derivations (mip-gen, per-backend format/transcode) keyed by (source + derivation params), computed once and amortized across all players of a backend class; static assets are served from the offline bake (TextureEncoder/.getex) so the server cache is warm at boot.
-    - Both caches are content-addressed immutable stores requiring GC, not invalidation; a changed source or bumped encoder version lands as a new entry and stale outputs are never served.
-    context: 'Two orthogonal caches bridged by content-addressing: the output content-hash is simultaneously the server''s stored-artifact identity and the player''s dedup/probe key. Work migrates server-side (the Dawn era transcoded on-device; the server knows the player''s backend and derives the right format once for everyone). Cold-server first-connect pays derivation on the critical path — mitigated by pre-baked static assets (warm at boot) and cheap-coarse-inline/expensive-derivation-deferred. T3 (preemptive mip-cache manifest) layers on top of this baseline.'
+    - Large wire payloads (images, buffers, shader bytecode, pipelines as needed) are keyed by content hash; cache hit sends a short reference only.
+    - Cache persists across sessions on the player device; reconnect against a warm cache transfers only new/changed hashes plus draw commands.
+    - Changed source bytes produce a new hash (immutable store); no invalidation protocol required for MVP.
+    - No progressive mip / epoch machinery required — full resource on first miss is correct.
+    context: Core of the pass-through+cache MVP. Depends only on the spike, not on T128.3. Server-side derivation memoization is optional later; offline-baked assets already cover most static content.
     depends_on:
-    - T128.3
+    - T128.2
     origin: manual
     discovered: 2026-06-29
   T128.6:
@@ -1011,10 +1011,10 @@ targets:
     - When a session negotiates the command-stream rung, the server produces the stream through a serializing null backend and performs no GPU-render and no H.264 encode for that session.
     - The H.264 encoder and headless-GPU-render path remain compiled into ge and are used for sessions that negotiate the video baseline and for the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff) — they are NOT removed.
     - The per-session win (no encode/GPU in the dev-preview loop; native-res on the device) is demonstrated; any GPU-less-server benefit is scoped as a conditional consequence of a command-stream-only deployment, not a default.
-    context: 'The honest win is a per-session runtime property: when a session negotiates the command-stream rung the server does no encode/GPU-render for that session, giving less Mac CPU/fan in the dev loop and crisper native-res preview on the device. Scoped this way (rather than as a "thin GPU-less production server") because of the model that landed 2026-07-05 after this subgraph was created: (1) H.264 is the retained permanent baseline, so the encoder stays compiled in; (2) per T145 the server streaming path is dev-only in release, so there is no production-server-cost story. Any GPU-less-server benefit is a conditional consequence of a command-stream-only deployment, not a default.'
+    context: 'After pass-through+cache lands: negotiated command-stream sessions skip per-session GPU/encode. Unchanged from prior intent; no longer gated on T128.3 epochs.'
     depends_on:
-    - T128.3
     - T128.9
+    - T128.5
     origin: manual
     discovered: 2026-06-29
   T128.7:
@@ -1053,11 +1053,11 @@ targets:
     value: 8.0
     cost: 5.0
     acceptance:
-    - 'On connect, player and server exchange capability advertisements and select the highest common protocol rung: H.264 video (universal baseline) or command stream (both ends must support it; the server must render through ge''s serializable sokol path).'
-    - The negotiation is in-band and end-to-end; the broker (ged today, spyder as it absorbs the role) relays the bytes without inspecting the protocol, rides the same byte pipe H.264 uses, and is compatible with an E2E-encrypted relay (T11) — so adding the command-stream rung requires no broker-side change.
-    - Within the command-stream rung, ge verbs (SVG/text/image) are sub-negotiated, each degrading to its sokol-flatten fallback when unsupported.
-    - A non-sokol server, or a player that cannot replay, transparently lands on the H.264 baseline.
-    context: 'The ged->spyder move (T145) makes the broker a protocol-agnostic byte relay, so the transport decision is a player<->server concern, negotiated in-band end-to-end. H.264 is retained as the permanent interop floor precisely because the command-stream rung requires a sokol-based, serializable server AND a replay-capable player; spyder cannot assume either. Because spyder is agnostic and the rung rides the same byte pipe as video, this is a pure ge-side addition with zero new spyder dependency. Nests two negotiations: transport rung, then verb set within the command-stream rung.'
+    - On connect, player and server exchange capabilities and select H.264 (baseline) or command-stream (both sokol-capable).
+    - Negotiation is end-to-end; spyder relays bytes without inspecting protocol.
+    - Non-sokol server or non-replay player lands on H.264.
+    - MVP command-stream means pass-through + cache — not progressive/epoch subtypes in the handshake.
+    context: 'Unchanged role: capability handshake. Verb-set sub-negotiation (T128.7) stays out of MVP.'
     depends_on:
     - T128.2
     origin: manual
