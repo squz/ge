@@ -98,7 +98,7 @@ All public API lives under `include/ge/*.h`.
 
 ### Protocol types and constants (`wire::`)
 
-- `wire::kProtocolVersion = 6` (`uint16_t`). **Fluid**. Bumped on breaking change.
+- `wire::kProtocolVersion = 7` (`uint16_t`). **Fluid**. Bumped on breaking change.
 - `wire::kMaxMessageSize = 512 * 1024 * 1024`. **Stable**.
 - All 11 message magic constants (`kDeviceInfoMagic` … `kSessionConfigMagic`) — listed under **Wire + stream-relay API surface** below. **Fluid** collectively; new message types added with features.
 - `wire::DeviceInfo`, `wire::SafeAreaUpdate`, `wire::AspectLock`, `wire::SessionConfig`, `wire::MessageHeader` — POD struct layouts documented under **Wire + stream-relay API surface**. **Stable** for layout; **Fluid** for field set.
@@ -265,7 +265,7 @@ desktop-{dist,player}
 
 ### Wire protocol version
 
-- `wire::kProtocolVersion = 6` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change.
+- `wire::kProtocolVersion = 7` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change. v7 adds `DeviceInfo.capabilities`, `SessionConfig.transport`, and `kCommandStreamMagic` (`GE2S`).
 - Little-endian byte order (static-asserted).
 - Max frame: `kMaxMessageSize = 512 MB` (ge `kMaxMessageSize` is the wire limit).
 
@@ -281,6 +281,7 @@ All share the ASCII prefix `GE2` (`0x474532xx`).
 | `kSessionEndMagic` | 0x4745324D | `GE2M` | relay → player | Server disconnected | **Stable** |
 | `kServerAssignedMagic` | 0x4745324E | `GE2N` | relay → player | Server name for this session | **Stable** |
 | `kSqlpipeMsgMagic` | 0x47453254 | `GE2T` | bidirectional | sqlpipe channel messages | **Needs review** |
+| `kCommandStreamMagic` | 0x47453253 | `GE2S` | server → player | cmdstream ops (T128) | **Fluid** |
 | `kVideoStreamMagic` | 0x47453256 | `GE2V` | server → relay / player → relay | H.264 NAL frames | **Stable** |
 | `kStreamStartMagic` | 0x47453257 | `GE2W` | relay → player | Begin H.264 upload | **Stable** |
 | `kStreamStopMagic` | 0x47453258 | `GE2X` | relay → player | Stop H.264 upload | **Stable** |

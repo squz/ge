@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/PlayerWireBridge.h>
+#include <ge/CmdStream.h>
 #include <ge/VideoDecoder.h>
 #include <ge/WebSocketClient.h>
 
@@ -77,6 +78,10 @@ struct PlayerWireBridge::Impl {
     bool pendingReady = false;
 
     PumpStats stats;
+
+    // 🎯T128 — content-addressed resource cache for GE2S frames.
+    cmdstream::Cache cmdCache;
+    uint8_t transport = wire::kTransportH264;
 };
 
 PlayerWireBridge::PlayerWireBridge(Config config)
@@ -116,12 +121,18 @@ bool PlayerWireBridge::connect(wire::SessionConfig& outConfig) {
 
 bool PlayerWireBridge::sendDeviceInfo(const wire::DeviceInfo& devInfo) {
     if (!i_->conn || !i_->conn->isOpen()) return false;
+    // Advertise command-stream replay capability (T128.9). Server intersects
+    // with GE_TRANSPORT=cmdstream before selecting the rung.
+    wire::DeviceInfo di = devInfo;
+    di.magic = wire::kDeviceInfoMagic;
+    di.version = wire::kProtocolVersion;
+    di.capabilities = static_cast<uint8_t>(di.capabilities | wire::kCapCommandStream);
     wire::MessageHeader hdr{};
     hdr.magic = wire::kDeviceInfoMagic;
     hdr.length = sizeof(wire::DeviceInfo);
-    std::vector<uint8_t> msg(sizeof(hdr) + sizeof(devInfo));
+    std::vector<uint8_t> msg(sizeof(hdr) + sizeof(di));
     std::memcpy(msg.data(), &hdr, sizeof(hdr));
-    std::memcpy(msg.data() + sizeof(hdr), &devInfo, sizeof(devInfo));
+    std::memcpy(msg.data() + sizeof(hdr), &di, sizeof(di));
     i_->conn->sendBinary(msg.data(), msg.size());
 
     // Lazily build the decoder on first DeviceInfo send so the frame
@@ -221,12 +232,70 @@ bool PlayerWireBridge::pump() {
             }
             i_->stats.framesThisTick++;
             i_->stats.lastSeq = seq;
+        } else if (magic == wire::kCommandStreamMagic) {
+            // 🎯T128 — GE2S pass-through payload. Spike path populates the
+            // content-addressed cache; full GPU replay lands with T128.2 residue.
+            if (data.size() < sizeof(wire::MessageHeader)) continue;
+            uint32_t length = 0;
+            std::memcpy(&length, data.data() + 4, 4);
+            if (data.size() < sizeof(wire::MessageHeader) + length) continue;
+            const auto* payload = reinterpret_cast<const uint8_t*>(
+                data.data() + sizeof(wire::MessageHeader));
+            cmdstream::Reader reader(&i_->cmdCache);
+            // Visitor that only advances typed fields (no GPU).
+            auto skip = [](cmdstream::Op op, cmdstream::Reader::Cursor& c, void*) -> bool {
+                using cmdstream::Op;
+                switch (op) {
+                case Op::FrameBegin: (void)c.u32(); (void)c.u8(); return c.ok;
+                case Op::FrameEnd: case Op::EndPass: case Op::Commit: case Op::End:
+                case Op::Blob: case Op::BlobRef: return true;
+                case Op::MakeBuffer: (void)c.u32(); (void)c.u32(); (void)c.u32(); (void)c.hash(); return c.ok;
+                case Op::MakeImage: (void)c.u32(); (void)c.u16(); (void)c.u16(); (void)c.u32(); (void)c.hash(); return c.ok;
+                case Op::UpdateBuffer: case Op::UpdateImage: (void)c.u32(); (void)c.hash(); return c.ok;
+                case Op::DestroyBuffer: case Op::DestroyImage: (void)c.u32(); return c.ok;
+                case Op::BeginPass: {
+                    uint8_t n = c.u8();
+                    for (uint8_t i = 0; i < n * 4; ++i) (void)c.u32();
+                    (void)c.u8();
+                    return c.ok;
+                }
+                case Op::ApplyPipeline: (void)c.u32(); return c.ok;
+                case Op::ApplyBindings: {
+                    uint8_t nv = c.u8();
+                    for (uint8_t i = 0; i < nv; ++i) (void)c.u32();
+                    (void)c.u32();
+                    uint8_t ni = c.u8();
+                    for (uint8_t i = 0; i < ni; ++i) (void)c.u32();
+                    return c.ok;
+                }
+                case Op::ApplyUniforms: (void)c.u8(); (void)c.hash(); return c.ok;
+                case Op::Draw: (void)c.i32(); (void)c.i32(); (void)c.i32(); return c.ok;
+                }
+                return false;
+            };
+            if (!reader.decode({payload, length}, skip, nullptr)) {
+                SPDLOG_WARN("PlayerWireBridge: GE2S decode failed (misses={})",
+                            reader.stats().cacheMisses);
+            } else {
+                SPDLOG_INFO("PlayerWireBridge: GE2S frame bytes={} cache_entries={} "
+                            "full_blobs={} refs={}",
+                            length, i_->cmdCache.size(),
+                            reader.stats().fullBlobCount, reader.stats().refBlobCount);
+                i_->stats.framesThisTick++;
+            }
+        } else if (magic == wire::kSessionConfigMagic &&
+                   data.size() >= sizeof(wire::MessageHeader) + sizeof(wire::SessionConfig)) {
+            wire::SessionConfig sc{};
+            std::memcpy(&sc, data.data() + sizeof(wire::MessageHeader), sizeof(sc));
+            i_->transport = sc.transport;
+            SPDLOG_INFO("PlayerWireBridge: SessionConfig update transport={}",
+                        sc.transport == wire::kTransportCommandStream ? "cmdstream" : "h264");
         } else if (magic == wire::kServerAssignedMagic) {
             SPDLOG_INFO("PlayerWireBridge: server assigned");
         } else if (magic == wire::kSessionEndMagic) {
             SPDLOG_INFO("PlayerWireBridge: session ended");
         }
-        // Late SessionConfig or unknown magics are ignored.
+        // Unknown magics are ignored (relay is agnostic; player is tolerant).
     }
     return i_->conn->isOpen();
 }

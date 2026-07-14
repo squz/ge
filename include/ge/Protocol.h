@@ -10,10 +10,11 @@
 
 static_assert(std::endian::native == std::endian::little, "Little-endian required");
 
-// Wire protocol for the H.264 streaming dev mode.
-// The server renders headless via sokol_gfx, encodes H.264 frames, and streams them
-// to the player over a spyder-brokered WebSocket (dev stream). The player decodes and displays
-// frames, and forwards SDL input back to the server over the same channel.
+// Wire protocol for the streaming dev mode (H.264 baseline + command-stream rung).
+// The server either encodes H.264 (GE2V) or serialises a sokol command stream
+// (GE2S); the player decodes/replays and forwards SDL input over the same
+// spyder-brokered WebSocket. Rung negotiation is end-to-end (see DeviceInfo
+// capabilities + SessionConfig.transport); the relay is magic-agnostic.
 //
 // The Dawn wire protocol that previously lived here has been removed along
 // with the rest of the Dawn/WebGPU dependency.
@@ -24,6 +25,7 @@ constexpr uint32_t kDeviceInfoMagic     = 0x47453244;  // "GE2D" — player → 
 constexpr uint32_t kSdlEventMagic       = 0x47453249;  // "GE2I" — player → server: SDL input event
 constexpr uint32_t kSessionEndMagic     = 0x4745324D;  // "GE2M" — relay → player: server disconnected
 constexpr uint32_t kServerAssignedMagic = 0x4745324E;  // "GE2N" — relay → player: assigned server name
+constexpr uint32_t kCommandStreamMagic  = 0x47453253;  // "GE2S" — server → player: cmdstream ops (T128)
 constexpr uint32_t kSqlpipeMsgMagic     = 0x47453254;  // "GE2T" — bidirectional sqlpipe messages
 constexpr uint32_t kVideoStreamMagic    = 0x47453256;  // "GE2V" — server → relay: H.264 NALs
 constexpr uint32_t kStreamStartMagic    = 0x47453257;  // "GE2W" — relay → player: start streaming
@@ -32,8 +34,16 @@ constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → 
 constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
 constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
 
-constexpr uint16_t kProtocolVersion = 6;  // Dawn wire removed
+// v7: DeviceInfo.capabilities + SessionConfig.transport (command-stream ladder).
+constexpr uint16_t kProtocolVersion = 7;
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)
+
+// DeviceInfo.capabilities bits (player → server).
+constexpr uint8_t kCapCommandStream = 1u << 0;  // player can replay GE2S
+
+// SessionConfig.transport (server → player): selected rung after intersection.
+constexpr uint8_t kTransportH264          = 0;
+constexpr uint8_t kTransportCommandStream = 1;
 
 // Sent by player after connecting to the game server (via the stream relay).
 struct DeviceInfo {
@@ -48,6 +58,10 @@ struct DeviceInfo {
     uint16_t safeY = 0;       // Safe area top edge in pixels
     uint16_t safeW = 0;       // Safe area width in pixels (0 = use full width)
     uint16_t safeH = 0;       // Safe area height in pixels (0 = use full height)
+    // v7+: player capability advertisement (kCap*). Older peers omit these
+    // bytes; server must tolerate short DeviceInfo payloads.
+    uint8_t  capabilities = 0;
+    uint8_t  _capPad[3] = {};
 };
 
 // Safe area update (player → server, sent on orientation change).
@@ -65,13 +79,15 @@ struct AspectLock {
     float ratio;  // width/height (e.g. 0.6948 for 954:1373), 0 = unlock
 };
 
-// Server → player: session requirements (sensors, orientation).
+// Server → player: session requirements (sensors, orientation, transport).
 // Sent once after session setup; player applies immediately.
+// transport uses a former pad byte — v6 peers leave it 0 (H.264).
 struct SessionConfig {
     uint32_t magic = kSessionConfigMagic;
     uint8_t  sensors;       // Bitmask: kSensorAccelerometer
     uint8_t  orientation;   // kOrientation* value to lock, 0 = no lock
-    uint8_t  _pad[2] = {};
+    uint8_t  transport = kTransportH264; // kTransport* selected rung
+    uint8_t  _pad = 0;
 };
 
 constexpr uint8_t kSensorAccelerometer = 1;

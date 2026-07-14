@@ -45,6 +45,7 @@ GE_SRC_COMMON := \
 	src/long_press.cpp \
 	src/sdl_input.cpp \
 	src/manifest.cpp \
+	src/CmdStream.cpp \
 	src/SessionHost.mm \
 	src/render/DirectRenderHost.mm \
 	vendor/src/sqlpipe.cpp

@@ -3,6 +3,7 @@
 
 #include "ServerSession.h"
 
+#include <ge/CmdStream.h>
 #include <ge/Protocol.h>
 #include <ge/VideoEncoder.h>
 #include <ge/WebSocketClient.h>
@@ -12,7 +13,9 @@
 
 #include <unistd.h>  // getpid
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -79,11 +82,19 @@ struct ServerSession::Impl {
     std::atomic<int> deviceClass{0};
     std::atomic<int> pixelRatio{0};
 
+    // 🎯T128.9 — negotiated transport. Defaults H.264; upgraded when the
+    // player advertises kCapCommandStream and the server opts in
+    // (GE_TRANSPORT=cmdstream). SessionConfig is re-sent after negotiation.
+    std::atomic<uint8_t> transport{wire::kTransportH264};
+    cmdstream::Cache cmdCache; // server-side "already sent" memo for GE2S
+
     void sidebandLoop();
     void openWire(const std::string& sessionId);
     void closeWire();
     void inputLoop();
     void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread
+    void negotiateTransport(uint8_t playerCaps);
+    void sendCmdStreamSpikeFrame(uint32_t seq, bool first);
 
     void sendWire(uint32_t magic, const void* payload, uint32_t payloadLen) {
         wire::MessageHeader hdr{magic, payloadLen};
@@ -151,20 +162,54 @@ void ServerSession::Impl::inputLoop() {
             std::memcpy(&ev, data.data() + sizeof(wire::MessageHeader), sizeof(SDL_Event));
             SDL_PushEvent(&ev);
         } else if (magic == wire::kDeviceInfoMagic &&
-                   data.size() >= sizeof(wire::MessageHeader) + sizeof(wire::DeviceInfo)) {
-            // DeviceInfo gives the player's deviceClass / pixelRatio only — a
-            // hint for downstream context. It does NOT drive encode dims: the
-            // server renders at SessionHostConfig.width/height and streams at
-            // the captured frame's actual w×h (see onCapturedFrame). We do not
-            // resize the encoder or the render surface from it.
-            wire::DeviceInfo info;
-            std::memcpy(&info, data.data() + sizeof(wire::MessageHeader), sizeof(info));
+                   data.size() >= sizeof(wire::MessageHeader) + 14) {
+            // DeviceInfo: at least pre-v7 fields (through orientation). v7 adds
+            // capabilities; short payloads default capabilities=0.
+            wire::DeviceInfo info{};
+            const size_t avail = data.size() - sizeof(wire::MessageHeader);
+            std::memcpy(&info, data.data() + sizeof(wire::MessageHeader),
+                        std::min(avail, sizeof(info)));
             deviceClass.store(info.deviceClass);
             pixelRatio.store(info.pixelRatio);
-            SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} (hints only)",
-                        info.width, info.height, info.pixelRatio, info.deviceClass);
+            SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} caps={:#x}",
+                        info.width, info.height, info.pixelRatio, info.deviceClass,
+                        info.capabilities);
+            negotiateTransport(info.capabilities);
         }
     }
+}
+
+void ServerSession::Impl::negotiateTransport(uint8_t playerCaps) {
+    const bool playerCmd = (playerCaps & wire::kCapCommandStream) != 0;
+    const char* pref = std::getenv("GE_TRANSPORT");
+    // Default remains H.264. Opt into command-stream only when the player
+    // can replay and the server was launched with GE_TRANSPORT=cmdstream.
+    const bool wantCmd = pref && std::strcmp(pref, "cmdstream") == 0;
+    uint8_t next = wire::kTransportH264;
+    if (playerCmd && wantCmd) next = wire::kTransportCommandStream;
+    transport.store(next);
+    sessionConfig.transport = next;
+    sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
+    SPDLOG_INFO("ServerSession: transport={} (player_cmdstream={} want={})",
+                next == wire::kTransportCommandStream ? "cmdstream" : "h264",
+                playerCmd, wantCmd);
+
+    // Spike: when cmdstream is selected, emit one synthetic GE2S frame so the
+    // player/relay path is exercised without a full sokol capture backend yet.
+    if (next == wire::kTransportCommandStream) {
+        sendCmdStreamSpikeFrame(/*seq*/ 0, /*first*/ true);
+    }
+}
+
+void ServerSession::Impl::sendCmdStreamSpikeFrame(uint32_t seq, bool first) {
+    cmdstream::Writer w(&cmdCache);
+    auto scene = cmdstream::SyntheticScene::tiltbuggyLike();
+    scene.writeFrame(w, seq, first);
+    auto payload = w.take();
+    sendWire(wire::kCommandStreamMagic, payload.data(),
+             static_cast<uint32_t>(payload.size()));
+    SPDLOG_INFO("ServerSession: GE2S spike frame seq={} bytes={} full_blobs={} refs={}",
+                seq, payload.size(), w.stats().fullBlobCount, w.stats().refBlobCount);
 }
 
 void ServerSession::Impl::sidebandLoop() {
@@ -227,6 +272,11 @@ std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     if (!i_->hasPlayer.load() || !px || w <= 0 || h <= 0) return;
+    // Command-stream sessions skip H.264 encode (T128.6 path). Full sokol
+    // capture is still T128.2 residue; until then the spike frame on negotiate
+    // is the GE2S proof, and we do not burn VT on a player that won't use it.
+    if (i_->transport.load() == wire::kTransportCommandStream) return;
+
     // Encode at the CAPTURED frame's actual dimensions (StreamClient's original
     // behaviour): the frame we hand VideoToolbox is exactly what the swapchain
     // presented. DeviceInfo is a hint, not a resize trigger.

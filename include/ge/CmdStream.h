@@ -1,0 +1,239 @@
+// Copyright 2026 Marcelo Cantos
+// SPDX-License-Identifier: Apache-2.0
+//
+// Command-stream codec + content-addressed cache (🎯T128 pass-through + cache MVP).
+//
+// Wire envelope is still wire::MessageHeader with magic kCommandStreamMagic
+// ("GE2S"). Payload is a sequence of tagged ops (see Op). Large blobs are
+// content-addressed: first transmission may carry full bytes; later ops refer
+// to the hash only when the peer is known (or assumed) to have the blob.
+//
+// Capture (server) and replay (player) are layered on top of this codec.
+// Apple captures via sg_install_trace_hooks (no g_ge_sg_api on Metal); a true
+// null serialising backend is dispatch-only (Android / T128.6).
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+namespace ge::cmdstream {
+
+// 16-byte content hash (FNV-1a 128-bit, two 64-bit lanes).
+using Hash = std::array<uint8_t, 16>;
+
+// Wire opcodes. Stable within a protocol version; unknown ops abort the reader.
+enum class Op : uint16_t {
+    End = 0,           // end of frame (optional; length also bounds the payload)
+    Blob = 1,          // hash[16] + u32 size + size bytes (full transfer)
+    BlobRef = 2,       // hash[16] only (cache hit — no body)
+    // Simplified draw/resource ops for the spike. Full sokol descriptor dump
+    // is a later widening; these prove pass-through + cache economics.
+    MakeBuffer = 10,   // u32 id, u32 size, u32 usage, Hash data
+    MakeImage = 11,    // u32 id, u16 w, u16 h, u32 pixel_format, Hash pixels
+    UpdateBuffer = 12, // u32 id, Hash data
+    UpdateImage = 13,  // u32 id, Hash pixels
+    DestroyBuffer = 14,
+    DestroyImage = 15,
+    BeginPass = 20,    // u8 n_colors, then n_colors × float4 clear; u8 clear_depth
+    ApplyPipeline = 21, // u32 pipeline_id (opaque server id)
+    ApplyBindings = 22, // u8 n_vb, then n_vb × u32 buf_id; u32 ib_id; u8 n_img, n_img × u32
+    ApplyUniforms = 23, // u8 slot, Hash data
+    Draw = 24,         // i32 base, i32 num_elements, i32 num_instances
+    EndPass = 25,
+    Commit = 26,
+    // Framing markers for measurement / reconnect
+    FrameBegin = 30,   // u32 seq, u8 flags (bit0 = cold/full state)
+    FrameEnd = 31,
+};
+
+// ── Hash ──────────────────────────────────────────────────────────
+
+Hash hashBytes(const void* data, size_t n);
+inline Hash hashBytes(std::span<const uint8_t> s) {
+    return hashBytes(s.data(), s.size());
+}
+std::string hashHex(const Hash&);
+
+// ── Content-addressed cache ───────────────────────────────────────
+
+// In-memory store. Player persists to disk later (T128.5 durable path); for
+// the spike, process lifetime is enough to measure warm reconnect.
+class Cache {
+public:
+    bool contains(const Hash& h) const;
+    // Returns nullptr if missing.
+    const std::vector<uint8_t>* get(const Hash& h) const;
+    // Insert or overwrite. Returns true if this was a new key.
+    bool put(const Hash& h, std::vector<uint8_t> bytes);
+    bool put(const Hash& h, const void* data, size_t n);
+    size_t size() const { return map_.size(); }
+    size_t totalBytes() const { return totalBytes_; }
+    void clear();
+
+private:
+    struct HashKey {
+        Hash h;
+        bool operator==(const HashKey& o) const { return h == o.h; }
+    };
+    struct HashKeyHash {
+        size_t operator()(const HashKey& k) const {
+            size_t x = 0;
+            for (size_t i = 0; i < 8; ++i)
+                x ^= (size_t)k.h[i] << (i * 8);
+            // fold high 8 bytes
+            for (size_t i = 0; i < 8; ++i)
+                x ^= (size_t)k.h[8 + i] << (i * 8);
+            return x;
+        }
+    };
+    std::unordered_map<HashKey, std::vector<uint8_t>, HashKeyHash> map_;
+    size_t totalBytes_ = 0;
+};
+
+// ── Writer ────────────────────────────────────────────────────────
+
+// Builds one GE2S payload. Does not include MessageHeader.
+class Writer {
+public:
+    explicit Writer(Cache* serverCache = nullptr);
+
+    void frameBegin(uint32_t seq, bool fullState);
+    void frameEnd();
+
+    // Emit Blob or BlobRef depending on whether `peerHas` / local cache says
+    // the peer already has this content. On the server, pass the player's
+    // known-cache (or nullptr to always send full on first Writer lifetime
+    // and track via internal sent_ set).
+    Hash emitBlob(const void* data, size_t n);
+
+    void makeBuffer(uint32_t id, uint32_t size, uint32_t usage, const void* data, size_t n);
+    void makeImage(uint32_t id, uint16_t w, uint16_t h, uint32_t pixelFormat,
+                   const void* pixels, size_t n);
+    void updateBuffer(uint32_t id, const void* data, size_t n);
+    void updateImage(uint32_t id, const void* pixels, size_t n);
+    void destroyBuffer(uint32_t id);
+    void destroyImage(uint32_t id);
+    void beginPass(std::span<const float> clearRgba /* 4*n */, bool clearDepth);
+    void applyPipeline(uint32_t pipelineId);
+    void applyBindings(std::span<const uint32_t> vbufs, uint32_t ibuf,
+                       std::span<const uint32_t> images);
+    void applyUniforms(uint8_t slot, const void* data, size_t n);
+    void draw(int32_t base, int32_t numElements, int32_t numInstances);
+    void endPass();
+    void commit();
+
+    // Steal the finished payload (ops only; caller wraps with MessageHeader).
+    std::vector<uint8_t> take();
+    const std::vector<uint8_t>& bytes() const { return buf_; }
+    size_t size() const { return buf_.size(); }
+
+    // Stats for cold/warm measurement.
+    struct Stats {
+        size_t fullBlobBytes = 0;
+        size_t fullBlobCount = 0;
+        size_t refBlobCount = 0;
+        size_t opCount = 0;
+    };
+    Stats stats() const { return stats_; }
+    void resetStats() { stats_ = {}; }
+
+private:
+    void putU8(uint8_t v);
+    void putU16(uint16_t v);
+    void putU32(uint32_t v);
+    void putI32(int32_t v);
+    void putHash(const Hash& h);
+    void putBytes(const void* p, size_t n);
+    void putOp(Op op);
+
+    Cache* cache_ = nullptr; // optional: record what we have sent
+    std::vector<uint8_t> buf_;
+    // Hashes already fully transferred in this Writer's lifetime (and/or
+    // known present in cache_). Used to prefer BlobRef.
+    std::unordered_map<std::string, bool> sentFull_;
+    Stats stats_{};
+};
+
+// ── Reader ────────────────────────────────────────────────────────
+
+class Reader {
+public:
+    explicit Reader(Cache* playerCache);
+
+    // Parse one GE2S payload. Invokes the callback per op. Returns false on
+    // malformed input. Blob ops populate the cache; BlobRef requires a hit.
+    using OpFn = bool (*)(Op op, const uint8_t* payload, size_t payloadLen, void* user);
+    // Lower-level: walk ops with a visitor that can pull typed fields via
+    // the Cursor helpers below.
+    struct Cursor {
+        const uint8_t* p = nullptr;
+        const uint8_t* end = nullptr;
+        bool ok = true;
+        uint8_t u8();
+        uint16_t u16();
+        uint32_t u32();
+        int32_t i32();
+        Hash hash();
+        std::span<const uint8_t> bytes(size_t n);
+        bool remain() const { return ok && p < end; }
+    };
+
+    // Decode every op. For Blob: insert into cache. For BlobRef: require hit.
+    // Visitor returns false to abort.
+    bool decode(std::span<const uint8_t> payload,
+                bool (*visit)(Op op, Cursor& c, void* user),
+                void* user);
+
+    struct Stats {
+        size_t fullBlobBytes = 0;
+        size_t fullBlobCount = 0;
+        size_t refBlobCount = 0;
+        size_t cacheMisses = 0;
+        size_t opCount = 0;
+    };
+    Stats stats() const { return stats_; }
+    void resetStats() { stats_ = {}; }
+
+private:
+    Cache* cache_ = nullptr;
+    Stats stats_{};
+};
+
+// ── Synthetic scene for measurement (no GPU) ──────────────────────
+
+// Models a tiltbuggy-like frame: a few static textures + per-frame uniforms
+// and draws. Used by the spike to compare cold/warm/steady byte costs to an
+// H.264 full-res estimate without requiring a live device.
+struct SyntheticScene {
+    // One-time assets (created on first frame, then cacheable).
+    std::vector<uint8_t> texDirt;   // e.g. 512×512 RGBA
+    std::vector<uint8_t> texAsphalt;
+    std::vector<uint8_t> meshVerts;
+    std::vector<uint8_t> meshIdx;
+
+    static SyntheticScene tiltbuggyLike();
+
+    // Write one frame into `w`. firstFrame emits Make* + full blobs; later
+    // frames only UpdateUniforms + Draw (+ optional texture churn).
+    void writeFrame(Writer& w, uint32_t seq, bool firstFrame,
+                    bool forceTextureChurn = false) const;
+};
+
+// Rough H.264 full-res byte estimate for comparison (not a real encode).
+// keyframeInterval frames, average p-frame ratio of keyframe size.
+struct H264Estimate {
+    size_t keyframeBytes = 0;
+    size_t pframeBytes = 0;
+    size_t bytesForFrames(int n, int keyEvery = 60) const;
+};
+
+// Conservative estimate for 2048×1536 BGRA → H.264 High @ CRF~36 style.
+H264Estimate estimateH264FullRes(int width, int height);
+
+} // namespace ge::cmdstream
