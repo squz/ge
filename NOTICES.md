@@ -323,7 +323,7 @@ compiled into the Android player.
 - Notice: Licensed under the Apache License, Version 2.0. See header.
 
 ### sqlpipe.h / sqlpipe.cpp
-- Source: https://github.com/marcelocantos/sqlpipe (dist amalgamation; currently v0.29.0)
+- Source: https://github.com/marcelocantos/sqlpipe (dist amalgamation; currently v0.30.0)
 - Licence: Apache-2.0
 - Copyright: © 2026 The sqlpipe Authors.
 - Notice: Licensed under the Apache License, Version 2.0. See header.
