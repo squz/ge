@@ -4,6 +4,17 @@ set(CMAKE_CXX_STANDARD 23)
 
 set(GE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../..)
 
+# ── 16 KB page alignment (🎯T75) ────────────────────────────────────
+# This player CMakeLists does NOT include cmake/android-arm64.cmake (lean
+# brokered path — no libge.a), so it must apply the same linker flag that
+# ge's consumer template gets for free. Without it, Android 16 shows the
+# system "ELF alignment check failed" dialog (Pixel Tablet — regressed
+# 2026-07-11 and again 2026-07-14 when this block was lost off master).
+# Must precede every add_library(SHARED) / add_subdirectory that produces
+# a .so (SDL3 + libmain). See also tools/android/check-16kb.sh +
+# build.gradle ANDROID_STL=c++_static.
+string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+
 # SDL3 — built from source as part of the Gradle build
 add_subdirectory(
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL
