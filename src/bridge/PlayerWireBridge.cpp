@@ -196,7 +196,13 @@ void PlayerWireBridge::sendEvent(const SDL_Event& e) {
 bool PlayerWireBridge::pump() {
     if (!i_->conn) return false;
     i_->stats = {};
-    while (i_->conn->isOpen() && i_->conn->available() > 0) {
+    // Cap messages per pump so a LAN flood of GE2S/H.264 frames cannot
+    // starve the main loop of pollFrame/render (black screen on Android).
+    constexpr int kMaxMsgsPerPump = 8;
+    int msgs = 0;
+    while (i_->conn->isOpen() && i_->conn->available() > 0 &&
+           msgs < kMaxMsgsPerPump) {
+        ++msgs;
         std::vector<char> data;
         if (!i_->conn->recvBinary(data) || data.size() < 8) break;
 
