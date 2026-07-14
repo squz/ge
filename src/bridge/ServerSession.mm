@@ -89,6 +89,11 @@ struct ServerSession::Impl {
     cmdstream::Cache cmdCache; // server-side "already sent" memo for GE2S
     cmdstream::Hash lastPresentHash{}; // skip wire when framebuffer unchanged
     bool haveLastPresentHash = false;
+    // Present path is interim (full framebuffer, not draw-list). Cap rate and
+    // max edge so Wi-Fi is not ~0.2 fps at 2048×1536 × ~11 MB/frame.
+    static constexpr int kPresentMaxEdge = 960;       // long edge
+    static constexpr double kPresentMinIntervalSec = 1.0 / 20.0; // 20 Hz cap
+    uint64_t lastPresentTicks = 0;
 
     void sidebandLoop();
     void openWire(const std::string& sessionId);
@@ -283,31 +288,63 @@ void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     // LZ4 + content-addressed cache. Works with the existing SDL player
     // (no sokol on the player). Full draw-list remoting remains T128.2.1/2.2.
     if (i_->transport.load() == wire::kTransportCommandStream) {
-        const size_t raw = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
-        // Skip identical frames entirely (player keeps last texture). Content
-        // hash is over raw RGBA so LZ4 encoding cannot desync the memo.
-        const cmdstream::Hash frameHash = cmdstream::hashBytes(px, raw);
+        // Rate limit: capture runs at display rate; Present is multi-MB.
+        const uint64_t now = SDL_GetPerformanceCounter();
+        const uint64_t freq = SDL_GetPerformanceFrequency();
+        if (i_->lastPresentTicks != 0) {
+            const double dt = double(now - i_->lastPresentTicks) / double(freq);
+            if (dt < Impl::kPresentMinIntervalSec) return;
+        }
+
+        // Downscale so long edge ≤ kPresentMaxEdge (box filter). 2048×1536 →
+        // 960×720 ≈ 2.6 MB raw / often <1 MB LZ4 vs ~11 MB full-res.
+        int dw = w, dh = h;
+        std::vector<uint8_t> scaled;
+        const uint8_t* sendPx = px;
+        if (w > Impl::kPresentMaxEdge || h > Impl::kPresentMaxEdge) {
+            const float scale = float(Impl::kPresentMaxEdge) /
+                                float(std::max(w, h));
+            dw = std::max(1, int(w * scale));
+            dh = std::max(1, int(h * scale));
+            scaled.resize(static_cast<size_t>(dw) * dh * 4);
+            for (int y = 0; y < dh; ++y) {
+                const int sy = y * h / dh;
+                for (int x = 0; x < dw; ++x) {
+                    const int sx = x * w / dw;
+                    const size_t di = (static_cast<size_t>(y) * dw + x) * 4;
+                    const size_t si = (static_cast<size_t>(sy) * w + sx) * 4;
+                    scaled[di + 0] = px[si + 0];
+                    scaled[di + 1] = px[si + 1];
+                    scaled[di + 2] = px[si + 2];
+                    scaled[di + 3] = px[si + 3];
+                }
+            }
+            sendPx = scaled.data();
+        }
+        const size_t raw = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 4;
+
+        // Skip identical frames entirely (player keeps last texture).
+        const cmdstream::Hash frameHash = cmdstream::hashBytes(sendPx, raw);
         if (i_->haveLastPresentHash && frameHash == i_->lastPresentHash)
             return;
         i_->lastPresentHash = frameHash;
         i_->haveLastPresentHash = true;
+        i_->lastPresentTicks = now;
 
         cmdstream::Writer wr(&i_->cmdCache);
         const uint32_t s = i_->seq.fetch_add(1);
         wr.frameBegin(s, /*fullState*/ false);
         // Capture sink contract is RGBA8 (SokolContext swizzles Metal BGRA→RGBA).
-        // Tag Present as RGBA so the player swaps to BGRA for SDL (same as the
-        // H.264 path's decode output). Wrong tag → R↔B swap (blue dirt).
-        wr.present(static_cast<uint16_t>(w), static_cast<uint16_t>(h),
-                   cmdstream::kPresentRGBA8, px, raw);
+        wr.present(static_cast<uint16_t>(dw), static_cast<uint16_t>(dh),
+                   cmdstream::kPresentRGBA8, sendPx, raw);
         wr.frameEnd();
         auto payload = wr.take();
         i_->sendWire(wire::kCommandStreamMagic, payload.data(),
                      static_cast<uint32_t>(payload.size()));
-        if (s < 3 || (s % 60) == 0) {
-            SPDLOG_INFO("ServerSession: GE2S Present seq={} {}x{} wire={}B "
-                        "full_blobs={} refs={} full_blob_bytes={}",
-                        s, w, h, payload.size(),
+        if (s < 3 || (s % 30) == 0) {
+            SPDLOG_INFO("ServerSession: GE2S Present seq={} {}x{} (src {}x{}) "
+                        "wire={}B full_blobs={} refs={} full_blob_bytes={}",
+                        s, dw, dh, w, h, payload.size(),
                         wr.stats().fullBlobCount, wr.stats().refBlobCount,
                         wr.stats().fullBlobBytes);
         }

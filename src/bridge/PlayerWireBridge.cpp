@@ -196,12 +196,15 @@ void PlayerWireBridge::sendEvent(const SDL_Event& e) {
 bool PlayerWireBridge::pump() {
     if (!i_->conn) return false;
     i_->stats = {};
-    // Cap messages per pump so a LAN flood of GE2S/H.264 frames cannot
-    // starve the main loop of pollFrame/render (black screen on Android).
-    constexpr int kMaxMsgsPerPump = 8;
+    // Cap messages per pump and stop as soon as we have a presentable frame.
+    // Processing eight ~11 MB GE2S Presents before render made Android ~0.25 fps
+    // (PlayerLog: pump avg≈4s, 1 tick / 4s). One Present (or video AU) then
+    // return → pollFrame/render can run between network frames.
+    constexpr int kMaxMsgsPerPump = 4;
     int msgs = 0;
+    bool haveDisplayFrame = false;
     while (i_->conn->isOpen() && i_->conn->available() > 0 &&
-           msgs < kMaxMsgsPerPump) {
+           msgs < kMaxMsgsPerPump && !haveDisplayFrame) {
         ++msgs;
         std::vector<char> data;
         if (!i_->conn->recvBinary(data) || data.size() < 8) break;
@@ -239,6 +242,7 @@ bool PlayerWireBridge::pump() {
             }
             i_->stats.framesThisTick++;
             i_->stats.lastSeq = seq;
+            haveDisplayFrame = true; // decoded into pending via callback soon
         } else if (magic == wire::kCommandStreamMagic) {
             // 🎯T128 — GE2S. Present ops decode to a BGRA DecodedFrame for the
             // existing SDL blit path (runnable intermediate before full sokol
@@ -368,6 +372,7 @@ bool PlayerWireBridge::pump() {
             } else if (ctx.gotPresent) {
                 i_->stats.framesThisTick++;
                 i_->stats.lastSeq = ctx.frameSeq;
+                haveDisplayFrame = true;
                 static uint32_t presentLog = 0;
                 if (presentLog++ < 3 || (ctx.frameSeq % 60) == 0) {
                     SPDLOG_INFO("PlayerWireBridge: GE2S Present seq={} wire={}B "
