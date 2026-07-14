@@ -956,6 +956,42 @@ targets:
     - T128.1
     origin: manual
     discovered: 2026-06-29
+  T128.2.1:
+    name: Player replays GE2S ops on the local GPU to present frames
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - PlayerWireBridge GE2S path resolves Blob/BlobRef via content-addressed cache and issues real sg_make_*/sg_apply_*/sg_draw/sg_commit (or ge Pass helpers).
+    - Server resource IDs remap to local handles; warm reconnect with full cache hits shows no full-blob traffic for stable assets.
+    - At least one synthetic or tiltbuggy GE2S stream produces a non-black presented frame on desktop player.
+    - H.264 decode path remains the fallback when SessionConfig.transport is h264.
+    context: Residue of T128.2 — cache population is already in PlayerWireBridge; this is the GPU apply side.
+    tags:
+    - cmdstream
+    - replay
+    - player
+    - t128
+    origin: manual
+    discovered: 2026-07-14
+  T128.2.2:
+    name: Server captures live sokol calls into GE2S (Apple trace hooks / Android null ge_sg_api)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Apple: after sg_setup, sg_install_trace_hooks records make_*/update_*/begin_pass/apply_*/draw/end_pass/commit into ge::cmdstream::Writer with content-addressed blobs.'
+    - 'Android: optional null serialising ge_sg_api (or same trace hooks if bound) for cmdstream-only sessions.'
+    - At least one real tiltbuggy onRender produces a GE2S frame whose blob sizes and op counts are logged; H.264 path unchanged when transport=h264.
+    - Resource IDs on the wire are the server's sg_* id values so the player can remap.
+    context: Residue of T128.2 after the codec/cache/synthetic spike. Apple has no g_ge_sg_api (SOKOL_IMPL inline) — use sokol's built-in trace hooks rather than the Android dispatch table.
+    tags:
+    - cmdstream
+    - capture
+    - sokol
+    - t128
+    origin: manual
+    discovered: 2026-07-14
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
     status: set_aside
