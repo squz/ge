@@ -358,7 +358,9 @@ struct DirectRenderHost::Impl {
     // presented frame is routed to serverSink on the game thread (the
     // ServerSession encodes + streams it). Both null in the normal windowed
     // path. serverActive is owned by the ServerSession, which outlives the host.
+    // serverCapturePixels: optional; when false, skip GPU readback (cmdstream).
     std::atomic<bool>* serverActive = nullptr;
+    std::atomic<bool>* serverCapturePixels = nullptr;
     std::function<void(const std::uint8_t*, int, int)> serverSink;
 
     // 🎯T63 High-refresh-rate during press.
@@ -484,13 +486,17 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                         ge::detail::deliverScreenshot(rgba, w, h);
                     });
             } else if (i_->serverActive && i_->serverActive->load()) {
-                // 🎯T92.2.2 server mode: capture every presented frame for the
-                // attached player. The ServerSession encodes + sends off the
-                // game thread; this only pumps the pixels out via serverSink.
-                i_->sokolCtx->captureNextFrame(
-                    [this](const std::uint8_t* px, int w, int h) {
-                        if (i_->serverSink) i_->serverSink(px, w, h);
-                    });
+                // 🎯T92.2.2 server mode: GPU readback for H.264 / Present.
+                // Command-stream (sprite GE2S) sets capturePixels=false and
+                // serialises via LiveCapture around onRender instead.
+                const bool wantPx = !i_->serverCapturePixels ||
+                                    i_->serverCapturePixels->load();
+                if (wantPx) {
+                    i_->sokolCtx->captureNextFrame(
+                        [this](const std::uint8_t* px, int w, int h) {
+                            if (i_->serverSink) i_->serverSink(px, w, h);
+                        });
+                }
             }
             i_->sokolCtx->endFrame();
             i_->ctx->recordPresent();  // 🎯T131.5 advance framesPresented()
@@ -701,9 +707,11 @@ void DirectRenderHost::setMemoryWarningHandler(
 
 void DirectRenderHost::setServerFrameSink(
         std::function<void(const std::uint8_t*, int, int)> fn,
-        std::atomic<bool>* active) {
+        std::atomic<bool>* active,
+        std::atomic<bool>* capturePixels) {
     i_->serverSink = std::move(fn);
     i_->serverActive = active;
+    i_->serverCapturePixels = capturePixels;
 }
 
 void DirectRenderHost::pumpEvents() {

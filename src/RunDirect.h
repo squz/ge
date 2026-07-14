@@ -25,10 +25,17 @@ namespace ge {
 // the host hides its window, arms per-frame capture into `sink`, and bypasses
 // render-on-demand so the remote player gets a continuous stream. `onStop` runs
 // once the loop exits (ServerSession::stop()).
+//
+// Command-stream (🎯T128): `beforeRender` / `afterRender` arm LiveCapture around
+// onRender so SpriteBatch serialises GE2S; when `capturePixels` is non-null and
+// false, GPU framebuffer readback is skipped (sprite path does not need it).
 struct ServerHook {
     std::function<void(const std::uint8_t*, int, int)> sink;
     std::atomic<bool>* active = nullptr;
     std::function<void()> onStop;
+    std::function<void()> beforeRender;
+    std::function<void()> afterRender;
+    std::atomic<bool>* capturePixels = nullptr; // null ⇒ capture when active
 };
 
 // The direct run loop, optionally driving server mode via `server` (null = the

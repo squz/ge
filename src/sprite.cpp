@@ -9,6 +9,7 @@
 // onto how SpriteBatch streams its per-frame quad-vertex runs.
 
 #include <ge/sprite.h>
+#include <ge/CmdStream.h>
 
 #include "sokol_gfx.h"
 #include "ge_sprite.h"  // sokol-shdc generated; -I via Module.mk
@@ -319,11 +320,15 @@ void SpriteBatch::addSprite(const la::float4x4& m,
 
 void SpriteBatch::submit(const la::float4x4& worldToClip) {
     if (quads_.empty()) return;
-    if (!ensureState()) return;
+    // Local GPU path (server display / direct). When cmdstream LiveCapture is
+    // armed we still draw locally AND serialise runs for the player.
+    const bool gpu = ensureState();
+    if (!gpu && !cmdstream::liveCapture()) return;
 
     std::size_t i = 0;
     while (i < quads_.size()) {
         sg_view curView = quads_[i].view;
+        sg_image curTex = quads_[i].tex;
         std::size_t j = i + 1;
         while (j < quads_.size() && quads_[j].view.id == curView.id) {
             ++j;
@@ -335,7 +340,23 @@ void SpriteBatch::submit(const la::float4x4& worldToClip) {
             std::memcpy(&packed[k * 6], quads_[i + k].verts,
                         6 * sizeof(SpriteVertex));
         }
-        drawRun(curView, packed.data(), verts, worldToClip);
+        if (gpu) drawRun(curView, packed.data(), verts, worldToClip);
+
+        // 🎯T128 live sprite capture — pass-through + cache (no full RGBA Present).
+        if (auto* cap = cmdstream::liveCapture()) {
+            uint16_t iw = 0, ih = 0;
+            const std::vector<uint8_t>* px = nullptr;
+            if (cmdstream::lookupImagePixels(curTex.id, iw, ih, px) && px) {
+                cap->noteImage(curTex.id, iw, ih, px->data(), px->size());
+            }
+            // worldToClip is column-major float4x4 — same layout as la::float4x4.
+            float mvp[16];
+            std::memcpy(mvp, &worldToClip, sizeof(mvp));
+            if (verts > 0 && verts <= 65535) {
+                cap->spriteRun(curTex.id, packed.data(),
+                               static_cast<uint16_t>(verts), mvp);
+            }
+        }
         i = j;
     }
 }

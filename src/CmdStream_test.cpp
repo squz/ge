@@ -85,6 +85,12 @@ bool skipVisit(Op op, Reader::Cursor& c, void*) {
         (void)c.u32();
         (void)c.hash();
         return c.ok;
+    case Op::SpriteRun:
+        (void)c.u32();
+        (void)c.u16();
+        (void)c.hash();
+        (void)c.hash();
+        return c.ok;
     }
     return false; // unknown
 }
@@ -297,4 +303,66 @@ TEST_CASE("cmdstream BlobRef fails on cold player cache") {
     Reader r2(&empty2);
     CHECK_FALSE(r2.decode(refOnly, skipVisit, nullptr));
     CHECK(r2.stats().cacheMisses == 1);
+}
+
+TEST_CASE("cmdstream SpriteRun warm steady-state is tiny vs full RGBA") {
+    Cache serverCache;
+    Cache playerCache;
+
+    // 64×64 dirt texture once + 6-vert quads each frame (tiltbuggy-like).
+    constexpr int TW = 64, TH = 64;
+    std::vector<uint8_t> tex(static_cast<size_t>(TW) * TH * 4, 0);
+    for (size_t i = 0; i < tex.size(); i += 4) {
+        tex[i] = 140;
+        tex[i + 1] = 100;
+        tex[i + 2] = 60;
+        tex[i + 3] = 255;
+    }
+    // 30 quads × 6 verts × 24 B ≈ 4.3 KB of geometry per frame.
+    constexpr uint16_t nVerts = 30 * 6;
+    std::vector<uint8_t> verts(static_cast<size_t>(nVerts) * kSpriteVertexBytes);
+    for (size_t i = 0; i < verts.size(); ++i) verts[i] = static_cast<uint8_t>(i);
+    float mvp[16] = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+    };
+
+    Writer coldW(&serverCache);
+    coldW.frameBegin(0, true);
+    coldW.makeImage(1, TW, TH, 0x10, tex.data(), tex.size());
+    coldW.spriteRun(1, verts.data(), nVerts, mvp);
+    coldW.frameEnd();
+    auto cold = coldW.take();
+    CHECK(coldW.stats().fullBlobCount >= 2); // tex + verts (+ maybe mvp)
+
+    Reader r1(&playerCache);
+    CHECK(r1.decode(cold, skipVisit, nullptr));
+
+    // Change verts slightly each frame (motion); texture hits cache.
+    size_t warmTotal = 0;
+    for (int f = 1; f <= 60; ++f) {
+        verts[0] = static_cast<uint8_t>(f); // motion
+        mvp[12] = float(f) * 0.01f;         // camera nudge
+        Writer w(&serverCache);
+        w.frameBegin(static_cast<uint32_t>(f), false);
+        // Image already known — only MakeImage if we re-emit; we don't.
+        w.spriteRun(1, verts.data(), nVerts, mvp);
+        w.frameEnd();
+        auto payload = w.take();
+        warmTotal += payload.size();
+        Reader r(&playerCache);
+        CHECK(r.decode(payload, skipVisit, nullptr));
+        // Steady-state: no full texture blob.
+        CHECK(w.stats().fullBlobCount <= 2); // verts + maybe mvp
+        CHECK(payload.size() < 32 * 1024);   // << full-frame RGBA
+    }
+    const size_t avgWarm = warmTotal / 60;
+    constexpr size_t fullRgba2048x1536 = 2048ull * 1536ull * 4ull;
+    CHECK(avgWarm * 100 < fullRgba2048x1536); // orders of magnitude below
+    CHECK(avgWarm < 20000); // practical OTA budget for 60 fps class
+
+    MESSAGE("sprite_cold=", cold.size(), " avg_warm_sprite=", avgWarm,
+            " warm_60f=", warmTotal, " full_rgba=", fullRgba2048x1536);
 }

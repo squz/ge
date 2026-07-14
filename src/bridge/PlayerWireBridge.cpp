@@ -77,6 +77,8 @@ struct PlayerWireBridge::Impl {
     std::mutex frameMutex;
     DecodedFrame pending;
     bool pendingReady = false;
+    CmdDisplayFrame pendingCmd;
+    bool pendingCmdReady = false;
 
     PumpStats stats;
 
@@ -244,9 +246,8 @@ bool PlayerWireBridge::pump() {
             i_->stats.lastSeq = seq;
             haveDisplayFrame = true; // decoded into pending via callback soon
         } else if (magic == wire::kCommandStreamMagic) {
-            // 🎯T128 — GE2S. Present ops decode to a BGRA DecodedFrame for the
-            // existing SDL blit path (runnable intermediate before full sokol
-            // GPU replay). Other ops fill the content-addressed cache.
+            // 🎯T128 — GE2S. Prefer SpriteRun (draw-list) → CmdDisplayFrame.
+            // Legacy Present still fills DecodedFrame for SDL blit.
             if (data.size() < sizeof(wire::MessageHeader)) continue;
             uint32_t length = 0;
             std::memcpy(&length, data.data() + 4, 4);
@@ -258,10 +259,22 @@ bool PlayerWireBridge::pump() {
                 cmdstream::Cache* cache = nullptr;
                 DecodedFrame* out = nullptr;
                 bool* ready = nullptr;
+                CmdDisplayFrame* cmdOut = nullptr;
+                bool* cmdReady = nullptr;
                 std::mutex* mu = nullptr;
                 bool gotPresent = false;
+                bool gotSprite = false;
                 uint32_t frameSeq = 0;
-            } ctx{&i_->cmdCache, &i_->pending, &i_->pendingReady, &i_->frameMutex};
+                size_t wireBytes = 0;
+                CmdDisplayFrame building{};
+            } ctx;
+            ctx.cache = &i_->cmdCache;
+            ctx.out = &i_->pending;
+            ctx.ready = &i_->pendingReady;
+            ctx.cmdOut = &i_->pendingCmd;
+            ctx.cmdReady = &i_->pendingCmdReady;
+            ctx.mu = &i_->frameMutex;
+            ctx.wireBytes = length;
 
             cmdstream::Reader reader(&i_->cmdCache);
             auto visit = [](cmdstream::Op op, cmdstream::Reader::Cursor& c,
@@ -272,6 +285,8 @@ bool PlayerWireBridge::pump() {
                 case Op::FrameBegin:
                     cx->frameSeq = c.u32();
                     (void)c.u8();
+                    cx->building = {};
+                    cx->building.seq = cx->frameSeq;
                     return c.ok;
                 case Op::FrameEnd: case Op::EndPass: case Op::Commit: case Op::End:
                 case Op::Blob: case Op::BlobRef:
@@ -279,10 +294,23 @@ bool PlayerWireBridge::pump() {
                 case Op::MakeBuffer:
                     (void)c.u32(); (void)c.u32(); (void)c.u32(); (void)c.hash();
                     return c.ok;
-                case Op::MakeImage:
-                    (void)c.u32(); (void)c.u16(); (void)c.u16(); (void)c.u32();
-                    (void)c.hash();
+                case Op::MakeImage: {
+                    const uint32_t id = c.u32();
+                    const uint16_t w = c.u16();
+                    const uint16_t h = c.u16();
+                    (void)c.u32(); // pixel format
+                    const auto hash = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* blob = cx->cache->get(hash);
+                    if (!blob) return false;
+                    CmdImage img;
+                    img.id = id;
+                    img.w = w;
+                    img.h = h;
+                    img.rgba = *blob;
+                    cx->building.images.push_back(std::move(img));
                     return c.ok;
+                }
                 case Op::UpdateBuffer: case Op::UpdateImage:
                     (void)c.u32(); (void)c.hash();
                     return c.ok;
@@ -312,6 +340,27 @@ bool PlayerWireBridge::pump() {
                 case Op::Draw:
                     (void)c.i32(); (void)c.i32(); (void)c.i32();
                     return c.ok;
+                case Op::SpriteRun: {
+                    const uint32_t imageId = c.u32();
+                    const uint16_t nVerts = c.u16();
+                    const auto vh = c.hash();
+                    const auto mh = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* vb = cx->cache->get(vh);
+                    const auto* mb = cx->cache->get(mh);
+                    if (!vb || !mb) return false;
+                    if (vb->size() < size_t(nVerts) * cmdstream::kSpriteVertexBytes)
+                        return false;
+                    if (mb->size() < 16 * sizeof(float)) return false;
+                    CmdSpriteRun run;
+                    run.imageId = imageId;
+                    run.nVerts = nVerts;
+                    run.verts = *vb;
+                    std::memcpy(run.mvp, mb->data(), 16 * sizeof(float));
+                    cx->building.runs.push_back(std::move(run));
+                    cx->gotSprite = true;
+                    return c.ok;
+                }
                 case Op::Present: {
                     const uint16_t w = c.u16();
                     const uint16_t h = c.u16();
@@ -352,7 +401,6 @@ bool PlayerWireBridge::pump() {
                         cx->out->plane0 = std::move(pixels);
                         cx->out->plane1.clear();
                         cx->out->plane2.clear();
-                        // RGBA→BGRA if needed (byte-swap R/B).
                         if (format == cmdstream::kPresentRGBA8) {
                             auto& p = cx->out->plane0;
                             for (size_t i = 0; i + 3 < p.size(); i += 4)
@@ -361,6 +409,7 @@ bool PlayerWireBridge::pump() {
                         *cx->ready = true;
                     }
                     cx->gotPresent = true;
+                    cx->building.hasPresent = true;
                     return c.ok;
                 }
                 }
@@ -369,9 +418,32 @@ bool PlayerWireBridge::pump() {
             if (!reader.decode({payload, length}, visit, &ctx)) {
                 SPDLOG_WARN("PlayerWireBridge: GE2S decode failed (misses={})",
                             reader.stats().cacheMisses);
+            } else if (ctx.gotSprite) {
+                std::lock_guard<std::mutex> lock(i_->frameMutex);
+                ctx.building.wireBytes = length;
+                ctx.building.seq = ctx.frameSeq;
+                i_->pendingCmd = std::move(ctx.building);
+                i_->pendingCmdReady = true;
+                i_->stats.framesThisTick++;
+                i_->stats.lastSeq = ctx.frameSeq;
+                i_->stats.lastWireBytes = length;
+                i_->stats.cmdstream = true;
+                haveDisplayFrame = true;
+                static uint32_t sprLog = 0;
+                if (sprLog++ < 3 || (ctx.frameSeq % 60) == 0) {
+                    SPDLOG_INFO("PlayerWireBridge: GE2S SpriteRun seq={} wire={}B "
+                                "runs={} images={} cache={} full={} refs={}",
+                                ctx.frameSeq, length,
+                                i_->pendingCmd.runs.size(),
+                                i_->pendingCmd.images.size(),
+                                i_->cmdCache.size(),
+                                reader.stats().fullBlobCount,
+                                reader.stats().refBlobCount);
+                }
             } else if (ctx.gotPresent) {
                 i_->stats.framesThisTick++;
                 i_->stats.lastSeq = ctx.frameSeq;
+                i_->stats.lastWireBytes = length;
                 haveDisplayFrame = true;
                 static uint32_t presentLog = 0;
                 if (presentLog++ < 3 || (ctx.frameSeq % 60) == 0) {
@@ -404,6 +476,14 @@ bool PlayerWireBridge::pollFrame(DecodedFrame& out) {
     if (!i_->pendingReady) return false;
     std::swap(out, i_->pending);
     i_->pendingReady = false;
+    return true;
+}
+
+bool PlayerWireBridge::pollCmdFrame(CmdDisplayFrame& out) {
+    std::lock_guard<std::mutex> lock(i_->frameMutex);
+    if (!i_->pendingCmdReady) return false;
+    std::swap(out, i_->pendingCmd);
+    i_->pendingCmdReady = false;
     return true;
 }
 

@@ -239,6 +239,18 @@ void Writer::draw(int32_t base, int32_t numElements, int32_t numInstances) {
 void Writer::endPass() { putOp(Op::EndPass); }
 void Writer::commit() { putOp(Op::Commit); }
 
+void Writer::spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
+                       const float mvp[16]) {
+    const size_t vertBytes = static_cast<size_t>(nVerts) * kSpriteVertexBytes;
+    Hash vh = emitBlob(verts, vertBytes);
+    Hash mh = emitBlob(mvp, 16 * sizeof(float));
+    putOp(Op::SpriteRun);
+    putU32(imageId);
+    putU16(nVerts);
+    putHash(vh);
+    putHash(mh);
+}
+
 void Writer::present(uint16_t w, uint16_t h, uint8_t format,
                      const void* pixels, size_t rawBytes) {
     // Prefer LZ4 when it beats raw (typical for flat/UI-ish game frames).
@@ -461,6 +473,82 @@ H264Estimate estimateH264FullRes(int width, int height) {
     if (e.keyframeBytes < 20000) e.keyframeBytes = 20000;
     if (e.pframeBytes < 3000) e.pframeBytes = 3000;
     return e;
+}
+
+// ── Live capture + image registry ─────────────────────────────────
+
+namespace {
+
+LiveCapture* g_live = nullptr;
+
+struct ImagePixels {
+    uint16_t w = 0, h = 0;
+    std::vector<uint8_t> rgba;
+};
+
+std::unordered_map<uint32_t, ImagePixels>& imageRegistry() {
+    static std::unordered_map<uint32_t, ImagePixels> m;
+    return m;
+}
+
+} // namespace
+
+void setLiveCapture(LiveCapture* cap) { g_live = cap; }
+LiveCapture* liveCapture() { return g_live; }
+
+void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
+                         const void* rgba, size_t n) {
+    if (!rgba || n == 0 || imageId == 0) return;
+    ImagePixels ip;
+    ip.w = w;
+    ip.h = h;
+    ip.rgba.assign(static_cast<const uint8_t*>(rgba),
+                   static_cast<const uint8_t*>(rgba) + n);
+    imageRegistry()[imageId] = std::move(ip);
+}
+
+bool lookupImagePixels(uint32_t imageId, uint16_t& w, uint16_t& h,
+                       const std::vector<uint8_t>*& px) {
+    auto it = imageRegistry().find(imageId);
+    if (it == imageRegistry().end()) return false;
+    w = it->second.w;
+    h = it->second.h;
+    px = &it->second.rgba;
+    return true;
+}
+
+void LiveCapture::begin(uint32_t seq, Cache* serverCache) {
+    cache_ = serverCache;
+    w_ = std::make_unique<Writer>(serverCache);
+    w_->frameBegin(seq, /*fullState*/ imagesEmitted_.empty());
+    active_ = true;
+    runCount_ = 0;
+}
+
+void LiveCapture::noteImage(uint32_t imageId, uint16_t w, uint16_t h,
+                            const void* rgba, size_t n) {
+    if (!active_ || !w_ || !rgba || n == 0) return;
+    if (imagesEmitted_.count(imageId)) return;
+    // pixelFormat 0x10 = RGBA8 (matches SyntheticScene convention)
+    w_->makeImage(imageId, w, h, 0x10, rgba, n);
+    imagesEmitted_[imageId] = true;
+}
+
+void LiveCapture::spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
+                            const float mvp[16]) {
+    if (!active_ || !w_ || !verts || nVerts == 0 || !mvp) return;
+    w_->spriteRun(imageId, verts, nVerts, mvp);
+    ++runCount_;
+}
+
+std::vector<uint8_t> LiveCapture::end() {
+    if (!active_ || !w_) return {};
+    w_->frameEnd();
+    lastStats_ = w_->stats();
+    active_ = false;
+    auto payload = w_->take();
+    if (runCount_ == 0) return {};
+    return payload;
 }
 
 } // namespace ge::cmdstream

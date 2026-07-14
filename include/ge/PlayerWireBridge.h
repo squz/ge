@@ -94,10 +94,34 @@ public:
     // into `out` and return true. Returns false if no new frame.
     bool pollFrame(DecodedFrame& out);
 
+    // 🎯T128 command-stream display frame (sprite runs). Prefer over pollFrame
+    // when transport is cmdstream — no multi-MB Present path.
+    struct CmdImage {
+        uint32_t id = 0;
+        uint16_t w = 0, h = 0;
+        std::vector<uint8_t> rgba; // RGBA8 premul
+    };
+    struct CmdSpriteRun {
+        uint32_t imageId = 0;
+        uint16_t nVerts = 0;
+        std::vector<uint8_t> verts; // nVerts * 24 bytes
+        float mvp[16]{};
+    };
+    struct CmdDisplayFrame {
+        uint32_t seq = 0;
+        size_t wireBytes = 0;
+        std::vector<CmdImage> images; // MakeImage this frame (may be empty when warm)
+        std::vector<CmdSpriteRun> runs;
+        bool hasPresent = false; // legacy Present path still fills pollFrame
+    };
+    bool pollCmdFrame(CmdDisplayFrame& out);
+
     // Stats for the frame log in the main loop.
     struct PumpStats {
         int framesThisTick = 0;
         uint32_t lastSeq = 0;
+        size_t lastWireBytes = 0;
+        bool cmdstream = false;
     };
     PumpStats lastPumpStats() const;
 

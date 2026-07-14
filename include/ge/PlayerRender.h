@@ -62,6 +62,25 @@ public:
     // Metal/Vulkan, software fallback elsewhere).
     void updateVideoTexture(const VideoFrame& frame);
 
+    // 🎯T128: apply a command-stream sprite frame (MakeImage + SpriteRun).
+    // Uses SDL_RenderGeometry; no full-framebuffer upload.
+    struct CmdImageUpload {
+        uint32_t id = 0;
+        uint16_t w = 0, h = 0;
+        const uint8_t* rgba = nullptr; // w*h*4 RGBA
+        size_t rgbaBytes = 0;
+    };
+    struct CmdSpriteRunDraw {
+        uint32_t imageId = 0;
+        uint16_t nVerts = 0;
+        const uint8_t* verts = nullptr; // SpriteVertex[]
+        const float* mvp = nullptr;     // 16 floats
+    };
+    void beginCmdFrame();
+    void uploadCmdImage(const CmdImageUpload&);
+    void drawCmdSpriteRun(const CmdSpriteRunDraw&);
+    void endCmdFrame(); // marks cmdstream mode for render()
+
     // Drain SDL events. Returns:
     //   quit           — SDL_EVENT_QUIT received
     //   upstreamEvents — events the caller should forward to the server

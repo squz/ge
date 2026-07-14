@@ -87,13 +87,10 @@ struct ServerSession::Impl {
     // (GE_TRANSPORT=cmdstream). SessionConfig is re-sent after negotiation.
     std::atomic<uint8_t> transport{wire::kTransportH264};
     cmdstream::Cache cmdCache; // server-side "already sent" memo for GE2S
-    cmdstream::Hash lastPresentHash{}; // skip wire when framebuffer unchanged
-    bool haveLastPresentHash = false;
-    // Present path is interim (full framebuffer, not draw-list). Cap rate and
-    // max edge so Wi-Fi is not ~0.2 fps at 2048×1536 × ~11 MB/frame.
-    static constexpr int kPresentMaxEdge = 960;       // long edge
-    static constexpr double kPresentMinIntervalSec = 1.0 / 20.0; // 20 Hz cap
-    uint64_t lastPresentTicks = 0;
+    cmdstream::LiveCapture live; // sprite-run capture under cmdstream
+    // false when cmdstream is selected — skip multi-MB GPU readback.
+    std::atomic<bool> capturePixels{true};
+    // Legacy Present path (not used for 60 fps goal).
 
     void sidebandLoop();
     void openWire(const std::string& sessionId);
@@ -101,7 +98,6 @@ struct ServerSession::Impl {
     void inputLoop();
     void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread
     void negotiateTransport(uint8_t playerCaps);
-    void sendCmdStreamSpikeFrame(uint32_t seq, bool first);
 
     void sendWire(uint32_t magic, const void* payload, uint32_t payloadLen) {
         wire::MessageHeader hdr{magic, payloadLen};
@@ -151,8 +147,9 @@ void ServerSession::Impl::closeWire() {
     }
     encW = encH = 0;
     transport.store(wire::kTransportH264);
-    haveLastPresentHash = false;
-    lastPresentHash = {};
+    capturePixels.store(true);
+    cmdstream::setLiveCapture(nullptr);
+    live.resetSession();
     cmdCache.clear();
     if (wire) wire->close();
     if (inputThread.joinable()) inputThread.join();
@@ -205,22 +202,11 @@ void ServerSession::Impl::negotiateTransport(uint8_t playerCaps) {
                 next == wire::kTransportCommandStream ? "cmdstream" : "h264",
                 playerCmd, wantCmd);
 
-    // Spike: when cmdstream is selected, emit one synthetic GE2S frame so the
-    // player/relay path is exercised without a full sokol capture backend yet.
+    // Pixel GPU readback only needed for H.264 / legacy Present.
+    capturePixels.store(next != wire::kTransportCommandStream);
     if (next == wire::kTransportCommandStream) {
-        sendCmdStreamSpikeFrame(/*seq*/ 0, /*first*/ true);
+        SPDLOG_INFO("ServerSession: cmdstream LiveCapture armed (sprite runs)");
     }
-}
-
-void ServerSession::Impl::sendCmdStreamSpikeFrame(uint32_t seq, bool first) {
-    cmdstream::Writer w(&cmdCache);
-    auto scene = cmdstream::SyntheticScene::tiltbuggyLike();
-    scene.writeFrame(w, seq, first);
-    auto payload = w.take();
-    sendWire(wire::kCommandStreamMagic, payload.data(),
-             static_cast<uint32_t>(payload.size()));
-    SPDLOG_INFO("ServerSession: GE2S spike frame seq={} bytes={} full_blobs={} refs={}",
-                seq, payload.size(), w.stats().fullBlobCount, w.stats().refBlobCount);
 }
 
 void ServerSession::Impl::sidebandLoop() {
@@ -284,72 +270,8 @@ std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     if (!i_->hasPlayer.load() || !px || w <= 0 || h <= 0) return;
 
-    // 🎯T128 runnable path: GE2S Present of the captured framebuffer with
-    // LZ4 + content-addressed cache. Works with the existing SDL player
-    // (no sokol on the player). Full draw-list remoting remains T128.2.1/2.2.
-    if (i_->transport.load() == wire::kTransportCommandStream) {
-        // Rate limit: capture runs at display rate; Present is multi-MB.
-        const uint64_t now = SDL_GetPerformanceCounter();
-        const uint64_t freq = SDL_GetPerformanceFrequency();
-        if (i_->lastPresentTicks != 0) {
-            const double dt = double(now - i_->lastPresentTicks) / double(freq);
-            if (dt < Impl::kPresentMinIntervalSec) return;
-        }
-
-        // Downscale so long edge ≤ kPresentMaxEdge (box filter). 2048×1536 →
-        // 960×720 ≈ 2.6 MB raw / often <1 MB LZ4 vs ~11 MB full-res.
-        int dw = w, dh = h;
-        std::vector<uint8_t> scaled;
-        const uint8_t* sendPx = px;
-        if (w > Impl::kPresentMaxEdge || h > Impl::kPresentMaxEdge) {
-            const float scale = float(Impl::kPresentMaxEdge) /
-                                float(std::max(w, h));
-            dw = std::max(1, int(w * scale));
-            dh = std::max(1, int(h * scale));
-            scaled.resize(static_cast<size_t>(dw) * dh * 4);
-            for (int y = 0; y < dh; ++y) {
-                const int sy = y * h / dh;
-                for (int x = 0; x < dw; ++x) {
-                    const int sx = x * w / dw;
-                    const size_t di = (static_cast<size_t>(y) * dw + x) * 4;
-                    const size_t si = (static_cast<size_t>(sy) * w + sx) * 4;
-                    scaled[di + 0] = px[si + 0];
-                    scaled[di + 1] = px[si + 1];
-                    scaled[di + 2] = px[si + 2];
-                    scaled[di + 3] = px[si + 3];
-                }
-            }
-            sendPx = scaled.data();
-        }
-        const size_t raw = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 4;
-
-        // Skip identical frames entirely (player keeps last texture).
-        const cmdstream::Hash frameHash = cmdstream::hashBytes(sendPx, raw);
-        if (i_->haveLastPresentHash && frameHash == i_->lastPresentHash)
-            return;
-        i_->lastPresentHash = frameHash;
-        i_->haveLastPresentHash = true;
-        i_->lastPresentTicks = now;
-
-        cmdstream::Writer wr(&i_->cmdCache);
-        const uint32_t s = i_->seq.fetch_add(1);
-        wr.frameBegin(s, /*fullState*/ false);
-        // Capture sink contract is RGBA8 (SokolContext swizzles Metal BGRA→RGBA).
-        wr.present(static_cast<uint16_t>(dw), static_cast<uint16_t>(dh),
-                   cmdstream::kPresentRGBA8, sendPx, raw);
-        wr.frameEnd();
-        auto payload = wr.take();
-        i_->sendWire(wire::kCommandStreamMagic, payload.data(),
-                     static_cast<uint32_t>(payload.size()));
-        if (s < 3 || (s % 30) == 0) {
-            SPDLOG_INFO("ServerSession: GE2S Present seq={} {}x{} (src {}x{}) "
-                        "wire={}B full_blobs={} refs={} full_blob_bytes={}",
-                        s, dw, dh, w, h, payload.size(),
-                        wr.stats().fullBlobCount, wr.stats().refBlobCount,
-                        wr.stats().fullBlobBytes);
-        }
-        return;
-    }
+    // Command-stream uses LiveCapture (onFrameBegin/End), not pixel Present.
+    if (i_->transport.load() == wire::kTransportCommandStream) return;
 
     // Encode at the CAPTURED frame's actual dimensions (StreamClient's original
     // behaviour): the frame we hand VideoToolbox is exactly what the swapchain
@@ -361,6 +283,34 @@ void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
             w, h, 60, [this](VideoEncoder::Frame f) { i_->onEncoded(f); });
     }
     i_->encoder->encode(px, static_cast<size_t>(w) * 4);
+}
+
+std::atomic<bool>* ServerSession::capturePixelsFlag() { return &i_->capturePixels; }
+
+void ServerSession::onFrameBegin() {
+    if (!i_->hasPlayer.load()) return;
+    if (i_->transport.load() != wire::kTransportCommandStream) return;
+    const uint32_t s = i_->seq.fetch_add(1);
+    i_->live.begin(s, &i_->cmdCache);
+    cmdstream::setLiveCapture(&i_->live);
+}
+
+void ServerSession::onFrameEnd() {
+    if (cmdstream::liveCapture() != &i_->live) return;
+    cmdstream::setLiveCapture(nullptr);
+    auto payload = i_->live.end();
+    if (payload.empty()) return;
+    const auto st = i_->live.stats();
+    i_->sendWire(wire::kCommandStreamMagic, payload.data(),
+                 static_cast<uint32_t>(payload.size()));
+    static uint32_t logN = 0;
+    const uint32_t n = ++logN;
+    if (n <= 3 || (n % 60) == 0) {
+        SPDLOG_INFO("ServerSession: GE2S SpriteRun frame wire={}B runs={} "
+                    "full_blobs={} refs={} full_blob_bytes={}",
+                    payload.size(), i_->live.runCount(),
+                    st.fullBlobCount, st.refBlobCount, st.fullBlobBytes);
+    }
 }
 
 } // namespace ge

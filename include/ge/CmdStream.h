@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -50,13 +51,21 @@ enum class Op : uint16_t {
     // Present a content-addressed framebuffer to the player (SDL blit path).
     // Payload: u16 w, u16 h, u8 format (0=BGRA8), u8 encoding (0=raw, 1=lz4),
     //          u32 raw_size, Hash blob (compressed or raw bytes).
-    // Runnable intermediate until full sokol GPU replay (T128.2.1) lands:
-    // works with the existing SDL player on desktop + Android.
+    // Legacy interim path — multi-MB; does NOT meet 60 fps OTA goals.
     Present = 27,
+    // One same-texture sprite run (ge::SpriteBatch). Payload:
+    //   u32 image_id, u16 n_verts, Hash verts (n * 24 B SpriteVertex),
+    //   Hash mvp (64 B = 16×f32 column-major world→clip).
+    // Steady-state path: MakeImage once (cached), SpriteRun verts + mvp each
+    // frame (~tens of KB). Player replays with SDL_RenderGeometry.
+    SpriteRun = 32,
     // Framing markers for measurement / reconnect
     FrameBegin = 30,   // u32 seq, u8 flags (bit0 = cold/full state)
     FrameEnd = 31,
 };
+
+// SpriteVertex on the wire (matches ge::SpriteVertex layout).
+constexpr size_t kSpriteVertexBytes = 24; // 5×f32 + u32 abgr
 
 // Pixel formats for Op::Present.
 constexpr uint8_t kPresentBGRA8 = 0;
@@ -145,6 +154,11 @@ public:
     // content-addressed so identical frames become BlobRef-only.
     void present(uint16_t w, uint16_t h, uint8_t format,
                  const void* pixels, size_t rawBytes);
+
+    // Emit one sprite batch run (verts are world-space SpriteVertex[]).
+    // `mvp` is 16 floats column-major. Image must already be MakeImage'd.
+    void spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
+                   const float mvp[16]);
 
     // Steal the finished payload (ops only; caller wraps with MessageHeader).
     std::vector<uint8_t> take();
@@ -253,5 +267,53 @@ struct H264Estimate {
 
 // Conservative estimate for 2048×1536 BGRA → H.264 High @ CRF~36 style.
 H264Estimate estimateH264FullRes(int width, int height);
+
+// ── Live capture (game thread) ────────────────────────────────────
+//
+// SpriteBatch::submit and loadImage feed this when armed. ServerSession
+// arms one LiveCapture per frame under transport=cmdstream.
+
+class LiveCapture {
+public:
+    void begin(uint32_t seq, Cache* serverCache);
+    // Ensure MakeImage has been emitted for this sokol image id (once per
+    // session via server cache + sentFull_ tracking).
+    void noteImage(uint32_t imageId, uint16_t w, uint16_t h,
+                   const void* rgba, size_t n);
+    void spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
+                   const float mvp[16]);
+    // Finish frame; returns GE2S payload (may be empty if no runs).
+    std::vector<uint8_t> end();
+    bool active() const { return active_; }
+    Writer::Stats stats() const { return lastStats_; }
+    size_t runCount() const { return runCount_; }
+    // Drop session-local MakeImage memo (player detached / cache cleared).
+    void resetSession() {
+        imagesEmitted_.clear();
+        active_ = false;
+        w_.reset();
+        runCount_ = 0;
+        lastStats_ = {};
+    }
+
+private:
+    std::unique_ptr<Writer> w_;
+    Cache* cache_ = nullptr;
+    bool active_ = false;
+    size_t runCount_ = 0;
+    Writer::Stats lastStats_{};
+    std::unordered_map<uint32_t, bool> imagesEmitted_;
+};
+
+// Arm/disarm process-global live capture (game thread only).
+void setLiveCapture(LiveCapture* cap);
+LiveCapture* liveCapture();
+
+// Side-table: RGBA pixels for sokol image ids (filled by loadImage path).
+void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
+                         const void* rgba, size_t n);
+// Returns false if unknown.
+bool lookupImagePixels(uint32_t imageId, uint16_t& w, uint16_t& h,
+                       const std::vector<uint8_t>*& px);
 
 } // namespace ge::cmdstream

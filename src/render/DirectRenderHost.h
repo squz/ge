@@ -51,8 +51,11 @@ public:
     // + streams it). `active` is owned by the ServerSession and must outlive the
     // host; pass a null fn / active to clear. runServer installs this after the
     // ServerSession is built.
+    // `capturePixels`: when non-null and false, skip GPU readback (cmdstream
+    // sprite path). Null means always capture while active.
     void setServerFrameSink(std::function<void(const std::uint8_t*, int, int)> fn,
-                            std::atomic<bool>* active);
+                            std::atomic<bool>* active,
+                            std::atomic<bool>* capturePixels = nullptr);
 
 private:
     la::float2 updateParallax();

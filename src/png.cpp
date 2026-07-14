@@ -3,6 +3,7 @@
 
 #include <ge/png.h>
 
+#include <ge/CmdStream.h>
 #include <ge/Resource.h>
 
 #include "sokol_gfx.h"
@@ -86,6 +87,14 @@ Sprite imageFromSurface(SDL_Surface* surface) {
     vd.texture.image = out.tex;
     vd.label = "ge.image.sprite.view";
     out.view = sg_make_view(&vd);
+
+    // 🎯T128: keep RGBA so cmdstream LiveCapture can emit MakeImage once.
+    if (out.tex.id != SG_INVALID_ID) {
+        cmdstream::registerImagePixels(out.tex.id,
+                                       static_cast<uint16_t>(w),
+                                       static_cast<uint16_t>(h),
+                                       rgba->pixels, dataSize);
+    }
 
     // sg_make_image consumes the initial-data bytes synchronously, so the
     // surface is safe to free now.

@@ -61,7 +61,8 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     applyImmersive(config.immersive);
 
     if (server && server->active) {
-        host.setServerFrameSink(server->sink, server->active);
+        host.setServerFrameSink(server->sink, server->active,
+                                server->capturePixels);
     }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same
@@ -210,11 +211,13 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
                 }
             }
 
+            if (server && server->beforeRender) server->beforeRender();
             if (rc.onRender) {
                 ge::guardCallback("onRender", [&] {  // 🎯T136
                     rc.onRender(host.context());
                 });
             }
+            if (server && server->afterRender) server->afterRender();
         }
     }
 

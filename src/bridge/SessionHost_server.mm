@@ -67,9 +67,12 @@ void runServer(Factory factory, const SessionHostConfig& config) {
 
     ServerHook hook;
     hook.active = server->activeFlag();
+    hook.capturePixels = server->capturePixelsFlag();
     hook.sink = [server](const std::uint8_t* px, int w, int h) {
         server->onCapturedFrame(px, w, h);
     };
+    hook.beforeRender = [server] { server->onFrameBegin(); };
+    hook.afterRender = [server] { server->onFrameEnd(); };
     hook.onStop = [server] { server->stop(); };
 
     runDirectHosted(std::move(factory), std::move(cfg), &hook);

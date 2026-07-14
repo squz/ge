@@ -116,6 +116,12 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
 
     uint64_t frameCount = 0;
     ge::PlayerWireBridge::DecodedFrame decodedFrame;
+    ge::PlayerWireBridge::CmdDisplayFrame cmdFrame;
+    // Present-rate meter for the ≥55 fps gate (cmdstream + video).
+    uint64_t fpsWindowStart = SDL_GetPerformanceCounter();
+    uint64_t fpsWindowFrames = 0;
+    const uint64_t freq = SDL_GetPerformanceFrequency();
+
     while (!ge::shouldQuit()) {
         const uint64_t tEv0 = SDL_GetPerformanceCounter();
         auto pump = render.pumpEvents();
@@ -126,21 +132,62 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         if (!wire.pump()) break;
         const uint64_t tPump1 = SDL_GetPerformanceCounter();
 
-        if (wire.pollFrame(decodedFrame)) {
+        bool got = false;
+        if (wire.pollCmdFrame(cmdFrame)) {
+            render.beginCmdFrame();
+            for (const auto& img : cmdFrame.images) {
+                ge::PlayerRender::CmdImageUpload u;
+                u.id = img.id;
+                u.w = img.w;
+                u.h = img.h;
+                u.rgba = img.rgba.data();
+                u.rgbaBytes = img.rgba.size();
+                render.uploadCmdImage(u);
+            }
+            for (const auto& run : cmdFrame.runs) {
+                ge::PlayerRender::CmdSpriteRunDraw d;
+                d.imageId = run.imageId;
+                d.nVerts = run.nVerts;
+                d.verts = run.verts.data();
+                d.mvp = run.mvp;
+                render.drawCmdSpriteRun(d);
+            }
+            render.endCmdFrame();
+            frameCount++;
+            got = true;
+            fpsWindowFrames++;
+        } else if (wire.pollFrame(decodedFrame)) {
             render.updateVideoTexture(decodedFrame.view());
             frameCount++;
+            got = true;
+            fpsWindowFrames++;
         }
+        (void)got;
         const uint64_t tUp1 = SDL_GetPerformanceCounter();
 
         auto rs = render.render();
         auto stats = wire.lastPumpStats();
-        const float tickHz = float(SDL_GetPerformanceFrequency());
+        const float tickHz = float(freq);
         playerLog.record({SDL_GetPerformanceCounter(),
                           stats.framesThisTick, stats.lastSeq,
                           rs.drainMs, rs.renderMs,
                           float(tPump1 - tPump0) * 1000.f / tickHz,
                           float(tPump0 - tEv0) * 1000.f / tickHz,
                           float(tUp1 - tPump1) * 1000.f / tickHz});
+
+        // Log measured present rate every ~1 s (cmdstream / video).
+        const uint64_t now = SDL_GetPerformanceCounter();
+        const double winSec = double(now - fpsWindowStart) / double(freq);
+        if (winSec >= 1.0) {
+            const double fps = double(fpsWindowFrames) / winSec;
+            SPDLOG_INFO("PlayerFPS: {:.1f} fps over {:.2f}s ({} frames) "
+                        "cmdstream={} last_wire={}B last_seq={}",
+                        fps, winSec, fpsWindowFrames,
+                        stats.cmdstream ? 1 : 0,
+                        stats.lastWireBytes, stats.lastSeq);
+            fpsWindowStart = now;
+            fpsWindowFrames = 0;
+        }
     }
 
     wire.close();

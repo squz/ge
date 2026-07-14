@@ -10,6 +10,9 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <unordered_map>
 #include <vector>
 
 namespace ge {
@@ -20,6 +23,17 @@ struct PlayerRender::Impl {
     SDL_Texture* videoTex = nullptr;
     int texW = 0, texH = 0;
     SDL_PixelFormat texFormat = SDL_PIXELFORMAT_UNKNOWN;
+
+    // 🎯T128 cmdstream sprite textures (image_id → SDL_Texture RGBA).
+    std::unordered_map<uint32_t, SDL_Texture*> cmdTextures;
+    bool cmdFramePending = false;
+    struct PendingRun {
+        uint32_t imageId = 0;
+        uint16_t nVerts = 0;
+        std::vector<uint8_t> verts;
+        float mvp[16]{};
+    };
+    std::vector<PendingRun> cmdRuns;
 
     uint8_t requestedOrientation = 0;
 
@@ -118,6 +132,9 @@ PlayerRender::PlayerRender(const Config& cfg)
 
 PlayerRender::~PlayerRender() {
     if (i_->accelSensor) SDL_CloseSensor(i_->accelSensor);
+    for (auto& kv : i_->cmdTextures) {
+        if (kv.second) SDL_DestroyTexture(kv.second);
+    }
     if (i_->videoTex)    SDL_DestroyTexture(i_->videoTex);
     if (i_->renderer)    SDL_DestroyRenderer(i_->renderer);
     if (i_->window)      SDL_DestroyWindow(i_->window);
@@ -227,6 +244,46 @@ void PlayerRender::updateVideoTexture(const VideoFrame& frame) {
     }
 }
 
+void PlayerRender::beginCmdFrame() {
+    i_->cmdRuns.clear();
+    i_->cmdFramePending = false;
+}
+
+void PlayerRender::uploadCmdImage(const CmdImageUpload& img) {
+    if (!i_->renderer || !img.rgba || img.w == 0 || img.h == 0) return;
+    auto it = i_->cmdTextures.find(img.id);
+    if (it != i_->cmdTextures.end() && it->second) {
+        SDL_DestroyTexture(it->second);
+        it->second = nullptr;
+    }
+    SDL_Texture* tex = SDL_CreateTexture(i_->renderer, SDL_PIXELFORMAT_RGBA32,
+                                         SDL_TEXTUREACCESS_STATIC, img.w, img.h);
+    if (!tex) {
+        SPDLOG_ERROR("PlayerRender: cmd image texture failed: {}", SDL_GetError());
+        return;
+    }
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_UpdateTexture(tex, nullptr, img.rgba, img.w * 4);
+    i_->cmdTextures[img.id] = tex;
+    SPDLOG_INFO("PlayerRender: cmdstream image id={} {}x{}", img.id, img.w, img.h);
+}
+
+void PlayerRender::drawCmdSpriteRun(const CmdSpriteRunDraw& run) {
+    if (!run.verts || !run.mvp || run.nVerts < 3) return;
+    Impl::PendingRun pr;
+    pr.imageId = run.imageId;
+    pr.nVerts = run.nVerts;
+    pr.verts.assign(run.verts,
+                    run.verts + size_t(run.nVerts) * 24);
+    std::memcpy(pr.mvp, run.mvp, sizeof(pr.mvp));
+    i_->cmdRuns.push_back(std::move(pr));
+    i_->cmdFramePending = true;
+}
+
+void PlayerRender::endCmdFrame() {
+    // render() consumes cmdRuns when cmdFramePending.
+}
+
 PlayerRender::PumpResult PlayerRender::pumpEvents() {
     PumpResult r;
     SDL_Event e;
@@ -278,16 +335,60 @@ PlayerRender::RenderStats PlayerRender::render() {
     SDL_SetRenderDrawColor(i_->renderer, 0, 0, 0, 255);
     SDL_RenderClear(i_->renderer);
 
-    if (i_->videoTex) {
-        int ww, wh;
-        SDL_GetWindowSizeInPixels(i_->window, &ww, &wh);
+    int ww, wh;
+    SDL_GetWindowSizeInPixels(i_->window, &ww, &wh);
+
+    if (i_->cmdFramePending && !i_->cmdRuns.empty()) {
+        // Sprite runs: world verts × mvp → NDC → window pixels.
+        // Column-major mvp matches ge::la::float4x4 / sokol.
+        auto xform = [](const float m[16], float x, float y, float& ox, float& oy) {
+            const float X = m[0] * x + m[4] * y + m[12];
+            const float Y = m[1] * x + m[5] * y + m[13];
+            const float W = m[3] * x + m[7] * y + m[15];
+            const float inv = (std::fabs(W) > 1e-8f) ? (1.f / W) : 1.f;
+            ox = X * inv;
+            oy = Y * inv;
+        };
+        for (const auto& run : i_->cmdRuns) {
+            auto it = i_->cmdTextures.find(run.imageId);
+            if (it == i_->cmdTextures.end() || !it->second) continue;
+            SDL_Texture* tex = it->second;
+            const size_t n = run.nVerts;
+            if (n < 3 || run.verts.size() < n * 24) continue;
+            std::vector<SDL_Vertex> sdlVerts(n);
+            for (size_t vi = 0; vi < n; ++vi) {
+                const uint8_t* p = run.verts.data() + vi * 24;
+                float x, y, z, u, v;
+                uint32_t abgr;
+                std::memcpy(&x, p + 0, 4);
+                std::memcpy(&y, p + 4, 4);
+                std::memcpy(&z, p + 8, 4);
+                std::memcpy(&u, p + 12, 4);
+                std::memcpy(&v, p + 16, 4);
+                std::memcpy(&abgr, p + 20, 4);
+                (void)z;
+                float ndcX, ndcY;
+                xform(run.mvp, x, y, ndcX, ndcY);
+                // NDC [-1,1] → window pixels (y flip: Metal NDC y-up).
+                sdlVerts[vi].position.x = (ndcX * 0.5f + 0.5f) * float(ww);
+                sdlVerts[vi].position.y = (1.f - (ndcY * 0.5f + 0.5f)) * float(wh);
+                sdlVerts[vi].tex_coord.x = u;
+                sdlVerts[vi].tex_coord.y = v;
+                // abgr → RGBA for SDL_FColor (0..1)
+                const float a = float((abgr >> 24) & 0xff) / 255.f;
+                const float b = float((abgr >> 16) & 0xff) / 255.f;
+                const float g = float((abgr >> 8) & 0xff) / 255.f;
+                const float r = float(abgr & 0xff) / 255.f;
+                sdlVerts[vi].color = SDL_FColor{r, g, b, a};
+            }
+            SDL_RenderGeometry(i_->renderer, tex, sdlVerts.data(),
+                               int(n), nullptr, 0);
+        }
+        // Keep last cmd frame for redraw when no new packet this tick.
+    } else if (i_->videoTex) {
         const bool needsRotation = (ww > wh) && (i_->texH > i_->texW);
 
         if (needsRotation) {
-            // SDL_RenderTextureRotated rotates the texture within its
-            // dest rect. For a portrait texture rotated -90° in a
-            // landscape window, the dest rect matches the pre-rotation
-            // size (texW × texH) scaled to fit the post-rotation bbox.
             const float scale = std::min(float(ww) / float(i_->texH),
                                          float(wh) / float(i_->texW));
             const float dstW = i_->texW * scale;

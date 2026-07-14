@@ -57,8 +57,16 @@ public:
     // attached; a no-op otherwise. The encode dimensions are the CAPTURED
     // frame's actual w×h — NOT any DeviceInfo the player advertised — so the
     // player receives frames at the server's own render resolution and
-    // letterboxes/scales as it sees fit.
+    // letterboxes/scales as it sees fit. No-op under transport=cmdstream
+    // (sprite LiveCapture path instead).
     void onCapturedFrame(const std::uint8_t* px, int w, int h);
+
+    // 🎯T128 command-stream: arm/flush LiveCapture around onRender.
+    void onFrameBegin();
+    void onFrameEnd();
+
+    // When false, DirectRenderHost skips GPU framebuffer readback.
+    std::atomic<bool>* capturePixelsFlag();
 
 private:
     struct Impl;
