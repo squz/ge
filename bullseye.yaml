@@ -951,7 +951,7 @@ targets:
     - 'Player content-addressed cache: cold connect pays full asset bytes; warm reconnect shows hash-hit path with draw-list-only traffic.'
     - 'Measured on Wi-Fi (not only loopback): cold time-to-first-frame, warm reconnect bytes, steady-state bandwidth under tiltbuggy churn vs full-res H.264; one deliberate large-asset-change trial documents the create-tax.'
     - 'Go/no-go recorded in docs/command-stream-transport.md: go means pass-through+cache is enough to beat OTA H.264 for ge content without building epoch/mip-first first.'
-    context: 'Spike for pass-through+cache MVP. 2026-07-14: ge::cmdstream codec+cache+synthetic scene shipped (class-1 CmdStream_test: warm ~396B/frame, recon 456B with refs, 60f ~24KB vs H.264 ~1.2MB — provisional GO). Wire: GE2S magic, DeviceInfo.capabilities, SessionConfig.transport, player advertises kCapCommandStream, server GE_TRANSPORT=cmdstream selects rung + emits synthetic GE2S. Apple has no g_ge_sg_api — capture via sg_install_trace_hooks still residue; GPU replay residue. spyder T97 achieved (byte-agnostic multi-magic).'
+    context: 'Spike for pass-through+cache MVP. 2026-07-14: codec+cache synthetic GO; GE2S Present interim runs on desktop + Pixel (RGBA tag, 16KB player T75 restored, pump cap). OTA: cold ~11MB Present, still-skip when hash matches, motion still ~11MB/frame (~2 fps) until draw-list remoting. Residue T128.2.1 GPU replay + T128.2.2 sokol capture. spyder T97 done.'
     depends_on:
     - T128.1
     origin: manual
