@@ -65,6 +65,48 @@ enum class Op : uint16_t {
     //             player letterboxes NDC to this aspect — no stretch).
     FrameBegin = 30,
     FrameEnd = 31,
+    // ── Recipe verbs (🎯T128.7) — source on the wire, rasterise on player ──
+    // MakeSvg: u32 id, i16 targetW, i16 targetH (-1 = intrinsic), Hash svg_utf8
+    MakeSvg = 40,
+    // MakeText: u32 id, f32 sizePt, f32 r,g,b,a, i32 faceIndex,
+    //           Hash font_bytes, Hash text_utf8
+    MakeText = 41,
+    // MakeEncodedImage: u32 id, u8 format (0=png), Hash encoded_bytes
+    // Player decodes to RGBA (w/h from decode). Flatten fallback = MakeImage.
+    MakeEncodedImage = 42,
+};
+
+// Encoded-image format tag for Op::MakeEncodedImage.
+constexpr uint8_t kEncodedPng = 0;
+constexpr uint8_t kEncodedJpeg = 1;
+
+// Recipe kind stored in the server-side image registry.
+enum class ImageRecipeKind : uint8_t {
+    Pixels = 0,   // opaque RGBA — MakeImage flatten
+    Svg = 1,      // MakeSvg
+    Text = 2,     // MakeText
+    Encoded = 3,  // MakeEncodedImage (PNG/JPEG bytes)
+};
+
+// One registered image for LiveCapture emission.
+struct ImageRecipe {
+    ImageRecipeKind kind = ImageRecipeKind::Pixels;
+    uint16_t w = 0;
+    uint16_t h = 0;
+    std::vector<uint8_t> rgba; // Pixels flatten / optional
+    // Svg
+    std::string svg;
+    int16_t svgTargetW = -1;
+    int16_t svgTargetH = -1;
+    // Text
+    std::string text;
+    std::vector<uint8_t> fontBytes;
+    int32_t faceIndex = 0;
+    float sizePt = 0.f;
+    float colorR = 1.f, colorG = 1.f, colorB = 1.f, colorA = 1.f;
+    // Encoded
+    std::vector<uint8_t> encoded;
+    uint8_t encodedFormat = kEncodedPng;
 };
 
 // SpriteVertex on the wire (matches ge::SpriteVertex layout).
@@ -162,9 +204,21 @@ public:
                  const void* pixels, size_t rawBytes);
 
     // Emit one sprite batch run (verts are world-space SpriteVertex[]).
-    // `mvp` is 16 floats column-major. Image must already be MakeImage'd.
+    // `mvp` is 16 floats column-major. Image must already be MakeImage'd
+    // (or a recipe verb that materialises the same image_id).
     void spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
                    const float mvp[16]);
+
+    // Recipe verbs (🎯T128.7) — content-addressed source, not raster.
+    void makeSvg(uint32_t id, int16_t targetW, int16_t targetH,
+                 const void* svgUtf8, size_t n);
+    void makeText(uint32_t id, float sizePt,
+                  float r, float g, float b, float a,
+                  int32_t faceIndex,
+                  const void* fontBytes, size_t fontN,
+                  const void* textUtf8, size_t textN);
+    void makeEncodedImage(uint32_t id, uint8_t format,
+                          const void* encoded, size_t n);
 
     // Steal the finished payload (ops only; caller wraps with MessageHeader).
     std::vector<uint8_t> take();
@@ -186,6 +240,7 @@ private:
     void putU16(uint16_t v);
     void putU32(uint32_t v);
     void putI32(int32_t v);
+    void putF32(float v);
     void putHash(const Hash& h);
     void putBytes(const void* p, size_t n);
     void putOp(Op op);
@@ -217,6 +272,7 @@ public:
         uint16_t u16();
         uint32_t u32();
         int32_t i32();
+        float f32();
         Hash hash();
         std::span<const uint8_t> bytes(size_t n);
         bool remain() const { return ok && p < end; }
@@ -284,10 +340,12 @@ public:
     // contentW/H = server swapchain size (pixels) for player aspect-fit.
     void begin(uint32_t seq, Cache* serverCache,
                uint16_t contentW, uint16_t contentH);
-    // Ensure MakeImage has been emitted for this sokol image id (once per
-    // session via server cache + sentFull_ tracking).
+    // Ensure MakeImage / recipe verb has been emitted for this sokol image
+    // id (once per session). Prefers recipe (SVG/text/encoded) when registered.
     void noteImage(uint32_t imageId, uint16_t w, uint16_t h,
                    const void* rgba, size_t n);
+    // Emit whatever recipe (or pixel flatten) is registered for imageId.
+    void noteRegisteredImage(uint32_t imageId);
     void spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
                    const float mvp[16]);
     // Finish frame; returns GE2S payload (may be empty if no runs).
@@ -317,11 +375,21 @@ private:
 void setLiveCapture(LiveCapture* cap);
 LiveCapture* liveCapture();
 
-// Side-table: RGBA pixels for sokol image ids (filled by loadImage path).
+// Side-table: recipe or RGBA for sokol image ids (filled by load/raster paths).
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
                          const void* rgba, size_t n);
-// Returns false if unknown.
+void registerImageSvg(uint32_t imageId, std::string_view svg,
+                      int16_t targetW, int16_t targetH,
+                      uint16_t rasterW, uint16_t rasterH);
+void registerImageText(uint32_t imageId, std::string_view text,
+                       const void* fontBytes, size_t fontN, int32_t faceIndex,
+                       float sizePt, float r, float g, float b, float a,
+                       uint16_t rasterW, uint16_t rasterH);
+void registerImageEncoded(uint32_t imageId, uint8_t format,
+                          const void* encoded, size_t n,
+                          uint16_t w, uint16_t h);
 bool lookupImagePixels(uint32_t imageId, uint16_t& w, uint16_t& h,
                        const std::vector<uint8_t>*& px);
+const ImageRecipe* lookupImageRecipe(uint32_t imageId);
 
 } // namespace ge::cmdstream

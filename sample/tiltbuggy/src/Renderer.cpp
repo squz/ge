@@ -1,21 +1,22 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// 🎯T137 TiltBuggy renderer — an exact-match port of the 2013 game's look:
-// a tiled-asphalt arena with rectangular ice + dirt patches and the buggy
-// sprite on top, drawn from the original textures (data/{asphalt,ice,dirt,
-// buggy}.png). No title, no buttons, no recolour, no spin — the engine
-// showcases live elsewhere (reintroduce later, 🎯T137.6).
+// 🎯T137 TiltBuggy renderer — port of the 2013 game's look: tiled asphalt
+// arena with ice/dirt patches and the buggy sprite. Title + flowery SVG
+// border at the top exercise cmdstream recipe verbs (🎯T128.7).
 
 #include "Renderer.h"
 #include "Scene.h"
 
+#include <ge/FontLoader.h>
 #include <ge/Linalg.h>
 #include <ge/Resource.h>
 #include <ge/debug.h>
 #include <ge/ortho.h>
 #include <ge/png.h>
 #include <ge/sprite.h>
+#include <ge/svg.h>
+#include <ge/text.h>
 #include <ge/transform.h>
 
 #include "sokol_gfx.h"
@@ -23,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 
 namespace tiltbuggy {
 
@@ -38,6 +40,8 @@ constexpr float kTileWorld = 4.0f;
 // whole arena (orig iPad).
 constexpr float kPhoneViewFrac = 0.5f;   // show half the arena half-extent
 constexpr float kFollowLead    = 0.6f;   // camera leads the buggy at this rate
+// Title chrome raster density (px per logical pt); draw size = pixelSize / this.
+constexpr float kTitlePpp      = 2.f;
 
 // Metal/Vulkan-NDC orthographic projection: (l..r, b..t, near..far) →
 // ([-1,+1], [-1,+1], [0,1]). Column-major to match ge::frame.
@@ -51,6 +55,47 @@ ge::la::float4x4 orthoMetal(float l, float r, float b, float t, float zn, float 
     };
 }
 
+// Flowery rectangular frame for the title banner (viewBox 0..400 × 0..90).
+// Roses / leaves at corners + vine along the border — tests MakeSvg recipe.
+constexpr const char* kTitleBorderSvg = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 90">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3d2914"/>
+      <stop offset="50%" stop-color="#6b4423"/>
+      <stop offset="100%" stop-color="#3d2914"/>
+    </linearGradient>
+  </defs>
+  <!-- banner plate -->
+  <rect x="28" y="18" width="344" height="54" rx="12" ry="12"
+        fill="url(#g)" fill-opacity="0.88" stroke="#c4a574" stroke-width="2"/>
+  <!-- vines -->
+  <path d="M40 30 C80 8, 120 8, 160 28 S240 50, 280 28 S360 8, 360 30"
+        fill="none" stroke="#2d6a3a" stroke-width="2.2"/>
+  <path d="M40 60 C90 78, 150 78, 200 58 S300 38, 360 60"
+        fill="none" stroke="#2d6a3a" stroke-width="2.2"/>
+  <!-- corner roses -->
+  <g fill="#c23b4a">
+    <circle cx="36" cy="22" r="9"/><circle cx="30" cy="18" r="5"/><circle cx="42" cy="18" r="5"/>
+    <circle cx="364" cy="22" r="9"/><circle cx="358" cy="18" r="5"/><circle cx="370" cy="18" r="5"/>
+    <circle cx="36" cy="68" r="9"/><circle cx="30" cy="72" r="5"/><circle cx="42" cy="72" r="5"/>
+    <circle cx="364" cy="68" r="9"/><circle cx="358" cy="72" r="5"/><circle cx="370" cy="72" r="5"/>
+  </g>
+  <!-- leaves -->
+  <g fill="#3d8f4a">
+    <ellipse cx="55" cy="16" rx="10" ry="5" transform="rotate(-25 55 16)"/>
+    <ellipse cx="345" cy="16" rx="10" ry="5" transform="rotate(25 345 16)"/>
+    <ellipse cx="55" cy="74" rx="10" ry="5" transform="rotate(25 55 74)"/>
+    <ellipse cx="345" cy="74" rx="10" ry="5" transform="rotate(-25 345 74)"/>
+  </g>
+  <!-- centers -->
+  <circle cx="36" cy="22" r="3" fill="#f0d060"/>
+  <circle cx="364" cy="22" r="3" fill="#f0d060"/>
+  <circle cx="36" cy="68" r="3" fill="#f0d060"/>
+  <circle cx="364" cy="68" r="3" fill="#f0d060"/>
+</svg>
+)SVG";
+
 } // namespace
 
 struct Renderer::Impl {
@@ -58,6 +103,8 @@ struct Renderer::Impl {
     ge::Sprite      ice;       // tiled ice patch
     ge::Sprite      dirt;      // tiled dirt patch
     ge::Sprite      buggy;     // the car
+    ge::Sprite      titleBorder; // flowery SVG frame (cmdstream MakeSvg)
+    ge::Sprite      titleText;   // "TiltBuggy" (cmdstream MakeText)
     ge::SpriteBatch batch;     // reused per frame
 };
 
@@ -73,6 +120,19 @@ void Renderer::init(const char* /*shaderDir*/) {
     i_->ice     = ge::loadImage(ge::resource("data/ice.png"));
     i_->dirt    = ge::loadImage(ge::resource("data/dirt.png"));
     i_->buggy   = ge::loadImage(ge::resource("data/buggy.png"));
+
+    // 🎯T128.7 test chrome — SVG border + FreeType title (recipe verbs on stream).
+    const int borderW = static_cast<int>(400 * kTitlePpp);
+    const int borderH = static_cast<int>(90 * kTitlePpp);
+    i_->titleBorder = ge::rasterizeSvg(kTitleBorderSvg, borderW, borderH);
+    try {
+        ge::FontRef font = ge::resolveFont("system:sans-serif-bold");
+        i_->titleText = ge::rasterizeText(
+            "TiltBuggy", font, 36.f * kTitlePpp,
+            ge::la::float4{0.98f, 0.92f, 0.78f, 1.f});
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "tiltbuggy: title font unavailable (%s)\n", e.what());
+    }
 }
 
 void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
@@ -147,6 +207,35 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     }
 
     i_->batch.submit(mvp);
+
+    // ── Title chrome (screen pts, y-down) — top of ui-safe area ─────────
+    // Separate batch so world MVP doesn't squash the HUD.
+    if (!i_->titleBorder.isNull() || !i_->titleText.isNull()) {
+        const ge::Rect ui = c.uiSafeRectInPts();
+        const float bannerW = std::min(ui.w * 0.72f, 420.f);
+        const float bannerH = bannerW * (90.f / 400.f);
+        const float bx = ui.x + (ui.w - bannerW) * 0.5f;
+        const float by = ui.y + 8.f;
+        // UI ortho: pt coords, y-down (b=h, t=0) → Metal NDC.
+        const ge::la::float4x4 uiMvp =
+            orthoMetal(0.f, surf.w, surf.h, 0.f, -1.f, 1.f);
+
+        i_->batch.clear();
+        if (!i_->titleBorder.isNull()) {
+            i_->batch.addSprite(ge::frame(ge::Rect{bx, by, bannerW, bannerH}),
+                                i_->titleBorder);
+        }
+        if (!i_->titleText.isNull()) {
+            // Rasterized at kTitlePpp density; draw at logical pt size.
+            const float drawW = static_cast<float>(i_->titleText.width) / kTitlePpp;
+            const float drawH = static_cast<float>(i_->titleText.height) / kTitlePpp;
+            const float tx = bx + (bannerW - drawW) * 0.5f;
+            const float ty = by + (bannerH - drawH) * 0.5f;
+            i_->batch.addSprite(ge::frame(ge::Rect{tx, ty, drawW, drawH}),
+                                i_->titleText);
+        }
+        i_->batch.submit(uiMvp);
+    }
 
     // 🎯T97 debug overlay — opt-in (GE_DEBUG_OVERLAY); a no-op while disabled.
     {

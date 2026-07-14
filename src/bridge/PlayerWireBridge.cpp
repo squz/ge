@@ -5,14 +5,22 @@
 #include <ge/CmdStream.h>
 #include <ge/VideoDecoder.h>
 #include <ge/WebSocketClient.h>
+#include <ge/png.h>
+#include <ge/svg.h>
+#include <ge/text.h>
 
 #include "wire_input.h"
 
+#include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_surface.h>
+#include <SDL3_image/SDL_image.h>
 #include <lz4.h>
 #include <spdlog/spdlog.h>
 
 #include <cstring>
 #include <mutex>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -314,6 +322,99 @@ bool PlayerWireBridge::pump() {
                     img.w = w;
                     img.h = h;
                     img.rgba = *blob;
+                    cx->building.images.push_back(std::move(img));
+                    return c.ok;
+                }
+                case Op::MakeSvg: {
+                    const uint32_t id = c.u32();
+                    const int16_t tw = static_cast<int16_t>(c.u16());
+                    const int16_t th = static_cast<int16_t>(c.u16());
+                    const auto hash = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* blob = cx->cache->get(hash);
+                    if (!blob) return false;
+                    std::string_view svg(
+                        reinterpret_cast<const char*>(blob->data()), blob->size());
+                    auto px = ge::rasterizeSvgToPixels(
+                        svg, tw < 0 ? -1 : int(tw), th < 0 ? -1 : int(th));
+                    if (px.isNull()) return false;
+                    CmdImage img;
+                    img.id = id;
+                    img.w = static_cast<uint16_t>(px.width);
+                    img.h = static_cast<uint16_t>(px.height);
+                    img.rgba = std::move(px.rgba);
+                    cx->building.images.push_back(std::move(img));
+                    return c.ok;
+                }
+                case Op::MakeText: {
+                    const uint32_t id = c.u32();
+                    const float sizePt = c.f32();
+                    const float r = c.f32(), g = c.f32(), b = c.f32(), a = c.f32();
+                    const int32_t faceIndex = c.i32();
+                    const auto fontHash = c.hash();
+                    const auto textHash = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* fontBlob = cx->cache->get(fontHash);
+                    const auto* textBlob = cx->cache->get(textHash);
+                    if (!fontBlob || !textBlob) return false;
+                    std::string text(reinterpret_cast<const char*>(textBlob->data()),
+                                    textBlob->size());
+                    auto px = ge::rasterizeTextToPixelsFromMemory(
+                        text, fontBlob->data(), fontBlob->size(), faceIndex,
+                        sizePt, {r, g, b, a});
+                    if (px.isNull()) return false;
+                    CmdImage img;
+                    img.id = id;
+                    img.w = static_cast<uint16_t>(px.width);
+                    img.h = static_cast<uint16_t>(px.height);
+                    img.rgba = std::move(px.rgba);
+                    cx->building.images.push_back(std::move(img));
+                    return c.ok;
+                }
+                case Op::MakeEncodedImage: {
+                    const uint32_t id = c.u32();
+                    const uint8_t format = c.u8();
+                    const auto hash = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* blob = cx->cache->get(hash);
+                    if (!blob) return false;
+                    (void)format; // PNG/JPEG both via SDL_image
+                    SDL_IOStream* io = SDL_IOFromConstMem(blob->data(), blob->size());
+                    if (!io) return false;
+                    SDL_Surface* raw = IMG_Load_IO(io, true);
+                    if (!raw) return false;
+                    SDL_Surface* rgba = raw;
+                    bool owned = false;
+                    if (raw->format != SDL_PIXELFORMAT_RGBA32) {
+                        rgba = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_RGBA32);
+                        SDL_DestroySurface(raw);
+                        owned = true;
+                        if (!rgba) return false;
+                    }
+                    // Premultiply to match ge::loadImage.
+                    {
+                        const int ww = rgba->w, hh = rgba->h, pitch = rgba->pitch;
+                        auto* pixels = static_cast<uint8_t*>(rgba->pixels);
+                        for (int y = 0; y < hh; ++y) {
+                            uint8_t* row = pixels + size_t(y) * pitch;
+                            for (int x = 0; x < ww; ++x) {
+                                uint8_t* p = row + x * 4;
+                                const uint32_t aa = p[3];
+                                p[0] = static_cast<uint8_t>((p[0] * aa + 127u) / 255u);
+                                p[1] = static_cast<uint8_t>((p[1] * aa + 127u) / 255u);
+                                p[2] = static_cast<uint8_t>((p[2] * aa + 127u) / 255u);
+                            }
+                        }
+                    }
+                    CmdImage img;
+                    img.id = id;
+                    img.w = static_cast<uint16_t>(rgba->w);
+                    img.h = static_cast<uint16_t>(rgba->h);
+                    img.rgba.assign(static_cast<const uint8_t*>(rgba->pixels),
+                                    static_cast<const uint8_t*>(rgba->pixels) +
+                                        size_t(rgba->w) * size_t(rgba->h) * 4);
+                    if (owned) SDL_DestroySurface(rgba);
+                    else SDL_DestroySurface(raw);
                     cx->building.images.push_back(std::move(img));
                     return c.ok;
                 }

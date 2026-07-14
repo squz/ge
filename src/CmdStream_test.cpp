@@ -93,6 +93,28 @@ bool skipVisit(Op op, Reader::Cursor& c, void*) {
         (void)c.hash();
         (void)c.hash();
         return c.ok;
+    case Op::MakeSvg:
+        (void)c.u32();
+        (void)c.u16();
+        (void)c.u16();
+        (void)c.hash();
+        return c.ok;
+    case Op::MakeText:
+        (void)c.u32();
+        (void)c.f32();
+        (void)c.f32();
+        (void)c.f32();
+        (void)c.f32();
+        (void)c.f32();
+        (void)c.i32();
+        (void)c.hash();
+        (void)c.hash();
+        return c.ok;
+    case Op::MakeEncodedImage:
+        (void)c.u32();
+        (void)c.u8();
+        (void)c.hash();
+        return c.ok;
     }
     return false; // unknown
 }
@@ -367,4 +389,97 @@ TEST_CASE("cmdstream SpriteRun warm steady-state is tiny vs full RGBA") {
 
     MESSAGE("sprite_cold=", cold.size(), " avg_warm_sprite=", avgWarm,
             " warm_60f=", warmTotal, " full_rgba=", fullRgba2048x1536);
+}
+
+TEST_CASE("cmdstream MakeSvg recipe is far smaller than flattened RGBA") {
+    Cache server;
+    const char* svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40'>"
+        "<rect width='100' height='40' fill='#336'/>"
+        "<text x='50' y='28' text-anchor='middle' fill='white' font-size='16'>Hi</text>"
+        "</svg>";
+    // Flattened 200×80 RGBA would be 64 KB; recipe is the SVG string.
+    constexpr uint16_t W = 200, H = 80;
+    const size_t flat = size_t(W) * H * 4;
+
+    Writer w(&server);
+    w.frameBegin(0, true);
+    w.makeSvg(7, 200, 80, svg, std::strlen(svg));
+    w.frameEnd();
+    auto payload = w.take();
+    CHECK(payload.size() < flat / 8);
+    CHECK(payload.size() < 4096);
+
+    Cache player;
+    Reader r(&player);
+    struct Acc {
+        bool sawSvg = false;
+    } acc;
+    auto visit = [](Op op, Reader::Cursor& c, void* user) -> bool {
+        auto* a = static_cast<Acc*>(user);
+        if (op == Op::MakeSvg) a->sawSvg = true;
+        return skipVisit(op, c, nullptr);
+    };
+    CHECK(r.decode(payload, visit, &acc));
+    CHECK(acc.sawSvg);
+    MESSAGE("make_svg_wire=", payload.size(), " flat_rgba=", flat);
+}
+
+TEST_CASE("cmdstream MakeText recipe ships font+string not glyph bitmap") {
+    Cache server;
+    // Tiny fake "font" blob + short string — still much smaller than a bitmap.
+    const char* fontFake = "OTTO-not-a-real-font-but-counts-as-bytes";
+    const char* text = "TiltBuggy";
+    Writer w(&server);
+    w.frameBegin(0, true);
+    w.makeText(3, 36.f, 1.f, 0.9f, 0.7f, 1.f, 0,
+               fontFake, std::strlen(fontFake),
+               text, std::strlen(text));
+    w.frameEnd();
+    auto payload = w.take();
+    // A 200×50 glyph bitmap is 40 KB; recipe is font stub + string.
+    CHECK(payload.size() < 2048);
+
+    Cache player;
+    Reader r(&player);
+    struct Acc {
+        bool sawText = false;
+    } acc;
+    auto visit = [](Op op, Reader::Cursor& c, void* user) -> bool {
+        auto* a = static_cast<Acc*>(user);
+        if (op == Op::MakeText) a->sawText = true;
+        return skipVisit(op, c, nullptr);
+    };
+    CHECK(r.decode(payload, visit, &acc));
+    CHECK(acc.sawText);
+    MESSAGE("make_text_wire=", payload.size());
+}
+
+TEST_CASE("cmdstream MakeEncodedImage smaller than RGBA for synthetic PNG header") {
+    Cache server;
+    // Minimal-ish payload standing in for PNG bytes (not a valid PNG — codec only).
+    std::vector<uint8_t> pngish(256, 0x89);
+    pngish[0] = 0x89;
+    pngish[1] = 'P';
+    pngish[2] = 'N';
+    pngish[3] = 'G';
+    Writer w(&server);
+    w.frameBegin(0, true);
+    w.makeEncodedImage(1, kEncodedPng, pngish.data(), pngish.size());
+    w.frameEnd();
+    auto payload = w.take();
+    CHECK(payload.size() < 1024);
+
+    Cache player;
+    Reader r(&player);
+    struct Acc {
+        bool saw = false;
+    } acc;
+    auto visit = [](Op op, Reader::Cursor& c, void* user) -> bool {
+        auto* a = static_cast<Acc*>(user);
+        if (op == Op::MakeEncodedImage) a->saw = true;
+        return skipVisit(op, c, nullptr);
+    };
+    CHECK(r.decode(payload, visit, &acc));
+    CHECK(acc.saw);
 }

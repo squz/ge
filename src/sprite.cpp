@@ -342,12 +342,16 @@ void SpriteBatch::submit(const la::float4x4& worldToClip) {
         }
         if (gpu) drawRun(curView, packed.data(), verts, worldToClip);
 
-        // 🎯T128 live sprite capture — pass-through + cache (no full RGBA Present).
+        // 🎯T128 live sprite capture — pass-through + cache (recipe preferred).
         if (auto* cap = cmdstream::liveCapture()) {
-            uint16_t iw = 0, ih = 0;
-            const std::vector<uint8_t>* px = nullptr;
-            if (cmdstream::lookupImagePixels(curTex.id, iw, ih, px) && px) {
-                cap->noteImage(curTex.id, iw, ih, px->data(), px->size());
+            if (cmdstream::lookupImageRecipe(curTex.id)) {
+                cap->noteRegisteredImage(curTex.id);
+            } else {
+                uint16_t iw = 0, ih = 0;
+                const std::vector<uint8_t>* px = nullptr;
+                if (cmdstream::lookupImagePixels(curTex.id, iw, ih, px) && px) {
+                    cap->noteImage(curTex.id, iw, ih, px->data(), px->size());
+                }
             }
             // worldToClip is column-major float4x4 — same layout as la::float4x4.
             float mvp[16];

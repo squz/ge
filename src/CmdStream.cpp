@@ -107,6 +107,12 @@ void Writer::putU32(uint32_t v) {
     buf_.push_back(static_cast<uint8_t>(v >> 24));
 }
 void Writer::putI32(int32_t v) { putU32(static_cast<uint32_t>(v)); }
+void Writer::putF32(float v) {
+    uint32_t bits = 0;
+    static_assert(sizeof(float) == 4);
+    std::memcpy(&bits, &v, 4);
+    putU32(bits);
+}
 void Writer::putHash(const Hash& h) {
     buf_.insert(buf_.end(), h.begin(), h.end());
 }
@@ -254,6 +260,44 @@ void Writer::spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
     putHash(mh);
 }
 
+void Writer::makeSvg(uint32_t id, int16_t targetW, int16_t targetH,
+                     const void* svgUtf8, size_t n) {
+    Hash h = emitBlob(svgUtf8, n);
+    putOp(Op::MakeSvg);
+    putU32(id);
+    putU16(static_cast<uint16_t>(targetW));
+    putU16(static_cast<uint16_t>(targetH));
+    putHash(h);
+}
+
+void Writer::makeText(uint32_t id, float sizePt,
+                      float r, float g, float b, float a,
+                      int32_t faceIndex,
+                      const void* fontBytes, size_t fontN,
+                      const void* textUtf8, size_t textN) {
+    Hash fh = emitBlob(fontBytes, fontN);
+    Hash th = emitBlob(textUtf8, textN);
+    putOp(Op::MakeText);
+    putU32(id);
+    putF32(sizePt);
+    putF32(r);
+    putF32(g);
+    putF32(b);
+    putF32(a);
+    putI32(faceIndex);
+    putHash(fh);
+    putHash(th);
+}
+
+void Writer::makeEncodedImage(uint32_t id, uint8_t format,
+                              const void* encoded, size_t n) {
+    Hash h = emitBlob(encoded, n);
+    putOp(Op::MakeEncodedImage);
+    putU32(id);
+    putU8(format);
+    putHash(h);
+}
+
 void Writer::present(uint16_t w, uint16_t h, uint8_t format,
                      const void* pixels, size_t rawBytes) {
     // Prefer LZ4 when it beats raw (typical for flat/UI-ish game frames).
@@ -313,6 +357,12 @@ uint32_t Reader::Cursor::u32() {
     return uint32_t(a) | (uint32_t(b) << 8) | (uint32_t(c) << 16) | (uint32_t(d) << 24);
 }
 int32_t Reader::Cursor::i32() { return static_cast<int32_t>(u32()); }
+float Reader::Cursor::f32() {
+    uint32_t bits = u32();
+    float v = 0.f;
+    std::memcpy(&v, &bits, 4);
+    return v;
+}
 Hash Reader::Cursor::hash() {
     Hash h{};
     auto s = bytes(16);
@@ -484,13 +534,8 @@ namespace {
 
 LiveCapture* g_live = nullptr;
 
-struct ImagePixels {
-    uint16_t w = 0, h = 0;
-    std::vector<uint8_t> rgba;
-};
-
-std::unordered_map<uint32_t, ImagePixels>& imageRegistry() {
-    static std::unordered_map<uint32_t, ImagePixels> m;
+std::unordered_map<uint32_t, ImageRecipe>& imageRegistry() {
+    static std::unordered_map<uint32_t, ImageRecipe> m;
     return m;
 }
 
@@ -502,22 +547,80 @@ LiveCapture* liveCapture() { return g_live; }
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
                          const void* rgba, size_t n) {
     if (!rgba || n == 0 || imageId == 0) return;
-    ImagePixels ip;
-    ip.w = w;
-    ip.h = h;
-    ip.rgba.assign(static_cast<const uint8_t*>(rgba),
-                   static_cast<const uint8_t*>(rgba) + n);
-    imageRegistry()[imageId] = std::move(ip);
+    ImageRecipe rec;
+    rec.kind = ImageRecipeKind::Pixels;
+    rec.w = w;
+    rec.h = h;
+    rec.rgba.assign(static_cast<const uint8_t*>(rgba),
+                    static_cast<const uint8_t*>(rgba) + n);
+    imageRegistry()[imageId] = std::move(rec);
+}
+
+void registerImageSvg(uint32_t imageId, std::string_view svg,
+                      int16_t targetW, int16_t targetH,
+                      uint16_t rasterW, uint16_t rasterH) {
+    if (imageId == 0 || svg.empty()) return;
+    ImageRecipe rec;
+    rec.kind = ImageRecipeKind::Svg;
+    rec.w = rasterW;
+    rec.h = rasterH;
+    rec.svg.assign(svg);
+    rec.svgTargetW = targetW;
+    rec.svgTargetH = targetH;
+    imageRegistry()[imageId] = std::move(rec);
+}
+
+void registerImageText(uint32_t imageId, std::string_view text,
+                       const void* fontBytes, size_t fontN, int32_t faceIndex,
+                       float sizePt, float r, float g, float b, float a,
+                       uint16_t rasterW, uint16_t rasterH) {
+    if (imageId == 0 || text.empty() || !fontBytes || fontN == 0) return;
+    ImageRecipe rec;
+    rec.kind = ImageRecipeKind::Text;
+    rec.w = rasterW;
+    rec.h = rasterH;
+    rec.text.assign(text);
+    rec.fontBytes.assign(static_cast<const uint8_t*>(fontBytes),
+                         static_cast<const uint8_t*>(fontBytes) + fontN);
+    rec.faceIndex = faceIndex;
+    rec.sizePt = sizePt;
+    rec.colorR = r;
+    rec.colorG = g;
+    rec.colorB = b;
+    rec.colorA = a;
+    imageRegistry()[imageId] = std::move(rec);
+}
+
+void registerImageEncoded(uint32_t imageId, uint8_t format,
+                          const void* encoded, size_t n,
+                          uint16_t w, uint16_t h) {
+    if (imageId == 0 || !encoded || n == 0) return;
+    ImageRecipe rec;
+    rec.kind = ImageRecipeKind::Encoded;
+    rec.w = w;
+    rec.h = h;
+    rec.encoded.assign(static_cast<const uint8_t*>(encoded),
+                       static_cast<const uint8_t*>(encoded) + n);
+    rec.encodedFormat = format;
+    imageRegistry()[imageId] = std::move(rec);
 }
 
 bool lookupImagePixels(uint32_t imageId, uint16_t& w, uint16_t& h,
                        const std::vector<uint8_t>*& px) {
     auto it = imageRegistry().find(imageId);
     if (it == imageRegistry().end()) return false;
+    if (it->second.kind != ImageRecipeKind::Pixels || it->second.rgba.empty())
+        return false;
     w = it->second.w;
     h = it->second.h;
     px = &it->second.rgba;
     return true;
+}
+
+const ImageRecipe* lookupImageRecipe(uint32_t imageId) {
+    auto it = imageRegistry().find(imageId);
+    if (it == imageRegistry().end()) return nullptr;
+    return &it->second;
 }
 
 void LiveCapture::begin(uint32_t seq, Cache* serverCache,
@@ -534,8 +637,45 @@ void LiveCapture::noteImage(uint32_t imageId, uint16_t w, uint16_t h,
                             const void* rgba, size_t n) {
     if (!active_ || !w_ || !rgba || n == 0) return;
     if (imagesEmitted_.count(imageId)) return;
+    // Prefer a registered recipe if present for this id.
+    if (const ImageRecipe* rec = lookupImageRecipe(imageId)) {
+        if (rec->kind != ImageRecipeKind::Pixels) {
+            noteRegisteredImage(imageId);
+            return;
+        }
+    }
     // pixelFormat 0x10 = RGBA8 (matches SyntheticScene convention)
     w_->makeImage(imageId, w, h, 0x10, rgba, n);
+    imagesEmitted_[imageId] = true;
+}
+
+void LiveCapture::noteRegisteredImage(uint32_t imageId) {
+    if (!active_ || !w_ || imageId == 0) return;
+    if (imagesEmitted_.count(imageId)) return;
+    const ImageRecipe* rec = lookupImageRecipe(imageId);
+    if (!rec) return;
+    switch (rec->kind) {
+    case ImageRecipeKind::Svg:
+        w_->makeSvg(imageId, rec->svgTargetW, rec->svgTargetH,
+                    rec->svg.data(), rec->svg.size());
+        break;
+    case ImageRecipeKind::Text:
+        w_->makeText(imageId, rec->sizePt,
+                     rec->colorR, rec->colorG, rec->colorB, rec->colorA,
+                     rec->faceIndex,
+                     rec->fontBytes.data(), rec->fontBytes.size(),
+                     rec->text.data(), rec->text.size());
+        break;
+    case ImageRecipeKind::Encoded:
+        w_->makeEncodedImage(imageId, rec->encodedFormat,
+                             rec->encoded.data(), rec->encoded.size());
+        break;
+    case ImageRecipeKind::Pixels:
+        if (rec->rgba.empty()) return;
+        w_->makeImage(imageId, rec->w, rec->h, 0x10,
+                      rec->rgba.data(), rec->rgba.size());
+        break;
+    }
     imagesEmitted_[imageId] = true;
 }
 
