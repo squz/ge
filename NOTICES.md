@@ -238,12 +238,13 @@ compiled into the Android player.
   included in all copies or substantial portions. See
   `vendor/github.com/nayuki/QR-Code-generator/c/qrcodegen.h`.
 
-### liteparser
-- Source: https://github.com/sqliteai/liteparser
-- Version: vendored in-tree (not a git submodule)
+### deepparser (liteparser)
+- Source: https://github.com/marcelocantos/deepparser
+- Version: vendored in-tree under `vendor/github.com/marcelocantos/deepparser/`
+  (sqlpipe ≥0.29 requires deepparser's sqldeep AST extensions; replaces the
+  former sqliteai/liteparser pin)
 - Licence: MIT
-- Copyright: © 2026 SQLite AI.
-- Notice: See `vendor/github.com/sqliteai/liteparser/LICENSE`.
+- Copyright: deepparser authors — see `vendor/github.com/marcelocantos/deepparser/LICENSE`.
 
 ### etcpak
 - Source: https://github.com/wolfpld/etcpak
@@ -322,10 +323,11 @@ compiled into the Android player.
 - Notice: Licensed under the Apache License, Version 2.0. See header.
 
 ### sqlpipe.h / sqlpipe.cpp
-- Source: https://github.com/squz/sqlpipe (internal)
+- Source: https://github.com/marcelocantos/sqlpipe (dist amalgamation; currently v0.29.0)
 - Licence: Apache-2.0
 - Copyright: © 2026 The sqlpipe Authors.
 - Notice: Licensed under the Apache License, Version 2.0. See header.
+  Bundles sqlift + sqldeep; do not also compile a separate sqlift.cpp.
 
 ### sqlite3.h / sqlite3.c
 - Source: https://www.sqlite.org/

@@ -1,0 +1,10 @@
+.DS_Store
+*.o
+*.a
+sqlparse
+/fuzz/find_crash.dSYM
+/fuzz/fuzz_parse.dSYM
+/fuzz/fuzz_parse_asan.dSYM
+fuzz/fuzz_parse
+fuzz/fuzz_parse_asan
+/lemon

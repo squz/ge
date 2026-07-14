@@ -16,7 +16,7 @@ fi
 make -C $TB >/dev/null 2>&1 || true
 c++ -std=c++20 -O2 -w -DNDEBUG -DGE_DIRECT_ONLY -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE -DLUNASVG_BUILD_STATIC \
   -I$GE/include -I$GE/vendor/include -I$GE/vendor/github.com/gabime/spdlog/include -I$GE/vendor/github.com/libsdl-org/SDL/include -I$GE/vendor/sdl3/include \
-  -I$GE/vendor/github.com/erincatto/box2d/include -I$GE/vendor/github.com/chriskohlhoff/asio/include -I$GE/vendor/github.com/sqliteai/liteparser/src \
+  -I$GE/vendor/github.com/erincatto/box2d/include -I$GE/vendor/github.com/chriskohlhoff/asio/include -I$GE/vendor/github.com/marcelocantos/deepparser/src \
   -I$GE/vendor/github.com/sammycage/lunasvg/include -I/opt/homebrew/opt/freetype/include/freetype2 -I$CM/include -I$CM/include/chipmunk -I$TB/src \
   -c harness.cpp -o build/harness.o
 c++ build/harness.o $TB/build/src/Scene.o $TB/build/ge/vendor/box2d/*.o build/libchipmunk.a $TB/build/libge.a \

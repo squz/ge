@@ -1,0 +1,33 @@
+schema_version: 3
+targets:
+  T1:
+    name: deepparser parses all sqldeep syntax and round-trips at parity with upstream liteparser
+    status: identified
+    showcase: true
+    acceptance:
+    - Every test case in sqldeep's testdata/transpile.yaml (input column) parses cleanly via lp_parse_all
+    - Every parse round-trips through lp_ast_to_sql with semantically equivalent output (parity with upstream's behaviour for plain SQL — canonical whitespace, expanded comma-joins, etc. — is acceptable)
+    - All upstream liteparser tests still pass (no regression on standard SQLite SQL)
+    - sqldeep tokens (LBRACE/RBRACE/LBRACKET/RBRACKET/JOIN_ARROW/REV_JOIN_ARROW/XML_LT/SLASH_ONE/RECURSE) are recognised by the tokenizer
+    - sqldeep grammar productions exist in src/lp_parse.y for object/array literals, deep SELECT, FROM-first, join arrows, JSON path, XML elements, recursive SELECT
+    - Corresponding LpNodeKind values (LP_SQLDEEP_*) exist in liteparser.h with documented field shapes
+    - lp_unparse.c emits each new node kind with canonical SQL output
+    context: |
+      Forked from sqliteai/liteparser for use by sqldeep. Sqldeep currently
+      uses a hand-written recursive-descent parser that does partial parsing
+      of surrounding SQL while looking for sqldeep triggers. This approach
+      has produced latent bugs (CTE unmatched-paren, see sqldeep T5) and
+      structurally limits sqldeep to syntax-bearing input — plain SQL forms
+      it doesn't understand silently corrupt or error out. Replacing the
+      hand-written parser with deepparser (a real SQL parser that natively
+      understands the sqldeep grammar) eliminates the partial-parsing bug
+      class and unlocks future AST-level work (linting, alias resolution,
+      schema integration).
+
+      Upstream liteparser's churn is very low (~5 commits over 6 months),
+      so maintaining the fork against upstream is cheap. SQLite grammar is
+      famously stable; new features land as additions, not breaking
+      changes. PostgreSQL grammar is out of scope for now (sqldeep PG
+      backend is unused; will be migrated separately if/when needed).
+    origin: bootstrap
+    discovered: 2026-05-13

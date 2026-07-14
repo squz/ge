@@ -40,11 +40,11 @@ set(SOURCES
     ${GE_ROOT}/vendor/src/sqlpipe.cpp
     # sqlift is bundled inside sqlpipe.cpp — do not also link sqlift.cpp
     ${GE_ROOT}/vendor/src/lz4.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/arena.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/liteparser.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_tokenize.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_unparse.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/parse.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/arena.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/liteparser.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/lp_tokenize.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/lp_unparse.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/parse.c
     ${LUNASVG_SRC}
     ${PLUTOVG_SRC}
 )
@@ -70,7 +70,7 @@ target_include_directories(Player PRIVATE
     ${GE_ROOT}/vendor/sdl3/include
     ${GE_ROOT}/vendor/github.com/floooh/sokol
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL_ttf/external/freetype/include
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/include
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/plutovg/include
     ${GE_ROOT}/tools

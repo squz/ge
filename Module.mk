@@ -60,7 +60,7 @@ ge/INCLUDES = \
 	-I$(ge)/vendor/sdl3/include \
 	-I$(ge)/vendor/github.com/erincatto/box2d/include \
 	-I$(ge)/vendor/github.com/chriskohlhoff/asio/include \
-	-I$(ge)/vendor/github.com/sqliteai/liteparser/src \
+	-I$(ge)/vendor/github.com/marcelocantos/deepparser/src \
 	-I$(ge)/vendor/github.com/sammycage/lunasvg/include \
 	-I/opt/homebrew/opt/freetype/include/freetype2 \
 	-DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
@@ -228,13 +228,16 @@ ge/PLUTOVG_CFLAGS = -O2 -std=c11 -fvisibility=hidden \
     -DPLUTOVG_BUILD -DPLUTOVG_BUILD_STATIC \
     -I$(ge/PLUTOVG_DIR)/include -I$(ge/PLUTOVG_DIR)/source
 
-# liteparser (C code, used by sqlpipe for query analysis)
-ge/LITEPARSER_DIR = $(ge)/vendor/github.com/sqliteai/liteparser/src
+# deepparser / liteparser (C code, used by sqlpipe for query analysis).
+# sqlpipe ≥0.29 needs deepparser's sqldeep AST extensions (not sqliteai liteparser).
+ge/LITEPARSER_DIR = $(ge)/vendor/github.com/marcelocantos/deepparser/src
 ge/LITEPARSER_SRC = $(addprefix $(ge/LITEPARSER_DIR)/,arena.c liteparser.c lp_tokenize.c lp_unparse.c parse.c)
 ge/LITEPARSER_OBJ = $(patsubst $(ge/LITEPARSER_DIR)/%.c,$(BUILD_DIR)/ge/vendor/liteparser/%.o,$(ge/LITEPARSER_SRC))
 
 # Vendor C++ libraries (compiled into libge.a)
-ge/VENDOR_CPP_SRC = $(ge)/vendor/src/sqlift.cpp $(ge)/vendor/src/sqlpipe.cpp
+# sqlift is amalgamated inside sqlpipe.cpp (sqlpipe ≥0.22) — do not also
+# compile vendor/src/sqlift.cpp (duplicate symbols).
+ge/VENDOR_CPP_SRC = $(ge)/vendor/src/sqlpipe.cpp
 ge/VENDOR_CPP_OBJ = $(patsubst $(ge)/vendor/src/%.cpp,$(BUILD_DIR)/ge/vendor/%.o,$(ge/VENDOR_CPP_SRC))
 
 # Test sources

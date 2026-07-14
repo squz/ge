@@ -199,7 +199,8 @@ VENDOR="vendor/github.com"
 BOX2D_DIR="$VENDOR/erincatto/box2d"
 LUNASVG_DIR="$VENDOR/sammycage/lunasvg"
 PLUTOVG_DIR="$LUNASVG_DIR/plutovg"
-LITEPARSER_DIR="$VENDOR/sqliteai/liteparser/src"
+# deepparser (marcelocantos) — sqlpipe ≥0.29 needs sqldeep AST extensions.
+LITEPARSER_DIR="$VENDOR/marcelocantos/deepparser/src"
 
 # Sanity check — the vendored submodules this prebuild compiles must be
 # initialised. (sokol_gfx is a vendored single header, not a submodule.)

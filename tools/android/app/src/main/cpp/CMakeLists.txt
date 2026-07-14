@@ -71,11 +71,11 @@ add_library(main SHARED
     ${GE_ROOT}/vendor/src/sqlite3.c
     ${GE_ROOT}/vendor/src/sqlpipe.cpp
     ${GE_ROOT}/vendor/src/lz4.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/arena.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/liteparser.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_tokenize.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_unparse.c
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/parse.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/arena.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/liteparser.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/lp_tokenize.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/lp_unparse.c
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src/parse.c
     ${LUNASVG_SRC}
     ${PLUTOVG_SRC}
 )
@@ -97,7 +97,7 @@ target_include_directories(main PRIVATE
     ${GE_ROOT}/vendor/github.com/chriskohlhoff/asio/include
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL/include
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL_image/include
-    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src
+    ${GE_ROOT}/vendor/github.com/marcelocantos/deepparser/src
     ${GE_ROOT}/vendor/github.com/floooh/sokol
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/include
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/plutovg/include
