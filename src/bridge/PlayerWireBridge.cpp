@@ -285,8 +285,14 @@ bool PlayerWireBridge::pump() {
                 case Op::FrameBegin:
                     cx->frameSeq = c.u32();
                     (void)c.u8();
-                    cx->building = {};
-                    cx->building.seq = cx->frameSeq;
+                    {
+                        const uint16_t cw = c.u16();
+                        const uint16_t ch = c.u16();
+                        cx->building = {};
+                        cx->building.seq = cx->frameSeq;
+                        cx->building.contentW = cw;
+                        cx->building.contentH = ch;
+                    }
                     return c.ok;
                 case Op::FrameEnd: case Op::EndPass: case Op::Commit: case Op::End:
                 case Op::Blob: case Op::BlobRef:

@@ -24,6 +24,8 @@ bool skipVisit(Op op, Reader::Cursor& c, void*) {
     case Op::FrameBegin:
         (void)c.u32();
         (void)c.u8();
+        (void)c.u16(); // contentW
+        (void)c.u16(); // contentH
         return c.ok;
     case Op::FrameEnd:
     case Op::EndPass:

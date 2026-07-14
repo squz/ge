@@ -211,7 +211,8 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
                 }
             }
 
-            if (server && server->beforeRender) server->beforeRender();
+            if (server && server->beforeRender)
+                server->beforeRender(host.width(), host.height());
             if (rc.onRender) {
                 ge::guardCallback("onRender", [&] {  // 🎯T136
                     rc.onRender(host.context());

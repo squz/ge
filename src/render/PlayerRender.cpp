@@ -27,6 +27,10 @@ struct PlayerRender::Impl {
     // 🎯T128 cmdstream sprite textures (image_id → SDL_Texture RGBA).
     std::unordered_map<uint32_t, SDL_Texture*> cmdTextures;
     bool cmdFramePending = false;
+    uint16_t cmdContentW = 0; // server swapchain aspect (letterbox target)
+    uint16_t cmdContentH = 0;
+    // Last aspect-fit content rect in window pixels (for input mapping).
+    float cmdVisX = 0, cmdVisY = 0, cmdVisW = 0, cmdVisH = 0;
     struct PendingRun {
         uint32_t imageId = 0;
         uint16_t nVerts = 0;
@@ -52,12 +56,48 @@ struct PlayerRender::Impl {
     // synthetic; that contract is the engine's, not the player's.
     SDL_Sensor* accelSensor = nullptr;
 
-    // Coordinate-map a window-pixel (sx, sy) to video-texture space.
+    // Aspect-fit content (contentW×contentH) into window (ww×wh).
+    static void fitContentRect(int ww, int wh, float contentAspect,
+                               float& outX, float& outY, float& outW, float& outH) {
+        if (contentAspect <= 0.f || ww <= 0 || wh <= 0) {
+            outX = 0; outY = 0; outW = float(ww); outH = float(wh);
+            return;
+        }
+        const float winAspect = float(ww) / float(wh);
+        if (contentAspect > winAspect) {
+            // Content wider than window → fit width, letterbox top/bottom.
+            outW = float(ww);
+            outH = float(ww) / contentAspect;
+            outX = 0.f;
+            outY = (float(wh) - outH) * 0.5f;
+        } else {
+            // Content taller (or equal) → fit height, pillarbox sides.
+            outH = float(wh);
+            outW = float(wh) * contentAspect;
+            outX = (float(ww) - outW) * 0.5f;
+            outY = 0.f;
+        }
+    }
+
+    // Coordinate-map a window-pixel (sx, sy) to video-texture / content space.
     // Accounts for aspect-fit scaling and portrait-in-landscape rotation.
     void mapToTexture(float sx, float sy, float& ox, float& oy) const {
-        if (!videoTex) { ox = sx; oy = sy; return; }
         int ww, wh;
         SDL_GetWindowSizeInPixels(window, &ww, &wh);
+
+        // Cmdstream: map into letterboxed content rect → server pixel space.
+        if (cmdFramePending && cmdContentW > 0 && cmdContentH > 0) {
+            const float ca = float(cmdContentW) / float(cmdContentH);
+            float vx, vy, vw, vh;
+            fitContentRect(ww, wh, ca, vx, vy, vw, vh);
+            const float nx = (sx - vx) / std::max(vw, 1.f);
+            const float ny = (sy - vy) / std::max(vh, 1.f);
+            ox = nx * float(cmdContentW);
+            oy = ny * float(cmdContentH);
+            return;
+        }
+
+        if (!videoTex) { ox = sx; oy = sy; return; }
         const bool rotated = (ww > wh) && (texH > texW);
 
         float visW, visH;
@@ -244,9 +284,13 @@ void PlayerRender::updateVideoTexture(const VideoFrame& frame) {
     }
 }
 
-void PlayerRender::beginCmdFrame() {
+void PlayerRender::beginCmdFrame(uint16_t contentW, uint16_t contentH) {
     i_->cmdRuns.clear();
     i_->cmdFramePending = false;
+    if (contentW > 0 && contentH > 0) {
+        i_->cmdContentW = contentW;
+        i_->cmdContentH = contentH;
+    }
 }
 
 void PlayerRender::uploadCmdImage(const CmdImageUpload& img) {
@@ -339,8 +383,16 @@ PlayerRender::RenderStats PlayerRender::render() {
     SDL_GetWindowSizeInPixels(i_->window, &ww, &wh);
 
     if (i_->cmdFramePending && !i_->cmdRuns.empty()) {
-        // Sprite runs: world verts × mvp → NDC → window pixels.
-        // Column-major mvp matches ge::la::float4x4 / sokol.
+        // Sprite runs: world verts × mvp → NDC → aspect-fit content rect.
+        // Server MVP is built for contentW×contentH; stretching NDC to the
+        // full portrait window double-squashes landscape content — letterbox.
+        float contentAspect = 0.f;
+        if (i_->cmdContentW > 0 && i_->cmdContentH > 0)
+            contentAspect = float(i_->cmdContentW) / float(i_->cmdContentH);
+        float vx, vy, vw, vh;
+        Impl::fitContentRect(ww, wh, contentAspect, vx, vy, vw, vh);
+        i_->cmdVisX = vx; i_->cmdVisY = vy; i_->cmdVisW = vw; i_->cmdVisH = vh;
+
         auto xform = [](const float m[16], float x, float y, float& ox, float& oy) {
             const float X = m[0] * x + m[4] * y + m[12];
             const float Y = m[1] * x + m[5] * y + m[13];
@@ -369,9 +421,9 @@ PlayerRender::RenderStats PlayerRender::render() {
                 (void)z;
                 float ndcX, ndcY;
                 xform(run.mvp, x, y, ndcX, ndcY);
-                // NDC [-1,1] → window pixels (y flip: Metal NDC y-up).
-                sdlVerts[vi].position.x = (ndcX * 0.5f + 0.5f) * float(ww);
-                sdlVerts[vi].position.y = (1.f - (ndcY * 0.5f + 0.5f)) * float(wh);
+                // NDC [-1,1] → letterboxed content rect (y flip: Metal NDC y-up).
+                sdlVerts[vi].position.x = vx + (ndcX * 0.5f + 0.5f) * vw;
+                sdlVerts[vi].position.y = vy + (1.f - (ndcY * 0.5f + 0.5f)) * vh;
                 sdlVerts[vi].tex_coord.x = u;
                 sdlVerts[vi].tex_coord.y = v;
                 // abgr → RGBA for SDL_FColor (0..1)

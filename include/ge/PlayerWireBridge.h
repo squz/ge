@@ -110,6 +110,9 @@ public:
     struct CmdDisplayFrame {
         uint32_t seq = 0;
         size_t wireBytes = 0;
+        // Server swapchain size (pixels) — player letterboxes to this aspect.
+        uint16_t contentW = 0;
+        uint16_t contentH = 0;
         std::vector<CmdImage> images; // MakeImage this frame (may be empty when warm)
         std::vector<CmdSpriteRun> runs;
         bool hasPresent = false; // legacy Present path still fills pollFrame

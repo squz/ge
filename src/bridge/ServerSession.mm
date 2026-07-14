@@ -287,11 +287,15 @@ void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
 
 std::atomic<bool>* ServerSession::capturePixelsFlag() { return &i_->capturePixels; }
 
-void ServerSession::onFrameBegin() {
+void ServerSession::onFrameBegin(int contentW, int contentH) {
     if (!i_->hasPlayer.load()) return;
     if (i_->transport.load() != wire::kTransportCommandStream) return;
     const uint32_t s = i_->seq.fetch_add(1);
-    i_->live.begin(s, &i_->cmdCache);
+    const uint16_t cw = contentW > 0 ? static_cast<uint16_t>(
+        std::min(contentW, 65535)) : 0;
+    const uint16_t ch = contentH > 0 ? static_cast<uint16_t>(
+        std::min(contentH, 65535)) : 0;
+    i_->live.begin(s, &i_->cmdCache, cw, ch);
     cmdstream::setLiveCapture(&i_->live);
 }
 

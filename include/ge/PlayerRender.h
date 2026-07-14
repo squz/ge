@@ -76,7 +76,8 @@ public:
         const uint8_t* verts = nullptr; // SpriteVertex[]
         const float* mvp = nullptr;     // 16 floats
     };
-    void beginCmdFrame();
+    // contentW/H = server framebuffer aspect for letterbox (0 = use window).
+    void beginCmdFrame(uint16_t contentW = 0, uint16_t contentH = 0);
     void uploadCmdImage(const CmdImageUpload&);
     void drawCmdSpriteRun(const CmdSpriteRunDraw&);
     void endCmdFrame(); // marks cmdstream mode for render()

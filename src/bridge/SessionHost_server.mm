@@ -71,7 +71,7 @@ void runServer(Factory factory, const SessionHostConfig& config) {
     hook.sink = [server](const std::uint8_t* px, int w, int h) {
         server->onCapturedFrame(px, w, h);
     };
-    hook.beforeRender = [server] { server->onFrameBegin(); };
+    hook.beforeRender = [server](int w, int h) { server->onFrameBegin(w, h); };
     hook.afterRender = [server] { server->onFrameEnd(); };
     hook.onStop = [server] { server->stop(); };
 

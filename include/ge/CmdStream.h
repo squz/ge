@@ -60,7 +60,10 @@ enum class Op : uint16_t {
     // frame (~tens of KB). Player replays with SDL_RenderGeometry.
     SpriteRun = 32,
     // Framing markers for measurement / reconnect
-    FrameBegin = 30,   // u32 seq, u8 flags (bit0 = cold/full state)
+    // FrameBegin: u32 seq, u8 flags (bit0 = cold/full state),
+    //             u16 contentW, u16 contentH (server swapchain pixels;
+    //             player letterboxes NDC to this aspect — no stretch).
+    FrameBegin = 30,
     FrameEnd = 31,
 };
 
@@ -125,7 +128,10 @@ class Writer {
 public:
     explicit Writer(Cache* serverCache = nullptr);
 
-    void frameBegin(uint32_t seq, bool fullState);
+    // contentW/H: server framebuffer size (aspect for player letterbox).
+    // Zero dimensions are written as-is; player falls back to window aspect.
+    void frameBegin(uint32_t seq, bool fullState,
+                    uint16_t contentW = 0, uint16_t contentH = 0);
     void frameEnd();
 
     // Emit Blob or BlobRef depending on whether `peerHas` / local cache says
@@ -275,7 +281,9 @@ H264Estimate estimateH264FullRes(int width, int height);
 
 class LiveCapture {
 public:
-    void begin(uint32_t seq, Cache* serverCache);
+    // contentW/H = server swapchain size (pixels) for player aspect-fit.
+    void begin(uint32_t seq, Cache* serverCache,
+               uint16_t contentW, uint16_t contentH);
     // Ensure MakeImage has been emitted for this sokol image id (once per
     // session via server cache + sentFull_ tracking).
     void noteImage(uint32_t imageId, uint16_t w, uint16_t h,

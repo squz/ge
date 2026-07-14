@@ -62,7 +62,8 @@ public:
     void onCapturedFrame(const std::uint8_t* px, int w, int h);
 
     // 🎯T128 command-stream: arm/flush LiveCapture around onRender.
-    void onFrameBegin();
+    // contentW/H = server swapchain pixels (for player aspect-fit letterbox).
+    void onFrameBegin(int contentW, int contentH);
     void onFrameEnd();
 
     // When false, DirectRenderHost skips GPU framebuffer readback.

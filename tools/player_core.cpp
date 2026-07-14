@@ -134,7 +134,7 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
 
         bool got = false;
         if (wire.pollCmdFrame(cmdFrame)) {
-            render.beginCmdFrame();
+            render.beginCmdFrame(cmdFrame.contentW, cmdFrame.contentH);
             for (const auto& img : cmdFrame.images) {
                 ge::PlayerRender::CmdImageUpload u;
                 u.id = img.id;

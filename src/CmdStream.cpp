@@ -119,10 +119,13 @@ void Writer::putOp(Op op) {
     ++stats_.opCount;
 }
 
-void Writer::frameBegin(uint32_t seq, bool fullState) {
+void Writer::frameBegin(uint32_t seq, bool fullState,
+                        uint16_t contentW, uint16_t contentH) {
     putOp(Op::FrameBegin);
     putU32(seq);
     putU8(fullState ? 1 : 0);
+    putU16(contentW);
+    putU16(contentH);
 }
 
 void Writer::frameEnd() { putOp(Op::FrameEnd); }
@@ -517,10 +520,12 @@ bool lookupImagePixels(uint32_t imageId, uint16_t& w, uint16_t& h,
     return true;
 }
 
-void LiveCapture::begin(uint32_t seq, Cache* serverCache) {
+void LiveCapture::begin(uint32_t seq, Cache* serverCache,
+                        uint16_t contentW, uint16_t contentH) {
     cache_ = serverCache;
     w_ = std::make_unique<Writer>(serverCache);
-    w_->frameBegin(seq, /*fullState*/ imagesEmitted_.empty());
+    w_->frameBegin(seq, /*fullState*/ imagesEmitted_.empty(),
+                   contentW, contentH);
     active_ = true;
     runCount_ = 0;
 }

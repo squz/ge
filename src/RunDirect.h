@@ -33,7 +33,8 @@ struct ServerHook {
     std::function<void(const std::uint8_t*, int, int)> sink;
     std::atomic<bool>* active = nullptr;
     std::function<void()> onStop;
-    std::function<void()> beforeRender;
+    // contentW/H = host swapchain pixels (for GE2S FrameBegin aspect letterbox).
+    std::function<void(int contentW, int contentH)> beforeRender;
     std::function<void()> afterRender;
     std::atomic<bool>* capturePixels = nullptr; // null ⇒ capture when active
 };
