@@ -1,7 +1,8 @@
 # Command-Stream Transport — a draw-call rung above video streaming
 
 **Status:** Proposed (spike-pending). Captures a design conversation, 2026-06-29;
-revised 2026-07-05 for the negotiated-ladder / spyder-relay model.
+revised 2026-07-05 for the negotiated-ladder / spyder-relay model;
+revised 2026-07-14 for **pass-through + cache MVP** (defer progressive/epoch optimisations).
 **Targets:** 🎯T128 and its subgraph (see *Target subgraph* below).
 **Supersedes in spirit:** the original Dawn-wire draw-call player documented in
 `docs/ge-remote.md` (now historical).
@@ -51,12 +52,62 @@ Command-stream (sokol) economics, restated:
 
 | Phase | Cost shape |
 |-------|------------|
-| First connect / cold cache | Sizable: shaders + assets (mip-first). **Cacheable** on the player. |
-| Steady state / warm reconnect | Near-zero when the scene is stable; scales with *change rate*, not resolution. |
+| First connect / cold cache | Sizable: full shaders + assets (pass-through). **Cacheable** on the player. |
+| Steady state / warm reconnect | Near-zero when assets are stable; draw lists only. |
+| Large asset create/modify | One-time full-bytes hit (accepted; rare in practice). |
 | H.264 (any reconnect) | Flat floor: keyframe cadence × resolution, even for a still scene. |
 
-Spike 🎯T128.2 must measure those three against real Wi-Fi (not only loopback)
-before committing to T128.3–T128.6. H.264 remains the permanent baseline rung.
+Spike 🎯T128.2 measures pass-through + cache against real Wi-Fi. Progressive /
+epoch optimisations stay parked until the create-tax is proven painful.
+H.264 remains the permanent baseline rung.
+
+
+## MVP model — pass-through + cache (2026-07-14)
+
+**Decision:** ship a *simple* command-stream first. Do not build the
+priority-class / epoch / coarse-mip-first machinery up front.
+
+### What the MVP is
+
+1. **Pass-through.** Intercept `sg_*` (and thin ge framing) on the server via
+   the T107 dispatch table, serialise POD descriptors + resource payloads, and
+   replay them on the player. No reordering, no drop classes, no deferred LOD.
+2. **Content-addressed cache on the player.** Large payloads (`sg_make_image`,
+   buffers, shader bytecode, …) are keyed by content hash. On hit, the wire
+   carries a short reference; on miss, full bytes. Cache is durable across
+   reconnects/sessions on the device.
+3. **Accept the create/update tax.** When a large asset is first created or its
+   bytes change, the session pays full wire cost once. In the dev-preview loop
+   that is rare enough that progressive delivery and epoch barriers are
+   optimisations, not requirements.
+
+### What the MVP is not
+
+| Deferred (was in earlier design) | Why deferred |
+|----------------------------------|--------------|
+| Ephemeral / durable-required / durable-refinement classes + epoch barriers (T128.3) | Pass-through is ordered and complete; backpressure can drop *whole frames* later if measured |
+| Coarse-mip-first progressive textures (T128.4) | Full texture on first miss is fine if create/modify is rare |
+| Recipe verbs / SVG-on-wire (T128.7) | Flatten to sokol on the server for MVP |
+| Block-compressed delayed LOD (T128.8) | Already declined for memory reasons |
+
+The longer sections below (*Transport model — three priority classes*,
+*Resource delivery*, *Asset taxonomy*) remain as **optional upgrade path**
+after the spike proves pass-through + cache is enough (or shows a specific
+create-tax problem).
+
+### Spike implications (🎯T128.2)
+
+Measure against H.264 on Wi-Fi:
+
+- Cold connect (empty cache): time + bytes for first useful frame
+- Warm reconnect: expect *mostly cache hits* + tiny draw-list traffic
+- Steady state with little asset churn: per-frame cost ≈ draw commands only
+- Deliberate large asset change: one-time spike (document; do not optimise away yet)
+
+Go if warm/steady command-stream beats full-res H.264 OTA by a clear margin
+even with occasional create-tax. No-go only if pass-through draw lists alone
+are still too heavy, or create-tax is the common case (unlikely for tiltbuggy/
+esfera-class content).
 
 ## Product context — this is (mostly) the dev/preview loop
 
@@ -81,9 +132,9 @@ the rest are handled below:
 - **Shaders are per-backend bytecode** (`sg_make_shader`). The player already
   advertises its backend (VK vs GLES, picked per device) — so "ship the right
   shader variant" reuses the existing negotiation. Shaders are KB, sent once.
-- **Assets must live on the player** (`sg_update_image`/`sg_make_image`). Handled
-  by progressive delivery + a content-addressed cache (see *Resource delivery*,
-  *Caching*).
+- **Assets must live on the player** (`sg_update_image`/`sg_make_image`). MVP:
+  pass-through full bytes + content-addressed player cache (see *MVP model*,
+  *Caching*). Progressive mip delivery is an optional later upgrade.
 - **Bandwidth is content-dependent.** Video's cost is *flat* (a keyframe-cadence ×
   resolution floor paid even on a still scene); command-stream cost *starts near
   zero and rises with per-frame change rate*. There is a crossover; ge's content
