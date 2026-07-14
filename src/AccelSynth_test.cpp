@@ -67,13 +67,21 @@ TEST_CASE("AccelSynth: absolute motion fallback when xrel/yrel are zero") {
 
     REQUIRE(synth.handle(keyShift(true)));
     // First absolute sample seeds the baseline (no delta yet).
-    REQUIRE(synth.handle(motionAbs(10.f, 20.f)));
+    CHECK(synth.handle(motionAbs(10.f, 20.f)));
     CHECK(emitted.empty());
     // Second sample → dx=30, dy=0.
-    REQUIRE(synth.handle(motionAbs(40.f, 20.f)));
+    CHECK(synth.handle(motionAbs(40.f, 20.f)));
     REQUIRE(emitted.size() == 1);
     CHECK(synth.current().x == doctest::Approx(30.f));
     CHECK(synth.current().y == doctest::Approx(0.f));
+}
+
+TEST_CASE("AccelSynth: motion without Shift is not consumed") {
+    AccelSynth synth;
+    std::vector<SDL_Event> emitted;
+    synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
+    CHECK_FALSE(synth.handle(motionRel(50.f, 0.f)));
+    CHECK(emitted.empty());
 }
 
 TEST_CASE("AccelSynth: non-Shift events pass through") {
