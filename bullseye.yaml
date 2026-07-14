@@ -277,7 +277,7 @@ targets:
     status: set_aside
     value: 13.0
     cost: 20.0
-    set_aside_reason: 'Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.'
+    set_aside_reason: Cutover gates closed in pigeon v0.30.0 (T48/T50/T52/T53/T57). Still parked until explicit reopen — residual pigeon polish T43/T44.4/T55/T58 is non-blocking. Streaming stays on WebSocket/spyder until T11 is reopened.
     acceptance:
     - The player connects to the game server via pigeon's relay (Register/Connect or LAN bypass) — not via a WebSocket through ged. Wire framing is pigeon's stream + datagram protocol; payloads are ciphertext at the relay layer. ged's role is reduced to (a) issuing PairingArtifacts via pigeon.PairingHost so newly-installed players can establish first-contact with a server, and (b) the dashboard. ged is no longer on the runtime data path between server and player.
     - All session traffic is end-to-end encrypted via pigeon's X25519 ECDH + AES-256-GCM channel. Neither ged nor the relay can read plaintext. The QR scan that today carries a server name + port now carries a pigeon PairingArtifact (base64url) — one-time-use, TTL-bound (default 30 days), persistable on the player so reconnects skip the ceremony.
@@ -915,15 +915,17 @@ targets:
     discovered: 2026-06-28
   T128:
     name: 'ge streaming negotiates the most advanced mutually-supported protocol: H.264 video as the retained baseline, a command stream (draw calls) as the top rung'
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 20.0
-    set_aside_reason: 'Plateau P: H.264 via spyder is the closed stream story; command-stream ladder is a post-P optional spike. Design note T128.1 remains achieved history.'
     acceptance:
     - After a player connects, server and player FEATURE-DETECT the player's rendering capability; a SOKOL-CAPABLE player (native) may select the command-stream transport (serialized sokol commands + ge framing), while a non-sokol player (the browser) uses H.264. The player is sokol-AWARE, not sokol-REQUIRED — no player is excluded.
     - In command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec encode; H.264 remains the universal fallback (browser, non-sokol players, and high-temporal-churn content). spyder's relay carries the command stream unchanged (payload-agnostic) — no ged.
     - tiltbuggy runs end-to-end over the command-stream transport to a sokol player with parity to its H.264-streamed appearance. The web MVP supports H.264 only (a sokol-in-browser port is explicitly out of scope).
-    context: 'UN-PARKED 2026-07-05. Parked earlier on a flawed premise (browser can''t render sokol → T128 obsolete under a browser-centric player). User''s correction: make the player OPTIONALLY sokol-aware, feature-detected AFTER connecting to the server — command-stream for sokol-capable native players, H.264 the universal fallback. This is T128''s original per-session / H.264-fallback design plus a capability handshake; it excludes no player. Rationale for an H.264-only web MVP: the browser player usually runs on the SAME HOST as the server (localhost / same-machine factory instance), where the command-stream''s bandwidth advantage over H.264 is negligible — so the web loses nothing by skipping sokol, and a ge+sokol→WASM/WebGL port stays out of scope. Sequencing: land the H.264 streaming data plane first (spyder T92.2), then command-stream as the native crispness / no-encode optimization. Children T128.3–T128.6 (the MVP set) revive with this framing.'
+    context: |-
+      REOPENED 2026-07-14. Driver is OTA full-resolution bandwidth: H.264 at full res cannot be delivered efficiently over the air on the devices we care about (measured Pixel / tiled-stream work). Command-stream (sokol sg_* + ge verbs) is the alternative rung: sizable but *cacheable* upfront asset/shader hit, then negligible per-frame cost for ge's geometrically simple content — vs video's flat keyframe×resolution floor every reconnect. H.264 remains the permanent universal baseline (browser, non-sokol, high-churn). Native player is sokol-aware via post-connect feature detect; web MVP stays H.264-only (often same-host as server). Design: docs/command-stream-transport.md. Spike-then-decide via T128.2 before T128.3–T128.6 fan-out.
+
+      Prior: UN-PARKED 2026-07-05 then Plateau-P set_aside. Correction: player optionally sokol-aware, not sokol-required.
     depends_on:
     - T128.3
     - T128.4
@@ -945,25 +947,23 @@ targets:
     achieved: 2026-06-29
   T128.2:
     name: A command-stream spike measures the transport against video and yields a go/no-go
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - A serializing null sokol backend on the server and a minimal replay loop on the player, behind a session-negotiated capability, round-trip one tiltbuggy frame with the shipping video path untouched.
     - Time-to-first-coarse-frame (the headline metric), bandwidth vs the H.264 stream on tiltbuggy (diagnostic spin + parallax + button churn) and esfera, reconnect cost (warm vs cold asset cache), and flow-control under a janky/slow player are measured and recorded in the design note.
     - A go/no-go decision on the implementation fan-out (T128.3–T128.6) is recorded in docs/command-stream-transport.md.
-    context: Spike-then-decide gate. The serializing backend binds g_ge_sg_api directly via the T107 mechanism (does not hard-depend on T109's full composable-layer framework, though it is the production instance of T109's capture layer). The dispatch shim isolates the experiment from the shipping video path. Only measurement can settle the crossover (where ge's real content lands on bandwidth) and the flow-control behaviour under backpressure.
+    context: 'REOPENED 2026-07-14 with T128. Spike-then-decide gate for the command-stream rung. Headline comparison is OTA full-res H.264 vs command-stream on real Wi-Fi: time-to-first-coarse-frame, steady-state bandwidth (tiltbuggy churn + esfera), reconnect cost warm vs cold player cache (expect large first connect, tiny subsequent frames / reconnects against warm cache). Serializing null sokol backend binds g_ge_sg_api (T107); shipping video path untouched. Go/no-go recorded in docs/command-stream-transport.md before unblocking T128.3–T128.6 implementation.'
     depends_on:
     - T128.1
     origin: manual
     discovered: 2026-06-29
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Per-frame draw lists (class A) are droppable under backpressure; resource creation + coarse mips + dynamic-texture updates + geometry/shaders/pipelines (class B) are ordered and never dropped; finer mips and later-frame resources (class C) are deferrable with zero correctness impact.
     - Frames unblock on a class-B epoch barrier at coarse detail and never gate on class C; required-channel delivery is ordered by the frame-1 working set so startup lag is independent of total content size.
@@ -975,10 +975,9 @@ targets:
     discovered: 2026-06-29
   T128.4:
     name: Textures stream coarse-mip-first behind stable handles; geometry ships whole
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Textures are delivered as raw-RGBA mip levels, coarsest-first, populated behind a stable sg_image handle so the game and the recorded draw commands are unaware of the deferred refinement (no block compression in MVP).
     - immutable images are LOD-eligible; dynamic/stream images deliver at full rate — classified from sg_image_desc.usage with no game cooperation.
@@ -991,10 +990,9 @@ targets:
     discovered: 2026-06-29
   T128.5:
     name: The transport has a content-addressed player transmission cache and a server computation-memoization cache
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - The player caches delivered artifacts by content hash and skips re-receiving them across sessions; reconnect against a warm cache transfers only the delta (reactive hit/miss baseline, reviving the Dawn-era hash-probe protocol over the sokol command stream).
     - The server memoizes expensive derivations (mip-gen, per-backend format/transcode) keyed by (source + derivation params), computed once and amortized across all players of a backend class; static assets are served from the offline bake (TextureEncoder/.getex) so the server cache is warm at boot.
@@ -1006,10 +1004,9 @@ targets:
     discovered: 2026-06-29
   T128.6:
     name: A negotiated command-stream session runs the server with no per-session GPU-render or encode work (encoder retained)
-    status: set_aside
+    status: identified
     value: 3.0
     cost: 3.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - When a session negotiates the command-stream rung, the server produces the stream through a serializing null backend and performs no GPU-render and no H.264 encode for that session.
     - The H.264 encoder and headless-GPU-render path remain compiled into ge and are used for sessions that negotiate the video baseline and for the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff) — they are NOT removed.
@@ -1052,10 +1049,9 @@ targets:
     discovered: 2026-06-29
   T128.9:
     name: Player and server negotiate the most advanced mutually-supported protocol; the broker relays bytes agnostically
-    status: set_aside
+    status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - 'On connect, player and server exchange capability advertisements and select the highest common protocol rung: H.264 video (universal baseline) or command stream (both ends must support it; the server must render through ge''s serializable sokol path).'
     - The negotiation is in-band and end-to-end; the broker (ged today, spyder as it absorbs the role) relays the bytes without inspecting the protocol, rides the same byte pipe H.264 uses, and is compatible with an E2E-encrypted relay (T11) — so adding the command-stream rung requires no broker-side change.
@@ -1755,6 +1751,28 @@ targets:
     origin: 'deferred from PR #11 (subsystem split)'
     discovered: 2026-04-16
     achieved: 2026-04-17
+  T153:
+    name: ge::drawSolid API is reviewed and either confirmed or redesigned
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'A short design note records the review outcome: keep ge::drawSolid as shipped, or replace/reshape it.'
+    - Review explicitly weighs whether a one-off free function for this shader is the right surface vs a more general primitive (e.g. material/pass/pipeline helper, mesh handle type, or shared layout with ge::debug / Sprite).
+    - Review explicitly weighs how triangle meshes are specified (raw sg_buffer + byte offsets + MeshVertex stride + base_element/nIdx + cull enum) vs alternatives (ge::Mesh wrapper, span-of-indices, bound pipeline state, etc.).
+    - If redesign is chosen, a follow-on target captures the migration; if keep-as-is, STABILITY/agents-guide wording is tightened so the chosen shape is intentional, not provisional.
+    - yourworld2 carousel consumer remains valid either by keeping the current call site or a thin adapter after redesign — no silent breakage without a migration path.
+    context: 'Shipped in ge v0.75.0 for yourworld2 carousel solid-white silhouettes (unlit mesh fill). Authoring intent was a generic MVP VS + flat-color FS out-of-the-box capability. Current API is ge::drawSolid(mvp, vbuf, vbuf_offset, vertex_stride, ibuf, base_element, num_elements, color, cull) with a fixed MeshVertex 20-byte stride and three cull pipelines. User is not convinced a custom function for this one shader and this particular mesh-spec approach is correct; keep the implementation for now and review the API shape deliberately. Origin: yourworld2 dual-oracle / carousel sil work.'
+    tags:
+    - api
+    - rendering
+    - solid
+    - mesh
+    - design-review
+    - yourworld2-audit
+    - sokol
+    origin: yourworld2 carousel sils / ge v0.75.0 drawSolid
+    discovered: 2026-07-13
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
