@@ -272,10 +272,33 @@ std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     if (!i_->hasPlayer.load() || !px || w <= 0 || h <= 0) return;
-    // Command-stream sessions skip H.264 encode (T128.6 path). Full sokol
-    // capture is still T128.2 residue; until then the spike frame on negotiate
-    // is the GE2S proof, and we do not burn VT on a player that won't use it.
-    if (i_->transport.load() == wire::kTransportCommandStream) return;
+
+    // 🎯T128 runnable path: GE2S Present of the captured framebuffer with
+    // LZ4 + content-addressed cache. Works with the existing SDL player
+    // (no sokol on the player). Full draw-list remoting remains T128.2.1/2.2.
+    if (i_->transport.load() == wire::kTransportCommandStream) {
+        const size_t raw = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+        cmdstream::Writer wr(&i_->cmdCache);
+        const uint32_t s = i_->seq.fetch_add(1);
+        wr.frameBegin(s, /*fullState*/ false);
+        // Capture sink contract is RGBA8 (SokolContext swizzles Metal BGRA→RGBA).
+        // Tag Present as RGBA so the player swaps to BGRA for SDL (same as the
+        // H.264 path's decode output). Wrong tag → R↔B swap (blue dirt).
+        wr.present(static_cast<uint16_t>(w), static_cast<uint16_t>(h),
+                   cmdstream::kPresentRGBA8, px, raw);
+        wr.frameEnd();
+        auto payload = wr.take();
+        i_->sendWire(wire::kCommandStreamMagic, payload.data(),
+                     static_cast<uint32_t>(payload.size()));
+        if (s < 3 || (s % 60) == 0) {
+            SPDLOG_INFO("ServerSession: GE2S Present seq={} {}x{} wire={}B "
+                        "full_blobs={} refs={} full_blob_bytes={}",
+                        s, w, h, payload.size(),
+                        wr.stats().fullBlobCount, wr.stats().refBlobCount,
+                        wr.stats().fullBlobBytes);
+        }
+        return;
+    }
 
     // Encode at the CAPTURED frame's actual dimensions (StreamClient's original
     // behaviour): the frame we hand VideoToolbox is exactly what the swapchain
