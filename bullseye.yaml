@@ -943,7 +943,7 @@ targets:
     achieved: 2026-06-29
   T128.2:
     name: A pass-through + cache command-stream spike measures against H.264 OTA and yields go/no-go
-    status: identified
+    status: converging
     value: 8.0
     cost: 5.0
     acceptance:
@@ -951,7 +951,7 @@ targets:
     - 'Player content-addressed cache: cold connect pays full asset bytes; warm reconnect shows hash-hit path with draw-list-only traffic.'
     - 'Measured on Wi-Fi (not only loopback): cold time-to-first-frame, warm reconnect bytes, steady-state bandwidth under tiltbuggy churn vs full-res H.264; one deliberate large-asset-change trial documents the create-tax.'
     - 'Go/no-go recorded in docs/command-stream-transport.md: go means pass-through+cache is enough to beat OTA H.264 for ge content without building epoch/mip-first first.'
-    context: Spike for the simplified MVP. Do not implement T128.3/T128.4 in the spike. Cache is the only optimisation layer.
+    context: 'Spike for pass-through+cache MVP. Apple has no g_ge_sg_api (SOKOL_IMPL inline) — capture uses sg_install_trace_hooks; a null serialising ge_sg_api is Android/dispatch-only (T128.6). Cache is the only optimisation layer. 2026-07-14: executing with spyder T97 (byte-agnostic multi-magic oracle).'
     depends_on:
     - T128.1
     origin: manual
