@@ -15,10 +15,12 @@
 
 #include <ge/SessionHost.h>
 #include <ge/ViewerMetrics.h>
+#include <sqlpipe.h>
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 
 namespace ge {
 
@@ -43,6 +45,8 @@ struct ServerHook {
     std::function<void()> afterRender;
     std::atomic<bool>* capturePixels = nullptr; // null ⇒ capture when active
     ViewerMetricsStore* viewer = nullptr;
+    // 🎯T154: after host Context is built, bind working db for GE2T apply.
+    std::function<void(std::shared_ptr<sqlpipe::Database>)> bindDb;
 };
 
 // The direct run loop, optionally driving server mode via `server` (null = the

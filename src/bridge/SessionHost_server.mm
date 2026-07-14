@@ -19,6 +19,7 @@
 
 #include <ge/Protocol.h>
 #include <ge/SessionHost.h>
+#include <sqlpipe.h>
 
 #include <spdlog/spdlog.h>
 
@@ -104,6 +105,9 @@ void runServer(Factory factory, const SessionHostConfig& config) {
     hook.beforeRender = [server](int w, int h) { server->onFrameBegin(w, h); };
     hook.afterRender = [server] { server->onFrameEnd(); };
     hook.onStop = [server] { server->stop(); };
+    hook.bindDb = [server](std::shared_ptr<sqlpipe::Database> db) {
+        server->setWorkingDb(std::move(db));
+    };
 
     SPDLOG_INFO("runServer: console stream host (not a desktop game window)");
     // runDirectHosted constructs DirectRenderHost (SDL_Init / NSApp); console

@@ -92,6 +92,11 @@ struct PlayerWireBridge::Impl {
     // 🎯T128 — content-addressed resource cache for GE2S frames.
     cmdstream::Cache cmdCache;
     uint8_t transport = wire::kTransportH264;
+
+    // 🎯T154 GE2T: last server→player durable dump (pollGe2tSnapshot).
+    std::mutex ge2tMutex;
+    std::vector<uint8_t> pendingGe2t;
+    bool pendingGe2tReady = false;
 };
 
 PlayerWireBridge::PlayerWireBridge(Config config)
@@ -216,6 +221,28 @@ bool PlayerWireBridge::sendLifecycle(const wire::ViewerLifecycle& life) {
     std::memcpy(buf.data(), &hdr, sizeof(hdr));
     std::memcpy(buf.data() + sizeof(hdr), &msg, sizeof(msg));
     i_->conn->sendBinary(buf.data(), buf.size());
+    return true;
+}
+
+bool PlayerWireBridge::sendGe2tSnapshot(const std::vector<uint8_t>& sqliteDump) {
+    if (!i_->conn || !i_->conn->isOpen() || sqliteDump.empty()) return false;
+    wire::MessageHeader hdr{};
+    hdr.magic = wire::kSqlpipeMsgMagic;
+    hdr.length = static_cast<uint32_t>(sqliteDump.size());
+    std::vector<uint8_t> buf(sizeof(hdr) + sqliteDump.size());
+    std::memcpy(buf.data(), &hdr, sizeof(hdr));
+    std::memcpy(buf.data() + sizeof(hdr), sqliteDump.data(), sqliteDump.size());
+    i_->conn->sendBinary(buf.data(), buf.size());
+    SPDLOG_INFO("PlayerWireBridge: GE2T snapshot sent ({} bytes)", sqliteDump.size());
+    return true;
+}
+
+bool PlayerWireBridge::pollGe2tSnapshot(std::vector<uint8_t>& outDump) {
+    std::lock_guard<std::mutex> lock(i_->ge2tMutex);
+    if (!i_->pendingGe2tReady) return false;
+    outDump = std::move(i_->pendingGe2t);
+    i_->pendingGe2t.clear();
+    i_->pendingGe2tReady = false;
     return true;
 }
 
@@ -599,6 +626,16 @@ bool PlayerWireBridge::pump() {
             SPDLOG_INFO("PlayerWireBridge: server assigned");
         } else if (magic == wire::kSessionEndMagic) {
             SPDLOG_INFO("PlayerWireBridge: session ended");
+        } else if (magic == wire::kSqlpipeMsgMagic &&
+                   data.size() > sizeof(wire::MessageHeader)) {
+            // 🎯T154 GE2T: server→player durable push (full sqlite dump).
+            const size_t n = data.size() - sizeof(wire::MessageHeader);
+            std::lock_guard<std::mutex> lock(i_->ge2tMutex);
+            i_->pendingGe2t.assign(
+                data.begin() + static_cast<std::ptrdiff_t>(sizeof(wire::MessageHeader)),
+                data.end());
+            i_->pendingGe2tReady = true;
+            SPDLOG_INFO("PlayerWireBridge: GE2T snapshot received ({} bytes)", n);
         }
         // Unknown magics are ignored (relay is agnostic; player is tolerant).
     }

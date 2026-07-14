@@ -13,6 +13,8 @@
 #include <ge/PlayerWireBridge.h>
 #include <ge/Protocol.h>
 #include <ge/Signal.h>
+#include <ge/StreamHostPolicy.h>
+#include <sqlpipe.h>
 
 // Immersive is engine-internal (src/); player applies SessionConfig.immersive
 // on the viewer the same way DirectRenderHost does on a direct app.
@@ -22,6 +24,8 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
+#include <fstream>
+#include <vector>
 
 int playerCore(const std::string& host, int port, const std::string& serverName) {
     ge::installSignalHandlers();
@@ -92,6 +96,26 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
                     di.width, di.height, di.pixelRatio, di.deviceClass,
                     di.safeX, di.safeY, di.safeW, di.safeH,
                     di.drawSafeX, di.drawSafeY, di.drawSafeW, di.drawSafeH);
+    }
+
+    // 🎯T154 GE2T: player-authoritative durable db. Open the glass-side store
+    // and seed the server's :memory: working set so reconnect restores state.
+    std::string playerDbPath = ":memory:";
+    if (char* pref = SDL_GetPrefPath("squz", "ge-player")) {
+        playerDbPath = ge::durableDbPathForPlayer("squz", "ge-player", pref);
+        SDL_free(pref);
+    }
+    sqlpipe::Database playerDb(playerDbPath);
+    {
+        std::vector<uint8_t> dump;
+        if (ge::dumpSqliteMain(playerDb.handle(), dump) && !dump.empty()) {
+            wire.sendGe2tSnapshot(dump);
+            SPDLOG_INFO("GE2T: seeded server from player durable db {} ({} bytes)",
+                        playerDbPath, dump.size());
+        } else {
+            SPDLOG_INFO("GE2T: player durable db empty or dump failed ({})",
+                        playerDbPath);
+        }
     }
 
     // Mid-session orientation/resize only — re-measure the live surface.
@@ -165,6 +189,20 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
 
         const uint64_t tPump0 = SDL_GetPerformanceCounter();
         if (!wire.pump()) break;
+        // 🎯T154 GE2T: server→player durable push (detach / refresh).
+        {
+            std::vector<uint8_t> push;
+            if (wire.pollGe2tSnapshot(push) && !push.empty() &&
+                playerDbPath != ":memory:") {
+                std::ofstream out(playerDbPath, std::ios::binary | std::ios::trunc);
+                if (out) {
+                    out.write(reinterpret_cast<const char*>(push.data()),
+                              static_cast<std::streamsize>(push.size()));
+                    SPDLOG_INFO("GE2T: wrote durable snapshot {} ({} bytes)",
+                                playerDbPath, push.size());
+                }
+            }
+        }
         const uint64_t tPump1 = SDL_GetPerformanceCounter();
 
         bool got = false;

@@ -64,6 +64,7 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
         host.setServerFrameSink(server->sink, server->active,
                                 server->capturePixels);
         host.setViewerMetricsStore(server->viewer);
+        if (server->bindDb) server->bindDb(host.context().db());
     }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same

@@ -7,6 +7,7 @@
 
 #include <ge/CmdStream.h>
 #include <ge/Protocol.h>
+#include <ge/StreamHostPolicy.h>
 #include <ge/VideoEncoder.h>
 #include <ge/ViewerMetrics.h>
 #include <ge/WebSocketClient.h>
@@ -23,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <span>
 #include <thread>
 #include <vector>
 
@@ -85,6 +87,11 @@ struct ServerSession::Impl {
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
     // the server surface — never resized from DeviceInfo.
     ViewerMetricsStore viewer{};
+
+    // 🎯T154 GE2T: host Context::db() working set (:memory: under stream).
+    // Player dumps seed on attach; we push back on detach for durable store.
+    std::shared_ptr<sqlpipe::Database> workingDb;
+    std::mutex workingDbMu;
 
     // 🎯T128.9 — negotiated transport. Defaults H.264; upgraded when the
     // player advertises kCapCommandStream and the server opts in
@@ -151,6 +158,19 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
 
 void ServerSession::Impl::closeWire() {
     if (!hasPlayer.exchange(false)) return;
+    // 🎯T154 GE2T: push working set to player durable store before teardown.
+    {
+        std::lock_guard<std::mutex> lk(workingDbMu);
+        if (workingDb && wire && wire->isOpen()) {
+            std::vector<uint8_t> dump;
+            if (dumpSqliteMain(workingDb->handle(), dump) && !dump.empty()) {
+                sendWire(wire::kSqlpipeMsgMagic, dump.data(),
+                         static_cast<uint32_t>(dump.size()));
+                SPDLOG_INFO("ServerSession: GE2T snapshot pushed ({} bytes)",
+                            dump.size());
+            }
+        }
+    }
     if (encoder) {
         encoder->flush();
         encoder.reset();
@@ -247,6 +267,22 @@ void ServerSession::Impl::inputLoop() {
                 break;
             }
             SPDLOG_INFO("ServerSession: viewer lifecycle kind={}", life.kind);
+        } else if (magic == wire::kSqlpipeMsgMagic &&
+                   data.size() > sizeof(wire::MessageHeader)) {
+            // 🎯T154 GE2T: player → server durable seed into :memory: working set.
+            const auto* payload = reinterpret_cast<const uint8_t*>(
+                data.data() + sizeof(wire::MessageHeader));
+            const size_t n = data.size() - sizeof(wire::MessageHeader);
+            std::lock_guard<std::mutex> lk(workingDbMu);
+            if (workingDb && n > 0 &&
+                loadSqliteMain(workingDb->handle(),
+                               std::span<const uint8_t>(payload, n))) {
+                workingDb->notify();
+                SPDLOG_INFO("ServerSession: GE2T snapshot applied ({} bytes)", n);
+            } else {
+                SPDLOG_WARN("ServerSession: GE2T snapshot apply failed "
+                            "(db={} n={})", workingDb ? 1 : 0, n);
+            }
         }
     }
 }
@@ -332,6 +368,13 @@ bool ServerSession::active() const { return i_->hasPlayer.load(); }
 std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
 
 ViewerMetricsStore* ServerSession::viewerMetrics() { return &i_->viewer; }
+
+void ServerSession::setWorkingDb(std::shared_ptr<sqlpipe::Database> db) {
+    std::lock_guard<std::mutex> lk(i_->workingDbMu);
+    i_->workingDb = std::move(db);
+    SPDLOG_INFO("ServerSession: GE2T working db bound ({})",
+                i_->workingDb ? "ok" : "null");
+}
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     if (!i_->hasPlayer.load() || !px || w <= 0 || h <= 0) return;

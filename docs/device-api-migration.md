@@ -207,7 +207,7 @@ resulting glass, not a pre-init snapshot that needs patching.
 | Content aspect matches viewer under stream | **shipped** (no letterbox gutters) |
 | Content-surface fullRect docs | **shipped** |
 | Stream server :memory: db (not PrefPath) | **shipped** (`durableDbPathForHost`) |
-| GE2T full player db sync | residual (ephemeral server satisfies “not Mac PrefPath”) |
+| GE2T full player db sync | **snapshot rung shipped** (player durable PrefPath ↔ server :memory: attach seed + detach push); richer Peer protocol residual |
 | Viewer lifecycle GE2L + audio/back/memory inject | **shipped** |
 | Parallax under stream | **{0,0}** (documented) |
 | make game / make server products | **shipped** in Module.mk |

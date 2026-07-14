@@ -38,7 +38,7 @@ set(SOURCES
     ${GE_ROOT}/tools/android/app/src/main/cpp/player_sprite_stub.cpp
     ${GE_ROOT}/vendor/src/sqlite3.c
     ${GE_ROOT}/vendor/src/sqlpipe.cpp
-    ${GE_ROOT}/vendor/src/sqlift.cpp
+    # sqlift is bundled inside sqlpipe.cpp — do not also link sqlift.cpp
     ${GE_ROOT}/vendor/src/lz4.c
     ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/arena.c
     ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/liteparser.c
