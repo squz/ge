@@ -138,11 +138,21 @@ source.
 Developers who edit ge itself can usually choose one of two local
 iteration paths:
 
-- `make prebuild-libge` — refresh committed `libge.a` prebuilts without
-  rebuilding vendor archives.
+- **`make ge/ios` / `ge/ios-device` / `ge/android` auto-refresh** —
+  Module.mk runs `tools/ensure-prebuilt.sh` first. If
+  `verify-prebuilds.py` says the platform archive is stale, make rebuilds
+  `libge.a` (libge-only, then full if needed) before xcodebuild/gradle.
+  You should not need to remember `make prebuild-libge` for routine
+  engine edits that ship through the mobile package path.
+- `make prebuild-libge` — manual refresh of committed `libge.a` prebuilts
+  without rebuilding vendor archives (still useful before a commit of
+  prebuilts alone).
 - iOS project generator `engine_mode: :source` — compile ge sources
   directly into a local app target while still linking vendor prebuilts.
   Keep `engine_mode: :prebuilt` for release/CI projects.
+
+Escape hatch (do not use casually): `GE_SKIP_ENSURE_PREBUILT=1 make ge/ios`
+skips the check and will happily link a stale libge.a.
 
 Consumer CI doesn't recursively initialize ge's submodules, and doesn't
 need to.

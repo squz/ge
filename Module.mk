@@ -548,6 +548,36 @@ $(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS)
 #     and APP_NAME.
 # ────────────────────────────────────────────────
 
+# ── Prebuilt freshness (mobile packages link libge.a, not live objects) ─
+#
+# Mobile Xcode/Gradle projects link prebuilt/<platform>/libge.a. Source edits
+# do not rebuild that archive unless we force it. `tools/ensure-prebuilt.sh`
+# runs verify-prebuilds.py and auto-refreshes when stale so `make ge/ios`
+# cannot silently ship last week's AccelSynth (or anything else).
+#
+# Override: GE_SKIP_ENSURE_PREBUILT=1  (emergency only — you will get stale)
+.PHONY: ge/ensure-prebuilt-ios-sim ge/ensure-prebuilt-ios-device ge/ensure-prebuilt-android
+ge/ensure-prebuilt-ios-sim:
+	@if [ "$(GE_SKIP_ENSURE_PREBUILT)" = "1" ]; then \
+	    echo "ge: WARNING GE_SKIP_ENSURE_PREBUILT=1 — not checking prebuilt/ios-arm64-simulator"; \
+	else \
+	    $(ge)/tools/ensure-prebuilt.sh ios-arm64-simulator; \
+	fi
+
+ge/ensure-prebuilt-ios-device:
+	@if [ "$(GE_SKIP_ENSURE_PREBUILT)" = "1" ]; then \
+	    echo "ge: WARNING GE_SKIP_ENSURE_PREBUILT=1 — not checking prebuilt/ios-arm64"; \
+	else \
+	    $(ge)/tools/ensure-prebuilt.sh ios-arm64; \
+	fi
+
+ge/ensure-prebuilt-android:
+	@if [ "$(GE_SKIP_ENSURE_PREBUILT)" = "1" ]; then \
+	    echo "ge: WARNING GE_SKIP_ENSURE_PREBUILT=1 — not checking prebuilt/android-arm64"; \
+	else \
+	    $(ge)/tools/ensure-prebuilt.sh android-arm64; \
+	fi
+
 # ── Consuming app's iOS build ──────────────────────────────────────
 
 # Generate the Xcode project via build_project.rb (the xcodeproj-gem
@@ -556,7 +586,7 @@ $(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS)
 #
 # Expects ios/project.rb to exist — run `make ge/ios-init` first.
 .PHONY: ge/ios
-ge/ios: $(APP_SHADERS) $(ge/RENDER_SHADERS)
+ge/ios: ge/ensure-prebuilt-ios-sim $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
@@ -571,7 +601,7 @@ ge/ios: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 # ── Consuming app's Android build ──────────────────────────────────
 
 .PHONY: ge/android
-ge/android: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_GLES) $(ge/RENDER_SHADERS_GLES)
+ge/android: ge/ensure-prebuilt-android $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_GLES) $(ge/RENDER_SHADERS_GLES)
 	@if [ ! -d android ]; then \
 	    echo "android/ not found — run 'make ge/android-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
@@ -708,7 +738,7 @@ $(BUILD_DIR)/debug/src/%.o: src/%.cpp
 # Release cells use ge/ios-release; debug cells use ge/ios.
 
 .PHONY: ge/ios-release
-ge/ios-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
+ge/ios-release: ge/ensure-prebuilt-ios-sim $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
@@ -727,7 +757,7 @@ ge/ios-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 # build-tree path (🎯T73.2).
 
 .PHONY: ge/ios-device-release
-ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
+ge/ios-device-release: ge/ensure-prebuilt-ios-device $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
@@ -749,7 +779,7 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 # enroll a brand-new UDID — use `make ge/ios-register-devices` first (🎯T110).
 # Optional: REGISTER_DEVICES=1 make ge/ios-device  enrolls then builds.
 .PHONY: ge/ios-device
-ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
+ge/ios-device: ge/ensure-prebuilt-ios-device $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	@if [ ! -d ios ]; then \
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
