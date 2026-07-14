@@ -378,20 +378,24 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     if (i_->sokolCtx->height() > 0) i_->height = i_->sokolCtx->height();
 
     if (config.sensors & wire::kSensorAccelerometer) {
-        // Try a real sensor first (real device, Android emulator virtual sensors).
-        int count = 0;
-        SDL_SensorID* sensors = SDL_GetSensors(&count);
-        if (sensors) {
-            for (int k = 0; k < count; k++) {
-                if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
-                    i_->accelSensor = SDL_OpenSensor(sensors[k]);
-                    if (i_->accelSensor) {
-                        SPDLOG_INFO("DirectRenderHost: opened real accelerometer");
-                        break;
+        // Prefer real sensors when usable. iOS Simulator reports Core Motion
+        // as available but AccelSynth::realSensorAvailable() is false there —
+        // Shift-drag is the only practical tilt path on sim.
+        if (AccelSynth::realSensorAvailable()) {
+            int count = 0;
+            SDL_SensorID* sensors = SDL_GetSensors(&count);
+            if (sensors) {
+                for (int k = 0; k < count; k++) {
+                    if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
+                        i_->accelSensor = SDL_OpenSensor(sensors[k]);
+                        if (i_->accelSensor) {
+                            SPDLOG_INFO("DirectRenderHost: opened real accelerometer");
+                            break;
+                        }
                     }
                 }
+                SDL_free(sensors);
             }
-            SDL_free(sensors);
         }
         // Fall back to Shift-mouse synthesis.
         if (!i_->accelSensor) {

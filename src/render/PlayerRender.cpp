@@ -5,6 +5,8 @@
 #include <ge/PlayerRender.h>
 #include <ge/Protocol.h>
 
+#include "AccelSynth.h"  // setRelativeMouseForShiftDrag (stream Shift+drag)
+
 #include "../../tools/player_orientation.h"
 // Engine-internal cutout query (draw-safe = cutouts only). Stub zeros on
 // desktop/iOS player links; Android returns WindowInsets.Type.displayCutout().
@@ -198,19 +200,23 @@ void PlayerRender::enableAccelerometer() {
     // Open a real sensor if the player device has one; its events forward
     // upstream. No sensor is fine — Shift+drag forwards raw to the server,
     // whose engine-side AccelSynth synthesizes (see Impl::accelSensor note).
-    int count = 0;
-    SDL_SensorID* sensors = SDL_GetSensors(&count);
-    if (sensors) {
-        for (int k = 0; k < count; k++) {
-            if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
-                i_->accelSensor = SDL_OpenSensor(sensors[k]);
-                if (i_->accelSensor) {
-                    SPDLOG_INFO("PlayerRender: opened real accelerometer");
-                    break;
+    // iOS Simulator: Core Motion lies about availability; AccelSynth policy
+    // forces Shift+drag (realSensorAvailable() is false).
+    if (AccelSynth::realSensorAvailable()) {
+        int count = 0;
+        SDL_SensorID* sensors = SDL_GetSensors(&count);
+        if (sensors) {
+            for (int k = 0; k < count; k++) {
+                if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
+                    i_->accelSensor = SDL_OpenSensor(sensors[k]);
+                    if (i_->accelSensor) {
+                        SPDLOG_INFO("PlayerRender: opened real accelerometer");
+                        break;
+                    }
                 }
             }
+            SDL_free(sensors);
         }
-        SDL_free(sensors);
     }
     if (!i_->accelSensor) {
         SPDLOG_INFO("PlayerRender: no local accelerometer — tilt gestures "
@@ -490,6 +496,15 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
             break;
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP:
+            // Stream player is a dumb peripheral: Shift+drag must reach the
+            // server AccelSynth. On iOS Simulator, GCMouse only emits motion
+            // while relative mouse mode is on — mirror AccelSynth's policy.
+            if (!i_->accelSensor &&
+                (e.key.scancode == SDL_SCANCODE_LSHIFT ||
+                 e.key.scancode == SDL_SCANCODE_RSHIFT)) {
+                setRelativeMouseForShiftDrag(
+                    i_->window, e.type == SDL_EVENT_KEY_DOWN);
+            }
             r.upstreamEvents.push_back(e);
             break;
         case SDL_EVENT_SENSOR_UPDATE: {

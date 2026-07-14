@@ -271,6 +271,7 @@ ge/TEST_SRC = \
 	$(ge)/src/VideoRoundtrip_test.cpp \
 	$(ge)/src/CmdStream_test.cpp \
 	$(ge)/src/AccelScreen_test.cpp \
+	$(ge)/src/AccelSynth_test.cpp \
 	$(ge)/src/ViewerMetrics_test.cpp \
 	$(ge)/src/StreamDbPolicy_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))

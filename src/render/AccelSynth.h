@@ -5,9 +5,12 @@
 // mouse motion when no real accelerometer is available (desktop, iOS
 // simulator, Android emulator).
 //
-// On iOS sim and Android emu, the mouse button must also be held — the
-// platforms only deliver motion via touch synthesis, which requires a
-// "finger down". On desktop, the button is irrelevant.
+// iOS Simulator + GCMouse: motion deltas only arrive when relative mouse mode
+// is on (SDL_uikitevents.m mouseMovedHandler gates on SDL_GCMouseRelativeMode).
+// We enable relative mode on sim (and desktop); on *real* iOS devices synth is
+// off (Core Motion) so relative mode is not needed.
+// Absolute mouse / hover paths still work: if xrel/yrel are zero we fall back
+// to position deltas while Shift is held.
 //
 // Belongs to the render subsystem. DirectRenderHost (in-process — desktop
 // app, hidden-window server, sim/emu) is the sole owner: synthesis is an
@@ -58,6 +61,19 @@ struct Tilt {
     float y = 0.f;
 };
 
+// Relative mouse for Shift-drag on hosts that synthesize tilt (desktop +
+// iOS Simulator). Real iOS uses Core Motion and never needs this. Stream
+// players call this when forwarding Shift so GCMouse deltas reach the wire.
+inline void setRelativeMouseForShiftDrag(SDL_Window* window, bool shiftDown) {
+#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_SIMULATOR
+    (void)window;
+    (void)shiftDown;
+#else
+    SDL_Window* w = window ? window : SDL_GetMouseFocus();
+    if (w) SDL_SetWindowRelativeMouseMode(w, shiftDown);
+#endif
+}
+
 class AccelSynth {
 public:
     AccelSynth() = default;
@@ -78,32 +94,46 @@ public:
             const bool newShift = (e.type == SDL_EVENT_KEY_DOWN);
             if (newShift != shiftDown_) {
                 shiftDown_ = newShift;
-                // Relative mouse mode pins the cursor so drag can continue
-                // past the window edge (desktop). On iOS simulator it causes
-                // a stuck-touch indicator when the mouse button is released,
-                // and motion is delivered via touch synthesis anyway — skip.
-#if !(defined(__APPLE__) && TARGET_OS_IOS)
-                if (window_) {
-                    SDL_SetWindowRelativeMouseMode(window_, shiftDown_);
-                }
-#endif
+                // Relative mouse: desktop (edge drag) + iOS Simulator (GCMouse
+                // only reports deltas in relative mode). Real iOS uses Core
+                // Motion and never constructs AccelSynth.
+                setRelativeMouseForShiftDrag(window_, shiftDown_);
                 if (shiftDown_) {
                     // Fresh capture — start from zero, no easing.
                     tilt_ = {};
                     easing_ = false;
+                    haveLastAbs_ = false;
                 } else {
                     // Released — start easing tilt back to zero.
                     easing_ = true;
                     lastTickNs_ = 0;  // first update() initialises clock
+                    haveLastAbs_ = false;
                 }
             }
             return true;  // consume Shift
         }
 
         if (e.type == SDL_EVENT_MOUSE_MOTION && shiftDown_) {
-            tilt_.x += e.motion.xrel;
-            tilt_.y += e.motion.yrel;
-            emitSensorFromTilt();
+            float dx = e.motion.xrel;
+            float dy = e.motion.yrel;
+            // Absolute/hover paths (UIKit hover, button-drag) often report
+            // zero xrel/yrel; derive deltas from window position.
+            if (dx == 0.f && dy == 0.f) {
+                if (haveLastAbs_) {
+                    dx = e.motion.x - lastAbsX_;
+                    dy = e.motion.y - lastAbsY_;
+                }
+                lastAbsX_ = e.motion.x;
+                lastAbsY_ = e.motion.y;
+                haveLastAbs_ = true;
+            } else {
+                haveLastAbs_ = false;  // relative stream is authoritative
+            }
+            if (dx != 0.f || dy != 0.f) {
+                tilt_.x += dx;
+                tilt_.y += dy;
+                emitSensorFromTilt();
+            }
             return true;  // consume motion-while-tilting
         }
 
@@ -131,7 +161,8 @@ public:
         }
         if (autodriveActive_) {
             const uint64_t freq = SDL_GetPerformanceFrequency();
-            const float elapsed = float(SDL_GetPerformanceCounter() - autodriveStartNs_) / float(freq);
+            const float elapsed = float(SDL_GetPerformanceCounter() - autodriveStartNs_)
+                                  / float(freq);
             if (elapsed < 2.0f) {
                 // Hold a 100 px X-axis tilt while in the drive window.
                 tilt_.x = 100.f;
@@ -169,14 +200,22 @@ public:
         emitSensorFromTilt();
     }
 
-    // True if a real accelerometer is available (synthesis should NOT
-    // be active in that case). Caller should check this once at startup
+    // True if a *usable* real accelerometer is available (synthesis should
+    // NOT be active in that case). Caller should check this once at startup
     // and decide whether to wire AccelSynth in at all.
+    //
+    // iOS Simulator: Core Motion reports accelerometerAvailable=YES, but the
+    // samples are not a gameplay substitute — always treat as no real sensor
+    // so Shift-drag AccelSynth activates.
     static bool realSensorAvailable() {
+#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+        return false;
+#else
         int count = 0;
         SDL_SensorID* ids = SDL_GetSensors(&count);
         if (ids) SDL_free(ids);
         return count > 0;
+#endif
     }
 
 private:
@@ -208,6 +247,9 @@ private:
     Tilt tilt_;
     bool shiftDown_ = false;
     bool easing_  = false;
+    bool haveLastAbs_ = false;
+    float lastAbsX_ = 0.f;
+    float lastAbsY_ = 0.f;
     uint64_t lastTickNs_ = 0;
     SDL_Window* window_ = nullptr;
     std::function<void(const SDL_Event&)> emit_;
