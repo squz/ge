@@ -510,12 +510,35 @@ estimate at 2048×1536):
 
 **Provisional GO** for pass-through + cache economics: steady-state and warm
 reconnect crush full-res H.264; create-tax and cold dump are one-time costs in
-the accepted class. **Not yet closed for T128.2 retire:** live Wi-Fi
-measurement, real sokol capture of one tiltbuggy frame, GPU replay on the
-player.
+the accepted class.
+
+### Runnable interim on device (2026-07-14) — GE2S Present
+
+Until full sokol capture/replay (T128.2.1 / T128.2.2), the multi-session server
+ships a **framebuffer Present** over GE2S when `GE_TRANSPORT=cmdstream`:
+
+- Capture sink is RGBA; Present tagged RGBA (wrong BGRA tag → blue dirt).
+- LZ4 + content-addressed blobs; **identical frames are not sent** (player holds
+  last texture).
+- Player is still the SDL blit path (no local sokol).
+
+**OTA (Pixel Tablet Wi‑Fi, 2048×1536 Present, LAN to Mac server):**
+
+| Observation | Value |
+|-------------|------:|
+| Cold first Present | ~11 MB wire (LZ4 of full RGBA barely shrinks photographic frames) |
+| Still scene (hash match) | **0 B** (server skip) / was ~55 B BlobRef before skip |
+| Changing frames | ~11 MB each → ~2 fps if every frame differs |
+| Colours | Correct after RGBA tag (brown dirt) |
+| 16 KB page dialog | Fixed by restoring player T75 linker flag + `c++_static` |
+
+**Implication:** Present is enough to prove negotiation, GE2S, cache, and device
+playback. It is **not** the bandwidth win for motion — that still needs draw-list
+remoting. Synthetic codec GO stands; OTA Present GO is only for still/dev
+preview until T128.2.1/2.2 land.
 
 Fan-out (T128.5 durable cache, T128.6 null GPU/encode, T128.9 finished
-negotiation UX) proceeds on this GO; T128.3/T128.4 stay parked.
+negotiation UX) proceeds on the synthetic GO; T128.3/T128.4 stay parked.
 
 ## Scope & non-goals
 

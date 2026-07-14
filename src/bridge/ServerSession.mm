@@ -87,6 +87,8 @@ struct ServerSession::Impl {
     // (GE_TRANSPORT=cmdstream). SessionConfig is re-sent after negotiation.
     std::atomic<uint8_t> transport{wire::kTransportH264};
     cmdstream::Cache cmdCache; // server-side "already sent" memo for GE2S
+    cmdstream::Hash lastPresentHash{}; // skip wire when framebuffer unchanged
+    bool haveLastPresentHash = false;
 
     void sidebandLoop();
     void openWire(const std::string& sessionId);
@@ -143,6 +145,10 @@ void ServerSession::Impl::closeWire() {
         encoder.reset();
     }
     encW = encH = 0;
+    transport.store(wire::kTransportH264);
+    haveLastPresentHash = false;
+    lastPresentHash = {};
+    cmdCache.clear();
     if (wire) wire->close();
     if (inputThread.joinable()) inputThread.join();
     wire.reset();
@@ -278,6 +284,14 @@ void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     // (no sokol on the player). Full draw-list remoting remains T128.2.1/2.2.
     if (i_->transport.load() == wire::kTransportCommandStream) {
         const size_t raw = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+        // Skip identical frames entirely (player keeps last texture). Content
+        // hash is over raw RGBA so LZ4 encoding cannot desync the memo.
+        const cmdstream::Hash frameHash = cmdstream::hashBytes(px, raw);
+        if (i_->haveLastPresentHash && frameHash == i_->lastPresentHash)
+            return;
+        i_->lastPresentHash = frameHash;
+        i_->haveLastPresentHash = true;
+
         cmdstream::Writer wr(&i_->cmdCache);
         const uint32_t s = i_->seq.fetch_add(1);
         wr.frameBegin(s, /*fullState*/ false);
