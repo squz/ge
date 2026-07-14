@@ -20,11 +20,14 @@
 
 #include <ge/Protocol.h>
 #include <ge/ViewerMetrics.h>
+#include <sqlpipe.h>
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -73,6 +76,10 @@ public:
     // Player DeviceInfo / SafeAreaUpdate snapshot for Context discovery.
     // Owned by this session; outlives the host while start()..stop() is active.
     ViewerMetricsStore* viewerMetrics();
+
+    // 🎯T154 GE2T: bind the host Context::db() (:memory: under stream) so
+    // player snapshots can seed it and detach can push durable state back.
+    void setWorkingDb(std::shared_ptr<sqlpipe::Database> db);
 
 private:
     struct Impl;

@@ -89,6 +89,12 @@ public:
     // Player → server: viewer lifecycle (background, back, memory, audio).
     bool sendLifecycle(const wire::ViewerLifecycle&);
 
+    // 🎯T154 GE2T: player → server full sqlite serialize of durable main.
+    bool sendGe2tSnapshot(const std::vector<uint8_t>& sqliteDump);
+
+    // 🎯T154 GE2T: server → player durable push (poll after pump).
+    bool pollGe2tSnapshot(std::vector<uint8_t>& outDump);
+
     // Send an SDL event (coordinate-mapped by caller) to the server.
     void sendEvent(const SDL_Event&);
 
