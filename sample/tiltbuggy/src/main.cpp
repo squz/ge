@@ -29,6 +29,7 @@
 #include <ge/Resource.h>
 #include <ge/sdl_input.h>
 #include <ge/SessionHost.h>
+#include <sqlpipe.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>  // required on iOS/Android; no-op on desktop
 #include <spdlog/spdlog.h>
@@ -65,6 +66,19 @@ constexpr float kWorldHalfExtent = 10.0f;
 // equivalent knob at this world scale (tuned in 🎯T16).
 constexpr float kGravityGain = 10.0f;
 
+// 🎯T154 GE2T pose durability test: single-row pose table written every 0.5s.
+// Schema is applied by DirectRenderHost via SessionHostConfig.schemaDdl.
+constexpr const char* kPoseSchemaDdl =
+    "CREATE TABLE pose ("
+    "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+    "  x REAL NOT NULL,"
+    "  y REAL NOT NULL,"
+    "  angle REAL NOT NULL,"
+    "  updated_at REAL NOT NULL"
+    ");";
+
+constexpr float kPoseWriteIntervalSec = 0.5f;
+
 struct State {
     std::unique_ptr<tiltbuggy::Scene> scene;
     std::unique_ptr<tiltbuggy::Renderer> renderer;
@@ -72,6 +86,8 @@ struct State {
     bool rendererInited = false;
     bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
     float arenaAspect = 0.f;            // rebuild scene when content aspect changes
+    float poseWriteAccum = 0.f;         // 🎯T154 durable pose write cadence
+    std::shared_ptr<sqlpipe::Database> db;  // Context::db() for pose persistence
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -265,6 +281,33 @@ int main(int argc, char* argv[]) {
                                                          state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
+        state.db = ctx.db();
+        state.poseWriteAccum = 0.f;
+
+        // 🎯T154: restore last durable pose if present (stream reconnect / direct relaunch).
+        if (state.db) {
+            try {
+                auto rows = state.db->query(
+                    "SELECT x, y, angle FROM pose WHERE id = 1");
+                if (!rows.rows.empty() && rows.rows[0].size() >= 3) {
+                    auto asF = [](const sqlpipe::Value& v) -> float {
+                        if (const auto* d = std::get_if<double>(&v))
+                            return static_cast<float>(*d);
+                        if (const auto* i = std::get_if<std::int64_t>(&v))
+                            return static_cast<float>(*i);
+                        return 0.f;
+                    };
+                    const float x = asF(rows.rows[0][0]);
+                    const float y = asF(rows.rows[0][1]);
+                    const float a = asF(rows.rows[0][2]);
+                    state.scene->applyPose({x, y, a});
+                    SPDLOG_INFO("tiltbuggy: restored pose from db "
+                                "[{:.2f},{:.2f},{:.2f}]", x, y, a);
+                }
+            } catch (const std::exception& e) {
+                SPDLOG_WARN("tiltbuggy: pose restore skipped: {}", e.what());
+            }
+        }
 
         // 🎯T131.5 Render-on-demand demo (opt-in via GE_RENDER_ON_DEMAND). The
         // buggy is a physics body: render every frame while it's moving (box2d
@@ -283,6 +326,30 @@ int main(int argc, char* argv[]) {
                 // proving-ground pattern for ge consumers. Surfaces in
                 // spyder's app_perf_get alongside the engine's frame_ms.
                 ge::appchannel::perfEmit("buggy_x", p.x);
+
+                // 🎯T154 GE2T test: durable pose every 0.5s. Under stream the
+                // server working set is :memory:; ServerSession pushes GE2T
+                // to the player PrefPath file (per-game) on the same cadence.
+                state.poseWriteAccum += dt;
+                if (state.db && state.poseWriteAccum >= kPoseWriteIntervalSec) {
+                    state.poseWriteAccum = 0.f;
+                    const double t = SDL_GetTicks() / 1000.0;
+                    char sql[256];
+                    std::snprintf(sql, sizeof(sql),
+                        "INSERT OR REPLACE INTO pose(id,x,y,angle,updated_at) "
+                        "VALUES(1,%.9g,%.9g,%.9g,%.9g)",
+                        static_cast<double>(p.x), static_cast<double>(p.y),
+                        static_cast<double>(p.angle), t);
+                    try {
+                        state.db->exec(sql);
+                        SPDLOG_INFO("tiltbuggy: pose → db "
+                                    "[{:.2f},{:.2f},{:.2f}] t={:.1f}",
+                                    p.x, p.y, p.angle, t);
+                    } catch (const std::exception& e) {
+                        SPDLOG_WARN("tiltbuggy: pose write failed: {}", e.what());
+                    }
+                }
+
                 static int frame = 0;
                 if (++frame % 60 == 0) {
                     const auto gr = state.scene->gripState();
@@ -452,6 +519,7 @@ int main(int argc, char* argv[]) {
         .height = 768,
         .orgName = "squz",
         .appName = "tiltbuggy",
+        .schemaDdl = kPoseSchemaDdl,
         .sensors = wire::kSensorAccelerometer,
         .orientation = wire::kOrientationAnyLandscape,
         .disableScreenSaver = true,

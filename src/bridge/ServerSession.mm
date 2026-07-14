@@ -20,6 +20,7 @@
 #include <unistd.h>  // getpid
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -89,9 +90,14 @@ struct ServerSession::Impl {
     ViewerMetricsStore viewer{};
 
     // 🎯T154 GE2T: host Context::db() working set (:memory: under stream).
-    // Player dumps seed on attach; we push back on detach for durable store.
+    // Player dumps seed on attach; continuous maybePushGe2t + detach push
+    // keep the player durable file current.
     std::shared_ptr<sqlpipe::Database> workingDb;
     std::mutex workingDbMu;
+    std::string schemaDdl;  // re-applied after player seed (sqlift-safe tables)
+    std::chrono::steady_clock::time_point lastGe2tPush{};
+    static constexpr auto kGe2tPushInterval =
+        std::chrono::milliseconds(500);
 
     // 🎯T128.9 — negotiated transport. Defaults H.264; upgraded when the
     // player advertises kCapCommandStream and the server opts in
@@ -117,6 +123,23 @@ struct ServerSession::Impl {
         if (payloadLen) std::memcpy(msg.data() + sizeof(hdr), payload, payloadLen);
         std::lock_guard<std::mutex> lk(wireSendMu);
         if (wire && wire->isOpen()) wire->sendBinary(msg.data(), msg.size());
+    }
+
+    // Dump working set and send GE2T. Caller holds no workingDbMu.
+    // Returns true if a non-empty snapshot was sent.
+    bool pushGe2tSnapshot(const char* reason) {
+        std::vector<uint8_t> dump;
+        {
+            std::lock_guard<std::mutex> lk(workingDbMu);
+            if (!workingDb || !wire || !wire->isOpen()) return false;
+            if (!dumpSqliteMain(workingDb->handle(), dump) || dump.empty())
+                return false;
+        }
+        sendWire(wire::kSqlpipeMsgMagic, dump.data(),
+                 static_cast<uint32_t>(dump.size()));
+        SPDLOG_INFO("ServerSession: GE2T snapshot pushed ({} bytes, {})",
+                    dump.size(), reason);
+        return true;
     }
 };
 
@@ -158,19 +181,8 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
 
 void ServerSession::Impl::closeWire() {
     if (!hasPlayer.exchange(false)) return;
-    // 🎯T154 GE2T: push working set to player durable store before teardown.
-    {
-        std::lock_guard<std::mutex> lk(workingDbMu);
-        if (workingDb && wire && wire->isOpen()) {
-            std::vector<uint8_t> dump;
-            if (dumpSqliteMain(workingDb->handle(), dump) && !dump.empty()) {
-                sendWire(wire::kSqlpipeMsgMagic, dump.data(),
-                         static_cast<uint32_t>(dump.size()));
-                SPDLOG_INFO("ServerSession: GE2T snapshot pushed ({} bytes)",
-                            dump.size());
-            }
-        }
-    }
+    // 🎯T154 GE2T: final push of working set to player durable store.
+    pushGe2tSnapshot("detach");
     if (encoder) {
         encoder->flush();
         encoder.reset();
@@ -277,8 +289,13 @@ void ServerSession::Impl::inputLoop() {
             if (workingDb && n > 0 &&
                 loadSqliteMain(workingDb->handle(),
                                std::span<const uint8_t>(payload, n))) {
+                // Player only seeds when it has user tables, so schema travels
+                // with the dump. schemaDdl was applied at Database open before
+                // this replace; notify watchers of the new contents.
                 workingDb->notify();
-                SPDLOG_INFO("ServerSession: GE2T snapshot applied ({} bytes)", n);
+                SPDLOG_INFO("ServerSession: GE2T snapshot applied ({} bytes, "
+                            "schemaDdl={}B retained for bind)",
+                            n, schemaDdl.size());
             } else {
                 SPDLOG_WARN("ServerSession: GE2T snapshot apply failed "
                             "(db={} n={})", workingDb ? 1 : 0, n);
@@ -369,11 +386,26 @@ std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
 
 ViewerMetricsStore* ServerSession::viewerMetrics() { return &i_->viewer; }
 
-void ServerSession::setWorkingDb(std::shared_ptr<sqlpipe::Database> db) {
+void ServerSession::setWorkingDb(std::shared_ptr<sqlpipe::Database> db,
+                                 std::string schemaDdl) {
     std::lock_guard<std::mutex> lk(i_->workingDbMu);
     i_->workingDb = std::move(db);
-    SPDLOG_INFO("ServerSession: GE2T working db bound ({})",
-                i_->workingDb ? "ok" : "null");
+    i_->schemaDdl = std::move(schemaDdl);
+    SPDLOG_INFO("ServerSession: GE2T working db bound ({}, schema={} bytes)",
+                i_->workingDb ? "ok" : "null", i_->schemaDdl.size());
+}
+
+void ServerSession::maybePushGe2t() {
+    if (!i_->hasPlayer.load()) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (i_->lastGe2tPush.time_since_epoch().count() != 0 &&
+        now - i_->lastGe2tPush < Impl::kGe2tPushInterval) {
+        return;
+    }
+    // Mark interval even if dump is empty so we do not spin dump every frame
+    // when the working set is missing.
+    i_->lastGe2tPush = now;
+    i_->pushGe2tSnapshot("stream");
 }
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {

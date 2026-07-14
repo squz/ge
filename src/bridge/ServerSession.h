@@ -78,8 +78,18 @@ public:
     ViewerMetricsStore* viewerMetrics();
 
     // 🎯T154 GE2T: bind the host Context::db() (:memory: under stream) so
-    // player snapshots can seed it and detach can push durable state back.
-    void setWorkingDb(std::shared_ptr<sqlpipe::Database> db);
+    // player snapshots can seed it and continuous / detach pushes can write
+    // durable state back to the player. schemaDdl is re-applied after a
+    // player seed so empty or older dumps cannot leave the working set
+    // without the game's tables.
+    void setWorkingDb(std::shared_ptr<sqlpipe::Database> db,
+                      std::string schemaDdl = {});
+
+    // 🎯T154 GE2T: fire-and-forget push of the working set to the player
+    // durable store. Rate-limited (~0.5s). Safe to call every frame from
+    // the game thread; no-op when no player is attached. Does not block
+    // on player ack — dump + wire send only.
+    void maybePushGe2t();
 
 private:
     struct Impl;

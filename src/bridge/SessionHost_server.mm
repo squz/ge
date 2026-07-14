@@ -103,10 +103,16 @@ void runServer(Factory factory, const SessionHostConfig& config) {
         server->onCapturedFrame(px, w, h);
     };
     hook.beforeRender = [server](int w, int h) { server->onFrameBegin(w, h); };
-    hook.afterRender = [server] { server->onFrameEnd(); };
+    hook.afterRender = [server] {
+        server->onFrameEnd();
+        // 🎯T154 GE2T: continuous fire-and-forget durable push (~0.5s).
+        server->maybePushGe2t();
+    };
     hook.onStop = [server] { server->stop(); };
-    hook.bindDb = [server](std::shared_ptr<sqlpipe::Database> db) {
-        server->setWorkingDb(std::move(db));
+    // Capture schema so setWorkingDb can retain it for post-seed re-apply.
+    const std::string schema = config.schemaDdl;
+    hook.bindDb = [server, schema](std::shared_ptr<sqlpipe::Database> db) {
+        server->setWorkingDb(std::move(db), schema);
     };
 
     SPDLOG_INFO("runServer: console stream host (not a desktop game window)");

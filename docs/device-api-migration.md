@@ -45,7 +45,7 @@ The **player process** (`playerCore` / Android `com.squz.player`) is **not** a `
 | `parallax()` | Host attitude (iOS/Android) | **Host** (Mac → usually 0) | **Yes — viewer attitude** (or document always-0 under stream if parallax is direct-only feature) |
 | `presentationTilt()` | AccelSynth on host | AccelSynth on **server** from remote mouse | **Out of scope** (AccelSynth axis) |
 | `fps()` / `frameTime()` / `framesPresented()` | Host run loop | Host run loop (server tick) | **Partial:** OK as *simulation/present rate of game process*; not viewer display FPS. Optional: expose viewer FPS later — not required for decoupling if documented |
-| `db()` | PrefPath `game.db` on device | PrefPath on **Mac server** (same code path!) | **Yes — player-owned durable store** + sqlpipe over GE2T (magic exists, **unimplemented**) |
+| `db()` | PrefPath `game.db` on device | **`:memory:`** working set; player holds per-game durable file | **shipped** — GE2T attach seed + ~0.5s stream push + detach; path `<ge-player pref>/games/<serverName>.db` |
 | Tweaks DB | PrefPath `tweaks.db` on host | Server Mac | **Yes — with player state** or session-ephemeral policy |
 | `swapchainPass()` | Local present | Present + capture/cmdstream side effect | **OK if opaque:** game must not care; verify no stream branch in apps |
 | Render-on-demand APIs | Direct only (docs: brokered unaffected) | Continuous forced for stream | **Yes or document:** either ROD works under stream (viewer still, save encode) or API returns “always continuous” without game branching |

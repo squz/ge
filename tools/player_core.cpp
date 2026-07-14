@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <vector>
 
@@ -98,23 +99,38 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
                     di.drawSafeX, di.drawSafeY, di.drawSafeW, di.drawSafeH);
     }
 
-    // 🎯T154 GE2T: player-authoritative durable db. Open the glass-side store
-    // and seed the server's :memory: working set so reconnect restores state.
+    // 🎯T154 GE2T: player-authoritative durable db, one file per game
+    // (server catalogue name). Connecting to different games does not share
+    // state. Layout: <PrefPath squz/ge-player>/games/<name>.db
     std::string playerDbPath = ":memory:";
     if (char* pref = SDL_GetPrefPath("squz", "ge-player")) {
-        playerDbPath = ge::durableDbPathForPlayer("squz", "ge-player", pref);
+        playerDbPath = ge::durableDbPathForPlayer(serverName.c_str(), pref);
+        if (playerDbPath != ":memory:") {
+            std::error_code ec;
+            std::filesystem::create_directories(
+                std::filesystem::path(playerDbPath).parent_path(), ec);
+            if (ec) {
+                SPDLOG_WARN("GE2T: could not create games dir for {}: {}",
+                            playerDbPath, ec.message());
+            }
+        }
         SDL_free(pref);
     }
     sqlpipe::Database playerDb(playerDbPath);
     {
-        std::vector<uint8_t> dump;
-        if (ge::dumpSqliteMain(playerDb.handle(), dump) && !dump.empty()) {
-            wire.sendGe2tSnapshot(dump);
-            SPDLOG_INFO("GE2T: seeded server from player durable db {} ({} bytes)",
-                        playerDbPath, dump.size());
+        // Only seed when the durable file already has user tables — a fresh
+        // empty serialize would clobber the server's schemaDdl on attach.
+        if (ge::sqliteHasUserTables(playerDb.handle())) {
+            std::vector<uint8_t> dump;
+            if (ge::dumpSqliteMain(playerDb.handle(), dump) && !dump.empty()) {
+                wire.sendGe2tSnapshot(dump);
+                SPDLOG_INFO("GE2T: seeded server from player durable db {} "
+                            "({} bytes, game={})",
+                            playerDbPath, dump.size(), serverName);
+            }
         } else {
-            SPDLOG_INFO("GE2T: player durable db empty or dump failed ({})",
-                        playerDbPath);
+            SPDLOG_INFO("GE2T: no prior durable state for game '{}' ({})",
+                        serverName, playerDbPath);
         }
     }
 
@@ -189,7 +205,8 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
 
         const uint64_t tPump0 = SDL_GetPerformanceCounter();
         if (!wire.pump()) break;
-        // 🎯T154 GE2T: server→player durable push (detach / refresh).
+        // 🎯T154 GE2T: server→player durable push (stream / detach). Write
+        // immediately to the per-game PrefPath file (fire-and-forget FS).
         {
             std::vector<uint8_t> push;
             if (wire.pollGe2tSnapshot(push) && !push.empty() &&
@@ -198,8 +215,8 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
                 if (out) {
                     out.write(reinterpret_cast<const char*>(push.data()),
                               static_cast<std::streamsize>(push.size()));
-                    SPDLOG_INFO("GE2T: wrote durable snapshot {} ({} bytes)",
-                                playerDbPath, push.size());
+                    SPDLOG_INFO("GE2T: wrote durable snapshot {} ({} bytes, game={})",
+                                playerDbPath, push.size(), serverName);
                 }
             }
         }

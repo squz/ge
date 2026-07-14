@@ -33,7 +33,7 @@ Game repos only declare `APP_NAME` / `APP_SRC` and call `ge::run`. There is **no
 |------|---------|----------------|
 | **Push** | Content + session policy → player | GE2V, GE2S, `SessionConfig` (incl. immersive / noScreenSaver flags) |
 | **Discover** | Viewer facts → game `Context` | `DeviceInfo` + `SafeAreaUpdate` with **dual** draw/ui safe; lifecycle GE2L |
-| **State** | Durable db | **GE2T** full-sqlite snapshot: player durable PrefPath file is authority; server uses **`:memory:`** working set only (not Mac PrefPath). Attach: player→server seed. Detach: server→player push for reconnect. |
+| **State** | Durable db | **GE2T** full-sqlite snapshot: player durable PrefPath file is authority (**one file per game**: `<ge-player pref>/games/<serverName>.db`); server uses **`:memory:`** working set only. Attach: player→server seed (if user tables exist). Stream: server→player push ~every 0.5s (fire-and-forget). Detach: final push. |
 
 ## Discovery (dual safe)
 
