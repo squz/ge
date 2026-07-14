@@ -1809,6 +1809,76 @@ targets:
     - sokol
     origin: yourworld2 carousel sils / ge v0.75.0 drawSolid
     discovered: 2026-07-13
+  T154:
+    name: 'Streaming modality is fully decoupled from the app: all device interaction goes through the polymorphic device API (physical vs wire backends); player holds durable state'
+    status: converging
+    value: 13.0
+    cost: 20.0
+    acceptance:
+    - 'Decoupling criterion: application/sample code never branches on stream vs direct, never reads GE_SERVER/GE_TRANSPORT/relay URLs, and never assumes Mac-host chrome. Compile-time packaging (direct app vs GE_SERVER_BUILD) is the only backend selection; no public runtime selector. Module.mk owns make game / make server / make player products.'
+    - 'Content vs viewer contract is written and implemented: fullRect/surface size semantics are explicit (content surface vs viewing device); drawSafe and uiSafe are distinct on the wire when the viewer can supply both (not one rect duplicated as “done”); insets are expressed in content space; pixelsPerPt/deviceClass/deviceUiScale/orientation come from the viewer while a player is attached.'
+    - 'Discovery closed-loop (report → apply → game uses → visible): DeviceInfo + SafeAreaUpdate keep Context live across attach/resize/rotate.'
+    - 'SessionHostConfig → wire SessionConfig policy parity (BLOCKING gap discovered 2026-07-14): every session-setup field that affects the viewing surface must reach the player and be applied there, not only the Mac host. Explicit inventory: (1) immersive — hide status/nav chrome on the glass (TiltBuggy sets immersive=true; Pixel still shows OS status bar until this is wired); (2) disableScreenSaver — keep viewer display awake for tilt games; (3) sensors — already on wire; (4) orientation — already on wire; (5) transport — already on wire. Any new SessionHostConfig viewer-affecting field must extend SessionConfig (or documented successor) in the same PR as the host field — no host-only chrome policy.'
+    - 'Parallax: either viewer attitude feeds Context::parallax() under stream, or the API is documented to return {0,0} under stream with the same call site (no game branch). Host-Mac attitude must not silently pretend to be the viewer.'
+    - 'Input closed-loop: pointer/touch/mouse/wheel/keys and hardware accelerometer samples use the same onEvent/SDL model as direct; events are in content/surface space matching fullRect; no host-Mac re-orientation of viewer samples. AccelSynth/presentationTilt synthesis OUT OF SCOPE.'
+    - 'Lifecycle closed-loop from the viewer: back, memory pressure, foreground/background (paused) reach RunConfig/host gates while a player is attached (GE2L path).'
+    - 'Audio policy: ge::audio pause/resume follows viewer focus/background under stream (or uniform no-op on both backends); server must not only react to Mac lifecycle.'
+    - Present/push remains negotiated (H.264 GE2V and/or cmdstream GE2S) and opaque via swapchainPass; game code does not open the wire.
+    - 'sqlpipe durable state: Context::db() (and tweak overrides) under stream are player-authoritative via GE2T. Server PrefPath game.db on the Mac is incorrect for stream sessions; server may use ephemeral/:memory: working state only. Reconnect restores from player store.'
+    - 'Secondary services either bridge to the player or no-op uniformly: refresh-rate boost, haptics, clipboard/share if used; IAP is player-OS-side — single ge::iap API with wire/player bridge or documented unavailable without stream checks in games.'
+    - 'Structural: while a player is attached, viewer metrics are the sole authority for discovery fields. Multi-session: each session’s Context tracks that session’s player. Server binary is a console stream host (T154.1), not a Dock game.'
+    - 'Oracles: unit tests for dual-safe mapping + durableDbPathForHost; docs/device-api-migration.md matrix matches shipped reality including SessionConfig field inventory; TiltBuggy uses only polymorphic surface; Android and iOS stream + desktop direct without modality branches. AccelSynth out of scope throughout.'
+    context: '2026-07-14: T154.2 shipped — SessionConfig first (immersive+noSaver flags), player applies before DeviceInfo; drawSafe=cutouts (full on Pixel), uiSafe separate; content aspect retargets to viewer; TiltBuggy arena+title on drawSafe. Pixel proof: flags=0x3, draw full, no letterbox, user-accepted glass. Residuals: GE2T full sqlpipe sync; iOS stream player rebuild; T154.1 true headless GPU; secondary services. AccelSynth OOS.'
+    tags:
+    - device-api
+    - stream
+    - sqlpipe
+    - discovery
+    - polymorphic
+    - decouple
+    origin: manual
+    discovered: 2026-07-14
+  T154.1:
+    name: 'Server build is a console/headless host, not a hidden Mac GUI app: distinct binary and no Dock/AppKit app behaviour'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`make game` (default `make`) and `make server` are first-class Module.mk targets; projects do not invent GE_SERVER_BUILD packaging.'
+    - '`make server` produces bin/$(APP_NAME)-server as a distinct binary from bin/$(APP_NAME); separate object tree (build-server/).'
+    - Server process is console-oriented (no Dock as normal game app); operator interface is stdio/logs + spyder relay.
+    - 'AGENTS.md and Module.mk header document project vs ge responsibility: game logic in project, build/deploy/stream products in ge.'
+    - 'Oracle: `make -C sample/tiltbuggy server` builds tiltbuggy-server; `make game` builds tiltbuggy; stream still works.'
+    context: 'User: desktop game and server are totally different builds; server is console, not Mac app. Packaging/host identity must be ge Module.mk concern so projects only write game logic. 2026-07-14: first-class make game / make server / make run-server / make player in Module.mk; AGENTS.md project-vs-ge table; server Accessory console identity; residual true headless Metal.'
+    tags:
+    - server
+    - console
+    - headless
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+  T154.2:
+    name: SessionHostConfig viewer-affecting fields reach the player via SessionConfig and are applied on the glass (immersive, screen saver, …)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 5.0
+    acceptance:
+    - wire::SessionConfig is the first app payload on the wire after attach; player waits for it before creating/measuring the viewing surface.
+    - SessionConfig carries immersive and disableScreenSaver (flags bits) populated from SessionHostConfig on server open and preserved on transport renegotiate.
+    - 'Player applies SessionConfig fully and synchronously before DeviceInfo: immersive hides status/nav and settles WindowInsets before any safe-rect measure; disableScreenSaver keeps the display awake. No post-hoc “re-advertise DeviceInfo after chrome settles” init path.'
+    - DeviceInfo is sent once after policy application against the settled surface; mid-session SafeAreaUpdate remains only for orientation/resize — not to fix incomplete init.
+    - 'Verified on a real stream client (e.g. Pixel): status bar hidden when immersive=true; draw/ui safe rects reflect post-immersive chrome (grown vs non-immersive); server log shows SessionConfig then a single initial DeviceInfo with correct safe metrics.'
+    - docs/device-api-migration.md documents handshake order and SessionConfig field inventory.
+    context: '2026-07-14: Immersive was host-only; then async apply + re-measure hacks. User invariant: init data first, fully applied, no concern about updating after. Blocking for T154.'
+    tags:
+    - session-config
+    - immersive
+    - stream
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
