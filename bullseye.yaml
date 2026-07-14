@@ -918,7 +918,6 @@ targets:
     status: identified
     value: 8.0
     cost: 20.0
-    set_aside_reason: 'Plateau P: H.264 via spyder is the closed stream story; command-stream ladder is a post-P optional spike. Design note T128.1 remains achieved history.'
     acceptance:
     - After a player connects, server and player FEATURE-DETECT the player's rendering capability; a SOKOL-CAPABLE player (native) may select the command-stream transport (serialized sokol commands + ge framing), while a non-sokol player (the browser) uses H.264. The player is sokol-AWARE, not sokol-REQUIRED — no player is excluded.
     - In command-stream mode the streaming server runs a null backend with NO GPU context and NO VideoToolbox/MediaCodec encode; H.264 remains the universal fallback (browser, non-sokol players, and high-temporal-churn content). spyder's relay carries the command stream unchanged (payload-agnostic) — no ged.
@@ -951,7 +950,6 @@ targets:
     status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - A serializing null sokol backend on the server and a minimal replay loop on the player, behind a session-negotiated capability, round-trip one tiltbuggy frame with the shipping video path untouched.
     - Time-to-first-coarse-frame (the headline metric), bandwidth vs the H.264 stream on tiltbuggy (diagnostic spin + parallax + button churn) and esfera, reconnect cost (warm vs cold asset cache), and flow-control under a janky/slow player are measured and recorded in the design note.
@@ -966,7 +964,6 @@ targets:
     status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Per-frame draw lists (class A) are droppable under backpressure; resource creation + coarse mips + dynamic-texture updates + geometry/shaders/pipelines (class B) are ordered and never dropped; finer mips and later-frame resources (class C) are deferrable with zero correctness impact.
     - Frames unblock on a class-B epoch barrier at coarse detail and never gate on class C; required-channel delivery is ordered by the frame-1 working set so startup lag is independent of total content size.
@@ -981,7 +978,6 @@ targets:
     status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - Textures are delivered as raw-RGBA mip levels, coarsest-first, populated behind a stable sg_image handle so the game and the recorded draw commands are unaware of the deferred refinement (no block compression in MVP).
     - immutable images are LOD-eligible; dynamic/stream images deliver at full rate — classified from sg_image_desc.usage with no game cooperation.
@@ -997,7 +993,6 @@ targets:
     status: identified
     value: 8.0
     cost: 8.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - The player caches delivered artifacts by content hash and skips re-receiving them across sessions; reconnect against a warm cache transfers only the delta (reactive hit/miss baseline, reviving the Dawn-era hash-probe protocol over the sokol command stream).
     - The server memoizes expensive derivations (mip-gen, per-backend format/transcode) keyed by (source + derivation params), computed once and amortized across all players of a backend class; static assets are served from the offline bake (TextureEncoder/.getex) so the server cache is warm at boot.
@@ -1012,7 +1007,6 @@ targets:
     status: identified
     value: 3.0
     cost: 3.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - When a session negotiates the command-stream rung, the server produces the stream through a serializing null backend and performs no GPU-render and no H.264 encode for that session.
     - The H.264 encoder and headless-GPU-render path remain compiled into ge and are used for sessions that negotiate the video baseline and for the offline rasterizing paths (renderToPng/renderBatch goldens, imgdiff) — they are NOT removed.
@@ -1058,7 +1052,6 @@ targets:
     status: identified
     value: 8.0
     cost: 5.0
-    set_aside_reason: 'Plateau P: parked with T128 command-stream ladder.'
     acceptance:
     - 'On connect, player and server exchange capability advertisements and select the highest common protocol rung: H.264 video (universal baseline) or command stream (both ends must support it; the server must render through ge''s serializable sokol path).'
     - The negotiation is in-band and end-to-end; the broker (ged today, spyder as it absorbs the role) relays the bytes without inspecting the protocol, rides the same byte pipe H.264 uses, and is compatible with an E2E-encrypted relay (T11) — so adding the command-stream rung requires no broker-side change.
