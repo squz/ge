@@ -122,5 +122,13 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
-    return playerCore(host, port);
+    // Catalogue name (must match server registration, e.g. tiltbuggy).
+    // Override with GE_SERVER_NAME; default matches Android player.
+    std::string serverName = "tiltbuggy";
+    if (const char* n = std::getenv("GE_SERVER_NAME")) {
+        if (n[0]) serverName = n;
+    }
+    SPDLOG_INFO("server name: {}", serverName);
+
+    return playerCore(host, port, serverName);
 }

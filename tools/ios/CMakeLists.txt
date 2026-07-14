@@ -31,6 +31,8 @@ set(SOURCES
     ${GE_ROOT}/src/svg.cpp
     ${GE_ROOT}/src/text.cpp
     ${GE_ROOT}/src/FontLoader_apple.mm
+    ${GE_ROOT}/src/Immersive_stub.cpp
+    ${GE_ROOT}/src/CutoutInsets_stub.cpp
     # Lean player stubs (no full appchannel / sokol sprite path)
     ${GE_ROOT}/tools/android/app/src/main/cpp/player_stubs.cpp
     ${GE_ROOT}/tools/android/app/src/main/cpp/player_sprite_stub.cpp
@@ -66,6 +68,8 @@ target_include_directories(Player PRIVATE
     ${GE_ROOT}/vendor/github.com/chriskohlhoff/asio/include
     ${GE_ROOT}/vendor/github.com/libsdl-org/SDL/include
     ${GE_ROOT}/vendor/sdl3/include
+    ${GE_ROOT}/vendor/github.com/floooh/sokol
+    ${GE_ROOT}/vendor/github.com/libsdl-org/SDL_ttf/external/freetype/include
     ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/include
     ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/plutovg/include
@@ -73,9 +77,16 @@ target_include_directories(Player PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Device static libs (prebuilt under vendor/sdl3/lib/ios-arm64).
+set(SDL_DEVICE_DIR ${GE_ROOT}/vendor/sdl3/lib/ios-arm64)
 target_link_libraries(Player PRIVATE
-    -lSDL3 -lSDL3_image -lSDL3_ttf
-    -lfreetype -lharfbuzz -lplutosvg -lplutovg
+    ${SDL_DEVICE_DIR}/libSDL3.a
+    ${SDL_DEVICE_DIR}/libSDL3_image.a
+    ${SDL_DEVICE_DIR}/libSDL3_ttf.a
+    ${SDL_DEVICE_DIR}/libfreetype.a
+    ${SDL_DEVICE_DIR}/libharfbuzz.a
+    ${SDL_DEVICE_DIR}/libplutosvg.a
+    ${SDL_DEVICE_DIR}/libplutovg.a
 )
 
 target_link_libraries(Player PRIVATE
@@ -86,6 +97,7 @@ target_link_libraries(Player PRIVATE
     "-framework QuartzCore"
     "-framework CoreGraphics"
     "-framework CoreFoundation"
+    "-framework CoreText"
     "-framework CoreMedia"
     "-framework CoreVideo"
     "-framework AudioToolbox"
@@ -96,11 +108,14 @@ target_link_libraries(Player PRIVATE
     "-framework VideoToolbox"
     "-framework Security"
     "-framework ImageIO"
+    "-framework OpenGLES"
+    "-framework MobileCoreServices"
+    "-framework CFNetwork"
+    "-framework CoreBluetooth"
     "-lobjc"
 )
 
-set(SDL_DEVICE_DIR  ${GE_ROOT}/vendor/sdl3/lib/ios-arm64)
-set(SDL_SIM_DIR     ${GE_ROOT}/vendor/sdl3/lib/ios-arm64-simulator)
+set(SDL_SIM_DIR ${GE_ROOT}/vendor/sdl3/lib/ios-arm64-simulator)
 
 set_target_properties(Player PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER com.squz.player

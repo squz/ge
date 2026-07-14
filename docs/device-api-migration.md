@@ -212,7 +212,7 @@ resulting glass, not a pre-init snapshot that needs patching.
 | Parallax under stream | **{0,0}** (documented) |
 | make game / make server products | **shipped** in Module.mk |
 | Console server identity | **shipped** (Accessory); true headless GPU → T154.1 |
-| iOS stream player rebuild | **blocked** (stale Xcode/CMake player project) |
+| iOS stream player rebuild | **shipped** (`tools/ios` CMake; Pixel/Android + iPad mini proof) |
 | AccelSynth | OOS |
 | TiltBuggy title | **drawSafe** (content chrome, not uiSafe) |
 - 2026-07-14 Pixel proof: SessionConfig first; DeviceInfo draw=(0,0 full); arena/title on drawSafe; content 1.6 aspect.
