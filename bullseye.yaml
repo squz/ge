@@ -1811,9 +1811,10 @@ targets:
     discovered: 2026-07-13
   T154:
     name: 'Streaming modality is fully decoupled from the app: all device interaction goes through the polymorphic device API (physical vs wire backends); player holds durable state'
-    status: converging
+    status: achieved
     value: 13.0
     cost: 20.0
+    actual_cost: 20.0
     acceptance:
     - 'Decoupling criterion: application/sample code never branches on stream vs direct, never reads GE_SERVER/GE_TRANSPORT/relay URLs, and never assumes Mac-host chrome. Compile-time packaging (direct app vs GE_SERVER_BUILD) is the only backend selection; no public runtime selector. Module.mk owns make game / make server / make player products.'
     - 'Content vs viewer contract is written and implemented: fullRect/surface size semantics are explicit (content surface vs viewing device); drawSafe and uiSafe are distinct on the wire when the viewer can supply both (not one rect duplicated as “done”); insets are expressed in content space; pixelsPerPt/deviceClass/deviceUiScale/orientation come from the viewer while a player is attached.'
@@ -1838,6 +1839,7 @@ targets:
     - decouple
     origin: manual
     discovered: 2026-07-14
+    achieved: 2026-07-14
   T154.1:
     name: 'Server build is a console/headless host, not a hidden Mac GUI app: distinct binary and no Dock/AppKit app behaviour'
     status: identified
@@ -1879,6 +1881,29 @@ targets:
     origin: manual
     discovered: 2026-07-14
     achieved: 2026-07-14
+  T154.3:
+    name: Stream content fills the player glass after orientation settles — no letterbox when the session starts portrait then rotates to landscape (or any SessionConfig orientation lock)
+    status: identified
+    value: 5.0
+    cost: 8.0
+    acceptance:
+    - Given a stream session whose SessionConfig locks landscape (e.g. TiltBuggy AnyLandscape), attaching a player that launches portrait then rotates to landscape yields content that fills the glass (no persistent pillarbox/letterbox gutters attributable to content aspect ≠ viewer aspect).
+    - DeviceInfo after orientation apply, host content surface (swapchain / GE2S contentW×H / encode size), and player aspect-fit all agree on the same aspect within a small tolerance so the player does not need to letterbox once orientation has settled.
+    - Starting already in the locked orientation continues to fill the glass (no regression of the landscape-start path).
+    - 'Documented root cause: which hop is wrong when letterbox appears (DeviceInfo dims, host resize, FrameBegin content size, or player fit) — not a silent multi-hop drift.'
+    - 'Oracle: unit or structural test for content-aspect retarget from a viewer window snapshot; device proof (iOS and/or Android) with log lines for DeviceInfo + content aspect + optional screencap before/after fix.'
+    context: '2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, GE2S contentW/H, player fitContentRect) — parked deliberately after T154; not a player-only bug by assumption. Parent T154 is achieved; this is residual polish under the stream device-api theme.'
+    depends_on:
+    - T154
+    tags:
+    - stream
+    - letterbox
+    - aspect
+    - orientation
+    - device-api
+    - T154
+    origin: manual
+    discovered: 2026-07-14
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
