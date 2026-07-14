@@ -81,13 +81,44 @@ int main(int argc, char* argv[]) {
 
     SPDLOG_INFO("ge player (Android) starting...");
 
+    // Server catalogue name (matches GE_SERVER registration / appName).
+    // Override: adb … --es server_name "tiltbuggy"
+    std::string serverName = "tiltbuggy";
+    {
+        JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+        if (env) {
+            jclass cls = env->FindClass("com/squz/player/GeActivity");
+            if (cls) {
+                jmethodID mid = env->GetStaticMethodID(
+                    cls, "getServerName", "()Ljava/lang/String;");
+                if (mid) {
+                    jobject obj = env->CallStaticObjectMethod(cls, mid);
+                    if (obj) {
+                        const char* chars =
+                            env->GetStringUTFChars(static_cast<jstring>(obj), nullptr);
+                        if (chars && chars[0]) serverName = chars;
+                        if (chars) env->ReleaseStringUTFChars(
+                            static_cast<jstring>(obj), chars);
+                        env->DeleteLocalRef(obj);
+                    }
+                } else {
+                    env->ExceptionClear();
+                }
+                env->DeleteLocalRef(cls);
+            } else {
+                env->ExceptionClear();
+            }
+        }
+    }
+    SPDLOG_INFO("server name: {}", serverName);
+
     // Priority 1: stream_addr / ged_addr intent extra.
     {
         std::string addr = intentStreamAddr();
         if (!addr.empty()) {
             auto r = parseAddr(addr);
             SPDLOG_INFO("Intent stream_addr: {}:{}", r.host, r.port);
-            return playerCore(r.host, r.port);
+            return playerCore(r.host, r.port, serverName);
         }
     }
 
@@ -96,18 +127,18 @@ int main(int argc, char* argv[]) {
         auto direct = directAddressProp();
         if (!direct.host.empty()) {
             SPDLOG_INFO("Direct connection via debug.ge.address: {}:{}", direct.host, direct.port);
-            return playerCore(direct.host, direct.port);
+            return playerCore(direct.host, direct.port, serverName);
         }
     }
 
     // Priority 3: Emulator auto-connect — Android's alias for the host loopback.
     if (isEmulator()) {
         SPDLOG_INFO("Emulator detected — connecting to 10.0.2.2:{}", kDefaultPort);
-        return playerCore("10.0.2.2", kDefaultPort);
+        return playerCore("10.0.2.2", kDefaultPort, serverName);
     }
 
     // Priority 4: Physical device — scan QR code (spyder dashboard / printed URL).
     SPDLOG_INFO("Physical device — waiting for QR scan...");
     ge::ScanResult result = ge::scanQRCode();
-    return playerCore(result.host, result.port);
+    return playerCore(result.host, result.port, serverName);
 }

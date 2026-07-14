@@ -47,10 +47,23 @@ enum class Op : uint16_t {
     Draw = 24,         // i32 base, i32 num_elements, i32 num_instances
     EndPass = 25,
     Commit = 26,
+    // Present a content-addressed framebuffer to the player (SDL blit path).
+    // Payload: u16 w, u16 h, u8 format (0=BGRA8), u8 encoding (0=raw, 1=lz4),
+    //          u32 raw_size, Hash blob (compressed or raw bytes).
+    // Runnable intermediate until full sokol GPU replay (T128.2.1) lands:
+    // works with the existing SDL player on desktop + Android.
+    Present = 27,
     // Framing markers for measurement / reconnect
     FrameBegin = 30,   // u32 seq, u8 flags (bit0 = cold/full state)
     FrameEnd = 31,
 };
+
+// Pixel formats for Op::Present.
+constexpr uint8_t kPresentBGRA8 = 0;
+constexpr uint8_t kPresentRGBA8 = 1;
+// Encodings for the Present blob body.
+constexpr uint8_t kPresentEncRaw = 0;
+constexpr uint8_t kPresentEncLz4 = 1;
 
 // ── Hash ──────────────────────────────────────────────────────────
 
@@ -127,6 +140,11 @@ public:
     void draw(int32_t base, int32_t numElements, int32_t numInstances);
     void endPass();
     void commit();
+
+    // Present a framebuffer. Compresses with LZ4 when it shrinks the payload;
+    // content-addressed so identical frames become BlobRef-only.
+    void present(uint16_t w, uint16_t h, uint8_t format,
+                 const void* pixels, size_t rawBytes);
 
     // Steal the finished payload (ops only; caller wraps with MessageHeader).
     std::vector<uint8_t> take();

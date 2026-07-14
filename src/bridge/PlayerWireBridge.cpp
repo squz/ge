@@ -8,6 +8,7 @@
 
 #include "wire_input.h"
 
+#include <lz4.h>
 #include <spdlog/spdlog.h>
 
 #include <cstring>
@@ -233,33 +234,60 @@ bool PlayerWireBridge::pump() {
             i_->stats.framesThisTick++;
             i_->stats.lastSeq = seq;
         } else if (magic == wire::kCommandStreamMagic) {
-            // 🎯T128 — GE2S pass-through payload. Spike path populates the
-            // content-addressed cache; full GPU replay lands with T128.2 residue.
+            // 🎯T128 — GE2S. Present ops decode to a BGRA DecodedFrame for the
+            // existing SDL blit path (runnable intermediate before full sokol
+            // GPU replay). Other ops fill the content-addressed cache.
             if (data.size() < sizeof(wire::MessageHeader)) continue;
             uint32_t length = 0;
             std::memcpy(&length, data.data() + 4, 4);
             if (data.size() < sizeof(wire::MessageHeader) + length) continue;
             const auto* payload = reinterpret_cast<const uint8_t*>(
                 data.data() + sizeof(wire::MessageHeader));
+
+            struct Ctx {
+                cmdstream::Cache* cache = nullptr;
+                DecodedFrame* out = nullptr;
+                bool* ready = nullptr;
+                std::mutex* mu = nullptr;
+                bool gotPresent = false;
+                uint32_t frameSeq = 0;
+            } ctx{&i_->cmdCache, &i_->pending, &i_->pendingReady, &i_->frameMutex};
+
             cmdstream::Reader reader(&i_->cmdCache);
-            // Visitor that only advances typed fields (no GPU).
-            auto skip = [](cmdstream::Op op, cmdstream::Reader::Cursor& c, void*) -> bool {
+            auto visit = [](cmdstream::Op op, cmdstream::Reader::Cursor& c,
+                            void* user) -> bool {
                 using cmdstream::Op;
+                auto* cx = static_cast<Ctx*>(user);
                 switch (op) {
-                case Op::FrameBegin: (void)c.u32(); (void)c.u8(); return c.ok;
+                case Op::FrameBegin:
+                    cx->frameSeq = c.u32();
+                    (void)c.u8();
+                    return c.ok;
                 case Op::FrameEnd: case Op::EndPass: case Op::Commit: case Op::End:
-                case Op::Blob: case Op::BlobRef: return true;
-                case Op::MakeBuffer: (void)c.u32(); (void)c.u32(); (void)c.u32(); (void)c.hash(); return c.ok;
-                case Op::MakeImage: (void)c.u32(); (void)c.u16(); (void)c.u16(); (void)c.u32(); (void)c.hash(); return c.ok;
-                case Op::UpdateBuffer: case Op::UpdateImage: (void)c.u32(); (void)c.hash(); return c.ok;
-                case Op::DestroyBuffer: case Op::DestroyImage: (void)c.u32(); return c.ok;
+                case Op::Blob: case Op::BlobRef:
+                    return true;
+                case Op::MakeBuffer:
+                    (void)c.u32(); (void)c.u32(); (void)c.u32(); (void)c.hash();
+                    return c.ok;
+                case Op::MakeImage:
+                    (void)c.u32(); (void)c.u16(); (void)c.u16(); (void)c.u32();
+                    (void)c.hash();
+                    return c.ok;
+                case Op::UpdateBuffer: case Op::UpdateImage:
+                    (void)c.u32(); (void)c.hash();
+                    return c.ok;
+                case Op::DestroyBuffer: case Op::DestroyImage:
+                    (void)c.u32();
+                    return c.ok;
                 case Op::BeginPass: {
                     uint8_t n = c.u8();
                     for (uint8_t i = 0; i < n * 4; ++i) (void)c.u32();
                     (void)c.u8();
                     return c.ok;
                 }
-                case Op::ApplyPipeline: (void)c.u32(); return c.ok;
+                case Op::ApplyPipeline:
+                    (void)c.u32();
+                    return c.ok;
                 case Op::ApplyBindings: {
                     uint8_t nv = c.u8();
                     for (uint8_t i = 0; i < nv; ++i) (void)c.u32();
@@ -268,20 +296,80 @@ bool PlayerWireBridge::pump() {
                     for (uint8_t i = 0; i < ni; ++i) (void)c.u32();
                     return c.ok;
                 }
-                case Op::ApplyUniforms: (void)c.u8(); (void)c.hash(); return c.ok;
-                case Op::Draw: (void)c.i32(); (void)c.i32(); (void)c.i32(); return c.ok;
+                case Op::ApplyUniforms:
+                    (void)c.u8(); (void)c.hash();
+                    return c.ok;
+                case Op::Draw:
+                    (void)c.i32(); (void)c.i32(); (void)c.i32();
+                    return c.ok;
+                case Op::Present: {
+                    const uint16_t w = c.u16();
+                    const uint16_t h = c.u16();
+                    const uint8_t format = c.u8();
+                    const uint8_t encoding = c.u8();
+                    const uint32_t rawSize = c.u32();
+                    const cmdstream::Hash hash = c.hash();
+                    if (!c.ok || !cx->cache) return false;
+                    const auto* blob = cx->cache->get(hash);
+                    if (!blob) return false;
+                    if (format != cmdstream::kPresentBGRA8 &&
+                        format != cmdstream::kPresentRGBA8) {
+                        return false;
+                    }
+                    std::vector<uint8_t> pixels;
+                    if (encoding == cmdstream::kPresentEncLz4) {
+                        pixels.resize(rawSize);
+                        const int n = LZ4_decompress_safe(
+                            reinterpret_cast<const char*>(blob->data()),
+                            reinterpret_cast<char*>(pixels.data()),
+                            static_cast<int>(blob->size()),
+                            static_cast<int>(rawSize));
+                        if (n != static_cast<int>(rawSize)) return false;
+                    } else if (encoding == cmdstream::kPresentEncRaw) {
+                        if (blob->size() != rawSize) return false;
+                        pixels = *blob;
+                    } else {
+                        return false;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(*cx->mu);
+                        cx->out->format = VideoFrame::Format::BGRA;
+                        cx->out->width = w;
+                        cx->out->height = h;
+                        cx->out->stride0 = static_cast<int>(w) * 4;
+                        cx->out->stride1 = 0;
+                        cx->out->stride2 = 0;
+                        cx->out->plane0 = std::move(pixels);
+                        cx->out->plane1.clear();
+                        cx->out->plane2.clear();
+                        // RGBA→BGRA if needed (byte-swap R/B).
+                        if (format == cmdstream::kPresentRGBA8) {
+                            auto& p = cx->out->plane0;
+                            for (size_t i = 0; i + 3 < p.size(); i += 4)
+                                std::swap(p[i], p[i + 2]);
+                        }
+                        *cx->ready = true;
+                    }
+                    cx->gotPresent = true;
+                    return c.ok;
+                }
                 }
                 return false;
             };
-            if (!reader.decode({payload, length}, skip, nullptr)) {
+            if (!reader.decode({payload, length}, visit, &ctx)) {
                 SPDLOG_WARN("PlayerWireBridge: GE2S decode failed (misses={})",
                             reader.stats().cacheMisses);
-            } else {
-                SPDLOG_INFO("PlayerWireBridge: GE2S frame bytes={} cache_entries={} "
-                            "full_blobs={} refs={}",
-                            length, i_->cmdCache.size(),
-                            reader.stats().fullBlobCount, reader.stats().refBlobCount);
+            } else if (ctx.gotPresent) {
                 i_->stats.framesThisTick++;
+                i_->stats.lastSeq = ctx.frameSeq;
+                static uint32_t presentLog = 0;
+                if (presentLog++ < 3 || (ctx.frameSeq % 60) == 0) {
+                    SPDLOG_INFO("PlayerWireBridge: GE2S Present seq={} wire={}B "
+                                "cache={} full={} refs={}",
+                                ctx.frameSeq, length, i_->cmdCache.size(),
+                                reader.stats().fullBlobCount,
+                                reader.stats().refBlobCount);
+                }
             }
         } else if (magic == wire::kSessionConfigMagic &&
                    data.size() >= sizeof(wire::MessageHeader) + sizeof(wire::SessionConfig)) {

@@ -24,9 +24,14 @@ add_library(main SHARED
     ${GE_ROOT}/src/bridge/WebSocketClient.cpp
     ${GE_ROOT}/src/bridge/VideoDecoder_ffmpeg.cpp
     ${GE_ROOT}/src/render/PlayerRender.cpp
+    ${GE_ROOT}/src/CmdStream.cpp
     ${GE_ROOT}/src/Signal.cpp
     ${GE_ROOT}/src/Resource.cpp
     ${GE_ROOT}/src/FileIO.cpp
+    ${GE_ROOT}/src/audio.cpp
+    # Slim stubs: appchannel full path needs nlohmann + sockets we don't ship
+    # in the brokered player. Signal crash handler only needs flush().
+    ${CMAKE_CURRENT_SOURCE_DIR}/player_stubs.cpp
     ${GE_ROOT}/vendor/src/sqlite3.c
     ${GE_ROOT}/vendor/src/sqlpipe.cpp
     ${GE_ROOT}/vendor/src/lz4.c
@@ -39,6 +44,7 @@ add_library(main SHARED
 
 target_compile_definitions(main PRIVATE
     GE_ANDROID
+    GE_PLAYER_NO_SOKOL
     ASIO_STANDALONE
     SQLITE_ENABLE_SESSION
     SQLITE_ENABLE_PREUPDATE_HOOK

@@ -3,7 +3,10 @@
 
 #include <ge/CmdStream.h>
 
+#include <lz4.h>
+
 #include <cstring>
+#include <vector>
 
 namespace ge::cmdstream {
 namespace {
@@ -235,6 +238,39 @@ void Writer::draw(int32_t base, int32_t numElements, int32_t numInstances) {
 
 void Writer::endPass() { putOp(Op::EndPass); }
 void Writer::commit() { putOp(Op::Commit); }
+
+void Writer::present(uint16_t w, uint16_t h, uint8_t format,
+                     const void* pixels, size_t rawBytes) {
+    // Prefer LZ4 when it beats raw (typical for flat/UI-ish game frames).
+    uint8_t encoding = kPresentEncRaw;
+    const void* blobPtr = pixels;
+    size_t blobSize = rawBytes;
+    std::vector<uint8_t> compressed;
+    if (rawBytes > 0 && rawBytes < static_cast<size_t>(LZ4_MAX_INPUT_SIZE)) {
+        const int bound = LZ4_compressBound(static_cast<int>(rawBytes));
+        if (bound > 0) {
+            compressed.resize(static_cast<size_t>(bound));
+            const int n = LZ4_compress_default(
+                static_cast<const char*>(pixels),
+                reinterpret_cast<char*>(compressed.data()),
+                static_cast<int>(rawBytes), bound);
+            if (n > 0 && static_cast<size_t>(n) < rawBytes) {
+                compressed.resize(static_cast<size_t>(n));
+                encoding = kPresentEncLz4;
+                blobPtr = compressed.data();
+                blobSize = compressed.size();
+            }
+        }
+    }
+    Hash content = emitBlob(blobPtr, blobSize);
+    putOp(Op::Present);
+    putU16(w);
+    putU16(h);
+    putU8(format);
+    putU8(encoding);
+    putU32(static_cast<uint32_t>(rawBytes));
+    putHash(content);
+}
 
 std::vector<uint8_t> Writer::take() {
     std::vector<uint8_t> out;

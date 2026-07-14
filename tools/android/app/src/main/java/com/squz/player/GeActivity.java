@@ -9,6 +9,8 @@ public class GeActivity extends SDLActivity {
     // can retrieve it via JNI. Set before SDL's native thread starts; cleared
     // after first read.
     private static volatile String sStreamAddr = null;
+    // Optional server catalogue name (default native: "tiltbuggy").
+    private static volatile String sServerName = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,6 +25,10 @@ public class GeActivity extends SDLActivity {
             if (addr != null && !addr.isEmpty()) {
                 sStreamAddr = addr;
             }
+            String name = intent.getStringExtra("server_name");
+            if (name != null && !name.isEmpty()) {
+                sServerName = name;
+            }
         }
         super.onCreate(savedInstanceState);
     }
@@ -34,6 +40,13 @@ public class GeActivity extends SDLActivity {
         String addr = sStreamAddr;
         sStreamAddr = null;
         return addr;
+    }
+
+    /** Optional catalogue name for /ws/wire?preference=… (null → native default). */
+    public static String getServerName() {
+        String name = sServerName;
+        sServerName = null;
+        return name;
     }
 
     /** @deprecated Use {@link #getStreamAddr()}; kept for any old native stubs. */

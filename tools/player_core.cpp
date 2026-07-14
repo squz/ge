@@ -21,7 +21,7 @@
 
 int playerCore(const std::string& host, int port, const std::string& serverName) {
     ge::installSignalHandlers();
-    SPDLOG_INFO("H.264 player starting");
+    SPDLOG_INFO("ge player starting (H.264 + GE2S cmdstream)");
 
     // No synthetic mouse/touch events — each input source stays native.
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
