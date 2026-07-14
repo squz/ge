@@ -148,7 +148,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // drawSafeRect is the playfield edge (cutouts only). Under immersive with
     // no cutouts it is the full surface — that alone takes dirt/walls to the
     // glass edge of the content. Camera frames drawSafe; arena is built to the
-    // same aspect (main.cpp). Title/HUD uses uiSafe below.
+    // same aspect (main.cpp). Title is content chrome → drawSafe too.
     const ge::Rect full = c.fullRectInPts();
     const ge::Rect draw = c.drawSafeRectInPts();
     const float aspect = (draw.h > 0.f)
