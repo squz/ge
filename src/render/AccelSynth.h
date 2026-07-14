@@ -15,8 +15,12 @@
 //    mouse button is held — click-drag alone tilts. Absolute position
 //    deltas cover the UIKit button-drag path when xrel is zero.
 //
-// Desktop: Shift + drag (relative mode). Button alone does not tilt so the
-// cursor stays free for UI.
+// Stream server (GE_SERVER_BUILD): same primary-button arm as the simulator.
+// Player devices forward raw button+motion; Shift is often unavailable on
+// mobile sims. Without button arm, click-drag arrives but never synthesizes.
+//
+// Desktop direct (not server, not sim): Shift + drag only. Button alone does
+// not tilt so the cursor stays free for UI.
 //
 // Belongs to the render subsystem. DirectRenderHost owns synthesis.
 // Stream players forward raw Shift/drag; server-side synth interprets.
@@ -196,11 +200,12 @@ private:
     }
 
     // Armed when Shift is held (key event or current mod state).
-    // On iOS Simulator also when primary button is held (click-drag).
+    // On iOS Simulator and stream server also when primary button is held
+    // (click-drag) — see file header for why.
     bool armed() const {
         if (shiftKey_) return true;
         if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) return true;
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+#if (defined(__APPLE__) && TARGET_OS_SIMULATOR) || defined(GE_SERVER_BUILD)
         if (primaryDown_) return true;
 #endif
         return false;

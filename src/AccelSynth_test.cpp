@@ -84,6 +84,22 @@ TEST_CASE("AccelSynth: motion without Shift is not consumed") {
     CHECK(emitted.empty());
 }
 
+#if (defined(__APPLE__) && TARGET_OS_SIMULATOR) || defined(GE_SERVER_BUILD)
+TEST_CASE("AccelSynth: primary button arms without Shift (sim/server)") {
+    AccelSynth synth;
+    std::vector<SDL_Event> emitted;
+    synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
+
+    SDL_Event down{};
+    down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    down.button.button = SDL_BUTTON_LEFT;
+    CHECK_FALSE(synth.handle(down));  // button not consumed
+    CHECK(synth.handle(motionRel(40.f, 0.f)));
+    REQUIRE(emitted.size() == 1);
+    CHECK(emitted[0].type == SDL_EVENT_SENSOR_UPDATE);
+}
+#endif
+
 TEST_CASE("AccelSynth: non-Shift events pass through") {
     AccelSynth synth;
     SDL_Event e{};

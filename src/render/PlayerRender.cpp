@@ -69,6 +69,22 @@ struct PlayerRender::Impl {
     // synthetic; that contract is the engine's, not the player's.
     SDL_Sensor* accelSensor = nullptr;
 
+    // Relative-mouse arm for the stream tilt path (mirrors AccelSynth). On
+    // iOS Simulator GCMouse only emits motion while relative mode is on.
+    bool shiftKey = false;
+    bool primaryDown = false;
+
+    void syncRelativeMouseForTilt() {
+        if (accelSensor) return;
+        bool armed = shiftKey ||
+                     ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0);
+#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+        // Click-drag without Shift — hardware keyboard Shift is flaky on sim.
+        if (primaryDown) armed = true;
+#endif
+        setRelativeMouseForShiftDrag(window, armed);
+    }
+
     // Aspect-fit content (contentW×contentH) into window (ww×wh).
     static void fitContentRect(int ww, int wh, float contentAspect,
                                float& outX, float& outY, float& outW, float& outH) {
@@ -488,6 +504,13 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (e.button.button == SDL_BUTTON_LEFT) {
+                i_->primaryDown = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                i_->syncRelativeMouseForTilt();
+            }
+            i_->mapEvent(e);
+            r.upstreamEvents.push_back(e);
+            break;
         case SDL_EVENT_MOUSE_WHEEL:
         case SDL_EVENT_FINGER_DOWN:
         case SDL_EVENT_FINGER_UP:
@@ -498,12 +521,13 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
         case SDL_EVENT_KEY_UP:
             // Stream player is a dumb peripheral: Shift+drag must reach the
             // server AccelSynth. On iOS Simulator, GCMouse only emits motion
-            // while relative mouse mode is on — mirror AccelSynth's policy.
-            if (!i_->accelSensor &&
-                (e.key.scancode == SDL_SCANCODE_LSHIFT ||
-                 e.key.scancode == SDL_SCANCODE_RSHIFT)) {
-                setRelativeMouseForShiftDrag(
-                    i_->window, e.type == SDL_EVENT_KEY_DOWN);
+            // while relative mouse mode is on — mirror AccelSynth's arm policy
+            // (Shift, and on sim also primary button — handled above).
+            if (e.key.scancode == SDL_SCANCODE_LSHIFT ||
+                e.key.scancode == SDL_SCANCODE_RSHIFT ||
+                e.key.key == SDLK_LSHIFT || e.key.key == SDLK_RSHIFT) {
+                i_->shiftKey = (e.type == SDL_EVENT_KEY_DOWN);
+                i_->syncRelativeMouseForTilt();
             }
             r.upstreamEvents.push_back(e);
             break;
