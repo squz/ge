@@ -7,10 +7,11 @@
 //   make              → bin/<app>         (windowed DirectRenderHost)
 //   make GE_SERVER=1  → bin/<app>-server  (-DGE_SERVER_BUILD, this TU linked)
 //
-// The server is a **console stream host** (stdio + relay), not a Mac game app
-// with a hidden window as the product story. Today it still needs an offscreen
-// Metal drawable for encode/cmdstream (SDL window + HIDDEN); 🎯T154.1 tracks
-// finishing true headless GPU. We already refuse Dock/foreground GUI identity.
+// The server is a **console stream host** (stdio + relay), not a Mac game app.
+// Product story (🎯T154.1): distinct `make server` binary, no Dock/foreground
+// GUI identity (Accessory policy). Implementation still uses a hidden SDL
+// window as the Metal offscreen drawable for encode/cmdstream — that is host
+// machinery, not a user-facing window.
 //
 // Kept in a separate TU so mobile distribution (GE_DIRECT_ONLY) omits wire.
 

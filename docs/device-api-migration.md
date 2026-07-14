@@ -13,15 +13,15 @@ AccelSynth / presentation-tilt synthesis (devices without a real accelerometer) 
 ```
 DIRECT APP (bin/<app>)              SERVER BUILD (bin/<app>-server)  ← different binary
 ──────────────────────              ────────────────────────────────
-make                                make GE_SERVER=1 (-DGE_SERVER_BUILD)
+make / make game                    make server (-DGE_SERVER_BUILD)
 ge::run → windowed DirectRenderHost ge::run → runServer (console identity)
   Context ← local OS                  still uses DirectRenderHost + HIDDEN window
-  SDL events ← local                  for Metal drawable (🎯T154.1 → true headless)
+  SDL events ← local                  as offscreen Metal drawable (host detail)
   db ← PrefPath on device             + ServerSession → spyder relay
-                                      player attach ≥0; discovery partial
+                                      player attach ≥0; discovery closed-loop
 ```
 
-**Product rule (user):** desktop game and server are totally different builds; server is a **console program**, not a Mac app. Builds already split; host stack still shares DirectRenderHost until T154.1 finishes headless GPU + no Dock.
+**Product rule (user):** desktop game and server are totally different builds; server is a **console program**, not a Mac app. 🎯T154.1: `make server` + Accessory console identity (no Dock game). Hidden Metal window remains as encode drawable, not a product surface.
 
 Streaming discovery/state coupling: the *viewing* device must be Context authority while a player is attached; durable state on the player.
 
@@ -187,7 +187,7 @@ resulting glass, not a pre-init snapshot that needs patching.
 
 | ID | Focus |
 |----|--------|
-| **T154.1** | Server console/headless host (not Dock game); true headless GPU residual |
+| **T154.1** | Server console host (not Dock game): `make server` + Accessory identity |
 | **T154.2** | **SessionConfig policy on glass: immersive + disableScreenSaver** (status bar repro) |
 | T154.discovery | Dual safe rects when cutout API exists; density/class; Context contract |
 | T154.input | Event set completeness, content-space contract, tests |
@@ -211,7 +211,7 @@ resulting glass, not a pre-init snapshot that needs patching.
 | Viewer lifecycle GE2L + audio/back/memory inject | **shipped** |
 | Parallax under stream | **{0,0}** (documented) |
 | make game / make server products | **shipped** in Module.mk |
-| Console server identity | **shipped** (Accessory); true headless GPU → T154.1 |
+| Console server identity | **shipped** (🎯T154.1: Accessory + `make server`) |
 | iOS stream player rebuild | **shipped** (`tools/ios` CMake; Pixel/Android + iPad mini proof) |
 | AccelSynth | OOS |
 | TiltBuggy title | **drawSafe** (content chrome, not uiSafe) |

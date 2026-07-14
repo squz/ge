@@ -10,9 +10,9 @@ Games talk only to **`ge::Context`**, SDL events via `onEvent`, `ge::audio`,
 | Build | Binary | Host | Discovery source |
 |-------|--------|------|------------------|
 | Desktop / mobile **game** | `bin/<app>` | Windowed `DirectRenderHost` | Local OS |
-| **Server** (`make GE_SERVER=1`) | `bin/<app>-server` | **Console** stream host (`runServer`) | Player → wire → `Context` |
+| **Server** (`make server`) | `bin/<app>-server` | **Console** stream host (`runServer`) | Player → wire → `Context` |
 
-These are **totally different builds** (separate objects, separate entry). Not one app with a runtime mode. The server is operator-facing (stdio/logs + relay), not a Dock game; residual offscreen Metal drawable is 🎯T154.1.
+These are **totally different builds** (separate objects, separate entry). Not one app with a runtime mode. The server is operator-facing (stdio/logs + relay), not a Dock game. A hidden SDL/Metal window is only the offscreen drawable for encode/cmdstream.
 
 **Projects do not rediscover this.** `Module.mk` owns the products:
 

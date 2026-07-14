@@ -44,7 +44,11 @@ These are **totally different builds**, not one binary with a mode flag. App **s
 
 **Direct:** `ge::run` → windowed `DirectRenderHost`. App-channel when `SPYDER_APP_CHANNEL` is set.
 
-**Stream:** server binary dials spyder’s relay; player attaches. Server is console-facing (stdio/logs), not a Dock game app (🎯T154.1 residual: offscreen Metal drawable).
+**Stream:** server binary dials spyder’s relay; player attaches. Server is a
+console stream host (stdio/logs + relay; macOS `NSApplicationActivationPolicyAccessory`
+so it is not a Dock game app). It still uses a hidden SDL/Metal window as the
+offscreen drawable for encode/cmdstream — that is an implementation detail of
+the host, not a user-facing GUI product.
 
 **Do not start `ged`.** Use spyder for control-plane work.
 
