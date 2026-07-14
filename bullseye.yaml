@@ -1933,6 +1933,28 @@ targets:
     - metadata
     origin: manual
     discovered: 2026-07-14
+  T155:
+    name: ge vendors a sqlpipe release that surfaces migration plan detail in apply failures
+    status: achieved
+    value: 5.0
+    cost: 3.0
+    actual_cost: 3.0
+    acceptance:
+    - sqlpipe has shipped a release (tag) that includes richer migration-apply failure diagnostics (plan / destructive op detail, not only the generic allow_destructive message).
+    - ge's vendored vendor/include/sqlpipe.h and vendor/src/sqlpipe.cpp match that release's dist/ amalgamation (or documented package layout).
+    - ge builds and unit tests pass with the new sqlpipe.
+    - 'Optional proof: opening a DB that would plan DropTable on an internal meta table (or equivalent) produces an error message that names the op/object, not only the generic destructive-ops text.'
+    - NOTICES.md / upgrade note updated if the vendor path or version attribution changed.
+    context: '2026-07-14: ge is on sqlpipe ~0.20 (vendored Apr 2026); upstream is at v0.28.0+. M4 TiltBuggy crash was sqlift DropTable _sqlpipe_meta marked destructive; exception text did not include the plan. User: a pending sqlpipe release will uplift exception information for this case — wait for it to land, then apply to ge. Do not hand-roll plan logging in ge before that release.'
+    tags:
+    - sqlpipe
+    - vendor
+    - migration
+    - diagnostics
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
