@@ -1788,26 +1788,41 @@ targets:
     discovered: 2026-04-16
     achieved: 2026-04-17
   T153:
-    name: ge::drawSolid API is reviewed and either confirmed or redesigned
+    name: ge public API is audited top-to-bottom for over-specific, niche-tailored surfaces; keepers are confirmed and generalisations (or set-asides) are filed as concrete follow-ons
     status: identified
     value: 0.0
     cost: 0.0
     acceptance:
-    - 'A short design note records the review outcome: keep ge::drawSolid as shipped, or replace/reshape it.'
-    - Review explicitly weighs whether a one-off free function for this shader is the right surface vs a more general primitive (e.g. material/pass/pipeline helper, mesh handle type, or shared layout with ge::debug / Sprite).
-    - Review explicitly weighs how triangle meshes are specified (raw sg_buffer + byte offsets + MeshVertex stride + base_element/nIdx + cull enum) vs alternatives (ge::Mesh wrapper, span-of-indices, bound pipeline state, etc.).
-    - If redesign is chosen, a follow-on target captures the migration; if keep-as-is, STABILITY/agents-guide wording is tightened so the chosen shape is intentional, not provisional.
-    - yourworld2 carousel consumer remains valid either by keeping the current call site or a thin adapter after redesign — no silent breakage without a migration path.
-    context: 'Shipped in ge v0.75.0 for yourworld2 carousel solid-white silhouettes (unlit mesh fill). Authoring intent was a generic MVP VS + flat-color FS out-of-the-box capability. Current API is ge::drawSolid(mvp, vbuf, vbuf_offset, vertex_stride, ibuf, base_element, num_elements, color, cull) with a fixed MeshVertex 20-byte stride and three cull pipelines. User is not convinced a custom function for this one shader and this particular mesh-spec approach is correct; keep the implementation for now and review the API shape deliberately. Origin: yourworld2 dual-oracle / carousel sil work.'
+    - 'A written audit (docs/ note or this target''s context expanded into a short design note) walks the public surface under include/ge/ and classifies each major surface as: core general primitive, justified specialised API, or over-specific / niche-tailored candidate for generalisation or removal.'
+    - 'The audit is not limited to rendering: session host, input, assets, animation, platform, I/O, IAP, app-channel, wire/player, and tooling-facing headers are all in scope. Rendering is one chapter; drawSolid is one worked example, not the whole review.'
+    - 'For each over-specific finding the audit records: what niche case drove it, what more general construct would absorb it (if any), cost of generalising vs keeping, and disposition (keep with rationale / generalise → follow-on target / park or set_aside).'
+    - 'Worked example — ge::drawSolid: the review answers whether solid fill belongs as a one-off free function + raw sg_buffer mesh spec, or as an instance of a more general "apply a simple shader / material to indexed mesh geometry" construct (and how that relates to Sprite, ge::debug, and MeshVertex).'
+    - At least three additional candidate over-specific surfaces (beyond drawSolid) are named with evidence from call sites or origin stories — not a full rewrite plan, a sample of the pattern across the API.
+    - Every "generalise" disposition becomes a concrete bullseye child or sibling target (or an explicit reject with reasons). No loose prose left as the only record of accepted work.
+    - STABILITY.md / AGENTS.md are updated only for dispositions that change the intentional public contract; provisional "shipped for one consumer" items stop being labelled Stable without a keep decision.
+    context: |-
+      Reframed 2026-07-14 after user correction: the prior T153 text scoped the work as "review ge::drawSolid and maybe redesign it." That missed the point.
+
+      drawSolid (v0.75.0, yourworld2 carousel solid-white silhouettes) was only an *example* of a broader concern: ge sometimes grows a public free function or type tailored to one consumer's mesh/renderer edge case instead of asking what general draw/shader/mesh construct would serve many cases. The authoring intent for drawSolid was "generic MVP VS + flat FS," but the landed shape is a one-off `drawSolid(mvp, vbuf, offset, stride, ibuf, base, n, color, cull)` locked to MeshVertex 20-byte stride and three prebuilt cull pipelines — a niche mesh-spec path, not a general material/shader application surface.
+
+      What the user wanted:
+      1. Generalise how shaders attach to draw operations (not just "is this solid function OK?").
+      2. Sweep the *whole* public API for other over-specific, niche-tailored surfaces and ask which of those should be generalised.
+      3. A top-to-bottom review of the API as it stands today — not a single-function design bike-shed.
+
+      Method: inventory include/ge/, classify (core / justified specialised / over-specific), evidence from consumers and origin stories, file follow-on targets for keepers of "generalise." This is a spike-then-decide / audit target (like T146's spirit), not an implementation mandate to rewrite the engine.
+
+      Origin of the example: yourworld2 dual-oracle / carousel sil work. Tags retained for rendering + yourworld2-audit; the audit scope is deliberately wider.
     tags:
     - api
-    - rendering
-    - solid
-    - mesh
+    - api-audit
     - design-review
+    - public-surface
+    - rendering
+    - generalisation
     - yourworld2-audit
     - sokol
-    origin: yourworld2 carousel sils / ge v0.75.0 drawSolid
+    origin: 'user correction 2026-07-14: top-to-bottom API specificity audit; drawSolid is one example'
     discovered: 2026-07-13
   T154:
     name: 'Streaming modality is fully decoupled from the app: all device interaction goes through the polymorphic device API (physical vs wire backends); player holds durable state'
