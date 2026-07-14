@@ -344,11 +344,12 @@ public:
     // sliders, drag handles**: anything that takes input. Smaller
     // than drawSafeRectInPts() on devices with system gestures.
     Rect uiSafeRectInPts() const;
-    // The full sokol swapchain rectangle — origin (0,0), full surface
-    // size in points. Use when you genuinely want to bleed past every
-    // safe area (full-surface backgrounds, decorative imagery that
-    // surrounds chrome). On desktop this is identical to the other two
-    // rects. Multiply by pixelsPerPt() for sokol pixel coords.
+    // Content surface rectangle — origin (0,0), full **content** size in
+    // points (🎯T154). This is the game layout / sokol swapchain space,
+    // NOT the viewer's native phone resolution under stream. The server
+    // keeps a fixed content surface; the player letterboxes. Safe insets
+    // map viewer chrome into this space. Multiply by pixelsPerPt() for
+    // content pixel coords.
     Rect fullRectInPts() const;
 
     // Per-edge safe-area insets in pt (🎯T37 + 🎯T60 unified). Most
@@ -356,8 +357,10 @@ public:
     // when the task is "align flush with a specific chrome edge" —
     // e.g. `uiSafeInsetsInPts().y0` is the exact pt offset from the
     // top of the surface to the bottom of the camera notch. All four
-    // edges are 0 on desktop and on wire-mode sessions until the
-    // player→server safe-area plumbing lands.
+    // edges are 0 on desktop. Under stream (server backend), insets come
+    // from the player's DeviceInfo / SafeAreaUpdate mapped into content
+    // space — same accessors, different discovery source (compile-time
+    // backend: app vs server; no public runtime switch).
     SafeAreaInsets drawSafeInsetsInPts() const;
     SafeAreaInsets uiSafeInsetsInPts()   const;
 
@@ -510,6 +513,7 @@ public:
     void setSurfaceDimensions(int surfacePxW, int surfacePxH);
     void setDrawSafeInsets(SafeAreaInsets inPt);
     void setUiSafeInsets(SafeAreaInsets inPt);
+    void setDeviceClass(DeviceClass);
     void setPixelsPerPt(float);
     void setDeviceUiScale(float);
     void setParallax(la::float2);
@@ -628,8 +632,11 @@ struct RunConfig {
 
 // Configuration for the session host.
 struct SessionHostConfig {
-    // Render dimensions. In headless mode, 0×0 means "wait for the
-    // player's DeviceInfo and adopt its dimensions (halved)".
+    // Initial content-surface size (server swapchain / encode size). Under
+    // stream the host retargets the content *aspect* to the attached player's
+    // DeviceInfo so the glass is filled (no letterbox gutters). Pixel budget
+    // keeps the longer edge of this initial size. Direct builds use the
+    // window's native size after creation.
     int width  = 0;
     int height = 0;
     bool headless = true;  // true = H.264 server, false = native window
@@ -643,13 +650,11 @@ struct SessionHostConfig {
     // build (GE_SERVER_BUILD) makes ge::run a hidden-window DirectRenderHost that
     // streams ge's canonical H.264 wire to a player via spyder's relay. The relay
     // address is read from the GE_SERVER env inside runServer; the app's config
-    // and code are identical to its desktop build. Render dims come from
-    // width/height above, NOT the player's DeviceInfo.
+    // and code are identical to its desktop build.
 
-    // App identity for persistent DB path (via SDL_GetPrefPath).
-    // Bundled (non-headless) mode opens a persistent file; headless
-    // (server) mode always uses :memory: — persistence is owned by
-    // the player and synced via sqlpipe.
+    // App identity for persistent DB path (via SDL_GetPrefPath) on **direct**
+    // builds only. Server builds (`GE_SERVER_BUILD`) always open :memory: —
+    // durable state is player-authoritative (sqlpipe GE2T; 🎯T154).
     const char* orgName = nullptr;
     const char* appName = nullptr;
 

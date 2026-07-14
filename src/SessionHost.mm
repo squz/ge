@@ -63,6 +63,7 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     if (server && server->active) {
         host.setServerFrameSink(server->sink, server->active,
                                 server->capturePixels);
+        host.setViewerMetricsStore(server->viewer);
     }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same
@@ -79,6 +80,8 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     wire::SessionConfig sc{};
     sc.sensors = config.sensors;
     sc.orientation = config.orientation;
+    if (config.immersive) sc.flags |= wire::kSessionFlagImmersive;
+    if (config.disableScreenSaver) sc.flags |= wire::kSessionFlagNoScreenSaver;
     host.send(sc);
 
     uint64_t freq = SDL_GetPerformanceFrequency();

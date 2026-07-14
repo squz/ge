@@ -3,10 +3,12 @@
 
 #include <ge/svg.h>
 
-#include <ge/CmdStream.h>
 #include <ge/FontLoader.h>
 
+#ifndef GE_PLAYER_NO_SOKOL
+#include <ge/CmdStream.h>
 #include "sokol_gfx.h"
+#endif
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
@@ -90,6 +92,7 @@ SvgBounds boundsFromBox(const lunasvg::Box& box) {
     };
 }
 
+#ifndef GE_PLAYER_NO_SOKOL
 Sprite uploadPixels(const SvgPixels& pixels) {
     if (pixels.isNull()) return Sprite{};
     sg_image_desc desc{};
@@ -122,6 +125,7 @@ void registerSvgRecipe(const Sprite& out, std::string_view svg,
         out.tex.id, svg, tw, th,
         static_cast<uint16_t>(out.width), static_cast<uint16_t>(out.height));
 }
+#endif
 
 } // namespace
 
@@ -149,12 +153,21 @@ SvgPixels rasterizeSvgToPixels(std::string_view svg, int targetW, int targetH) {
 }
 
 Sprite rasterizeSvg(std::string_view svg, int targetW, int targetH) {
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)svg; (void)targetW; (void)targetH;
+    return Sprite{};
+#else
     Sprite out = uploadPixels(rasterizeSvgToPixels(svg, targetW, targetH));
     registerSvgRecipe(out, svg, targetW, targetH);
     return out;
+#endif
 }
 
 Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH) {
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)doc; (void)targetW; (void)targetH;
+    return Sprite{};
+#else
     // lunasvg::Document::renderToBitmap is non-const in some versions; the
     // const_cast is safe because renderToBitmap doesn't observably mutate
     // the document beyond updating an internal layout cache.
@@ -175,6 +188,7 @@ Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH)
             px.rgba.data(), px.rgba.size());
     }
     return out;
+#endif
 }
 
 SvgBounds measureSvgBounds(std::string_view svg) {

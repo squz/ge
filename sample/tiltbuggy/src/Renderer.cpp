@@ -142,13 +142,22 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // 🎯T101 Open the swapchain pass — ends/commits/presents on scope exit.
     auto pass = c.swapchainPass();
 
-    auto surf = c.fullRectInPts();
-    const float aspect = (surf.h > 0)
-        ? static_cast<float>(surf.w) / static_cast<float>(surf.h) : 1.0f;
+    // Playfield metrics: same accessors on direct (local OS) and stream
+    // (player DeviceInfo → content). No modality branch.
+    //
+    // drawSafeRect is the playfield edge (cutouts only). Under immersive with
+    // no cutouts it is the full surface — that alone takes dirt/walls to the
+    // glass edge of the content. Camera frames drawSafe; arena is built to the
+    // same aspect (main.cpp). Title/HUD uses uiSafe below.
+    const ge::Rect full = c.fullRectInPts();
+    const ge::Rect draw = c.drawSafeRectInPts();
+    const float aspect = (draw.h > 0.f)
+        ? draw.w / draw.h
+        : ((full.h > 0.f) ? full.w / full.h : 1.0f);
     const Pose  pose   = scene.buggyPose();
     const float he     = scene.halfExtent();
+    const float hwid   = scene.halfWidth();
 
-    // Camera.
     const bool  followCam = c.deviceClass() == ge::DeviceClass::Phone;
     const float viewHe    = followCam ? he * kPhoneViewFrac : he;
     float orthoW, orthoH;
@@ -166,7 +175,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     // Tile a texture across a world region, clipping edge cells to the region
     // (uvSubRect) so a bounded patch doesn't overhang. Batched per texture.
     auto tileInto = [&](const ge::Sprite& spr, ge::Rect region, float tile) {
-        if (spr.isNull()) return;
+        if (spr.isNull() || region.w <= 0.f || region.h <= 0.f) return;
         const float x0 = std::floor(region.x / tile) * tile;
         const float y0 = std::floor(region.y / tile) * tile;
         for (float ty = y0; ty < region.y + region.h; ty += tile)
@@ -191,7 +200,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
              ge::Rect{camX - bgHalfW, camY - bgHalfH, 2.f * bgHalfW, 2.f * bgHalfH},
              kTileWorld);
 
-    // Ice + dirt — the real textures tiled across their (rectangular) patches.
+    // Ice + dirt — physics-surface rects (walls sized to drawSafe aspect).
     for (const auto& s : scene.surfaces()) {
         if (s.type == SurfaceType::Ice)  tileInto(i_->ice,  s.rect, kTileWorld);
         if (s.type == SurfaceType::Dirt) tileInto(i_->dirt, s.rect, kTileWorld);
@@ -208,17 +217,17 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
 
     i_->batch.submit(mvp);
 
-    // ── Title chrome (screen pts, y-down) — top of ui-safe area ─────────
-    // Separate batch so world MVP doesn't squash the HUD.
+    // ── Title (screen pts, y-down) — top of *draw*-safe ───────────────
+    // Banner is content/decoration, not interactive chrome: it does not
+    // need uiSafe clearance from system bars or gesture zones. Pin to
+    // drawSafe (cutouts only; full surface on a Pixel).
     if (!i_->titleBorder.isNull() || !i_->titleText.isNull()) {
-        const ge::Rect ui = c.uiSafeRectInPts();
-        const float bannerW = std::min(ui.w * 0.72f, 420.f);
+        const float bannerW = std::min(draw.w * 0.72f, 420.f);
         const float bannerH = bannerW * (90.f / 400.f);
-        const float bx = ui.x + (ui.w - bannerW) * 0.5f;
-        const float by = ui.y + 8.f;
-        // UI ortho: pt coords, y-down (b=h, t=0) → Metal NDC.
-        const ge::la::float4x4 uiMvp =
-            orthoMetal(0.f, surf.w, surf.h, 0.f, -1.f, 1.f);
+        const float bx = draw.x + (draw.w - bannerW) * 0.5f;
+        const float by = draw.y + 8.f;
+        const ge::la::float4x4 titleMvp =
+            orthoMetal(0.f, full.w, full.h, 0.f, -1.f, 1.f);
 
         i_->batch.clear();
         if (!i_->titleBorder.isNull()) {
@@ -234,13 +243,12 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
             i_->batch.addSprite(ge::frame(ge::Rect{tx, ty, drawW, drawH}),
                                 i_->titleText);
         }
-        i_->batch.submit(uiMvp);
+        i_->batch.submit(titleMvp);
     }
 
     // 🎯T97 debug overlay — opt-in (GE_DEBUG_OVERLAY); a no-op while disabled.
     {
         const auto che = scene.chassisHalfExtents();
-        const float hwid = scene.halfWidth();
         ge::debug::box(ge::Rect{-hwid, -he, 2.f * hwid, 2.f * he});
         ge::debug::circle({pose.x, pose.y}, che.x * 1.2f);
         ge::debug::flush(c, mvp);

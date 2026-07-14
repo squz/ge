@@ -3,10 +3,15 @@
 
 #include "ServerSession.h"
 
+#include "../render/LifecycleInject.h"
+
 #include <ge/CmdStream.h>
 #include <ge/Protocol.h>
 #include <ge/VideoEncoder.h>
+#include <ge/ViewerMetrics.h>
 #include <ge/WebSocketClient.h>
+
+#include <ge/audio.h>
 
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
@@ -76,11 +81,10 @@ struct ServerSession::Impl {
     std::thread sidebandThread;
     std::thread inputThread;
 
-    // Player-advertised device hints, parsed from DeviceInfo on the input
-    // thread. Used only for deviceClass / pixelRatio context; NEVER for encode
-    // dims (those are the captured frame's actual w×h — see onCapturedFrame).
-    std::atomic<int> deviceClass{0};
-    std::atomic<int> pixelRatio{0};
+    // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
+    // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
+    // the server surface — never resized from DeviceInfo.
+    ViewerMetricsStore viewer{};
 
     // 🎯T128.9 — negotiated transport. Defaults H.264; upgraded when the
     // player advertises kCapCommandStream and the server opts in
@@ -131,9 +135,15 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
     }
     hasPlayer.store(true);
 
-    // Advertise session requirements (sensors, orientation) BEFORE the player
-    // creates its window — the player blocks on this in PlayerWireBridge::connect.
+    // Advertise session requirements BEFORE the player creates its window —
+    // the player blocks on this in PlayerWireBridge::connect (handshake step 1).
     sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
+    SPDLOG_INFO("ServerSession: SessionConfig sensors={:#x} orientation={} "
+                "transport={} flags={:#x} (immersive={} noSaver={})",
+                sessionConfig.sensors, sessionConfig.orientation,
+                sessionConfig.transport, sessionConfig.flags,
+                (sessionConfig.flags & wire::kSessionFlagImmersive) ? 1 : 0,
+                (sessionConfig.flags & wire::kSessionFlagNoScreenSaver) ? 1 : 0);
 
     inputThread = std::thread([this] { inputLoop(); });
     SPDLOG_INFO("ServerSession: player attached (session {}), streaming", sessionId);
@@ -177,12 +187,66 @@ void ServerSession::Impl::inputLoop() {
             const size_t avail = data.size() - sizeof(wire::MessageHeader);
             std::memcpy(&info, data.data() + sizeof(wire::MessageHeader),
                         std::min(avail, sizeof(info)));
-            deviceClass.store(info.deviceClass);
-            pixelRatio.store(info.pixelRatio);
-            SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} caps={:#x}",
+            // v7 payload ends before drawSafe*; short copies leave drawW=0.
+            viewer.applyDeviceInfo(info.width, info.height, info.pixelRatio,
+                                   info.deviceClass, info.safeX, info.safeY,
+                                   info.safeW, info.safeH,
+                                   info.drawSafeX, info.drawSafeY,
+                                   info.drawSafeW, info.drawSafeH);
+            SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} "
+                        "ui=({},{} {}x{}) draw=({},{} {}x{}) caps={:#x}",
                         info.width, info.height, info.pixelRatio, info.deviceClass,
+                        info.safeX, info.safeY, info.safeW, info.safeH,
+                        info.drawSafeX, info.drawSafeY, info.drawSafeW, info.drawSafeH,
                         info.capabilities);
             negotiateTransport(info.capabilities);
+        } else if (magic == wire::kSafeAreaMagic &&
+                   data.size() >= sizeof(wire::MessageHeader) + 12) {
+            // Min: magic+ui rect (4+8). v8 adds drawSafe*.
+            wire::SafeAreaUpdate sa{};
+            const size_t avail = data.size() - sizeof(wire::MessageHeader);
+            std::memcpy(&sa, data.data() + sizeof(wire::MessageHeader),
+                        std::min(avail, sizeof(sa)));
+            viewer.applySafeArea(sa.safeX, sa.safeY, sa.safeW, sa.safeH,
+                                 sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
+            SPDLOG_INFO("ServerSession: player SafeAreaUpdate ui=({},{} {}x{}) "
+                        "draw=({},{} {}x{})",
+                        sa.safeX, sa.safeY, sa.safeW, sa.safeH,
+                        sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
+        } else if (magic == wire::kLifecycleMagic &&
+                   data.size() >= sizeof(wire::MessageHeader) + 2) {
+            wire::ViewerLifecycle life{};
+            const size_t avail = data.size() - sizeof(wire::MessageHeader);
+            std::memcpy(&life, data.data() + sizeof(wire::MessageHeader),
+                        std::min(avail, sizeof(life)));
+            switch (life.kind) {
+            case wire::kLifeForeground:
+                detail::injectViewerBackgrounded(false);
+                ge::audio::onForeground();
+                break;
+            case wire::kLifeBackground:
+                detail::injectViewerBackgrounded(true);
+                ge::audio::onBackground();
+                break;
+            case wire::kLifeBackPressed:
+                detail::injectBackPressed();
+                break;
+            case wire::kLifeMemory:
+                detail::injectMemoryWarning(
+                    static_cast<MemoryPressureLevel>(life.memoryLevel));
+                break;
+            case wire::kLifeAudioLost:
+                detail::injectAudioFocus(false);
+                ge::audio::onAudioFocusLost();
+                break;
+            case wire::kLifeAudioGained:
+                detail::injectAudioFocus(true);
+                ge::audio::onAudioFocusGained();
+                break;
+            default:
+                break;
+            }
+            SPDLOG_INFO("ServerSession: viewer lifecycle kind={}", life.kind);
         }
     }
 }
@@ -266,6 +330,8 @@ void ServerSession::stop() {
 bool ServerSession::active() const { return i_->hasPlayer.load(); }
 
 std::atomic<bool>* ServerSession::activeFlag() { return &i_->hasPlayer; }
+
+ViewerMetricsStore* ServerSession::viewerMetrics() { return &i_->viewer; }
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
     if (!i_->hasPlayer.load() || !px || w <= 0 || h <= 0) return;

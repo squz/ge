@@ -1,20 +1,18 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// runServer — the server modality of ge::run() (🎯T92.2.2).
+// runServer — the SERVER BUILD entry for ge::run() (🎯T92.2.2 / 🎯T154.1).
 //
-// Server mode is a hidden-window variant of the direct run loop that streams
-// ge's canonical H.264 wire to a player attached via spyder's relay. There is
-// ONE render host (DirectRenderHost) and ONE wire (ServerSession) — no parallel
-// StreamClient hack, no dormant ServerWireBridge. This TU builds the
-// ServerSession, forces a hidden window, wires the session's frame sink + active
-// flag into the shared direct loop via ServerHook, and hands off to
-// runDirectHosted (SessionHost.mm).
+// Desktop game and stream server are **totally different builds**:
+//   make              → bin/<app>         (windowed DirectRenderHost)
+//   make GE_SERVER=1  → bin/<app>-server  (-DGE_SERVER_BUILD, this TU linked)
 //
-// Kept in a separate TU from SessionHost.mm so mobile distribution builds
-// (GE_DIRECT_ONLY) can omit it and avoid pulling in the bridge subsystem
-// (ServerSession, WebSocketClient, VideoEncoder). Under GE_DIRECT_ONLY,
-// SessionHost.mm stubs runServer with a runtime error instead.
+// The server is a **console stream host** (stdio + relay), not a Mac game app
+// with a hidden window as the product story. Today it still needs an offscreen
+// Metal drawable for encode/cmdstream (SDL window + HIDDEN); 🎯T154.1 tracks
+// finishing true headless GPU. We already refuse Dock/foreground GUI identity.
+//
+// Kept in a separate TU so mobile distribution (GE_DIRECT_ONLY) omits wire.
 
 #include "../RunDirect.h"
 #include "ServerSession.h"
@@ -28,9 +26,38 @@
 #include <memory>
 #include <string>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#import <AppKit/AppKit.h>
+#endif
+#endif
+
 namespace ge {
 
+namespace {
+
+// Console process identity on macOS: no Dock icon, do not steal focus.
+// Call after SDL has brought up NSApp (first video init). Safe to call early
+// if NSApp already exists; no-op if not yet.
+void adoptConsoleProcessIdentity() {
+#if defined(__APPLE__) && TARGET_OS_OSX
+    @autoreleasepool {
+        if (NSApp == nil) {
+            // Ensure AppKit is up enough to set policy (SDL may not have yet).
+            [NSApplication sharedApplication];
+        }
+        // Accessory: no Dock tile; not a normal foreground app.
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        // Do not activate / order front anything.
+    }
+#endif
+}
+
+} // namespace
+
 void runServer(Factory factory, const SessionHostConfig& config) {
+    adoptConsoleProcessIdentity();
     const std::string name =
         config.appName && *config.appName ? config.appName : "server";
 
@@ -50,24 +77,27 @@ void runServer(Factory factory, const SessionHostConfig& config) {
         }
     }
 
-    // The wire::SessionConfig the player receives on attach — game-wide sensor /
-    // orientation requirements, mirroring runDirect's send() to a local host.
+    // The wire::SessionConfig the player receives on attach — same session
+    // policy the direct host would apply locally (sensors, orientation,
+    // immersive chrome, screen-saver). 🎯T154: viewer glass applies these.
     wire::SessionConfig sc{};
     sc.sensors = config.sensors;
     sc.orientation = config.orientation;
+    if (config.immersive) sc.flags |= wire::kSessionFlagImmersive;
+    if (config.disableScreenSaver) sc.flags |= wire::kSessionFlagNoScreenSaver;
 
     auto server = std::make_shared<ServerSession>(host, port, name, sc);
     server->start();
     SPDLOG_INFO("runServer: '{}' streaming to relay {}:{}", name, host, port);
 
-    // Force a hidden window — a server-mode instance has no visible surface (the
-    // player displays the stream). Render dims stay config.width/height.
+    // Offscreen drawable only — player is the glass. Not a user-facing window.
     SessionHostConfig cfg = config;
     cfg.hidden = true;
 
     ServerHook hook;
     hook.active = server->activeFlag();
     hook.capturePixels = server->capturePixelsFlag();
+    hook.viewer = server->viewerMetrics();
     hook.sink = [server](const std::uint8_t* px, int w, int h) {
         server->onCapturedFrame(px, w, h);
     };
@@ -75,6 +105,9 @@ void runServer(Factory factory, const SessionHostConfig& config) {
     hook.afterRender = [server] { server->onFrameEnd(); };
     hook.onStop = [server] { server->stop(); };
 
+    SPDLOG_INFO("runServer: console stream host (not a desktop game window)");
+    // runDirectHosted constructs DirectRenderHost (SDL_Init / NSApp); console
+    // policy is re-applied at the end of host construction via ServerHook path.
     runDirectHosted(std::move(factory), std::move(cfg), &hook);
 }
 

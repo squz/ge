@@ -14,6 +14,10 @@
 #include <ge/Protocol.h>
 #include <ge/Signal.h>
 
+// Immersive is engine-internal (src/); player applies SessionConfig.immersive
+// on the viewer the same way DirectRenderHost does on a direct app.
+#include "../src/Immersive.h"
+
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
 
@@ -31,14 +35,28 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         return 1;
     }
 
-    // 1. Connect to stream relay and wait for SessionConfig (orientation hint must
-    //    be applied BEFORE window creation, which happens in PlayerRender).
+    // ── Handshake (🎯T154) — init is seed; discovery is derived ──
+    //
+    //   SessionHostConfig in ge::run   fixed constants at process start
+    //   server → SessionConfig         first app payload on the wire
+    //   player applies that policy     orientation / immersive / sensors / …
+    //   player → DeviceInfo            measured once from the configured surface
+    //
+    // Safe rects are not known before SessionConfig, and are not “updated”
+    // after it. They are computed for the first time after policy is on glass.
     ge::PlayerWireBridge wire({host, port, serverName});
     wire::SessionConfig cfg{};
     if (!wire.connect(cfg)) {
         SDL_Quit();
         return 1;
     }
+    SPDLOG_INFO("SessionConfig: sensors={:#x} orientation={} transport={} flags={:#x}",
+                cfg.sensors, cfg.orientation, cfg.transport, cfg.flags);
+
+    const bool immersive = (cfg.flags & wire::kSessionFlagImmersive) != 0;
+    const bool noSaver   = (cfg.flags & wire::kSessionFlagNoScreenSaver) != 0;
+
+    // Orientation hint before window creation (iOS/Android launch lock).
     if (cfg.orientation != 0) {
         const char* hint = nullptr;
         switch (cfg.orientation) {
@@ -50,28 +68,38 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         if (hint) SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
     }
 
-    // 2. Create the renderer (SDL window + accelerometer).
     ge::PlayerRender::Config rc;
 #ifndef GE_DESKTOP
     rc.borderless = true;
 #endif
     rc.orientation = cfg.orientation;
+    rc.immersive = immersive;  // discovery: ui-safe after bars are applied
     ge::PlayerRender render(rc);
+
+    // Apply the rest of SessionConfig now that a window/activity exists.
+    // Blocking applyImmersive waits for the OS layout/insets pass so the
+    // subsequent DeviceInfo read sees the configured surface.
+    if (immersive) ge::applyImmersive(true);
+    if (noSaver) SDL_DisableScreenSaver();
     if (cfg.sensors & wire::kSensorAccelerometer) render.enableAccelerometer();
 
-    // 3. Send DeviceInfo upstream.
     {
-        int w, h, pr;
-        render.getDeviceDimensions(w, h, pr);
         wire::DeviceInfo di{};
-        di.width = w;
-        di.height = h;
-        di.pixelRatio = pr;
-        di.deviceClass = 3;
+        render.fillDeviceInfo(di);
         wire.sendDeviceInfo(di);
+        SPDLOG_INFO("DeviceInfo {}x{} @{}x class={} safe=({},{} {}x{}) "
+                    "draw=({},{} {}x{})",
+                    di.width, di.height, di.pixelRatio, di.deviceClass,
+                    di.safeX, di.safeY, di.safeW, di.safeH,
+                    di.drawSafeX, di.drawSafeY, di.drawSafeW, di.drawSafeH);
     }
 
-    // 4. Main loop.
+    // Mid-session orientation/resize only — re-measure the live surface.
+    auto sendViewerDiscovery = [&] {
+        wire::DeviceInfo di{};
+        render.fillDeviceInfo(di);
+        wire.sendDeviceInfo(di);
+    };
     struct PlayerFrame { uint64_t timestamp; int decoded; uint32_t lastSeq; float drainMs; float renderMs; float pumpMs; float evMs; float upMs; };
     static FrameLog<PlayerFrame> playerLog(
         [](const std::vector<PlayerFrame>& frames, uint64_t freq) {
@@ -126,6 +154,13 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         const uint64_t tEv0 = SDL_GetPerformanceCounter();
         auto pump = render.pumpEvents();
         if (pump.quit) break;
+        if (pump.surfaceChanged) sendViewerDiscovery();
+        if (pump.lifecycleKind != 0) {
+            wire::ViewerLifecycle life{};
+            life.kind = pump.lifecycleKind;
+            life.memoryLevel = pump.lifecycleMemoryLevel;
+            wire.sendLifecycle(life);
+        }
         for (auto& e : pump.upstreamEvents) wire.sendEvent(e);
 
         const uint64_t tPump0 = SDL_GetPerformanceCounter();

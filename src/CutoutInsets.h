@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Engine-internal: query the platform for display-cutout insets only
-// (camera notch / Dynamic Island / status-bar-when-visible — i.e. the
-// regions where pixels are physically obscured by hardware or system UI
-// drawn on top). Distinct from the full input-safe insets which also
-// include OS-reserved gesture / tappable zones.
+// (camera notch / Dynamic Island / punch-hole). Status bars, nav bars, and
+// gesture zones are *not* cutouts — they belong on ui-safe only. On a Pixel
+// with no inset camera this returns zeros, so drawSafe == full surface.
 //
 // On iOS, the platform doesn't expose a clean cutout-only signal, so
 // the value matches the full SDL safe-area (best the platform allows;

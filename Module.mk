@@ -1,37 +1,43 @@
 # ge engine module
 # Included by a consuming project's Makefile.
 #
-# Typical usage — a minimal app Makefile looks like:
+# ── Project vs ge responsibility ───────────────────────────────────
+# The consuming project supplies APP_NAME / APP_SRC / game logic only.
+# Build variants, deploy, stream server packaging, player, and host
+# entrypoints are **ge's concern** — do not reinvent GE_SERVER_BUILD or
+# dual-host stories in the game Makefile.
+#
+# Typical usage — minimal app Makefile:
 #
 #   ge          := ge
 #   APP_NAME    := mygame
 #   APP_SRC     := src/main.cpp src/Scene.cpp
-#   APP_SHADERS := build/shaders/simple_vs.bin build/shaders/simple_fs.bin
+#   APP_SHADERS := build/shaders/simple.h
 #
 #   -include $(ge)/Module.mk
 #   $(ge)/Module.mk:
 #           git submodule update --init --recursive
 #
-# Module.mk derives the binary path ($(APP)=bin/$(APP_NAME)), object list,
-# link rule, compile rule, default `all` target and `run`/`clean`.
+# First-class products (no project flags required):
+#   make / make game     → bin/$(APP_NAME)         windowed game (direct)
+#   make server          → bin/$(APP_NAME)-server  console stream host
+#   make player          → bin/player              stream glass
+#   make run / make run-server
+#
+# These are totally different builds (separate object dirs, -DGE_SERVER_BUILD
+# only on the server). Not a runtime mode inside one binary.
 #
 # The `ge` variable is the relative path from the app Makefile to the ge
 # repository root. Submodule apps use the default `ge := ge`. In-tree
 # samples that live inside the ge repo set it to `../..` etc.
-#
-# Output paths under $(BUILD_DIR) always use a literal `ge/` namespace
-# so objects land in sane locations regardless of where `$(ge)` points.
 ge ?= ge
 
 # ────────────────────────────────────────────────
 # Build configuration (app-overridable)
 # ────────────────────────────────────────────────
 
-# 🎯T92.2.2 Server build variant: `make GE_SERVER=1` compiles ge::run to the
-# hidden-window streaming path (-DGE_SERVER_BUILD, below) and emits a distinct
-# binary (bin/<app>-server) into a distinct object dir (so its SessionHost.o,
-# built with the flag, never clobbers the desktop build's). Plain `make` is the
-# desktop/windowed build. The app source is identical in both.
+# Internal: GE_SERVER=1 is set by the `server` target only — apps should
+# call `make server`, not invent packaging flags.
 BUILD_DIR ?= build$(if $(GE_SERVER),-server)
 CXX       ?= clang++
 CC        ?= clang
@@ -264,7 +270,9 @@ ge/TEST_SRC = \
 	$(ge)/src/wire_input_test.cpp \
 	$(ge)/src/VideoRoundtrip_test.cpp \
 	$(ge)/src/CmdStream_test.cpp \
-	$(ge)/src/AccelScreen_test.cpp
+	$(ge)/src/AccelScreen_test.cpp \
+	$(ge)/src/ViewerMetrics_test.cpp \
+	$(ge)/src/StreamDbPolicy_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
@@ -316,11 +324,28 @@ APP_LIBS    ?= $(ge/BOX2D_OBJ)
 # Rules
 # ────────────────────────────────────────────────
 
-# Default target — `make` with no args builds the app. Parent can declare its
-# own `all:` BEFORE the include to win (the first target make sees is the
-# default).
-.PHONY: all run
-all: $(APP)
+# Default target — `make` with no args builds the windowed game.
+# Parent can declare its own `all:` BEFORE the include to win.
+#
+# Products are **ge-owned** names. Projects should not invent GE_SERVER=1
+# packaging; use `make server` / `make run-server` / `make player`.
+.PHONY: all game server run run-server player
+all: game
+game: $(APP)
+
+# Console stream host — totally different build (build-server/, -DGE_SERVER_BUILD,
+# bin/$(APP_NAME)-server). Recursive make isolates variables cleanly.
+server:
+	$(MAKE) GE_SERVER=1 APP_NAME=$(APP_NAME) ge=$(ge) bin/$(APP_NAME)-server
+
+run: $(APP)
+	./$(APP)
+
+# Relay address is *runtime* env (spyder), not a build mode. Default local daemon.
+run-server: server
+	GE_SERVER=$${GE_SERVER:-127.0.0.1:3030} ./bin/$(APP_NAME)-server
+
+player: $(ge/PLAYER)
 
 # Default link rule. Parent can override by declaring its own $(APP) rule.
 $(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
@@ -331,10 +356,6 @@ $(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
 $(BUILD_DIR)/src/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -MMD -MP -c $< -o $@
-
-# Convenience: build and run.
-run: $(APP)
-	./$(APP)
 
 # Engine + render + bridge objects (.cpp)
 $(BUILD_DIR)/ge/src/%.o: $(ge)/src/%.cpp

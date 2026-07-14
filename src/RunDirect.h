@@ -14,6 +14,7 @@
 #pragma once
 
 #include <ge/SessionHost.h>
+#include <ge/ViewerMetrics.h>
 
 #include <atomic>
 #include <cstdint>
@@ -29,6 +30,10 @@ namespace ge {
 // Command-stream (🎯T128): `beforeRender` / `afterRender` arm LiveCapture around
 // onRender so SpriteBatch serialises GE2S; when `capturePixels` is non-null and
 // false, GPU framebuffer readback is skipped (sprite path does not need it).
+//
+// `viewer` — optional player surface metrics. When non-null and valid, the
+// host publishes draw/ui safe insets (+ device class / ui scale) into Context
+// from the remote device rather than the Mac host window.
 struct ServerHook {
     std::function<void(const std::uint8_t*, int, int)> sink;
     std::atomic<bool>* active = nullptr;
@@ -37,6 +42,7 @@ struct ServerHook {
     std::function<void(int contentW, int contentH)> beforeRender;
     std::function<void()> afterRender;
     std::atomic<bool>* capturePixels = nullptr; // null ⇒ capture when active
+    ViewerMetricsStore* viewer = nullptr;
 };
 
 // The direct run loop, optionally driving server mode via `server` (null = the

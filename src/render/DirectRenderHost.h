@@ -10,6 +10,7 @@
 
 #include <ge/RenderHost.h>
 #include <ge/SokolContext.h>
+#include <ge/ViewerMetrics.h>
 
 #include <atomic>
 #include <functional>
@@ -56,6 +57,10 @@ public:
     void setServerFrameSink(std::function<void(const std::uint8_t*, int, int)> fn,
                             std::atomic<bool>* active,
                             std::atomic<bool>* capturePixels = nullptr);
+
+    // Wire-mode viewer discovery (DeviceInfo / SafeAreaUpdate). Null = physical
+    // host only. Server path installs the ServerSession store.
+    void setViewerMetricsStore(ViewerMetricsStore* store);
 
 private:
     la::float2 updateParallax();

@@ -1,8 +1,16 @@
 package com.squz.player;
 
 import android.content.Intent;
+import android.graphics.Insets;
 import android.os.Bundle;
+import android.os.Looper;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import org.libsdl.app.SDLActivity;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class GeActivity extends SDLActivity {
     // Holds the stream_addr (or legacy ged_addr) intent extra so native code
@@ -11,6 +19,10 @@ public class GeActivity extends SDLActivity {
     private static volatile String sStreamAddr = null;
     // Optional server catalogue name (default native: "tiltbuggy").
     private static volatile String sServerName = null;
+
+    // Display-cutout-only insets {left, right, top, bottom} px — drawSafe.
+    // Pixel with no punch-hole stays {0,0,0,0} so drawSafe == full surface.
+    private volatile int[] cutoutInsets = new int[]{0, 0, 0, 0};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,7 +43,15 @@ public class GeActivity extends SDLActivity {
             }
         }
         super.onCreate(savedInstanceState);
+        getWindow().getDecorView().setOnApplyWindowInsetsListener((v, ins) -> {
+            Insets c = ins.getInsets(WindowInsets.Type.displayCutout());
+            cutoutInsets = new int[]{c.left, c.right, c.top, c.bottom};
+            return ins;
+        });
     }
+
+    /** Cutouts only (not status/nav/gesture). Native: CutoutInsets_android.cpp. */
+    public int[] getDisplayCutoutInsets() { return cutoutInsets; }
 
     // Called from native (JNI) to retrieve the intent-supplied relay address.
     // Returns e.g. "192.168.1.100:3030" or null if absent.
@@ -52,6 +72,48 @@ public class GeActivity extends SDLActivity {
     /** @deprecated Use {@link #getStreamAddr()}; kept for any old native stubs. */
     public static String getGedAddr() {
         return getStreamAddr();
+    }
+
+    /**
+     * 🎯T154: apply SessionConfig.immersive on the stream viewer.
+     * Part of SessionConfig application — runs before DeviceInfo is measured.
+     * Blocks until bars are hidden/shown and a layout/insets pass has run so
+     * the first surface snapshot is already the configured one.
+     */
+    public void applyImmersive(final boolean enabled) {
+        final CountDownLatch done = new CountDownLatch(1);
+        final Runnable apply = () -> {
+            try {
+                getWindow().setDecorFitsSystemWindows(!enabled);
+                WindowInsetsController c = getWindow().getInsetsController();
+                if (c != null) {
+                    if (enabled) {
+                        c.hide(WindowInsets.Type.systemBars());
+                        c.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    } else {
+                        c.show(WindowInsets.Type.systemBars());
+                    }
+                }
+                final View decor = getWindow().getDecorView();
+                decor.requestApplyInsets();
+                decor.requestLayout();
+                // Two posts: after the next layout, insets are readable.
+                decor.post(() -> decor.post(done::countDown));
+            } catch (Throwable t) {
+                done.countDown();
+            }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            apply.run();
+        } else {
+            runOnUiThread(apply);
+        }
+        try {
+            done.await(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override

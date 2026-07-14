@@ -37,6 +37,7 @@
 #include <TargetConditionals.h>  // TARGET_OS_IOS — guards the host-only render path
 #endif
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -70,6 +71,7 @@ struct State {
     b2Vec2 gravity{0, 0};
     bool rendererInited = false;
     bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
+    float arenaAspect = 0.f;            // rebuild scene when content aspect changes
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -249,13 +251,17 @@ int main(int argc, char* argv[]) {
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
         // settled scene lets the loop idle (onEvent wakes it on a real tilt).
-        // 🎯T137.3 Aspect-scale the arena to the display (like the 2013 game),
-        // so a landscape screen is filled and the dirt reaches the left edge.
-        const auto surf0 = ctx.fullRectInPts();
-        const float arenaAspect = (surf0.h > 0)
-            ? static_cast<float>(surf0.w) / static_cast<float>(surf0.h) : 1.0f;
+        // 🎯T137.3 Aspect-scale the arena to drawSafe (the playfield edge). Under
+        // immersive that is the full surface; dirt/walls reach the short edge
+        // without a separate fullRect path. Rebuild if drawSafe aspect changes
+        // (stream content retarget, chrome, …).
+        const auto play0 = ctx.drawSafeRectInPts();
+        const auto full0 = ctx.fullRectInPts();
+        const ge::Rect aspectSrc = (play0.h > 0.f) ? play0 : full0;
+        state.arenaAspect = (aspectSrc.h > 0.f)
+            ? aspectSrc.w / aspectSrc.h : 1.0f;
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent,
-                                                         arenaAspect,
+                                                         state.arenaAspect,
                                                          state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
@@ -286,6 +292,28 @@ int main(int argc, char* argv[]) {
                 }
             },
             .onRender = [&](const ge::Context& c) {
+                // Rebuild walls when drawSafe aspect changes (content retarget
+                // under stream, chrome settle, …). Same source as the camera.
+                {
+                    const auto play = c.drawSafeRectInPts();
+                    const auto full = c.fullRectInPts();
+                    const ge::Rect src = (play.h > 0.f) ? play : full;
+                    if (src.h > 0.f) {
+                        const float a = src.w / src.h;
+                        if (std::fabs(a - state.arenaAspect) >= 0.005f) {
+                            const auto pose = state.scene->buggyPose();
+                            state.arenaAspect = a;
+                            state.scene = std::make_unique<tiltbuggy::Scene>(
+                                kWorldHalfExtent, state.arenaAspect,
+                                state.renderOnDemand);
+                            state.scene->applyPose(pose);
+                            if (state.renderOnDemand)
+                                ge::box2d::renderWhileAwake(c, state.scene->worldId());
+                            SPDLOG_INFO("tiltbuggy: arena aspect → {:.3f} "
+                                        "(drawSafe {}x{})", a, src.w, src.h);
+                        }
+                    }
+                }
                 if (!state.rendererInited) {
                     state.renderer->init(ge::resource(ge::shaderDir()).c_str());
                     state.rendererInited = true;

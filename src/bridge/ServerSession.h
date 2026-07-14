@@ -19,6 +19,7 @@
 #pragma once
 
 #include <ge/Protocol.h>
+#include <ge/ViewerMetrics.h>
 
 #include <atomic>
 #include <cstdint>
@@ -68,6 +69,10 @@ public:
 
     // When false, DirectRenderHost skips GPU framebuffer readback.
     std::atomic<bool>* capturePixelsFlag();
+
+    // Player DeviceInfo / SafeAreaUpdate snapshot for Context discovery.
+    // Owned by this session; outlives the host while start()..stop() is active.
+    ViewerMetricsStore* viewerMetrics();
 
 private:
     struct Impl;

@@ -31,21 +31,29 @@ constexpr uint32_t kVideoStreamMagic    = 0x47453256;  // "GE2V" — server → 
 constexpr uint32_t kStreamStartMagic    = 0x47453257;  // "GE2W" — relay → player: start streaming
 constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — relay → player: stop streaming
 constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → server: safe area update
+constexpr uint32_t kLifecycleMagic      = 0x4745324C;  // "GE2L" — player → server: viewer lifecycle
 constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
 constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
 
 // v7: DeviceInfo.capabilities + SessionConfig.transport (command-stream ladder).
-constexpr uint16_t kProtocolVersion = 7;
+// v8: dual safe rects on DeviceInfo / SafeAreaUpdate (draw vs ui).
+constexpr uint16_t kProtocolVersion = 8;
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)
 
 // DeviceInfo.capabilities bits (player → server).
 constexpr uint8_t kCapCommandStream = 1u << 0;  // player can replay GE2S
+constexpr uint8_t kCapDualSafe      = 1u << 1;  // drawSafe* fields present and meaningful
 
 // SessionConfig.transport (server → player): selected rung after intersection.
 constexpr uint8_t kTransportH264          = 0;
 constexpr uint8_t kTransportCommandStream = 1;
 
 // Sent by player after connecting to the game server (via the stream relay).
+//
+// Safe rects are in window pixels. Two contracts (🎯T154):
+//   safe*     — ui-safe (cutouts + gesture / tappable chrome)
+//   drawSafe* — draw-safe (display cutouts only); if drawSafeW==0, draw = ui
+// Older peers omit trailing fields; server must tolerate short payloads.
 struct DeviceInfo {
     uint32_t magic = kDeviceInfoMagic;
     uint16_t version = kProtocolVersion;
@@ -54,23 +62,47 @@ struct DeviceInfo {
     uint16_t pixelRatio;      // Device pixel ratio (e.g., 3 for retina)
     uint8_t  deviceClass = 0; // 0=unknown, 1=phone, 2=tablet, 3=desktop
     uint8_t  orientation = 0; // SDL_DisplayOrientation value (0-4)
-    uint16_t safeX = 0;       // Safe area left edge in pixels
-    uint16_t safeY = 0;       // Safe area top edge in pixels
-    uint16_t safeW = 0;       // Safe area width in pixels (0 = use full width)
-    uint16_t safeH = 0;       // Safe area height in pixels (0 = use full height)
-    // v7+: player capability advertisement (kCap*). Older peers omit these
-    // bytes; server must tolerate short DeviceInfo payloads.
+    uint16_t safeX = 0;       // UI-safe left edge in pixels
+    uint16_t safeY = 0;       // UI-safe top edge in pixels
+    uint16_t safeW = 0;       // UI-safe width (0 = full width)
+    uint16_t safeH = 0;       // UI-safe height (0 = full height)
+    // v7+: player capability advertisement (kCap*).
     uint8_t  capabilities = 0;
     uint8_t  _capPad[3] = {};
+    // v8+: draw-safe (cutouts only). drawSafeW==0 → server uses safe* for both.
+    uint16_t drawSafeX = 0;
+    uint16_t drawSafeY = 0;
+    uint16_t drawSafeW = 0;
+    uint16_t drawSafeH = 0;
 };
 
-// Safe area update (player → server, sent on orientation change).
+// Safe area update (player → server, sent on orientation / chrome change).
+// v8 adds drawSafe*; short payloads leave draw = ui.
 struct SafeAreaUpdate {
     uint32_t magic = kSafeAreaMagic;
-    uint16_t safeX;
+    uint16_t safeX;       // UI-safe
     uint16_t safeY;
     uint16_t safeW;
     uint16_t safeH;
+    uint16_t drawSafeX = 0;
+    uint16_t drawSafeY = 0;
+    uint16_t drawSafeW = 0;
+    uint16_t drawSafeH = 0;
+};
+
+// Viewer lifecycle (player → server). 🎯T154: game lifecycle follows the glass.
+constexpr uint8_t kLifeForeground   = 1;
+constexpr uint8_t kLifeBackground   = 2;
+constexpr uint8_t kLifeBackPressed  = 3;
+constexpr uint8_t kLifeMemory       = 4;
+constexpr uint8_t kLifeAudioLost    = 5;
+constexpr uint8_t kLifeAudioGained  = 6;
+
+struct ViewerLifecycle {
+    uint32_t magic = kLifecycleMagic;
+    uint8_t  kind = 0;       // kLife*
+    uint8_t  memoryLevel = 0; // MemoryPressureLevel when kind == kLifeMemory
+    uint8_t  _pad[2] = {};
 };
 
 // Server → player: lock window aspect ratio. Send 0.0 to unlock.
@@ -79,18 +111,30 @@ struct AspectLock {
     float ratio;  // width/height (e.g. 0.6948 for 954:1373), 0 = unlock
 };
 
-// Server → player: session requirements (sensors, orientation, transport).
-// Sent once after session setup; player applies immediately.
-// transport uses a former pad byte — v6 peers leave it 0 (H.264).
+// Server → player: session requirements (sensors, orientation, transport,
+// chrome policy).
+//
+// Handshake order (invariant):
+//   1. SessionHostConfig in ge::run is fixed at process start (seed).
+//   2. SessionConfig is the first app payload on the wire (server → player).
+//   3. Player applies it fully, then measures DeviceInfo once from the
+//      configured surface. Safe rects are not computed before step 2/3.
+// Mid-session SafeAreaUpdate is for orientation/resize only.
+//
+// flags (v8+ / 🎯T154): former pad byte. Older peers leave it 0.
 struct SessionConfig {
     uint32_t magic = kSessionConfigMagic;
     uint8_t  sensors;       // Bitmask: kSensorAccelerometer
     uint8_t  orientation;   // kOrientation* value to lock, 0 = no lock
     uint8_t  transport = kTransportH264; // kTransport* selected rung
-    uint8_t  _pad = 0;
+    uint8_t  flags = 0;     // kSessionFlag*
 };
 
 constexpr uint8_t kSensorAccelerometer = 1;
+
+// SessionConfig.flags
+constexpr uint8_t kSessionFlagImmersive       = 1u << 0; // hide status/nav chrome
+constexpr uint8_t kSessionFlagNoScreenSaver   = 1u << 1; // keep display awake
 
 // Orientation constants — assigned from SDL_DisplayOrientation.
 //

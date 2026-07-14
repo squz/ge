@@ -5,9 +5,8 @@
 #include <ge/CmdStream.h>
 #include <ge/VideoDecoder.h>
 #include <ge/WebSocketClient.h>
-#include <ge/png.h>
-#include <ge/svg.h>
-#include <ge/text.h>
+#include <ge/svg.h>   // rasterizeSvgToPixels (CPU; no GPU on player)
+#include <ge/text.h>  // rasterizeTextToPixelsFromMemory
 
 #include "wire_input.h"
 
@@ -189,6 +188,34 @@ bool PlayerWireBridge::sendDeviceInfo(const wire::DeviceInfo& devInfo) {
                 i_->pendingReady = true;
             });
     }
+    return true;
+}
+
+bool PlayerWireBridge::sendSafeAreaUpdate(const wire::SafeAreaUpdate& sa) {
+    if (!i_->conn || !i_->conn->isOpen()) return false;
+    wire::SafeAreaUpdate msg = sa;
+    msg.magic = wire::kSafeAreaMagic;
+    wire::MessageHeader hdr{};
+    hdr.magic = wire::kSafeAreaMagic;
+    hdr.length = sizeof(wire::SafeAreaUpdate);
+    std::vector<uint8_t> buf(sizeof(hdr) + sizeof(msg));
+    std::memcpy(buf.data(), &hdr, sizeof(hdr));
+    std::memcpy(buf.data() + sizeof(hdr), &msg, sizeof(msg));
+    i_->conn->sendBinary(buf.data(), buf.size());
+    return true;
+}
+
+bool PlayerWireBridge::sendLifecycle(const wire::ViewerLifecycle& life) {
+    if (!i_->conn || !i_->conn->isOpen()) return false;
+    wire::ViewerLifecycle msg = life;
+    msg.magic = wire::kLifecycleMagic;
+    wire::MessageHeader hdr{};
+    hdr.magic = wire::kLifecycleMagic;
+    hdr.length = sizeof(wire::ViewerLifecycle);
+    std::vector<uint8_t> buf(sizeof(hdr) + sizeof(msg));
+    std::memcpy(buf.data(), &hdr, sizeof(hdr));
+    std::memcpy(buf.data() + sizeof(hdr), &msg, sizeof(msg));
+    i_->conn->sendBinary(buf.data(), buf.size());
     return true;
 }
 

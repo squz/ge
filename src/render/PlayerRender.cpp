@@ -6,15 +6,24 @@
 #include <ge/Protocol.h>
 
 #include "../../tools/player_orientation.h"
+// Engine-internal cutout query (draw-safe = cutouts only). Stub zeros on
+// desktop/iOS player links; Android returns WindowInsets.Type.displayCutout().
+#include "../CutoutInsets.h"
 
 #include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
+
+using std::clamp;
 
 namespace ge {
 
@@ -41,6 +50,7 @@ struct PlayerRender::Impl {
     std::vector<PendingRun> cmdRuns;
 
     uint8_t requestedOrientation = 0;
+    bool immersive = false;
 
     // Desktop windows auto-size to the video's aspect on first frame (and on
     // stream-dimension change) so a landscape game gets a landscape window
@@ -152,6 +162,7 @@ struct PlayerRender::Impl {
 PlayerRender::PlayerRender(const Config& cfg)
     : i_(std::make_unique<Impl>()) {
     i_->requestedOrientation = cfg.orientation;
+    i_->immersive = cfg.immersive;
     i_->autoSizeToVideo = !cfg.borderless;
 
     Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -208,17 +219,118 @@ void PlayerRender::enableAccelerometer() {
 }
 
 void PlayerRender::getDeviceDimensions(int& w, int& h, int& pixelRatio) const {
-    const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
-    w  = dm ? dm->w : 1080;
-    h  = dm ? dm->h : 2400;
-    pixelRatio = (dm && dm->pixel_density > 0) ? int(dm->pixel_density) : 1;
+    // Prefer live window size (player surface); fall back to display mode.
+    if (i_->window) {
+        SDL_GetWindowSizeInPixels(i_->window, &w, &h);
+        const float pd = SDL_GetWindowPixelDensity(i_->window);
+        pixelRatio = (pd > 0.f) ? int(std::lround(pd)) : 1;
+    }
+    if (w <= 0 || h <= 0) {
+        const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+        w  = dm ? dm->w : 1080;
+        h  = dm ? dm->h : 2400;
+        pixelRatio = (dm && dm->pixel_density > 0) ? int(dm->pixel_density) : 1;
+    }
 
-    const bool wantPortrait  = (i_->requestedOrientation == wire::kOrientationPortrait ||
-                                i_->requestedOrientation == wire::kOrientationPortraitFlipped);
-    const bool wantLandscape = (i_->requestedOrientation == wire::kOrientationLandscape ||
-                                i_->requestedOrientation == wire::kOrientationLandscapeFlipped);
+    // SessionConfig orientation is applied before DeviceInfo is measured.
+    // If the OS window has not rotated yet, report the *configured* viewing
+    // orientation so the server content aspect matches the glass the player
+    // will present (not a transient pre-rotate portrait).
+    const uint8_t o = i_->requestedOrientation;
+    const bool wantPortrait =
+        o == wire::kOrientationPortrait ||
+        o == wire::kOrientationPortraitFlipped;
+    const bool wantLandscape =
+        o == wire::kOrientationLandscape ||
+        o == wire::kOrientationLandscapeFlipped ||
+        o == wire::kOrientationAnyLandscape;
     if (wantPortrait  && w > h) std::swap(w, h);
     if (wantLandscape && h > w) std::swap(w, h);
+}
+
+void PlayerRender::fillDeviceInfo(wire::DeviceInfo& out) const {
+    int w = 0, h = 0, pr = 1;
+    getDeviceDimensions(w, h, pr);
+    out.width = static_cast<uint16_t>(std::clamp(w, 0, 65535));
+    out.height = static_cast<uint16_t>(std::clamp(h, 0, 65535));
+    out.pixelRatio = static_cast<uint16_t>(std::clamp(pr, 1, 65535));
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IOS)
+    out.deviceClass = SDL_IsTablet() ? 2 : 1; // tablet / phone
+#else
+    // Desktop player (and any non-mobile host): class=desktop. Note: this TU
+    // is also linked into libge without GE_DESKTOP, so use platform macros.
+    out.deviceClass = 3;
+#endif
+    out.orientation = i_->requestedOrientation;
+    out.safeX = out.safeY = out.safeW = out.safeH = 0;
+    out.drawSafeX = out.drawSafeY = out.drawSafeW = out.drawSafeH = 0;
+    out.capabilities = static_cast<uint8_t>(out.capabilities | wire::kCapDualSafe);
+
+    auto toPx = [&](const SDL_Rect& r, uint16_t& ox, uint16_t& oy,
+                    uint16_t& ow, uint16_t& oh) {
+        if (!i_->window || r.w <= 0 || r.h <= 0) return;
+        float scale = SDL_GetWindowDisplayScale(i_->window);
+        if (scale <= 0.f) scale = SDL_GetWindowPixelDensity(i_->window);
+        if (scale <= 0.f) scale = 1.f;
+        int wwPt = 0, whPt = 0, wwPx = 0, whPx = 0;
+        SDL_GetWindowSize(i_->window, &wwPt, &whPt);
+        SDL_GetWindowSizeInPixels(i_->window, &wwPx, &whPx);
+        const bool looksLikePoints =
+            wwPt > 0 && whPt > 0 &&
+            r.w <= wwPt + 2 && r.h <= whPt + 2 &&
+            (wwPx > wwPt || whPx > whPt);
+        const float mul = looksLikePoints ? scale : 1.f;
+        ox = static_cast<uint16_t>(std::clamp(int(r.x * mul), 0, 65535));
+        oy = static_cast<uint16_t>(std::clamp(int(r.y * mul), 0, 65535));
+        ow = static_cast<uint16_t>(std::clamp(int(r.w * mul), 0, 65535));
+        oh = static_cast<uint16_t>(std::clamp(int(r.h * mul), 0, 65535));
+    };
+
+    if (!i_->window) return;
+
+    // Dual contract (same as DirectRenderHost):
+    //   draw-safe (drawSafe*) — display cutouts only
+    //   ui-safe  (safe*)      — cutouts + system bars + gestures (when bars
+    //                           are actually part of the surface)
+    //
+    // Pixel with no camera cutout → drawSafe == full always.
+    // Never copy ui-safe into draw-safe.
+
+    // draw-safe: full, then shrink by cutout px only.
+    out.drawSafeX = 0;
+    out.drawSafeY = 0;
+    out.drawSafeW = out.width;
+    out.drawSafeH = out.height;
+    const SafeAreaInsets cut = queryDisplayCutoutInsets(); // px
+    if (cut.x0 > 0.f || cut.y0 > 0.f || cut.x1 > 0.f || cut.y1 > 0.f) {
+        const int l = std::max(0, int(std::lround(cut.x0)));
+        const int t = std::max(0, int(std::lround(cut.y0)));
+        const int r = std::max(0, int(std::lround(cut.x1)));
+        const int b = std::max(0, int(std::lround(cut.y1)));
+        const int dw = std::max(0, int(out.width)  - l - r);
+        const int dh = std::max(0, int(out.height) - t - b);
+        out.drawSafeX = static_cast<uint16_t>(std::clamp(l, 0, 65535));
+        out.drawSafeY = static_cast<uint16_t>(std::clamp(t, 0, 65535));
+        out.drawSafeW = static_cast<uint16_t>(std::clamp(dw, 0, 65535));
+        out.drawSafeH = static_cast<uint16_t>(std::clamp(dh, 0, 65535));
+    }
+
+    // ui-safe: after immersive, system bars are not on the configured
+    // surface. SDL_GetWindowSafeArea often still reports pre-hide bar
+    // insets (status bar ~72px) — that would push HUD/title down into a
+    // gap where no bar exists. SessionConfig.immersive already applied
+    // ⇒ ui-safe collapses to draw-safe (cutouts only).
+    if (i_->immersive) {
+        out.safeX = out.drawSafeX;
+        out.safeY = out.drawSafeY;
+        out.safeW = out.drawSafeW;
+        out.safeH = out.drawSafeH;
+    } else {
+        SDL_Rect ui{};
+        if (SDL_GetWindowSafeArea(i_->window, &ui) && ui.w > 0 && ui.h > 0) {
+            toPx(ui, out.safeX, out.safeY, out.safeW, out.safeH);
+        }
+    }
 }
 
 void PlayerRender::updateVideoTexture(const VideoFrame& frame) {
@@ -338,6 +450,22 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
         if (e.type == SDL_EVENT_QUIT) { r.quit = true; continue; }
 
         switch (e.type) {
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        case SDL_EVENT_WINDOW_RESIZED:
+        case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED:
+        case SDL_EVENT_DISPLAY_ORIENTATION:
+            r.surfaceChanged = true;
+            break;
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            r.lifecycleKind = wire::kLifeBackground;
+            break;
+        case SDL_EVENT_DID_ENTER_FOREGROUND:
+            r.lifecycleKind = wire::kLifeForeground;
+            break;
+        case SDL_EVENT_LOW_MEMORY:
+            r.lifecycleKind = wire::kLifeMemory;
+            r.lifecycleMemoryLevel = 2; // Critical
+            break;
         case SDL_EVENT_MOUSE_MOTION:
         case SDL_EVENT_FINGER_MOTION:
             i_->mapEvent(e);

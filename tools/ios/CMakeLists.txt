@@ -1,0 +1,120 @@
+# ge stream player — iOS (device + simulator).
+# ge-owned packaging: games do not maintain this.
+#   cd tools/ios && cmake -B build/xcode -G Xcode && cmake --build build/xcode --config Debug
+cmake_minimum_required(VERSION 3.28)
+project(Player LANGUAGES C CXX OBJCXX)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_XCODE_LINK_BUILD_PHASE_MODE KNOWN_LOCATION)
+
+set(GE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+
+set(LUNASVG_DIR ${GE_ROOT}/vendor/github.com/sammycage/lunasvg)
+file(GLOB LUNASVG_SRC ${LUNASVG_DIR}/source/*.cpp)
+file(GLOB PLUTOVG_SRC ${LUNASVG_DIR}/plutovg/source/*.c)
+
+set(SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/main.mm
+    ${CMAKE_CURRENT_SOURCE_DIR}/QRScanner.mm
+    ${CMAKE_CURRENT_SOURCE_DIR}/KeychainStore.mm
+    ${GE_ROOT}/tools/player_core.cpp
+    ${GE_ROOT}/tools/player_orientation_ios.mm
+    ${GE_ROOT}/tools/AudioPlayer.cpp
+    ${GE_ROOT}/src/bridge/PlayerWireBridge.cpp
+    ${GE_ROOT}/src/bridge/WebSocketClient.cpp
+    ${GE_ROOT}/src/bridge/VideoDecoder_apple.mm
+    ${GE_ROOT}/src/render/PlayerRender.cpp
+    ${GE_ROOT}/src/CmdStream.cpp
+    ${GE_ROOT}/src/Signal.cpp
+    ${GE_ROOT}/src/Resource.cpp
+    ${GE_ROOT}/src/FileIO.cpp
+    ${GE_ROOT}/src/audio.cpp
+    ${GE_ROOT}/src/svg.cpp
+    ${GE_ROOT}/src/text.cpp
+    ${GE_ROOT}/src/FontLoader_apple.mm
+    # Lean player stubs (no full appchannel / sokol sprite path)
+    ${GE_ROOT}/tools/android/app/src/main/cpp/player_stubs.cpp
+    ${GE_ROOT}/tools/android/app/src/main/cpp/player_sprite_stub.cpp
+    ${GE_ROOT}/vendor/src/sqlite3.c
+    ${GE_ROOT}/vendor/src/sqlpipe.cpp
+    ${GE_ROOT}/vendor/src/sqlift.cpp
+    ${GE_ROOT}/vendor/src/lz4.c
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/arena.c
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/liteparser.c
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_tokenize.c
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/lp_unparse.c
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src/parse.c
+    ${LUNASVG_SRC}
+    ${PLUTOVG_SRC}
+)
+
+add_executable(Player MACOSX_BUNDLE ${SOURCES})
+
+target_compile_definitions(Player PRIVATE
+    ASIO_STANDALONE
+    GE_IOS
+    GE_PLAYER_NO_SOKOL
+    SQLITE_ENABLE_SESSION
+    SQLITE_ENABLE_PREUPDATE_HOOK
+    SQLITE_ENABLE_DESERIALIZE
+    LUNASVG_BUILD_STATIC
+)
+
+target_include_directories(Player PRIVATE
+    ${GE_ROOT}/include
+    ${GE_ROOT}/vendor/include
+    ${GE_ROOT}/vendor/github.com/gabime/spdlog/include
+    ${GE_ROOT}/vendor/github.com/chriskohlhoff/asio/include
+    ${GE_ROOT}/vendor/github.com/libsdl-org/SDL/include
+    ${GE_ROOT}/vendor/sdl3/include
+    ${GE_ROOT}/vendor/github.com/sqliteai/liteparser/src
+    ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/include
+    ${GE_ROOT}/vendor/github.com/sammycage/lunasvg/plutovg/include
+    ${GE_ROOT}/tools
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(Player PRIVATE
+    -lSDL3 -lSDL3_image -lSDL3_ttf
+    -lfreetype -lharfbuzz -lplutosvg -lplutovg
+)
+
+target_link_libraries(Player PRIVATE
+    "-framework Foundation"
+    "-framework UIKit"
+    "-framework Metal"
+    "-framework MetalKit"
+    "-framework QuartzCore"
+    "-framework CoreGraphics"
+    "-framework CoreFoundation"
+    "-framework CoreMedia"
+    "-framework CoreVideo"
+    "-framework AudioToolbox"
+    "-framework AVFoundation"
+    "-framework GameController"
+    "-framework CoreHaptics"
+    "-framework CoreMotion"
+    "-framework VideoToolbox"
+    "-framework Security"
+    "-framework ImageIO"
+    "-lobjc"
+)
+
+set(SDL_DEVICE_DIR  ${GE_ROOT}/vendor/sdl3/lib/ios-arm64)
+set(SDL_SIM_DIR     ${GE_ROOT}/vendor/sdl3/lib/ios-arm64-simulator)
+
+set_target_properties(Player PROPERTIES
+    MACOSX_BUNDLE_GUI_IDENTIFIER com.squz.player
+    MACOSX_BUNDLE_BUNDLE_VERSION 1
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist
+    XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+    XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.squz.player"
+    XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "SWA3H3N7TW"
+    XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
+    XCODE_GENERATE_SCHEME TRUE
+    XCODE_SCHEME_ENABLE_GPU_API_VALIDATION OFF
+    XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 16.3
+    "XCODE_ATTRIBUTE_LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" "${SDL_DEVICE_DIR}"
+    "XCODE_ATTRIBUTE_LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" "${SDL_SIM_DIR}"
+)

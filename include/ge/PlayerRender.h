@@ -20,7 +20,7 @@
 #pragma once
 
 #include <ge/Linalg.h>
-
+#include <ge/Protocol.h>
 #include <ge/VideoDecoder.h>
 
 #include <SDL3/SDL.h>
@@ -39,6 +39,10 @@ public:
         int initialH = 1180;
         bool borderless = false;   // true on iOS / Android
         uint8_t orientation = 0;   // wire::kOrientation* — 0 = no lock
+        // SessionConfig.immersive already applied on the glass before
+        // fillDeviceInfo. Used only so ui-safe does not keep phantom
+        // system-bar insets SDL still reports after bars are hidden.
+        bool immersive = false;
     };
 
     explicit PlayerRender(const Config&);
@@ -55,6 +59,12 @@ public:
     // Current window/display dimensions and pixel ratio for DeviceInfo.
     // Accounts for requested orientation (portrait/landscape swap).
     void getDeviceDimensions(int& w, int& h, int& pixelRatio) const;
+
+    // Snapshot the viewing surface into wire DeviceInfo.
+    // Caller must already have applied SessionConfig (orientation,
+    // immersive, …) to the glass. Safe rects are read from that surface
+    // once — they are never computed before policy is known.
+    void fillDeviceInfo(wire::DeviceInfo& out) const;
 
     // Replace the video texture with a newly decoded frame. The texture is
     // (re)allocated whenever dimensions or pixel format change. SDL handles
@@ -88,6 +98,10 @@ public:
     //                    (already coordinate-mapped; forwarded raw otherwise)
     struct PumpResult {
         bool quit = false;
+        bool surfaceChanged = false; // resize / orientation — re-send DeviceInfo
+        // 🎯T154: wire::kLife* to forward (0 = none this pump).
+        uint8_t lifecycleKind = 0;
+        uint8_t lifecycleMemoryLevel = 0;
         std::vector<SDL_Event> upstreamEvents;
     };
     PumpResult pumpEvents();

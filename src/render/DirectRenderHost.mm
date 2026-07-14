@@ -25,7 +25,9 @@
 #include <ge/Resource.h>
 #include <ge/Signal.h>
 #include <ge/SokolContext.h>
+#include <ge/StreamHostPolicy.h>
 #include <ge/Tweak.h>
+#include <ge/ViewerMetrics.h>
 
 #include "RenderOnDemand.h"
 
@@ -48,6 +50,8 @@
 #include <TargetConditionals.h>
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <AppKit/AppKit.h>
 #endif
 #endif
 
@@ -69,8 +73,6 @@ void removeAppleAudioObservers();
 #include <optional>
 
 namespace ge {
-
-namespace {
 
 // Reference short-side mm for deviceUiScale: iPhone Pro Max class.
 // sqrt(thisDevice / reference) is the form-factor multiplier.
@@ -110,15 +112,9 @@ std::atomic<bool> g_backHandlerActive{false};
 std::atomic<bool> g_pendingBackPressed{false};
 // -1 = no event; 0/1/2 = MemoryPressureLevel::{Low, Moderate, Critical}.
 std::atomic<int>  g_pendingMemoryWarning{-1};
-
-#if defined(__ANDROID__)
-// 🎯T43 Android audio focus. Java's OnAudioFocusChangeListener fires on
-// the UI thread and stores a signed delta here:
-//   +1 = focus gained (resume)
-//   -1 = focus lost (pause: LOSS, LOSS_TRANSIENT, LOSS_TRANSIENT_CAN_DUCK)
-// pumpEvents drains this on the game thread.
+// 🎯T43 / 🎯T154 audio focus (Android host or stream viewer GE2L).
+// +1 gained, -1 lost; pumpEvents drains on game thread.
 std::atomic<int> g_pendingAudioFocusChange{0};
-#endif
 
 #if defined(__ANDROID__)
 // Android's TRIM_MEMORY_* constants. Mirror SDK values rather than
@@ -150,23 +146,10 @@ int mapAndroidTrimLevel(int level) {
 }
 #endif
 
-} // namespace
+// 🎯T154 viewer-background atomic (wire GE2L); also used by paused().
+std::atomic<bool> g_viewerBackgrounded{false};
 
-// 🎯T92.2 App-channel memory-warning injection. appchannel's
-// low_memory_warning handler calls this from the channel worker thread; it
-// stores into the same pending atomic the iOS observer / Android onTrimMemory
-// path uses, so pumpEvents drains it on the game thread and the consumer's
-// onMemoryWarning fires identically to a real OS warning.
-namespace detail {
-void injectMemoryWarning(MemoryPressureLevel level) {
-    g_pendingMemoryWarning.store(int(level));
-}
-
-// 🎯T92.6 Screenshot bridge. captureFrameRGBA (worker thread) arms a request
-// and blocks; DirectRenderHost::endFrame (game thread) sees screenshotArmed(),
-// hands SokolContext a sink that routes back to deliverScreenshot, which fills
-// the request and wakes the worker.
-namespace {
+// 🎯T92.6 Screenshot bridge state.
 struct ScreenshotRequest {
     std::vector<std::uint8_t>* rgba = nullptr;
     int* w = nullptr;
@@ -174,15 +157,30 @@ struct ScreenshotRequest {
     std::promise<bool> done;
 };
 std::mutex        g_ssMu;
-ScreenshotRequest* g_ssReq = nullptr;   // non-null while a capture is in flight
+ScreenshotRequest* g_ssReq = nullptr;
 std::atomic<bool>  g_ssArmed{false};
-} // namespace
+
+// 🎯T92.2 / 🎯T154 injection — same atomics OS paths use; pumpEvents drains.
+namespace detail {
+void injectMemoryWarning(MemoryPressureLevel level) {
+    g_pendingMemoryWarning.store(int(level));
+}
+void injectBackPressed() { g_pendingBackPressed.store(true); }
+void injectAudioFocus(bool gained) {
+    g_pendingAudioFocusChange.store(gained ? 1 : -1);
+}
+void injectViewerBackgrounded(bool backgrounded) {
+    g_viewerBackgrounded.store(backgrounded, std::memory_order_release);
+}
+bool viewerBackgrounded() {
+    return g_viewerBackgrounded.load(std::memory_order_acquire);
+}
 
 bool screenshotArmed() { return g_ssArmed.load(); }
 
 void deliverScreenshot(const std::uint8_t* rgba, int w, int h) {
     std::lock_guard<std::mutex> lk(g_ssMu);
-    if (!g_ssReq) return;  // already timed out / cancelled
+    if (!g_ssReq) return;
     if (rgba && w > 0 && h > 0) {
         g_ssReq->rgba->assign(rgba, rgba + static_cast<std::size_t>(w) * h * 4);
         *g_ssReq->w = w;
@@ -203,23 +201,19 @@ bool captureFrameRGBA(std::vector<std::uint8_t>& rgba, int& w, int& h) {
     auto fut = req.done.get_future();
     {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        if (g_ssReq) return false;       // another capture already in flight
+        if (g_ssReq) return false;
         g_ssReq = &req;
     }
     g_ssArmed.store(true);
     if (fut.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        g_ssReq = nullptr;               // abandon: endFrame never serviced it
+        g_ssReq = nullptr;
         g_ssArmed.store(false);
         return false;
     }
     return fut.get();
 }
 
-// 🎯T124 Synchronous one-shot capture for the headless render-state path. Arms
-// a request, runs `renderOneFrame` inline (it must render exactly one frame on
-// this thread, opening a swapchain pass so endFrame services the arm), and
-// returns the delivered pixels — no cross-thread wait. False if no pass opened.
 bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
                           std::vector<std::uint8_t>& rgba, int& w, int& h) {
     ScreenshotRequest req;
@@ -229,18 +223,17 @@ bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
     auto fut = req.done.get_future();
     {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        if (g_ssReq) return false;       // another capture in flight
+        if (g_ssReq) return false;
         g_ssReq = &req;
     }
     g_ssArmed.store(true);
-    renderOneFrame();                    // renders + delivers inline
+    renderOneFrame();
     if (fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         return fut.get();
     std::lock_guard<std::mutex> lk(g_ssMu);
     if (g_ssReq == &req) { g_ssReq = nullptr; g_ssArmed.store(false); }
     return false;
 }
-
 } // namespace detail
 
 #if defined(__ANDROID__)
@@ -329,6 +322,8 @@ struct DirectRenderHost::Impl {
     std::atomic<bool>* serverActive = nullptr;
     std::atomic<bool>* serverCapturePixels = nullptr;
     std::function<void(const std::uint8_t*, int, int)> serverSink;
+    // Player DeviceInfo / SafeAreaUpdate → Context discovery (stream only).
+    ViewerMetricsStore* viewerMetrics = nullptr;
 
     // 🎯T63 High-refresh-rate during press.
     // Incremented on every pointer Down, decremented on every Up/Cancel.
@@ -363,6 +358,17 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
 
     i_->sokolCtx = std::make_unique<SokolContext>(
         SokolConfig{i_->width, i_->height, config.appName, config.hidden});
+
+#if defined(GE_SERVER_BUILD) && defined(__APPLE__) && TARGET_OS_OSX
+    // 🎯T154.1 Server binary is a console stream host, not a Dock game.
+    // SDL_Init creates NSApp; reassert Accessory after window creation.
+    if (config.hidden) {
+        @autoreleasepool {
+            if (NSApp == nil) [NSApplication sharedApplication];
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        }
+    }
+#endif
 
     // On platforms where the actual surface size differs from the
     // caller's hint (notably Android fullscreen, and Retina on macOS),
@@ -419,22 +425,26 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         }
     }
 
-    // Build the session Context. Direct mode uses a persistent on-disk
-    // db rooted at SDL_GetPrefPath(orgName, appName); fall back to an
-    // in-memory db if either is missing.
+    // Durable db ownership (🎯T154) — see StreamHostPolicy.h.
+    // Server build: always :memory:. Direct: PrefPath when available.
     std::string dbPath = ":memory:";
+#if defined(GE_SERVER_BUILD)
+    dbPath = durableDbPathForHost(/*serverBuild=*/true, config.orgName,
+                                  config.appName, nullptr);
+    SPDLOG_INFO("DirectRenderHost: stream server ephemeral db ({})", dbPath);
+#else
     if (config.orgName && config.appName) {
         if (char* pref = SDL_GetPrefPath(config.orgName, config.appName)) {
-            dbPath = std::string(pref) + "game.db";
-            // 🎯T91.2: persist tweak overrides alongside the game db so a
-            // tweak set from spyder over the app-channel survives a restart.
-            // loadOverrides opens the db (which also enables tweak::save on
-            // later tweak_set/reset) and applies any stored values.
-            tweak::loadOverrides((std::string(pref) + "tweaks.db").c_str());
+            dbPath = durableDbPathForHost(/*serverBuild=*/false, config.orgName,
+                                          config.appName, pref);
+            // 🎯T91.2: persist tweak overrides alongside the game db.
+            if (dbPath != ":memory:")
+                tweak::loadOverrides((std::string(pref) + "tweaks.db").c_str());
             SDL_free(pref);
             SPDLOG_INFO("DirectRenderHost: persistent DB at {}", dbPath);
         }
     }
+#endif
     i_->ctx.emplace(i_->width, i_->height, deviceClass(),
                     dbPath, config.schemaDdl);
     i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
@@ -527,6 +537,9 @@ DeviceClass DirectRenderHost::deviceClass() const {
 #endif
 }
 bool DirectRenderHost::paused() const {
+    // 🎯T154: viewer background over the wire (stream server) uses the same
+    // paused() gate so the game does not branch on modality.
+    if (detail::viewerBackgrounded()) return true;
 #if defined(__APPLE__) && TARGET_OS_IPHONE
     // 🎯T88 On iOS (device + simulator) a backgrounded scene cannot get a
     // Metal command buffer — SokolContext::beginFrame would block forever
@@ -536,10 +549,8 @@ bool DirectRenderHost::paused() const {
     // CAMetalLayer live across app hide/space switches.
     return i_->backgrounded;
 #else
-    // macOS desktop: the CAMetalLayer survives backgrounding and
-    // reactivates on its own — no gate needed. Android tears its swap
-    // chain down via SDL blocking the loop (SessionHost.mm) rather than
-    // through this accessor.
+    // macOS desktop direct: CAMetalLayer survives hide. Android direct tears
+    // swap chain via SDL blocking the loop (SessionHost.mm).
     return false;
 #endif
 }
@@ -679,6 +690,10 @@ void DirectRenderHost::setServerFrameSink(
     i_->serverSink = std::move(fn);
     i_->serverActive = active;
     i_->serverCapturePixels = capturePixels;
+}
+
+void DirectRenderHost::setViewerMetricsStore(ViewerMetricsStore* store) {
+    i_->viewerMetrics = store;
 }
 
 void DirectRenderHost::pumpEvents() {
@@ -916,21 +931,82 @@ void DirectRenderHost::refreshFrame(float dt) {
     // installed in initialize()). This method only refreshes per-frame Context
     // state (post-resize + current insets) so onUpdate / onRender accessors
     // observe live values.
+    //
+    // Stream path: when a player has advertised DeviceInfo, publish that
+    // surface into Context (draw/ui safe, device class, ui scale). Physical
+    // path keeps the local OS. Compile-time backend is still
+    // app vs server; this is discovery *source*, not a public switch.
     if (i_->ctx) {
-        i_->ctx->setSurfaceDimensions(i_->width, i_->height);
-        i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
-        i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
         SDL_Window* win = i_->sokolCtx->window();
-        // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
-        // On iOS the second factor is always 1.0, so this matches
-        // SDL_GetWindowPixelDensity (== UIKit nativeScale). On Android
-        // SDL exposes the surface in raw pixels (pixelDensity=1.0) and
-        // the density bucket lives in displayContentScale, so this is
-        // what folds Android density into pixelsPerPt.
-        const float ppt = win ? SDL_GetWindowDisplayScale(win) : 1.0f;
-        i_->ctx->setPixelsPerPt(ppt > 0.0f ? ppt : 1.0f);
-        i_->ctx->setDeviceUiScale(computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
-        i_->ctx->setParallax(updateParallax());
+        const float hostPpt = win ? SDL_GetWindowDisplayScale(win) : 1.0f;
+        const float ppt = hostPpt > 0.0f ? hostPpt : 1.0f;
+
+        const bool streaming =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (streaming) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            // Match content aspect to the viewer so the stream fills the glass.
+            // Fixed host 4:3 into a 16:10 tablet leaves ~1" pillarboxes — the
+            // car stops short of the short edges and dirt never reaches them.
+            // Pixel budget keeps the longer edge of the current surface.
+            if (v.w >= 2 && v.h >= 2 && win) {
+                const float targetA = float(v.w) / float(v.h);
+                const float curA = float(i_->width) / float(std::max(i_->height, 1));
+                if (std::fabs(targetA - curA) > 0.005f) {
+                    const int budget = std::max(i_->width, i_->height);
+                    int nw = 0, nh = 0;
+                    if (targetA >= 1.f) {
+                        nw = budget;
+                        nh = std::max(2, int(std::lround(float(budget) / targetA)));
+                    } else {
+                        nh = budget;
+                        nw = std::max(2, int(std::lround(float(budget) * targetA)));
+                    }
+                    nw &= ~1;
+                    nh &= ~1;
+                    if (nw != i_->width || nh != i_->height) {
+                        float dens = SDL_GetWindowPixelDensity(win);
+                        if (dens <= 0.f) dens = 1.f;
+                        const int ptW = std::max(1, int(std::lround(float(nw) / dens)));
+                        const int ptH = std::max(1, int(std::lround(float(nh) / dens)));
+                        SDL_SetWindowSize(win, ptW, ptH);
+                        SPDLOG_INFO("DirectRenderHost: content aspect → viewer "
+                                    "{:.3f} ({}x{} → {}x{})",
+                                    targetA, i_->width, i_->height, nw, nh);
+                        i_->width = nw;
+                        i_->height = nh;
+                    }
+                }
+            }
+
+            i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+            // Map viewer chrome into content space. Dual draw/ui when the
+            // player sends distinct rects (v8); else equal.
+            const DualSafeInsets dual =
+                mapViewerDualSafeInsets(v, i_->width, i_->height, ppt);
+            i_->ctx->setDrawSafeInsets(dual.draw);
+            i_->ctx->setUiSafeInsets(dual.ui);
+            i_->ctx->setDeviceClass(v.deviceClass);
+            // pixelsPerPt: content-surface conversion (stable fullRect).
+            // deviceUiScale: viewer form-factor (glass).
+            i_->ctx->setPixelsPerPt(ppt);
+            const float viewerPpt = v.pixelRatio > 0.f ? v.pixelRatio : 1.f;
+            i_->ctx->setDeviceUiScale(
+                computeDeviceUiScale(v.deviceClass, v.w, v.h, viewerPpt));
+            // Parallax from host attitude would lie about the viewer — zero it
+            // under stream (🎯T154: same call site, documented zero).
+            i_->ctx->setParallax({0, 0});
+        } else {
+            i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+            i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+            i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
+            i_->ctx->setDeviceClass(deviceClass());
+            i_->ctx->setPixelsPerPt(ppt);
+            i_->ctx->setDeviceUiScale(
+                computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
+            i_->ctx->setParallax(updateParallax());
+        }
         i_->ctx->setPresentationTilt(presentationTilt);
         i_->ctx->recordFrameTime(dt);  // 🎯T111 frame-time EMA → fps()/onMetrics
     }

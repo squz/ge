@@ -3,9 +3,11 @@
 
 #include <ge/text.h>
 
+#ifndef GE_PLAYER_NO_SOKOL
 #include <ge/CmdStream.h>
-
 #include "sokol_gfx.h"
+#include <fstream>
+#endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <spdlog/spdlog.h>
@@ -14,7 +16,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <vector>
 
 namespace ge {
@@ -129,12 +130,14 @@ TextPixels rasterizeTextFace(const std::string& text,
     return out;
 }
 
+#ifndef GE_PLAYER_NO_SOKOL
 std::vector<uint8_t> readFileBytes(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return {};
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(in),
                                 std::istreambuf_iterator<char>());
 }
+#endif
 
 } // namespace
 
@@ -198,6 +201,10 @@ Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
                      float sizePt,
                      la::float4 color) {
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)text; (void)font; (void)sizePt; (void)color;
+    return Sprite{};
+#else
     auto pixels = rasterizeTextToPixels(text, font, sizePt, color);
     if (pixels.isNull()) return Sprite{};
 
@@ -241,6 +248,7 @@ Sprite rasterizeText(const std::string& text,
         }
     }
     return out;
+#endif
 }
 
 } // namespace ge

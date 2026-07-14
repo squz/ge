@@ -83,6 +83,12 @@ public:
     // render subsystem has decided window dimensions.
     bool sendDeviceInfo(const wire::DeviceInfo&);
 
+    // Player → server: safe-area change (orientation / chrome).
+    bool sendSafeAreaUpdate(const wire::SafeAreaUpdate&);
+
+    // Player → server: viewer lifecycle (background, back, memory, audio).
+    bool sendLifecycle(const wire::ViewerLifecycle&);
+
     // Send an SDL event (coordinate-mapped by caller) to the server.
     void sendEvent(const SDL_Event&);
 

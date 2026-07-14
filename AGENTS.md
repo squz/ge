@@ -21,11 +21,32 @@ profile: game
 | Simulation, render, encode, wire schema, app-channel **client** | **ge** | Engine |
 | Inventory, launch, reserve, inspect, tweak, logs, dashboard, stream **relay** | **spyder** | Dev control plane |
 
-**Primary app modality — direct:** `ge::run` opens a local window (or mobile surface) via `DirectRenderHost`. Dev builds dial spyder's app-channel when `SPYDER_APP_CHANNEL` is set (injected by `spyder launch` / desktop adapter). Agents drive tweaks, logs, state, and screenshots over that channel — **no streaming required**.
+### Project vs ge (do not rediscover)
 
-**Optional dev modality — server stream:** a **server-mode build** (build variant, not a runtime switch) dials spyder's H.264 relay (`GE_SERVER` / stream host:port), encodes frames, and a native player attaches through spyder. Streaming is **developer-only**; release (`NDEBUG`) builds strip encode/stream/app-channel surfaces.
+| Concern | Owner |
+|---------|--------|
+| Game logic, assets, `APP_SRC` / `APP_NAME` | **Project** |
+| Build products, server packaging, player, iOS/Android ship, stream host identity | **ge (`Module.mk`)** |
+| Inventory, launch, stream **relay** | **spyder** |
 
-**Do not start `ged`.** There is no `make ged` / `bin/ged`. Use spyder for all control-plane work.
+Projects implement `ge::run({...})` only. They do **not** invent dual-host packaging, Dock policy, or “is this streaming?” branches.
+
+### Products (Module.mk)
+
+| Command | Binary | What it is |
+|---------|--------|------------|
+| `make` / `make game` | `bin/<app>` | Windowed **game** (direct device) |
+| `make server` | `bin/<app>-server` | **Console stream host** (different build, `-DGE_SERVER_BUILD`) |
+| `make run-server` | runs server | Runtime relay via env `GE_SERVER=host:port` (default `127.0.0.1:3030`) |
+| `make player` | `bin/player` | Stream glass (desktop); mobile players under `tools/` |
+
+These are **totally different builds**, not one binary with a mode flag. App **source** is shared; packaging and host entry (`runServer` vs windowed) are ge’s.
+
+**Direct:** `ge::run` → windowed `DirectRenderHost`. App-channel when `SPYDER_APP_CHANNEL` is set.
+
+**Stream:** server binary dials spyder’s relay; player attaches. Server is console-facing (stdio/logs), not a Dock game app (🎯T154.1 residual: offscreen Metal drawable).
+
+**Do not start `ged`.** Use spyder for control-plane work.
 
 ## ge Claude Code Plugin
 
@@ -58,6 +79,7 @@ live under `skills/{ship,release-notes,ship-status,onboard}/SKILL.md`.
 ### Minimal Example
 
 A complete ge app needs three things: a `Makefile`, a `main.cpp`, and game logic.
+Ship/stream/server products come free from `Module.mk` — do not copy packaging into the game.
 
 **main.cpp** — the standard entry point pattern:
 

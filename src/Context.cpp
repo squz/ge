@@ -99,6 +99,7 @@ void Context::setSurfaceDimensions(int surfacePxW, int surfacePxH) {
 // (divide by pixelsPerPt) before calling these setters.
 void Context::setDrawSafeInsets(SafeAreaInsets saPt) { m->drawInsetsPt = saPt; }
 void Context::setUiSafeInsets(SafeAreaInsets saPt)   { m->uiInsetsPt   = saPt; }
+void Context::setDeviceClass(DeviceClass dc)         { m->deviceClass = dc; }
 void Context::setPixelsPerPt(float v)                { m->pixelsPerPt = v; }
 void Context::setDeviceUiScale(float v)              { m->deviceUiScale = v; }
 void Context::setParallax(la::float2 p)              { m->parallax = p; }
