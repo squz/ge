@@ -1857,9 +1857,10 @@ targets:
     achieved: 2026-07-14
   T154.1:
     name: 'Server build is a console/headless host, not a hidden Mac GUI app: distinct binary and no Dock/AppKit app behaviour'
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 5.0
     acceptance:
     - '`make game` (default `make`) and `make server` are first-class Module.mk targets; projects do not invent GE_SERVER_BUILD packaging.'
     - '`make server` produces bin/$(APP_NAME)-server as a distinct binary from bin/$(APP_NAME); separate object tree (build-server/).'
@@ -1874,6 +1875,7 @@ targets:
     - T154
     origin: manual
     discovered: 2026-07-14
+    achieved: 2026-07-14
   T154.2:
     name: SessionHostConfig viewer-affecting fields reach the player via SessionConfig and are applied on the glass (immersive, screen saver, …)
     status: achieved
@@ -1897,17 +1899,25 @@ targets:
     discovered: 2026-07-14
     achieved: 2026-07-14
   T154.3:
-    name: Stream content fills the player glass after orientation settles — no letterbox when the session starts portrait then rotates to landscape (or any SessionConfig orientation lock)
+    name: Stream orientation + content fill is correct across code SessionConfig and out-of-band player packaging (portrait / landscape / don't-care players)
     status: identified
-    value: 5.0
-    cost: 8.0
+    value: 8.0
+    cost: 13.0
     acceptance:
     - Given a stream session whose SessionConfig locks landscape (e.g. TiltBuggy AnyLandscape), attaching a player that launches portrait then rotates to landscape yields content that fills the glass (no persistent pillarbox/letterbox gutters attributable to content aspect ≠ viewer aspect).
     - DeviceInfo after orientation apply, host content surface (swapchain / GE2S contentW×H / encode size), and player aspect-fit all agree on the same aspect within a small tolerance so the player does not need to letterbox once orientation has settled.
     - Starting already in the locked orientation continues to fill the glass (no regression of the landscape-start path).
-    - 'Documented root cause: which hop is wrong when letterbox appears (DeviceInfo dims, host resize, FrameBegin content size, or player fit) — not a silent multi-hop drift.'
-    - 'Oracle: unit or structural test for content-aspect retarget from a viewer window snapshot; device proof (iOS and/or Android) with log lines for DeviceInfo + content aspect + optional screencap before/after fix.'
-    context: '2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, GE2S contentW/H, player fitContentRect) — parked deliberately after T154; not a player-only bug by assumption. Parent T154 is achieved; this is residual polish under the stream device-api theme.'
+    - 'Player packaging is not a single universal binary for orientation: ge can ship (or build) distinct player product variants whose native metadata lives outside game/engine code — at minimum (1) portrait-primary / portrait-locked, (2) landscape-primary / landscape-locked, (3) don''t-care (all orientations allowed). On iOS this includes Info.plist UISupportedInterfaceOrientations (and any related keys); on Android the equivalent manifest/activity orientation metadata.'
+    - A landscape-locked game is proven with a landscape-packaged player (plist/manifest already landscape-capable), not only by SessionConfig + runtime hints on a don't-care player. Symmetric proof for a portrait-locked game with a portrait-packaged player. The don't-care player remains valid for games that allow free rotation or for diagnostic attach.
+    - 'Documented contract: which parts of orientation enforcement are SessionConfig/code (runtime lock, DeviceInfo, content retarget) vs out-of-band packaging (plist/manifest), and why both may be required on a given platform (e.g. iOS launch orientation and system chrome behaviour depend on the player''s allowed set).'
+    - 'Documented root cause when letterbox appears: which hop is wrong (DeviceInfo dims, host resize, FrameBegin content size, player fit, or packaging mismatch) — not silent multi-hop drift.'
+    - 'Oracle: unit or structural test for content-aspect retarget from a viewer window snapshot; packaging inventory of the three player variants; device proof (iOS and/or Android) with log lines for DeviceInfo + content aspect + optional screencap, using the packaging variant that matches the game''s SessionConfig orientation class.'
+    context: |-
+      2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, GE2S contentW/H, player fitContentRect) — parked deliberately after T154.
+
+      2026-07-14 amendment: orientation is not only a wire/code problem. Platform launch and lock behaviour often depends on native metadata that lives outside the C++ session path — iOS Info.plist UISupportedInterfaceOrientations, Android activity screenOrientation / configChanges, etc. A single don't-care player (all orientations) plus SessionConfig/SDL hints is insufficient as the sole proving ground for portrait- or landscape-locked games; we may need multiple player packaging variants (portrait / landscape / don't-care) so the glass metadata matches the game's orientation class.
+
+      2026-07-14 scheduling: post-release residual. Parent T154 and T154.1 are achieved; ship the T154 train first, then return to letterbox + multi-player packaging here.
     depends_on:
     - T154
     tags:
@@ -1917,6 +1927,10 @@ targets:
     - orientation
     - device-api
     - T154
+    - player
+    - plist
+    - packaging
+    - metadata
     origin: manual
     discovered: 2026-07-14
   T16:
