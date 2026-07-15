@@ -20,6 +20,8 @@
 #include "RunDirect.h"
 #include "render/DirectRenderHost.h"
 
+#include "../tools/player_orientation.h"
+
 #include <SDL3/SDL.h>
 #include <ge/appchannel.h>
 #include <ge/log.h>
@@ -57,6 +59,25 @@ void runServer(Factory factory, const SessionHostConfig& config);
 // (Declared in RunDirect.h so runServer in the wire TU can call it.)
 void runDirectHosted(Factory factory, SessionHostConfig config,
                      const ServerHook* server) {
+    // iPadOS 26: arm supported-orientation mask *before* SDL_CreateWindow so
+    // the glass measures landscape (not a transient portrait letterbox). The
+    // freeze (TN3192) is applied later inside playerForceOrientation after
+    // geometry settles — freezing too early blocks the rotate (see
+    // tools/player_orientation_ios.mm). DirectRenderHost::send re-applies
+    // after the window/scene exist.
+    if (config.orientation != 0) {
+        const char* hint = nullptr;
+        switch (config.orientation) {
+        case wire::kOrientationLandscape:        hint = "LandscapeLeft"; break;
+        case wire::kOrientationLandscapeFlipped: hint = "LandscapeRight"; break;
+        case wire::kOrientationPortrait:         hint = "Portrait"; break;
+        case wire::kOrientationPortraitFlipped:  hint = "PortraitUpsideDown"; break;
+        case wire::kOrientationAnyLandscape:     hint = "LandscapeLeft LandscapeRight"; break;
+        }
+        if (hint) SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
+        playerForceOrientation(config.orientation);
+    }
+
     DirectRenderHost host(config);
     applyImmersive(config.immersive);
 
