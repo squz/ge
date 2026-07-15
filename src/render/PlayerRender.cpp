@@ -108,73 +108,8 @@ struct PlayerRender::Impl {
         }
     }
 
-    // Coordinate-map a window-pixel (sx, sy) to video-texture / content space.
-    // Accounts for aspect-fit scaling and portrait-in-landscape rotation.
-    void mapToTexture(float sx, float sy, float& ox, float& oy) const {
-        int ww, wh;
-        SDL_GetWindowSizeInPixels(window, &ww, &wh);
-
-        // Cmdstream: map into letterboxed content rect → server pixel space.
-        if (cmdFramePending && cmdContentW > 0 && cmdContentH > 0) {
-            const float ca = float(cmdContentW) / float(cmdContentH);
-            float vx, vy, vw, vh;
-            fitContentRect(ww, wh, ca, vx, vy, vw, vh);
-            const float nx = (sx - vx) / std::max(vw, 1.f);
-            const float ny = (sy - vy) / std::max(vh, 1.f);
-            ox = nx * float(cmdContentW);
-            oy = ny * float(cmdContentH);
-            return;
-        }
-
-        if (!videoTex) { ox = sx; oy = sy; return; }
-        const bool rotated = (ww > wh) && (texH > texW);
-
-        float visW, visH;
-        if (rotated) {
-            const float s = std::min(float(ww) / float(texH),
-                                     float(wh) / float(texW));
-            visW = texW * s;
-            visH = texH * s;
-        } else {
-            const float s = std::min(float(ww) / float(texW),
-                                     float(wh) / float(texH));
-            visW = texW * s;
-            visH = texH * s;
-        }
-        const float offX = (ww - visW) * 0.5f;
-        const float offY = (wh - visH) * 0.5f;
-        const float nx = (sx - offX) / visW;
-        const float ny = (sy - offY) / visH;
-        if (rotated) {
-            ox = (1.f - ny) * texW;
-            oy = nx * texH;
-        } else {
-            ox = nx * texW;
-            oy = ny * texH;
-        }
-    }
-
-    // Rewrite event coordinates in-place to server-space. Relative motion
-    // (xrel/yrel) stays in raw window pixels: it feeds the server-side
-    // AccelSynth, whose tilt scale is calibrated in pixels of hand movement —
-    // a human quantity, not a texture-space one.
-    void mapEvent(SDL_Event& e) const {
-        if (!videoTex) return;
-        if (e.type == SDL_EVENT_MOUSE_MOTION) {
-            mapToTexture(e.motion.x, e.motion.y, e.motion.x, e.motion.y);
-        } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-                   e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-            mapToTexture(e.button.x, e.button.y, e.button.x, e.button.y);
-        } else if (e.type == SDL_EVENT_FINGER_DOWN ||
-                   e.type == SDL_EVENT_FINGER_UP ||
-                   e.type == SDL_EVENT_FINGER_MOTION) {
-            int ww, wh;
-            SDL_GetWindowSizeInPixels(window, &ww, &wh);
-            const float px = e.tfinger.x * ww;
-            const float py = e.tfinger.y * wh;
-            mapToTexture(px, py, e.tfinger.x, e.tfinger.y);
-        }
-    }
+    // Content/texture hit-testing belongs in the engine (same as direct).
+    // Wire events stay device-local — no player-side coord rewrite.
 };
 
 PlayerRender::PlayerRender(const Config& cfg)
@@ -489,40 +424,49 @@ PlayerRender::PumpResult PlayerRender::pumpEvents() {
             r.lifecycleMemoryLevel = 2; // Critical
             break;
         case SDL_EVENT_MOUSE_MOTION:
-        case SDL_EVENT_FINGER_MOTION:
-            i_->mapEvent(e);
+            // One physical touch → one feed (finger). Drop synthetic mouse.
+            if (isTouchSyntheticMouse(e)) break;
             // Coalesce to one motion per pump, but SUM the relative deltas —
-            // the server-side AccelSynth accumulates xrel/yrel, so dropping
+            // the engine AccelSynth accumulates xrel/yrel, so dropping
             // intermediate deltas would under-rotate the tilt.
-            if (hasMotion && e.type == SDL_EVENT_MOUSE_MOTION &&
-                lastMotion.type == SDL_EVENT_MOUSE_MOTION) {
+            if (hasMotion && lastMotion.type == SDL_EVENT_MOUSE_MOTION) {
                 e.motion.xrel += lastMotion.motion.xrel;
                 e.motion.yrel += lastMotion.motion.yrel;
             }
             lastMotion = e;
             hasMotion = true;
             break;
+        case SDL_EVENT_FINGER_MOTION:
+            // Device-local normalized coords (no content remap). Coalesce
+            // finger motion separately from mouse so both kinds do not merge.
+            if (hasMotion && lastMotion.type == SDL_EVENT_FINGER_MOTION) {
+                e.tfinger.dx += lastMotion.tfinger.dx;
+                e.tfinger.dy += lastMotion.tfinger.dy;
+                // Keep latest abs position; summed dx/dy carry the gesture.
+            }
+            lastMotion = e;
+            hasMotion = true;
+            break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (isTouchSyntheticMouse(e)) break;
             if (e.button.button == SDL_BUTTON_LEFT) {
                 i_->primaryDown = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
                 i_->syncRelativeMouseForTilt();
             }
-            i_->mapEvent(e);
             r.upstreamEvents.push_back(e);
             break;
         case SDL_EVENT_MOUSE_WHEEL:
+            r.upstreamEvents.push_back(e);
+            break;
         case SDL_EVENT_FINGER_DOWN:
         case SDL_EVENT_FINGER_UP:
-            i_->mapEvent(e);
             r.upstreamEvents.push_back(e);
             break;
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP:
-            // Stream player is a dumb peripheral: Shift+drag must reach the
-            // server AccelSynth. On iOS Simulator, GCMouse only emits motion
-            // while relative mouse mode is on — mirror AccelSynth's arm policy
-            // (Shift, and on sim also primary button — handled above).
+            // Device-local keys only. Relative-mouse is host I/O so desktop
+            // can emit motion; iOS is a no-op (see AccelSynth.h).
             if (e.key.scancode == SDL_SCANCODE_LSHIFT ||
                 e.key.scancode == SDL_SCANCODE_RSHIFT ||
                 e.key.key == SDLK_LSHIFT || e.key.key == SDLK_RSHIFT) {

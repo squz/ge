@@ -919,6 +919,15 @@ void DirectRenderHost::refreshFrame(float dt) {
     // deadzone (0.7 px) mirrors the player composite's threshold.
     la::float2 presentationTilt{0.0f, 0.0f};
     if (i_->synth) {
+        // Stream: denormalize finger 0–1 against the *player* surface
+        // (DeviceInfo), not the host Mac window — same units as direct on
+        // that device. Direct: setWindow already tracks local pixels.
+        if (i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load()) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            if (v.w >= 2 && v.h >= 2)
+                i_->synth->setSurfacePixels(v.w, v.h);
+        }
         i_->synth->update();
         const Tilt t = i_->synth->current();
         if (std::sqrt(t.x * t.x + t.y * t.y) > 0.7f) {

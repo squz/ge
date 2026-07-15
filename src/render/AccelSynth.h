@@ -19,15 +19,16 @@
 //    mouse button is held — click-drag alone tilts.
 //
 // Stream server (GE_SERVER_BUILD): same primary-button arm as the simulator.
-// Player devices forward raw button+motion; Shift is often unavailable on
-// mobile sims. Without button arm, click-drag arrives but never synthesizes.
+// Player forwards device-local raw events (no content remap). Finger denorm
+// uses setSurfacePixels(player DeviceInfo) — never the stream-host window.
 //
 // Desktop direct (not server, not sim): Shift + drag only, with relative mouse
 // mode so the cursor doesn't leave the window. Button alone does not tilt.
 //
 // Belongs to the render subsystem. DirectRenderHost owns synthesis.
 // Stream players forward raw Shift/drag; server-side synth interprets.
-// Games only see SDL_EVENT_SENSOR_UPDATE.
+// Games only see SDL_EVENT_SENSOR_UPDATE. Direct vs stream: same AccelSynth
+// math on the same device-local gesture units (transport is not meaning).
 //
 // Tilt model: mouse displacement from the arm point is the tilt vector.
 // Magnitude × kTiltRadPerPixel → angle; axis ⊥ displacement in screen plane.
@@ -69,11 +70,47 @@ inline void setRelativeMouseForShiftDrag(SDL_Window* window, bool armed) {
 #endif
 }
 
+// True for touch-generated synthetic mouse events (SDL_TOUCH_MOUSEID).
+// Direct game input and stream forward both drop these so one physical
+// touch is not processed twice (finger + mouse).
+inline bool isTouchSyntheticMouse(const SDL_Event& e) {
+    if (e.type == SDL_EVENT_MOUSE_MOTION)
+        return e.motion.which == SDL_TOUCH_MOUSEID;
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        e.type == SDL_EVENT_MOUSE_BUTTON_UP)
+        return e.button.which == SDL_TOUCH_MOUSEID;
+    return false;
+}
+
 class AccelSynth {
 public:
     AccelSynth() = default;
 
-    void setWindow(SDL_Window* w) { window_ = w; }
+    // Host window (relative-mouse on desktop; optional surface fallback).
+    void setWindow(SDL_Window* w) {
+        window_ = w;
+        if (w && !surfacePinned_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(w, &ww, &wh);
+            if (ww > 0 && wh > 0) {
+                surfaceW_ = ww;
+                surfaceH_ = wh;
+            }
+        }
+    }
+
+    // Device-local surface size for finger 0–1 → pixel denormalization.
+    // Direct: match the local window. Stream: player DeviceInfo (viewer)
+    // pixels — never the Mac host swapchain. Pinning stops setWindow from
+    // overwriting with host size.
+    void setSurfacePixels(int w, int h) {
+        if (w > 0 && h > 0) {
+            surfaceW_ = w;
+            surfaceH_ = h;
+            surfacePinned_ = true;
+        }
+    }
+
     void setEmit(std::function<void(const SDL_Event&)> fn) { emit_ = std::move(fn); }
 
     Tilt current() const { return tilt_; }
@@ -93,6 +130,8 @@ public:
 
         if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
             e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            // Caller should drop TOUCH_MOUSEID; still ignore if it arrives.
+            if (isTouchSyntheticMouse(e)) return false;
             if (e.button.button == SDL_BUTTON_LEFT) {
                 const bool down = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
                 if (down != primaryDown_) {
@@ -120,24 +159,24 @@ public:
         }
 
         if (e.type == SDL_EVENT_MOUSE_MOTION && armed()) {
+            if (isTouchSyntheticMouse(e)) return false;
             applyMotionDelta(e.motion.xrel, e.motion.yrel,
                              e.motion.x, e.motion.y);
             return true;
         }
 
         if (e.type == SDL_EVENT_FINGER_MOTION && armed()) {
-            // Finger coords are normalized 0–1; convert via window size so
-            // tilt scale stays roughly in screen pixels (matches mouse path).
-            int ww = 0, wh = 0;
-            if (window_) SDL_GetWindowSizeInPixels(window_, &ww, &wh);
-            if (ww <= 0 || wh <= 0) {
-                SDL_Window* f = SDL_GetMouseFocus();
-                if (f) SDL_GetWindowSizeInPixels(f, &ww, &wh);
-            }
-            const float px = e.tfinger.x * float(ww > 0 ? ww : 1);
-            const float py = e.tfinger.y * float(wh > 0 ? wh : 1);
-            // tfinger.dx/dy are also normalized; prefer absolute seed path.
-            applyMotionDelta(0.f, 0.f, px, py);
+            // SDL finger x/y and dx/dy are normalized 0–1 on the *device*
+            // surface. Denormalize with setSurfacePixels (player DeviceInfo
+            // when streaming; local window when direct) — never the stream
+            // host Mac window alone.
+            const float sw = surfaceWidth();
+            const float sh = surfaceHeight();
+            const float dx = e.tfinger.dx * sw;
+            const float dy = e.tfinger.dy * sh;
+            const float ax = e.tfinger.x * sw;
+            const float ay = e.tfinger.y * sh;
+            applyMotionDelta(dx, dy, ax, ay);
             return true;
         }
 
@@ -266,6 +305,25 @@ private:
         }
     }
 
+    float surfaceWidth() const {
+        if (surfaceW_ > 0) return float(surfaceW_);
+        if (window_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(window_, &ww, &wh);
+            if (ww > 0) return float(ww);
+        }
+        return 1.f;
+    }
+    float surfaceHeight() const {
+        if (surfaceH_ > 0) return float(surfaceH_);
+        if (window_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(window_, &ww, &wh);
+            if (wh > 0) return float(wh);
+        }
+        return 1.f;
+    }
+
     void emitSensorFromTilt() {
         if (!emit_) return;
         float mag = std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y);
@@ -293,6 +351,9 @@ private:
     float lastAbsY_ = 0.f;
     uint64_t lastTickNs_ = 0;
     SDL_Window* window_ = nullptr;
+    int surfaceW_ = 0;
+    int surfaceH_ = 0;
+    bool surfacePinned_ = false;
     std::function<void(const SDL_Event&)> emit_;
 #if defined(__APPLE__) && TARGET_OS_SIMULATOR
     bool autodriveChecked_ = false;
