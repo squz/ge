@@ -2,16 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Player — don't-care packaging (all orientations allowed at launch).
-  Siblings: PlayerLand (landscape-only), PlayerPort (portrait-only).
-  🎯T154.3 / AGENTS.md "iOS orientation lock".
+  PlayerPort — portrait-only packaging (knob 1 of the two-knob lock).
+  Siblings: Player (don't-care / all orientations), PlayerLand (landscape-only).
+  Use with portrait SessionConfig games.
+  See AGENTS.md "iOS orientation lock" and 🎯T154.3.
 -->
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Player</string>
+    <string>PlayerPort</string>
     <key>CFBundleDisplayName</key>
-    <string>Player</string>
+    <string>PlayerPort</string>
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleVersion</key>
@@ -32,8 +33,6 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
