@@ -8,9 +8,10 @@
 
 namespace ge {
 
-// Hide system chrome (Android status + navigation bars). Called once
-// from runDirect after the host is constructed. No-op on iOS / desktop
-// — see SessionHostConfig.immersive comment for platform notes.
+// Hide system chrome so direct and stream glass share a deterministic
+// pixel surface (status bar clock/battery are non-deterministic).
+// Android: WindowInsetsController. iOS: swizzle prefersStatusBarHidden.
+// Desktop: no-op. See SessionHostConfig.immersive.
 void applyImmersive(bool enabled);
 
 } // namespace ge

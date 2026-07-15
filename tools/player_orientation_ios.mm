@@ -18,7 +18,7 @@
 // Consumers can leave the plist permissive (all four orientations)
 // and let `SessionConfig.orientation` decide at runtime.
 //
-// Things that DON'T work and should not be re-tried:
+// Things that DON'T work *alone* and should not be re-tried as sole knobs:
 //   * UIRequiresFullScreen                         — deprecated, ignored on iPad.
 //   * SDL_HINT_ORIENTATIONS                        — limits the supported set
 //                                                    only; no runtime force.
@@ -27,6 +27,14 @@
 //                                                    UIKit's view of the
 //                                                    supported set; doesn't
 //                                                    create a lock.
+//
+// Working *stack* (same for direct apps and stream players — 🎯T154.3):
+//   1. Packaging plist narrows the launch set (PlayerLand / Port / game app).
+//   2. g_lockedOrientation + the two swizzles above (runtime lock).
+//   3. setNeedsUpdate* so UIKit re-queries the swizzles.
+//   4. requestGeometryUpdate *after* the lock is armed — not alone; this is
+//      what rotates an already-presented scene into the locked mask when the
+//      device/sim is still in the wrong orientation (matches direct glass).
 //
 // History:
 //   * e0da016 reverted the "plist alone" experiment.
@@ -135,6 +143,50 @@ static const char* geLockName(uint8_t lock) {
     }
 }
 
+// Apply lock to every live window scene. Safe to call repeatedly (direct
+// send() and player post-glass both use this — same API surface).
+static void geApplyOrientationToScenes(UIInterfaceOrientationMask requested) {
+    NSInteger scenes = 0;
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        UIWindowScene *scene = (UIWindowScene *)s;
+        ++scenes;
+        for (UIWindow *w in scene.windows) {
+            UIViewController *vc = w.rootViewController;
+            if (!vc) continue;
+            // Refresh both the lock state and the supported-orientations
+            // set so iOS re-evaluates and rotates the UI if needed.
+            [vc setNeedsUpdateOfSupportedInterfaceOrientations];
+            SEL updateSel = @selector(setNeedsUpdateOfPrefersInterfaceOrientationLocked);
+            if ([vc respondsToSelector:updateSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                [vc performSelector:updateSel];
+#pragma clang diagnostic pop
+            }
+        }
+        // After the lock is armed, ask the scene to adopt the locked mask.
+        // Alone this no-ops on iPad; with the swizzles it rotates a portrait
+        // presentation into landscape (direct glass behaviour).
+        if (@available(iOS 16.0, *)) {
+            UIWindowSceneGeometryPreferencesIOS *prefs =
+                [[UIWindowSceneGeometryPreferencesIOS alloc]
+                    initWithInterfaceOrientations:requested];
+            [scene requestGeometryUpdateWithPreferences:prefs
+                errorHandler:^(NSError *error) {
+                    if (error) {
+                        SPDLOG_WARN("playerForceOrientation: geometry update: {}",
+                                    error.localizedDescription.UTF8String);
+                    }
+                }];
+        }
+    }
+    if (scenes == 0) {
+        SPDLOG_INFO("playerForceOrientation: no UIWindowScene yet — lock armed; "
+                    "will re-apply when scenes exist");
+    }
+}
+
 void playerForceOrientation(uint8_t orientation) {
     if (orientation == 0) return;
 
@@ -171,21 +223,17 @@ void playerForceOrientation(uint8_t orientation) {
         }
     }
 
-    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
-        if (![s isKindOfClass:[UIWindowScene class]]) continue;
-        UIWindowScene *scene = (UIWindowScene *)s;
-        for (UIWindow *w in scene.windows) {
-            UIViewController *vc = w.rootViewController;
-            // Refresh both the lock state and the supported-orientations
-            // set so iOS re-evaluates and rotates the UI if needed.
-            [vc setNeedsUpdateOfSupportedInterfaceOrientations];
-            SEL updateSel = @selector(setNeedsUpdateOfPrefersInterfaceOrientationLocked);
-            if ([vc respondsToSelector:updateSel]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                [vc performSelector:updateSel];
-#pragma clang diagnostic pop
-            }
-        }
+    void (^apply)(void) = ^{
+        geApplyOrientationToScenes(requested);
+    };
+
+    if ([NSThread isMainThread]) {
+        apply();
+        // Second kick next runloop: CreateWindow / immersive may attach the
+        // root VC after the first call (stream player) the same way a late
+        // DirectRenderHost::send still needs a live scene.
+        dispatch_async(dispatch_get_main_queue(), apply);
+    } else {
+        dispatch_async(dispatch_get_main_queue(), apply);
     }
 }

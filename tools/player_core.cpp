@@ -7,6 +7,7 @@
 // H.264, sockets, or SDL windowing.
 
 #include "player_core.h"
+#include "player_orientation.h"
 
 #include <ge/FrameLog.h>
 #include <ge/PlayerRender.h>
@@ -61,7 +62,9 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
     const bool immersive = (cfg.flags & wire::kSessionFlagImmersive) != 0;
     const bool noSaver   = (cfg.flags & wire::kSessionFlagNoScreenSaver) != 0;
 
-    // Orientation hint before window creation (iOS/Android launch lock).
+    // Same orientation surface as direct: narrow SDL's set before the window
+    // exists (DirectRenderHost / SessionHost path). kOrientationAnyLandscape
+    // must not fall through as a no-op — TiltBuggy uses it.
     if (cfg.orientation != 0) {
         const char* hint = nullptr;
         switch (cfg.orientation) {
@@ -69,6 +72,7 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
         case wire::kOrientationLandscapeFlipped: hint = "LandscapeRight"; break;
         case wire::kOrientationPortrait:         hint = "Portrait"; break;
         case wire::kOrientationPortraitFlipped:  hint = "PortraitUpsideDown"; break;
+        case wire::kOrientationAnyLandscape:     hint = "LandscapeLeft LandscapeRight"; break;
         }
         if (hint) SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
     }
@@ -80,6 +84,10 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
     rc.orientation = cfg.orientation;
     rc.immersive = immersive;  // discovery: ui-safe after bars are applied
     ge::PlayerRender render(rc);
+    // PlayerRender ctor already called playerForceOrientation (shared with
+    // DirectRenderHost::send). Re-apply after glass policy so scenes/VCs that
+    // attach during CreateWindow / immersive still get the lock + geometry
+    // update — same API, same timing class as "policy on settled glass".
 
     // Apply the rest of SessionConfig now that a window/activity exists.
     // Blocking applyImmersive waits for the OS layout/insets pass so the
@@ -87,6 +95,12 @@ int playerCore(const std::string& host, int port, const std::string& serverName)
     if (immersive) ge::applyImmersive(true);
     if (noSaver) SDL_DisableScreenSaver();
     if (cfg.sensors & wire::kSensorAccelerometer) render.enableAccelerometer();
+
+    // Direct: playerForceOrientation from DirectRenderHost::send after host
+    // is up. Stream: same call after immersive so DeviceInfo is measured on
+    // the locked orientation's glass (not a transient pre-rotate portrait).
+    if (cfg.orientation != 0)
+        playerForceOrientation(cfg.orientation);
 
     {
         wire::DeviceInfo di{};

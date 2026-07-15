@@ -709,10 +709,11 @@ struct SessionHostConfig {
     // Platform support:
     //   * Android — applied at runtime via WindowInsetsController
     //     (immersive sticky). Brief flicker on launch as bars hide.
-    //   * iOS — partial; iPhone landscape already auto-hides the
-    //     status bar. iPad Split View / Slide Over additionally
-    //     requires `UIRequiresFullScreen` in the app's Info.plist
-    //     (read by iOS at launch; cannot be toggled at runtime).
+    //   * iOS — hides status bar via prefersStatusBarHidden swizzle
+    //     (Immersive_apple.mm) so stream and direct match pixel-for-
+    //     pixel; status-bar contents (clock, battery) are otherwise
+    //     non-deterministic. iPad Split View / Slide Over still needs
+    //     `UIRequiresFullScreen` in Info.plist (launch-time only).
     //   * Desktop — no-op.
     bool immersive = false;
 

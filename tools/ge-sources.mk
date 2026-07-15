@@ -90,11 +90,16 @@ GE_SRC_ANDROID := \
 # only vkGetInstanceProcAddr (resolved at the consumer's libmain link).
 
 # ── desktop / no-mobile stubs ──────────────────────────────────────
-# Linux/macOS desktop and Apple platforms that don't have an Immersive
-# or CutoutInsets concept get the stub. (Android has real
-# Immersive_android.cpp + CutoutInsets_android.cpp.)
+# Linux/macOS desktop has no Immersive/CutoutInsets concept (stub).
+# iOS has real Immersive_apple.mm (status-bar hide for stream/direct
+# pixel parity); CutoutInsets stay stub on Apple. Android has real
+# Immersive_android.cpp + CutoutInsets_android.cpp.
 GE_SRC_STUB_IMMERSIVE := \
 	src/Immersive_stub.cpp \
+	src/CutoutInsets_stub.cpp
+
+GE_SRC_IOS_IMMERSIVE := \
+	src/Immersive_apple.mm \
 	src/CutoutInsets_stub.cpp
 
 # Attitude has three: apple (CoreMotion), android (sensors), stub
@@ -129,9 +134,9 @@ GE_SRC_BROKERED := \
 # subset of the groups above.
 
 # Apple direct-mode (macOS desktop, iOS device, iOS sim):
-#   core + apple glue + immersive stubs + iOS-or-stub orientation
+#   core + apple glue + immersive (real on iOS, stub on desktop) + orientation
 GE_SRC_DIRECT_APPLE_DESKTOP    := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_ORIENTATION_STUB)
-GE_SRC_DIRECT_IOS              := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_ORIENTATION_IOS)
+GE_SRC_DIRECT_IOS              := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_IOS_IMMERSIVE) $(GE_SRC_ORIENTATION_IOS)
 
 # Android direct-mode: core + android glue + stub orientation.
 GE_SRC_DIRECT_ANDROID          := $(GE_SRC_COMMON) $(GE_SRC_ANDROID) $(GE_SRC_ORIENTATION_STUB)

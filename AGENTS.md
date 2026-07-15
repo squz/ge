@@ -552,10 +552,20 @@ Requires the same ASC API key env as ship (`APP_STORE_CONNECT_API_KEY_*`, or `~/
 
 This was the takeaway of a long debugging session in v0.1.0 (see commit `e0da016`, "Revert Info.plist portrait-only experiment", for the failed plist-only attempt; and `5c2f2a5` for the swizzle that completed the picture, tested on iPadOS 26.4). Things that *also* don't work alone and have all been tried: `UIRequiresFullScreen`, `SDL_HINT_ORIENTATIONS`, `requestGeometryUpdate`, `setNeedsUpdateOfSupportedInterfaceOrientations`. The full list is in the banner comment at the top of `tools/player_orientation_ios.mm`.
 
+**Why three stream players (🎯T154.3).** Knob 1 is **out-of-band packaging** — it cannot be parameterized by game/engine C++ at attach time. A single "don't-care" player (all four orientations in the plist) plus SessionConfig/runtime lock is **not** enough as the sole packaging for portrait- or landscape-locked games: launch can settle in the wrong orientation class, DeviceInfo aspect disagrees with content, and the player letterboxes until (or even after) rotation. That is why ge ships **three iOS player products** with the **same code**, different plists / bundle IDs:
+
+| Target | Bundle ID | Plist orientations | Use for |
+|---|---|---|---|
+| **Player** | `com.squz.player` | all four (don't-care) | free-rotate games; diagnostic attach |
+| **PlayerLand** | `com.squz.player.land` | landscape L+R only | landscape / AnyLandscape games (e.g. TiltBuggy) |
+| **PlayerPort** | `com.squz.player.port` | portrait + upside-down only | portrait-locked games |
+
+Build: `cd tools/ios && cmake -B build/xcode -G Xcode && cmake --build build/xcode --config Debug --target PlayerLand -- -sdk iphonesimulator -arch arm64`. Match the **packaging** variant to the game's orientation class; SessionConfig still supplies knob 2 over the wire.
+
 **How games request the lock:**
 
-- **Direct-render apps** (`DirectRenderHost`-mode, e.g. TiltBuggy): set `SessionHostConfig.orientation = wire::kOrientationPortrait` (or whichever `wire::kOrientation*` constant matches the game's intent). The engine calls `playerForceOrientation` from `DirectRenderHost::send` automatically. The orientation stub/swizzle is linked into `libge` (v0.3.0+), so apps don't need to add anything to their build.
-- **Player apps** get this for free — `wire::SessionConfig.orientation` from the server triggers `playerForceOrientation()` over the wire.
+- **Direct-render apps** (`DirectRenderHost`-mode, e.g. TiltBuggy): set `SessionHostConfig.orientation = wire::kOrientationPortrait` (or whichever `wire::kOrientation*` constant matches the game's intent). The engine calls `playerForceOrientation` from `DirectRenderHost::send` automatically. The orientation stub/swizzle is linked into `libge` (v0.3.0+), so apps don't need to add anything to their build. Direct apps also own their own Info.plist (same knob-1 rule).
+- **Player apps** get knob 2 for free — `wire::SessionConfig.orientation` from the server triggers `playerForceOrientation()` over the wire. Knob 1 is whichever of Player / PlayerLand / PlayerPort you installed.
 
 **Authoritative orientation locks (🎯T36, v0.31.0+).** Each `wire::kOrientation*` constant now produces a specific runtime behaviour:
 
@@ -567,9 +577,7 @@ This was the takeaway of a long debugging session in v0.1.0 (see commit `e0da016
 | `kOrientationLandscapeFlipped` | UI locked to LandscapeLeft |
 | `kOrientationAnyLandscape` | UI locked at launch to whichever landscape iOS picks; user can't rotate mid-play. Use for tilt games where the player flips the device freely. |
 
-The engine narrows `UISupportedInterfaceOrientations` to the requested mask at runtime, so iOS rotates the UI at launch even if the device was held in a non-matching orientation. The `Info.plist`'s `UISupportedInterfaceOrientations` becomes the **fallback** (used when no runtime lock is set), not the gate. You can leave the plist permissive and let `SessionConfig.orientation` decide.
-
-If `SessionConfig.orientation` is set but the plist's allowed set doesn't include the requested orientation, the engine logs a loud `SPDLOG_WARN` pointing at the mismatch — the override still works (swizzle overrides plist at runtime), but narrowing the plist matches engine intent and avoids brief launch flicker.
+The engine narrows supported orientations at runtime via the swizzle (knob 2). The **packaging** plist's `UISupportedInterfaceOrientations` is still the launch set (knob 1). Prefer packaging that already matches the game class so launch DeviceInfo aspect is correct; a mismatched plist logs a loud `SPDLOG_WARN` — the override may still work but you get launch flicker and often letterbox.
 
 
 ## Public API

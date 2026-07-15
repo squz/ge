@@ -39,8 +39,9 @@ set(PLAYER_SOURCES
     ${GE_ROOT}/src/svg.cpp
     ${GE_ROOT}/src/text.cpp
     ${GE_ROOT}/src/FontLoader_apple.mm
-    ${GE_ROOT}/src/Immersive_stub.cpp
+    ${GE_ROOT}/src/Immersive_apple.mm
     ${GE_ROOT}/src/CutoutInsets_stub.cpp
+
     # Lean player stubs (no full appchannel / sokol sprite path)
     ${GE_ROOT}/tools/android/app/src/main/cpp/player_stubs.cpp
     ${GE_ROOT}/tools/android/app/src/main/cpp/player_sprite_stub.cpp
