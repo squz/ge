@@ -69,8 +69,8 @@ struct PlayerRender::Impl {
     // synthetic; that contract is the engine's, not the player's.
     SDL_Sensor* accelSensor = nullptr;
 
-    // Relative-mouse arm for the stream tilt path (mirrors AccelSynth). On
-    // iOS Simulator GCMouse only emits motion while relative mode is on.
+    // Desktop-only relative-mouse arm for stream tilt (no-op on iOS — see
+    // AccelSynth.h). Still track Shift/button so desktop player behaves.
     bool shiftKey = false;
     bool primaryDown = false;
 

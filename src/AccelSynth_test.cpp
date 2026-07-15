@@ -98,6 +98,34 @@ TEST_CASE("AccelSynth: primary button arms without Shift (sim/server)") {
     REQUIRE(emitted.size() == 1);
     CHECK(emitted[0].type == SDL_EVENT_SENSOR_UPDATE);
 }
+
+TEST_CASE("AccelSynth: finger drag arms and tilts (sim/server)") {
+    AccelSynth synth;
+    std::vector<SDL_Event> emitted;
+    synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
+
+    SDL_Event down{};
+    down.type = SDL_EVENT_FINGER_DOWN;
+    down.tfinger.x = 0.5f;
+    down.tfinger.y = 0.5f;
+    CHECK_FALSE(synth.handle(down));
+
+    // Absolute seed then delta (normalized coords; no window → 1×1 pixel scale).
+    SDL_Event m1{};
+    m1.type = SDL_EVENT_FINGER_MOTION;
+    m1.tfinger.x = 0.5f;
+    m1.tfinger.y = 0.5f;
+    CHECK(synth.handle(m1));
+    CHECK(emitted.empty());
+
+    SDL_Event m2{};
+    m2.type = SDL_EVENT_FINGER_MOTION;
+    m2.tfinger.x = 0.6f;
+    m2.tfinger.y = 0.5f;
+    CHECK(synth.handle(m2));
+    REQUIRE(emitted.size() == 1);
+    CHECK(emitted[0].type == SDL_EVENT_SENSOR_UPDATE);
+}
 #endif
 
 TEST_CASE("AccelSynth: non-Shift events pass through") {

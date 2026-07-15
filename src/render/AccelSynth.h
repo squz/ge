@@ -8,19 +8,22 @@
 // iOS Simulator notes:
 //  - Core Motion reports accelerometerAvailable=YES; we force
 //    realSensorAvailable()=false so synth still arms.
-//  - GCMouse only delivers relative deltas when relative mouse mode is on
-//    (SDL_uikitevents.m). We enable it while tilt is armed.
+//  - Do NOT enable SDL relative mouse mode on any iOS (device or sim).
+//    UIKit delivers absolute pointer motion (SDL_SendMouseMotion relative=
+//    false). With WINDOW_MOUSE_RELATIVE_MODE set, SDL drops those absolute
+//    events (SDL_mouse.c), while GCMouse relative deltas are rarely available
+//    for the host cursor — so arming relative mode silences all tilt motion.
+//    AccelSynth uses absolute x/y deltas (and any non-zero xrel) instead.
 //  - Hardware-keyboard Shift is unreliable on sim (Connect Hardware Keyboard
 //    must be on). So on TARGET_OS_SIMULATOR we also arm while the primary
-//    mouse button is held — click-drag alone tilts. Absolute position
-//    deltas cover the UIKit button-drag path when xrel is zero.
+//    mouse button is held — click-drag alone tilts.
 //
 // Stream server (GE_SERVER_BUILD): same primary-button arm as the simulator.
 // Player devices forward raw button+motion; Shift is often unavailable on
 // mobile sims. Without button arm, click-drag arrives but never synthesizes.
 //
-// Desktop direct (not server, not sim): Shift + drag only. Button alone does
-// not tilt so the cursor stays free for UI.
+// Desktop direct (not server, not sim): Shift + drag only, with relative mouse
+// mode so the cursor doesn't leave the window. Button alone does not tilt.
 //
 // Belongs to the render subsystem. DirectRenderHost owns synthesis.
 // Stream players forward raw Shift/drag; server-side synth interprets.
@@ -54,10 +57,10 @@ struct Tilt {
     float y = 0.f;
 };
 
-// Relative mouse for Shift-drag on hosts that synthesize tilt (desktop +
-// iOS Simulator). Real iOS uses Core Motion and never needs this.
+// Relative mouse for desktop Shift-drag only. Never on iOS (device or
+// simulator) — see file header: relative mode drops UIKit absolute motion.
 inline void setRelativeMouseForShiftDrag(SDL_Window* window, bool armed) {
-#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_SIMULATOR
+#if defined(__APPLE__) && TARGET_OS_IOS
     (void)window;
     (void)armed;
 #else
@@ -102,25 +105,39 @@ public:
             return false;
         }
 
+        // Finger drag — same arm policy as primary mouse button (sim + stream
+        // server). iOS Simulator host clicks often arrive as finger events;
+        // without this path, only GCMouse-shaped motion would tilt.
+        if (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_UP ||
+            e.type == SDL_EVENT_FINGER_CANCELED) {
+            const bool down = (e.type == SDL_EVENT_FINGER_DOWN);
+            if (down != primaryDown_) {
+                primaryDown_ = down;
+                onArmChanged();
+            }
+            // Do not consume — games may treat finger as UI input.
+            return false;
+        }
+
         if (e.type == SDL_EVENT_MOUSE_MOTION && armed()) {
-            float dx = e.motion.xrel;
-            float dy = e.motion.yrel;
-            if (dx == 0.f && dy == 0.f) {
-                if (haveLastAbs_) {
-                    dx = e.motion.x - lastAbsX_;
-                    dy = e.motion.y - lastAbsY_;
-                }
-                lastAbsX_ = e.motion.x;
-                lastAbsY_ = e.motion.y;
-                haveLastAbs_ = true;
-            } else {
-                haveLastAbs_ = false;
+            applyMotionDelta(e.motion.xrel, e.motion.yrel,
+                             e.motion.x, e.motion.y);
+            return true;
+        }
+
+        if (e.type == SDL_EVENT_FINGER_MOTION && armed()) {
+            // Finger coords are normalized 0–1; convert via window size so
+            // tilt scale stays roughly in screen pixels (matches mouse path).
+            int ww = 0, wh = 0;
+            if (window_) SDL_GetWindowSizeInPixels(window_, &ww, &wh);
+            if (ww <= 0 || wh <= 0) {
+                SDL_Window* f = SDL_GetMouseFocus();
+                if (f) SDL_GetWindowSizeInPixels(f, &ww, &wh);
             }
-            if (dx != 0.f || dy != 0.f) {
-                tilt_.x += dx;
-                tilt_.y += dy;
-                emitSensorFromTilt();
-            }
+            const float px = e.tfinger.x * float(ww > 0 ? ww : 1);
+            const float py = e.tfinger.y * float(wh > 0 ? wh : 1);
+            // tfinger.dx/dy are also normalized; prefer absolute seed path.
+            applyMotionDelta(0.f, 0.f, px, py);
             return true;
         }
 
@@ -227,6 +244,26 @@ private:
             haveLastAbs_ = false;
         }
         wasArmed_ = now;
+    }
+
+    // Relative deltas if non-zero; else absolute position seed/delta.
+    void applyMotionDelta(float dx, float dy, float absX, float absY) {
+        if (dx == 0.f && dy == 0.f) {
+            if (haveLastAbs_) {
+                dx = absX - lastAbsX_;
+                dy = absY - lastAbsY_;
+            }
+            lastAbsX_ = absX;
+            lastAbsY_ = absY;
+            haveLastAbs_ = true;
+        } else {
+            haveLastAbs_ = false;
+        }
+        if (dx != 0.f || dy != 0.f) {
+            tilt_.x += dx;
+            tilt_.y += dy;
+            emitSensorFromTilt();
+        }
     }
 
     void emitSensorFromTilt() {
