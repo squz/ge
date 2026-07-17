@@ -524,7 +524,7 @@ targets:
     - 'DONE: the old fail-open path (sg_query_buffer_overflow -> SPDLOG_WARN + return, dropping the draw) is gone. The split is computed by the pure ge::detail::planSpriteRun, which guarantees every chunk fits its buffer; the residual overflow branch is unreachable-by-construction and now logs SPDLOG_ERROR (not WARN).'
     - 'DONE: headless unit test (sprite_test.cpp) drives planSpriteRun with a >5500-quad run and asserts the chunks sum to the submitted vertex count (every quad lands in a draw), plus boundary/spill cases. The same function drawRun executes, so plan coverage == render coverage.'
     - 'CONSUMER-CONFIRM (post-release): MultiMaze 2 level-select grid renders ALL walls on iPhone 13 with no overflow warnings, once mm2 bumps its ge submodule to the release carrying this fix. Addressed by construction (the silent drop is removed); to be visually re-confirmed on device by the consumer.'
-    context: 'Discovered while screenshotting the MultiMaze 2 level-select screen on the Minicades Test iPhone (iPhone 13, iOS 26.5). Most level thumbnails showed balls but no maze walls. Root cause: ge::SpriteBatch and ge::Sprite::draw both feed ONE global per-frame SG_USAGE_STREAM vertex buffer (kStreamBufferBytes = 256 KB, sprite.cpp:25-28) via sg_append_buffer. The buffer is shared across every sprite draw in the frame; when sg_append_buffer overflows, drawRun (sprite.cpp:91-119) logs a warning and returns, silently dropping the draw. The 256 KB sizing comment explicitly assumed ''active scenes well under 100 quads'', but the level-select grid renders ~16 dense mazes — each maze emits a wall span plus 4 corner quads per intersection (MazeRenderer.cpp:388-416), thousands of quads total. The buffer fills partway through the grid; subsequent submits are no-ops. Balls survive because they render via a separate marble pipeline (MazeRenderer.cpp:781+), not the sprite batch. Live device log confirmed 15,565 overflow warnings in 45 s, dropped runs of 47520/43920/48816 bytes (the wall geometry). Surfaced by the multimaze2 consumer.'
+    context: 'Discovered while screenshotting the MultiMaze 2 level-select screen on the Minicades Test iPhone (iPhone 13, iOS 26.5). Most level thumbnails showed balls but no maze walls. Root cause: ge::SpriteBatch and ge::Sprite::draw both feed ONE global per-frame SG_USASTREAM vertex buffer (kStreamBufferBytes = 256 KB, sprite.cpp:25-28) via sg_append_buffer. The buffer is shared across every sprite draw in the frame; when sg_append_buffer overflows, drawRun (sprite.cpp:91-119) logs a warning and returns, silently dropping the draw. The 256 KB sizing comment explicitly assumed ''active scenes well under 100 quads'', but the level-select grid renders ~16 dense mazes — each maze emits a wall span plus 4 corner quads per intersection (MazeRenderer.cpp:388-416), thousands of quads total. The buffer fills partway through the grid; subsequent submits are no-ops. Balls survive because they render via a separate marble pipeline (MazeRenderer.cpp:781+), not the sprite batch. Live device log confirmed 15,565 overflow warnings in 45 s, dropped runs of 47520/43920/48816 bytes (the wall geometry). Surfaced by the multimaze2 consumer.'
     tags:
     - multimaze-audit
     - rendering
@@ -646,12 +646,12 @@ targets:
     value: 0.0
     cost: 0.0
     acceptance:
-    - 'On iOS/Android, a *debug* build (NDEBUG off) with GE_IAP_MODE unset resolves to the `stub` backend, not `platform`; *release* builds still resolve to `platform`. An explicit GE_IAP_MODE always wins. Verifiable: an IDE-free `make ge/ios-device` build (no env reaches the process via spyder/devicectl) logs `ge::iap: mode resolved to ''stub''` and buy() grants with no sandbox sign-in modal. This supersedes the T74 `.storekit-bundled -> stub` hack with a cleaner `debug -> stub` rule.'
+    - 'On iOS/Android, a *debug* build (NDEBUG off) with IAP_MODE unset resolves to the `stub` backend, not `platform`; *release* builds still resolve to `platform`. An explicit IAP_MODE always wins. Verifiable: an IDE-free `make ge/ios-device` build (no env reaches the process via spyder/devicectl) logs `ge::iap: mode resolved to ''stub''` and buy() grants with no sandbox sign-in modal. This supersedes the T74 `.storekit-bundled -> stub` hack with a cleaner `debug -> stub` rule.'
     - 'Simulated entitlements persist across a cold relaunch: buy("pro") in a debug/stub build, kill, relaunch -> owned("pro") still true. StubStore''s entitlement set is backed by ge::Context::db() (sqlpipe) or an on-disk file instead of a process-lifetime std::unordered_set; testing::clearAll / DebugPanel.onResetAll wipe it.'
-    - 'Final sandbox testing is still one step away on a debug build: launching with GE_IAP_MODE=platform routes to real StoreKit/Play Billing without any code change. (Optional: a programmatic ge::iap::setMode() / SessionHostConfig field so the backend can be chosen without env vars at all.)'
-    - 'CLAUDE.md + agents-guide.md document the dev-IAP simulation flow: debug defaults to stub, simulated purchases persist, DebugPanel toggles entitlements, and GE_IAP_MODE=platform opts into the sandbox for final testing.'
+    - 'Final sandbox testing is still one step away on a debug build: launching with IAP_MODE=platform routes to real StoreKit/Play Billing without any code change. (Optional: a programmatic ge::iap::setMode() / SessionHostConfig field so the backend can be chosen without env vars at all.)'
+    - 'CLAUDE.md + agents-guide.md document the dev-IAP simulation flow: debug defaults to stub, simulated purchases persist, DebugPanel toggles entitlements, and IAP_MODE=platform opts into the sandbox for final testing.'
     - 'sample/tiltbuggy wires its `pro` unlock + ge::iap::DebugPanel as the proving ground: a fresh dev build grants `pro` via buy() (or the panel) with no sandbox, and the unlock survives relaunch.'
-    context: 'Surfaced 2026-06-15 with the user. They run IDE-free iOS dev builds (make ge/ios-device -> spyder/devicectl deploy, T110) and hit the StoreKit sandbox sign-in modal every time — fine for final testing, annoying before then. ge ALREADY has the stub they want (GE_IAP_MODE=stub -> StubStore, iap.cpp:62): buy() grants instantly + fires ok=true, owned() reflects it, plus testing::setOwned and the in-engine ge::iap::DebugPanel (T65.6). The two real gaps: (1) you can''t select stub on a non-Xcode device launch — GE_IAP_MODE comes from env, which devicectl/spyder don''t pass, so the auto-default resolves to platform (sandbox); (2) StubStore is in-memory, so a simulated buy resets on every relaunch. Immediate consumer workaround (no ge change): add `#ifndef NDEBUG ::setenv(\"GE_IAP_MODE\",\"stub\",0); #endif` before the first ge::iap call. User wants this filed, not built now (mid consumer release/testing). Pairs with T65 (IAP floor), T65.4 (local/.storekit mode — the non-viable SKTestSession path), T65.6 (DebugPanel), T65.7 (tiltbuggy pro), T74 (iOS auto-mode), T110 (IDE-free deploy).'
+    context: 'Surfaced 2026-06-15 with the user. They run IDE-free iOS dev builds (make ge/ios-device -> spyder/devicectl deploy, T110) and hit the StoreKit sandbox sign-in modal every time — fine for final testing, annoying before then. ge ALREADY has the stub they want (IAP_MODE=stub -> StubStore, iap.cpp:62): buy() grants instantly + fires ok=true, owned() reflects it, plus testing::setOwned and the in-engine ge::iap::DebugPanel (T65.6). The two real gaps: (1) you can''t select stub on a non-Xcode device launch — IAP_MODE comes from env, which devicectl/spyder don''t pass, so the auto-default resolves to platform (sandbox); (2) StubStore is in-memory, so a simulated buy resets on every relaunch. Immediate consumer workaround (no ge change): add `#ifndef NDEBUG ::setenv(\"IAP_MODE\",\"stub\",0); #endif` before the first ge::iap call. User wants this filed, not built now (mid consumer release/testing). Pairs with T65 (IAP floor), T65.4 (local/.storekit mode — the non-viable SKTestSession path), T65.6 (DebugPanel), T65.7 (tiltbuggy pro), T74 (iOS auto-mode), T110 (IDE-free deploy).'
     tags:
     - iap
     - dev-tooling
@@ -670,7 +670,7 @@ targets:
     acceptance:
     - 'DONE: no LOG_TARGET, appchannel:// scheme, or debug.ge.log_target anywhere in ge. The text NetworkLogSink (log.cpp) + its spdlog tcp_client include are deleted; the single dev-logging mechanism is SPYDER_APP_CHANNEL=host:port (bare) feeding the MessagePack app-channel. Compiled out under NDEBUG.'
     - 'DONE: ge::log pushes each spdlog record as {method:"log", params:{ts, level, subsystem, format}} when SPYDER_APP_CHANNEL is set. The wire timestamp field is `ts` (spyder LogPush msgpack:"ts") — the prior `timestamp` that silently failed to decode is fixed in BOTH the log push (log.cpp) and the perf push (appchannel.cpp PerfPush).'
-    - 'DONE: iOS/Android parity — ge.GeActivity bridges the launch Intent''s string-extras into the process env via a nativeSetenv JNI (DirectRenderHost.mm) before the native thread starts, so getenv works the same as iOS. The native setenv is a release no-op (shipped apps ignore launch extras; no GE_IAP_MODE/channel injection from `am start --es`).'
+    - 'DONE: iOS/Android parity — ge.GeActivity bridges the launch Intent''s string-extras into the process env via a nativeSetenv JNI (DirectRenderHost.mm) before the native thread starts, so getenv works the same as iOS. The native setenv is a release no-op (shipped apps ignore launch extras; no IAP_MODE/channel injection from `am start --es`).'
     - 'DONE: src/appchannel_test.cpp contract test asserts the log-push envelope encodes {ts, level, subsystem, format} (round-trips through msgpack; checks `ts` not `timestamp`). 241/241 unit tests pass.'
     - 'DONE: agents-guide.md + CLAUDE.md + AGENTS.md document SPYDER_APP_CHANNEL as the only dev-logging path; LOG_TARGET / appchannel:// / log_collect_* removed (log_collect_* -> app_log_get); the Android Intent shim + iOS local-network prompt documented. prebuilt/*/libge.a refreshed (verify-prebuilds green).'
     - 'VALIDATED on desktop against spyder v0.59.0: SPYDER_APP_CHANNEL=127.0.0.1:port dials the channel (handshake ok), app_log_get drains structured {format, level, subsystem, ts} lines with real ts timestamps. CONSUMER-CONFIRM: multimaze2 validates the iOS + Android device launch path on device.'
@@ -951,20 +951,20 @@ targets:
     - 'Player content-addressed cache: cold connect pays full asset bytes; warm reconnect shows hash-hit path with draw-list-only traffic.'
     - 'Measured on Wi-Fi (not only loopback): cold time-to-first-frame, warm reconnect bytes, steady-state bandwidth under tiltbuggy churn vs full-res H.264; one deliberate large-asset-change trial documents the create-tax.'
     - 'Go/no-go recorded in docs/command-stream-transport.md: go means pass-through+cache is enough to beat OTA H.264 for ge content without building epoch/mip-first first.'
-    context: 'Spike for pass-through+cache MVP. 2026-07-14: codec+cache synthetic GO; GE2S Present interim runs on desktop + Pixel (RGBA tag, 16KB player T75 restored, pump cap). OTA: cold ~11MB Present, still-skip when hash matches, motion still ~11MB/frame (~2 fps) until draw-list remoting. Residue T128.2.1 GPU replay + T128.2.2 sokol capture. spyder T97 done.'
+    context: 'Spike for pass-through+cache MVP. 2026-07-14: codec+cache synthetic GO; SP2S Present interim runs on desktop + Pixel (RGBA tag, 16KB player T75 restored, pump cap). OTA: cold ~11MB Present, still-skip when hash matches, motion still ~11MB/frame (~2 fps) until draw-list remoting. Residue T128.2.1 GPU replay + T128.2.2 sokol capture. spyder T97 done.'
     depends_on:
     - T128.1
     origin: manual
     discovered: 2026-06-29
   T128.2.1:
-    name: Player replays GE2S ops on the local GPU to present frames
+    name: Player replays SP2S ops on the local GPU to present frames
     status: identified
     value: 0.0
     cost: 0.0
     acceptance:
-    - PlayerWireBridge GE2S path resolves Blob/BlobRef via content-addressed cache and issues real sg_make_*/sg_apply_*/sg_draw/sg_commit (or ge Pass helpers).
+    - PlayerWireBridge SP2S path resolves Blob/BlobRef via content-addressed cache and issues real sg_make_*/sg_apply_*/sg_draw/sg_commit (or ge Pass helpers).
     - Server resource IDs remap to local handles; warm reconnect with full cache hits shows no full-blob traffic for stable assets.
-    - At least one synthetic or tiltbuggy GE2S stream produces a non-black presented frame on desktop player.
+    - At least one synthetic or tiltbuggy SP2S stream produces a non-black presented frame on desktop player.
     - H.264 decode path remains the fallback when SessionConfig.transport is h264.
     context: Residue of T128.2 — cache population is already in PlayerWireBridge; this is the GPU apply side.
     tags:
@@ -975,14 +975,14 @@ targets:
     origin: manual
     discovered: 2026-07-14
   T128.2.2:
-    name: Server captures live sokol calls into GE2S (Apple trace hooks / Android null ge_sg_api)
+    name: Server captures live sokol calls into SP2S (Apple trace hooks / Android null ge_sg_api)
     status: identified
     value: 0.0
     cost: 0.0
     acceptance:
     - 'Apple: after sg_setup, sg_install_trace_hooks records make_*/update_*/begin_pass/apply_*/draw/end_pass/commit into ge::cmdstream::Writer with content-addressed blobs.'
     - 'Android: optional null serialising ge_sg_api (or same trace hooks if bound) for cmdstream-only sessions.'
-    - At least one real tiltbuggy onRender produces a GE2S frame whose blob sizes and op counts are logged; H.264 path unchanged when transport=h264.
+    - At least one real tiltbuggy onRender produces a SP2S frame whose blob sizes and op counts are logged; H.264 path unchanged when transport=h264.
     - Resource IDs on the wire are the server's sg_* id values so the player can remap.
     context: Residue of T128.2 after the codec/cache/synthetic spike. Apple has no g_ge_sg_api (SOKOL_IMPL inline) — use sokol's built-in trace hooks rather than the Android dispatch table.
     tags:
@@ -1831,20 +1831,20 @@ targets:
     cost: 20.0
     actual_cost: 20.0
     acceptance:
-    - 'Decoupling criterion: application/sample code never branches on stream vs direct, never reads GE_SERVER/GE_TRANSPORT/relay URLs, and never assumes Mac-host chrome. Compile-time packaging (direct app vs GE_SERVER_BUILD) is the only backend selection; no public runtime selector. Module.mk owns make game / make server / make player products.'
+    - 'Decoupling criterion: application/sample code never branches on stream vs direct, never reads GE_SERVER/TRANSPORT/relay URLs, and never assumes Mac-host chrome. Compile-time packaging (direct app vs GE_SERVER_BUILD) is the only backend selection; no public runtime selector. Module.mk owns make game / make server / make player products.'
     - 'Content vs viewer contract is written and implemented: fullRect/surface size semantics are explicit (content surface vs viewing device); drawSafe and uiSafe are distinct on the wire when the viewer can supply both (not one rect duplicated as “done”); insets are expressed in content space; pixelsPerPt/deviceClass/deviceUiScale/orientation come from the viewer while a player is attached.'
     - 'Discovery closed-loop (report → apply → game uses → visible): DeviceInfo + SafeAreaUpdate keep Context live across attach/resize/rotate.'
     - 'SessionHostConfig → wire SessionConfig policy parity (BLOCKING gap discovered 2026-07-14): every session-setup field that affects the viewing surface must reach the player and be applied there, not only the Mac host. Explicit inventory: (1) immersive — hide status/nav chrome on the glass (TiltBuggy sets immersive=true; Pixel still shows OS status bar until this is wired); (2) disableScreenSaver — keep viewer display awake for tilt games; (3) sensors — already on wire; (4) orientation — already on wire; (5) transport — already on wire. Any new SessionHostConfig viewer-affecting field must extend SessionConfig (or documented successor) in the same PR as the host field — no host-only chrome policy.'
     - 'Parallax: either viewer attitude feeds Context::parallax() under stream, or the API is documented to return {0,0} under stream with the same call site (no game branch). Host-Mac attitude must not silently pretend to be the viewer.'
     - 'Input closed-loop: pointer/touch/mouse/wheel/keys and hardware accelerometer samples use the same onEvent/SDL model as direct; events are in content/surface space matching fullRect; no host-Mac re-orientation of viewer samples. AccelSynth/presentationTilt synthesis OUT OF SCOPE.'
-    - 'Lifecycle closed-loop from the viewer: back, memory pressure, foreground/background (paused) reach RunConfig/host gates while a player is attached (GE2L path).'
+    - 'Lifecycle closed-loop from the viewer: back, memory pressure, foreground/background (paused) reach RunConfig/host gates while a player is attached (SP2L path).'
     - 'Audio policy: ge::audio pause/resume follows viewer focus/background under stream (or uniform no-op on both backends); server must not only react to Mac lifecycle.'
-    - Present/push remains negotiated (H.264 GE2V and/or cmdstream GE2S) and opaque via swapchainPass; game code does not open the wire.
-    - 'sqlpipe durable state: Context::db() (and tweak overrides) under stream are player-authoritative via GE2T. Server PrefPath game.db on the Mac is incorrect for stream sessions; server may use ephemeral/:memory: working state only. Reconnect restores from player store.'
+    - Present/push remains negotiated (H.264 SP2V and/or cmdstream SP2S) and opaque via swapchainPass; game code does not open the wire.
+    - 'sqlpipe durable state: Context::db() (and tweak overrides) under stream are player-authoritative via SP2T. Server PrefPath game.db on the Mac is incorrect for stream sessions; server may use ephemeral/:memory: working state only. Reconnect restores from player store.'
     - 'Secondary services either bridge to the player or no-op uniformly: refresh-rate boost, haptics, clipboard/share if used; IAP is player-OS-side — single ge::iap API with wire/player bridge or documented unavailable without stream checks in games.'
     - 'Structural: while a player is attached, viewer metrics are the sole authority for discovery fields. Multi-session: each session’s Context tracks that session’s player. Server binary is a console stream host (T154.1), not a Dock game.'
     - 'Oracles: unit tests for dual-safe mapping + durableDbPathForHost; docs/device-api-migration.md matrix matches shipped reality including SessionConfig field inventory; TiltBuggy uses only polymorphic surface; Android and iOS stream + desktop direct without modality branches. AccelSynth out of scope throughout.'
-    context: '2026-07-14: T154.2 shipped — SessionConfig first (immersive+noSaver flags), player applies before DeviceInfo; drawSafe=cutouts (full on Pixel), uiSafe separate; content aspect retargets to viewer; TiltBuggy arena+title on drawSafe. Pixel proof: flags=0x3, draw full, no letterbox, user-accepted glass. Residuals: GE2T full sqlpipe sync; iOS stream player rebuild; T154.1 true headless GPU; secondary services. AccelSynth OOS.'
+    context: '2026-07-14: T154.2 shipped — SessionConfig first (immersive+noSaver flags), player applies before DeviceInfo; drawSafe=cutouts (full on Pixel), uiSafe separate; content aspect retargets to viewer; TiltBuggy arena+title on drawSafe. Pixel proof: flags=0x3, draw full, no letterbox, user-accepted glass. Residuals: SP2T full sqlpipe sync; iOS stream player rebuild; T154.1 true headless GPU; secondary services. AccelSynth OOS.'
     tags:
     - device-api
     - stream
@@ -1905,7 +1905,7 @@ targets:
     cost: 13.0
     acceptance:
     - Given a stream session whose SessionConfig locks landscape (e.g. TiltBuggy AnyLandscape), attaching a player that launches portrait then rotates to landscape yields content that fills the glass (no persistent pillarbox/letterbox gutters attributable to content aspect ≠ viewer aspect).
-    - DeviceInfo after orientation apply, host content surface (swapchain / GE2S contentW×H / encode size), and player aspect-fit all agree on the same aspect within a small tolerance so the player does not need to letterbox once orientation has settled.
+    - DeviceInfo after orientation apply, host content surface (swapchain / SP2S contentW×H / encode size), and player aspect-fit all agree on the same aspect within a small tolerance so the player does not need to letterbox once orientation has settled.
     - Starting already in the locked orientation continues to fill the glass (no regression of the landscape-start path).
     - 'Player packaging is not a single universal binary for orientation: ge can ship (or build) distinct player product variants whose native metadata lives outside game/engine code — at minimum (1) portrait-primary / portrait-locked, (2) landscape-primary / landscape-locked, (3) don''t-care (all orientations allowed). On iOS this includes Info.plist UISupportedInterfaceOrientations (and any related keys); on Android the equivalent manifest/activity orientation metadata.'
     - A landscape-locked game is proven with a landscape-packaged player (plist/manifest already landscape-capable), not only by SessionConfig + runtime hints on a don't-care player. Symmetric proof for a portrait-locked game with a portrait-packaged player. The don't-care player remains valid for games that allow free rotation or for diagnostic attach.
@@ -1913,7 +1913,7 @@ targets:
     - 'Documented root cause when letterbox appears: which hop is wrong (DeviceInfo dims, host resize, FrameBegin content size, player fit, or packaging mismatch) — not silent multi-hop drift.'
     - 'Oracle: unit or structural test for content-aspect retarget from a viewer window snapshot; packaging inventory of the three player variants; device proof (iOS and/or Android) with log lines for DeviceInfo + content aspect + optional screencap, using the packaging variant that matches the game''s SessionConfig orientation class.'
     context: |-
-      2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, GE2S contentW/H, player fitContentRect) — parked deliberately after T154.
+      2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, SP2S contentW/H, player fitContentRect) — parked deliberately after T154.
 
       2026-07-14 amendment: orientation is not only a wire/code problem. Platform launch and lock behaviour often depends on native metadata that lives outside the C++ session path — iOS Info.plist UISupportedInterfaceOrientations, Android activity screenOrientation / configChanges, etc. A single don't-care player (all orientations) plus SessionConfig/SDL hints is insufficient as the sole proving ground for portrait- or landscape-locked games; we may need multiple player packaging variants (portrait / landscape / don't-care) so the glass metadata matches the game's orientation class.
 
@@ -1955,6 +1955,150 @@ targets:
     origin: manual
     discovered: 2026-07-14
     achieved: 2026-07-14
+  T156:
+    name: Game↔player stream virtual device matches direct for all game-visible device behaviour; spyder only routes the player protocol
+    status: identified
+    value: 13.0
+    cost: 8.0
+    acceptance:
+    - A written virtual-device session contract defines push/discover/input invariants for the game↔player protocol and states spyder is an opaque router on that path (catalogue, attach, counters) — not a device semantics layer
+    - For the same single-player gesture sequence (Shift/click-drag AccelSynth path), stream and direct produce matching presentation-tilt trajectory and matching gravity/acceleration trajectory within documented numeric tolerances
+    - While AccelSynth owns the gesture (armed or non-zero tilt), gravity is derived only from AccelSynth tilt state — external real SENSOR_UPDATE cannot overwrite it mid-gesture
+    - Multi-player attach does not silently merge N players' input/sensors into one virtual device; seating rules are explicit (N independent sessions or documented primary seat) and covered by a test or oracle
+    - Content surface / aspect policy is stable for a session (no multi-DeviceInfo thrash or gesture-coupled zoom beyond intentional presentation-tilt fit)
+    - 'Player remains glass-only on the stream path: apply SessionConfig, report DeviceInfo, forward device-local input and real sensors; no second AccelSynth or gravity model'
+    - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; parity is proven by automated and/or scripted live oracle under SCRATCH evidence
+    - Spyder control plane (app-channel, logs, telemetry, deploy) is out of scope and remains unchanged by this target
+    context: '2026-07-17 stream debugging: presentation tilt tracked mouse correctly while physics gravity drifted/reversed because presentation samples AccelSynth.tilt_ continuously but gravity is last SENSOR_UPDATE in a multi-wire queue (mobile real sensors + sparse synth emits). Direct mode has no such dual path. Architectural clarification: polymorphic device API stays ge-internal; player protocol is game↔player; spyder routes that protocol only (control plane — app-channel, logs, deploy — is separate and stays spyder). T154 achieved device-API decoupling but explicitly left AccelSynth out of scope. This target closes stream virtual-device parity for game-visible behaviour.'
+    depends_on:
+    - T154
+    tags:
+    - stream
+    - device-api
+    - player-protocol
+    - virtual-device
+    - accelsynth
+    - parity
+    - T154-followon
+    origin: 2026-07-17 stream AccelSynth dual-pathway diagnosis + player-protocol scoping
+    discovered: 2026-07-18
+  T156.1:
+    name: 'Virtual-device session contract is written: game↔player protocol invariants; spyder is opaque router on that path'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - docs/device-api.md (or successor) has a Virtual device session section defining push/discover/input/state halves and multi-seat rules
+    - 'Explicit statement: spyder streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
+    - 'Invariants include: one coherent sensor story per seat; presentation tilt and gravity share the same AccelSynth ownership rules; DeviceInfo authority per session is defined'
+    - Contract references T154 polymorphic API as the game-facing surface and this protocol as its stream serialization
+    context: Contract-first. Without this, stream keeps inventing parallel semantics.
+    tags:
+    - docs
+    - device-api
+    - player-protocol
+    - contract
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+  T156.2:
+    name: While AccelSynth owns a gesture, gravity and presentation both come only from AccelSynth tilt state
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - While AccelSynth is armed or |tilt| is above deadzone, game gravity cannot be overwritten by external real SENSOR_UPDATE (wire or host)
+    - Gravity is held continuous with tilt_ while the gesture is owned (re-emit each frame or equivalent binding) — hold-still does not decay or reverse acceleration
+    - On disarm, ease-back behaviour matches direct (documented)
+    - 'Unit and/or integration oracle: synthetic hold-left sequence never yields opposite gravity while presentation remains left'
+    context: 'Root cause of 2026-07-17 drift: presentation polled tilt_; physics used last SENSOR_UPDATE; multi-player real sensors won the queue.'
+    depends_on:
+    - T156.1
+    tags:
+    - accelsynth
+    - gravity
+    - presentation-tilt
+    - parity
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+  T156.3:
+    name: 'Multi-player stream seating is explicit: no silent N-player input/sensor merge into one virtual device'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Documented seating model: either N independent virtual devices (per-session Context/input) or a single primary seat with non-primary input ignored by policy'
+    - No implementation silently merges all wires' SENSOR_UPDATE into one gravity for one game world without that policy being named
+    - Automated test or live oracle covers attach order desktop-then-mobile without breaking desktop AccelSynth control of the seat under test
+    context: Per-wire input readers fixed delivery; ownership of which seat drives the world remains undefined. T154 multi-session structural rule is the north star.
+    depends_on:
+    - T156.1
+    tags:
+    - multi-session
+    - input
+    - seating
+    - T100.2-followon
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+  T156.4:
+    name: Session content surface and DeviceInfo authority are stable under multi-attach and gesture
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Content aspect/size policy for a session is not thrashed by competing DeviceInfo from every attached player
+    - Any intentional presentation-tilt fit zoom is documented and does not couple to multi-DeviceInfo updates
+    - 'Oracle: shift-drag does not produce unexplained zoom steps from surface retarget'
+    context: DirectRenderHost retargets content aspect to viewer DeviceInfo; multi-wire DeviceInfo fights. Distinct from ortho tilt fit zoom.
+    depends_on:
+    - T156.1
+    tags:
+    - discovery
+    - DeviceInfo
+    - aspect
+    - surface
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+  T156.5:
+    name: 'Player glass remains pure relay for device I/O: no engine AccelSynth or gravity model'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Player does not run AccelSynth synthesis or maintain a parallel tilt/gravity state machine
+    - Player forwards device-local mouse/finger/key and real sensors; host plumbing (e.g. relative-mouse for usable xrel) is documented as delivery quality only
+    - No second copy of AccelSynth policy is required for stream correctness beyond matching device-local event quality with direct
+    context: Player lives in spyder; protocol remains game↔player. Spyder-owned glass must stay dumb on device meaning.
+    depends_on:
+    - T156.1
+    tags:
+    - player
+    - glass
+    - spyder
+    - relay
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+  T156.6:
+    name: Direct vs stream parity oracle exists for AccelSynth gesture and is green
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Scripted or unit-driven oracle runs the same gesture sequence against direct and stream backends
+    - Assertions cover presentation-tilt trajectory and gravity trajectory within documented tolerances
+    - Evidence captured under SCRATCH or TEST-REPORT-equivalent for the ge repo; fails if dual pathways reappear
+    context: Closes the loop. Without an oracle, stream and direct re-diverge silently.
+    depends_on:
+    - T156.2
+    - T156.3
+    - T156.4
+    - T156.5
+    tags:
+    - oracle
+    - parity
+    - accelsynth
+    - verification
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
@@ -2108,8 +2252,8 @@ targets:
     cost: 0.0
     actual_cost: 5.0
     acceptance:
-    - Android player reads a `ged_addr` intent extra (e.g. `adb shell am start -n com.squz.player/.GeActivity --es ged_addr host:port`) and connects directly, skipping QR onboarding
-    - iOS player reads a `ged_addr` launch argument (`xcrun simctl launch <udid> com.squz.player -ged_addr host:port`, or equivalent for devicectl on physical devices) and connects directly
+    - Android player reads a `ged_addr` intent extra (e.g. `adb shell am start -n com.spyder.player/.GeActivity --es ged_addr host:port`) and connects directly, skipping QR onboarding
+    - iOS player reads a `ged_addr` launch argument (`xcrun simctl launch <udid> com.spyder.player -ged_addr host:port`, or equivalent for devicectl on physical devices) and connects directly
     - If the param is absent, player falls through to existing behaviour (saved server → QR)
     - matrix-cell.sh's run_ios_sim_player / run_ios_device_player / run_android_emu_player / run_android_device_player functions pass the ged address at launch; no QR interaction required
     - 'Documented in the player''s agents-guide and README: automated / scripted launches pass the address via the host launcher'
@@ -3700,12 +3844,12 @@ targets:
     cost: 0.0
     acceptance:
     - include/ge/iap.h defines the public surface (Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore) and compiles standalone
-    - src/iap.cpp dispatcher selects backend at init based on GE_IAP_MODE env var; default = stub on desktop, platform on mobile (platform path may be unimplemented until T65.2/T65.3)
+    - src/iap.cpp dispatcher selects backend at init based on IAP_MODE env var; default = stub on desktop, platform on mobile (platform path may be unimplemented until T65.2/T65.3)
     - src/iap_stub.cpp implements StubStore with in-memory ownership, setOwned/clearAll for tests, callback delivery
     - src/iap_test.cpp has doctest coverage of register/owned/buy/restore plus duplicate-registration and missing-ID error paths
     - Module.mk and CMakeLists include iap sources in ge/SRC; `make unit-test` passes on macOS
     - CLAUDE.md gains an `### IAP (🎯T65)` section describing the public API and StubStore backend
-    context: 'The floor that unblocks everything else. Public header at include/ge/iap.h with Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore. StubStore at src/iap_stub.cpp keeps an in-memory set of owned IDs; exposes setOwned(id, bool) for tests. Dispatcher at src/iap.cpp picks backend at first call to register_ based on GE_IAP_MODE env var (default: stub on desktop, platform on iOS/Android — Local will land in T65.4). Doctest coverage at src/iap_test.cpp exercising the full surface including callback delivery, restore semantics, and product registration with duplicate IDs.'
+    context: 'The floor that unblocks everything else. Public header at include/ge/iap.h with Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore. StubStore at src/iap_stub.cpp keeps an in-memory set of owned IDs; exposes setOwned(id, bool) for tests. Dispatcher at src/iap.cpp picks backend at first call to register_ based on IAP_MODE env var (default: stub on desktop, platform on iOS/Android — Local will land in T65.4). Doctest coverage at src/iap_test.cpp exercising the full surface including callback delivery, restore semantics, and product registration with duplicate IDs.'
     depends_on:
     - T65
     tags:
@@ -3767,10 +3911,10 @@ targets:
     cost: 0.0
     acceptance:
     - A committed ios/StoreKit.storekit template lives in ge with the product schema; consuming games copy + customise via a make rule
-    - When GE_IAP_MODE=local on iOS, StoreKit reads from the .storekit file; products() returns the configured set, buy() exercises the real signature-verification path
-    - On Android, GE_IAP_MODE=local routes buy() to android.test.purchased / canceled / refunded / item_unavailable based on the local product ID
+    - When IAP_MODE=local on iOS, StoreKit reads from the .storekit file; products() returns the configured set, buy() exercises the real signature-verification path
+    - On Android, IAP_MODE=local routes buy() to android.test.purchased / canceled / refunded / item_unavailable based on the local product ID
     - Documented in CLAUDE.md alongside the debug menu (T65.6) with guidance on when to use each
-    context: 'When GE_IAP_MODE=local, run the platform StoreKit / Play Billing path against fake products. iOS: a committed .storekit configuration file describes products inline; Xcode injects them into the StoreKit API at run time, no App Store Connect round-trip, works in the simulator with no signed-in account. Android: use the reserved android.test.* SKUs (purchased / canceled / refunded / item_unavailable) for the basic flow. Less capable than sandbox accounts (no subscriptions on Android side) but unblocks the inner loop. Lower priority than the debug menu (T65.6) — that''s the day-to-day tool. This target exists for the case where a developer genuinely wants to validate the real framework path without sandbox credentials.'
+    context: 'When IAP_MODE=local, run the platform StoreKit / Play Billing path against fake products. iOS: a committed .storekit configuration file describes products inline; Xcode injects them into the StoreKit API at run time, no App Store Connect round-trip, works in the simulator with no signed-in account. Android: use the reserved android.test.* SKUs (purchased / canceled / refunded / item_unavailable) for the basic flow. Less capable than sandbox accounts (no subscriptions on Android side) but unblocks the inner loop. Lower priority than the debug menu (T65.6) — that''s the day-to-day tool. This target exists for the case where a developer genuinely wants to validate the real framework path without sandbox credentials.'
     depends_on:
     - T65.2
     - T65.3
@@ -4220,11 +4364,11 @@ targets:
     status: set_aside
     value: 0.0
     cost: 0.0
-    set_aside_reason: 'Won''t fix via LocalStore: 🎯T85 proved SKTestSession/StoreKitTest requires XCTest and crashes in a plain app process. Superseded for sim/dev by stub mode (🎯T86) and the cleaner debug→stub default tracked as 🎯T118. Acceptance (bundled .storekit + GE_IAP_MODE=local + no sandbox modal via LocalStore path) will not be met as written.'
+    set_aside_reason: 'Won''t fix via LocalStore: 🎯T85 proved SKTestSession/StoreKitTest requires XCTest and crashes in a plain app process. Superseded for sim/dev by stub mode (🎯T86) and the cleaner debug→stub default tracked as 🎯T118. Acceptance (bundled .storekit + IAP_MODE=local + no sandbox modal via LocalStore path) will not be met as written.'
     acceptance:
     - sample/tiltbuggy/ios/StoreKit.storekit exists (copied from ge/ios/StoreKit.storekit via make ge/storekit-init) and lists com.squz.tiltbuggy.pro (NonConsumable) plus com.squz.tiltbuggy.powerboost10 (Consumable) matching tiltbuggy setCatalogue
     - sample/tiltbuggy/ios/CMakeLists.txt adds StoreKit.storekit to bundle resources and links StoreKitTest.framework as Optional
-    - GE_IAP_MODE=local is set in the iOS scheme launch environment so the LocalStore bridge activates without per-developer setup
+    - IAP_MODE=local is set in the iOS scheme launch environment so the LocalStore bridge activates without per-developer setup
     - Launching TiltBuggy iOS on a device with no cached sandbox Apple account renders the first frame without a Sign in to Apple Account modal
     - iap::buy(pro) and iap::restore() still exercise the real StoreKit signature-verification path against the local .storekit products
     - main.cpp IAP catalogue + restore call is restored (currently commented out as a temp verification hack from 2026-05-30)
@@ -4490,7 +4634,7 @@ targets:
     - tiltbuggy launched on the iOS Simulator runs IAP in local mode (SKTestSession against the bundled .storekit) with NO App Store login dialogue; products()/buy()/owned() work against the fake products.
     - If SKTestSession does not reliably intercept on the simulator (T74 caveat), the outcome is documented and the consumer falls back cleanly rather than crashing.
     - CLAUDE.md T65.4 updated to reflect build_project.rb now wires local mode automatically.
-    context: 'Surfaced 2026-05-31 switching tiltbuggy to local IAP to stop the App Store login dialogue on the sim. UPDATE 2026-05-31: attempted the full wiring (build_project.rb bundles .storekit + weak-links StoreKitTest + compiles iap_apple_local.swift + adds $(PLATFORM_DIR)/Developer Library/Frameworks to FRAMEWORK_SEARCH_PATHS and LD_RUNPATH_SEARCH_PATHS). Result: the app crashes at launch with `dyld: Library not loaded: @rpath/XCTest.framework/XCTest, Referenced from: .../StoreKitTest.framework/StoreKitTest`. StoreKitTest transitively depends on XCTest — a test-host framework that does not load in a plain (non-XCTest) app process — which is exactly the failure mode T74 warned about (''SKTestSession doesn''t reliably intercept from non-XCTest app processes today''). Even adding the Developer runpath did not resolve XCTest in the app process. CONCLUSION: SKTestSession-based local IAP is not viable in a normal ge app process on the simulator with the current approach. Deferred in favour of stub mode (🎯T86) for sim/dev. Revisit only if a viable path to host XCTest/StoreKitTest in a non-test app process is found (e.g. a dedicated XCTest runner host, or Apple making StoreKitTest XCTest-independent). build_project.rb emits no xcscheme and simctl ignores scheme env, so GE_IAP_MODE can''t be injected per-launch; the launch-independent lever remains iap.cpp auto-mode on bundled .storekit. User chose local over stub on 2026-05-31, then (after seeing the XCTest crash) directed: file the target, go stub for now.'
+    context: 'Surfaced 2026-05-31 switching tiltbuggy to local IAP to stop the App Store login dialogue on the sim. UPDATE 2026-05-31: attempted the full wiring (build_project.rb bundles .storekit + weak-links StoreKitTest + compiles iap_apple_local.swift + adds $(PLATFORM_DIR)/Developer Library/Frameworks to FRAMEWORK_SEARCH_PATHS and LD_RUNPATH_SEARCH_PATHS). Result: the app crashes at launch with `dyld: Library not loaded: @rpath/XCTest.framework/XCTest, Referenced from: .../StoreKitTest.framework/StoreKitTest`. StoreKitTest transitively depends on XCTest — a test-host framework that does not load in a plain (non-XCTest) app process — which is exactly the failure mode T74 warned about (''SKTestSession doesn''t reliably intercept from non-XCTest app processes today''). Even adding the Developer runpath did not resolve XCTest in the app process. CONCLUSION: SKTestSession-based local IAP is not viable in a normal ge app process on the simulator with the current approach. Deferred in favour of stub mode (🎯T86) for sim/dev. Revisit only if a viable path to host XCTest/StoreKitTest in a non-test app process is found (e.g. a dedicated XCTest runner host, or Apple making StoreKitTest XCTest-independent). build_project.rb emits no xcscheme and simctl ignores scheme env, so IAP_MODE can''t be injected per-launch; the launch-independent lever remains iap.cpp auto-mode on bundled .storekit. User chose local over stub on 2026-05-31, then (after seeing the XCTest crash) directed: file the target, go stub for now.'
     tags:
     - ios
     - iap
@@ -4972,7 +5116,7 @@ targets:
     - At least one ge sample (e.g. tiltbuggy) demonstrates the debug overlay end-to-end.
     - multimaze's VisibilityRenderer wireframe mode is removed and replaced with the ge::debug path.
     context: |-
-      multimaze's 🎯T25 floor-light work surfaced the recurring need to visualise CPU-generated meshes without bolting one-off wireframe modes onto each consumer renderer. ge now ships ge::debug (<ge/debug.h>): an opt-in, GE_DEBUG_OVERLAY-toggleable layer with ad-hoc line/tri primitives, a submit-mesh convention (ge::debug::mesh(verts, idx, fill=false) — wireframe or translucent sector-tint fill), pixel-space text HUD, and flush(Context, mvp). sokol-backed (two pipelines sharing one program + stream buffer), public surface names no backend.
+      multimaze's 🎯T25 floor-light work surfaced the recurring need to visualise CPU-generated meshes without bolting one-off wireframe modes onto each consumer renderer. ge now ships ge::debug (<ge/debug.h>): an opt-in, DEBUG_OVERLAY-toggleable layer with ad-hoc line/tri primitives, a submit-mesh convention (ge::debug::mesh(verts, idx, fill=false) — wireframe or translucent sector-tint fill), pixel-space text HUD, and flush(Context, mvp). sokol-backed (two pipelines sharing one program + stream buffer), public surface names no backend.
 
       PROGRESS (PR on branch T97-debug-render-layer, targeting ge v0.50.0):
         ✓ criterion 1 (submit-mesh convention, runtime flag) — ge::debug::mesh
