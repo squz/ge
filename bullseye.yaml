@@ -1957,10 +1957,10 @@ targets:
     achieved: 2026-07-14
   T156:
     name: 'Stream is a transport, not a modality: the wire backend is a location-transparent proxy of the device API, and a headless real player in the oracle loop is trace-identical to direct mode'
-    status: converging
+    status: achieved
     value: 13.0
     cost: 20.0
-    actual_cost: 13.0
+    actual_cost: 20.0
     acceptance:
     - 'Written contract defines the wire protocol as the serialization of the polymorphic device API: every message maps 1:1 to an API call/callback, and every API element is classified marshalled | uniform-no-op | named-divergence (divergences are tracked targets, never silent)'
     - 'No device semantics live in the boundary: the marshalling layer holds no arbitration policy, no merge points, and no second model of tilt/gravity/anything; a stream-only code path above the marshalling layer is a defect by definition'
@@ -1972,7 +1972,7 @@ targets:
     - 'Player remains glass-only: applies SessionConfig, reports DeviceInfo, forwards device-local input and real sensors; no second AccelSynth or gravity model. Spyder streamrelay routes player-protocol bytes opaquely; control plane (app-channel, logs, telemetry, deploy) is out of scope and unchanged'
     - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; the trace-equality oracle fails if a stream-only semantic pathway reappears
     - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
-    context: '2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
+    context: 'ACHIEVED 2026-07-18 (third pass), human proof point confirmed: user reports smooth AND immediate tilt on Jevons over the sokol/SP2S path. Live chain: caps=0x7, server synth destroyed for the real-accel seat, 60 fps cmdstream, PresentTrace on-glass telemetry skips=0/holds=0/maxDt=17ms after the paced-presentation fix (spyder bf14fe19). Evidence: verdicts/T156/20260718-jevons-live, verdicts/T156.6/20260718T115558Z. 2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
     depends_on:
     - T154
     tags:
@@ -1986,6 +1986,7 @@ targets:
     - T154-followon
     origin: 2026-07-17 stream AccelSynth dual-pathway diagnosis; reformulated 2026-07-18 around location transparency
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T156.1:
     name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model with device-capability sensor authority; spyder is an opaque router'
     status: achieved
@@ -2184,6 +2185,25 @@ targets:
     - delivery
     - anti-drift
     origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
+    discovered: 2026-07-18
+  T159:
+    name: 'Frame metadata sidecar: a server timestamp rides each SP2S frame; the glass logs (seq, server_us, present_us) for absolute end-to-end latency'
+    status: identified
+    value: 3.0
+    cost: 2.0
+    acceptance:
+    - Each SP2S frame (or a periodic subset) carries a server emit timestamp in a small metadata op
+    - The player's PresentTrace logs per-present (seq, server_us, present_us), giving absolute emit-to-glass latency, not just cadence
+    - A live-run tolerance for end-to-end latency is documented and checked in the oracle's live tier
+    context: 'From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
+    depends_on:
+    - T156.7
+    tags:
+    - telemetry
+    - cmdstream
+    - latency
+    - oracle-infrastructure
+    origin: 2026-07-18 Jevons judder diagnosis
     discovered: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
