@@ -441,8 +441,15 @@ void ServerSession::Impl::negotiateTransport(uint8_t playerCaps) {
         next = wire::kTransportCommandStream;
     }
 
+    // Idempotent: broadcast the update only when the rung actually changes.
+    // The player answers any SessionConfig with DeviceInfo (connect contract,
+    // also used for seat promotion), so an unconditional send here livelocks
+    // the handshake: DeviceInfo → SessionConfig → DeviceInfo → … (observed
+    // 6k+ rounds — black glass).
+    const uint8_t prev = transport.load();
     transport.store(next);
     sessionConfig.transport = next;
+    if (next == prev) return;
     sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
     SPDLOG_INFO("ServerSession: transport={} (player_cmdstream={} force_h264={})",
                 next == wire::kTransportCommandStream ? "cmdstream" : "h264",
@@ -484,6 +491,17 @@ void ServerSession::Impl::sidebandLoop() {
         }
     }
     closeWire();
+    // 🎯T100.1 replace, process side: the relay closes this sideband when a
+    // newer same-name server registers (or the relay itself goes away). A
+    // superseded console host must EXIT, not linger — orphans keep ticking
+    // physics and rendering headless at 60 fps; ten of them accumulated in
+    // one dev day and starved the live server (visible as frame stutter on
+    // the glass). closeWire() above already pushed the final SP2T snapshot.
+    if (running.load()) {
+        SPDLOG_INFO("ServerSession: sideband closed (replaced or relay gone) "
+                    "— exiting superseded server process");
+        std::exit(0);
+    }
 }
 
 ServerSession::ServerSession(std::string host, int port, std::string name,
