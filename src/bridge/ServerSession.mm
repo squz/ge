@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -95,6 +96,10 @@ struct ServerSession::Impl {
     SeatPolicy seats;
     // 🎯T159: seq allocated at onFrameBegin, stamped into SP2F at onFrameEnd.
     uint32_t lastFrameSeq = 0;
+    // 🎯T156.3 per-session detach: relay names the detached session; close
+    // only that wire (guarded by wireSendMu).
+    std::map<std::string, std::weak_ptr<WsConnection>> wireBySession;
+    void closeWireForSession(const std::string& sessionId);
 
     // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
@@ -194,6 +199,7 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
     {
         std::lock_guard<std::mutex> lk(wireSendMu);
         wires.push_back(w);
+        wireBySession[sessionId] = w;
         wire = w; // latest peer for single-wire helpers
     }
     hasPlayer.store(true);
@@ -286,6 +292,26 @@ void ServerSession::sendArmState(bool armed) {
     }
 }
 
+void ServerSession::Impl::closeWireForSession(const std::string& sessionId) {
+    std::shared_ptr<WsConnection> victim;
+    {
+        std::lock_guard<std::mutex> lk(wireSendMu);
+        auto it = wireBySession.find(sessionId);
+        if (it != wireBySession.end()) {
+            victim = it->second.lock();
+            wireBySession.erase(it);
+        }
+    }
+    if (victim) {
+        SPDLOG_INFO("ServerSession: closing wire for detached session {}",
+                    sessionId);
+        victim->close(); // recv loop exits → cull + seat promotion
+    } else {
+        // Unknown/absent session id: legacy full teardown.
+        closeWire();
+    }
+}
+
 void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
     const SeatId from = w.get();
     while (running.load() && w && w->isOpen()) {
@@ -304,6 +330,7 @@ void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
         std::lock_guard<std::mutex> lk(inputDispatchMu);
         const bool primaryLost = seats.onDetach(from);
         std::shared_ptr<WsConnection> survivor;
+        bool lastWireGone = false;
         {
             std::lock_guard<std::mutex> sendLk(wireSendMu);
             wires.erase(std::remove_if(wires.begin(), wires.end(),
@@ -311,7 +338,30 @@ void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
                                            return x.get() == w.get();
                                        }),
                         wires.end());
+            for (auto it = wireBySession.begin(); it != wireBySession.end();) {
+                auto sp = it->second.lock();
+                if (!sp || sp.get() == w.get()) it = wireBySession.erase(it);
+                else ++it;
+            }
             if (primaryLost && !wires.empty()) survivor = wires.front();
+            lastWireGone = wires.empty();
+        }
+        if (lastWireGone) {
+            // Last glass gone: reset stream state. Mirrors closeWire minus
+            // socket/thread handling — this IS an input thread, so joining
+            // inputThreads here would deadlock; stop()/closeWire still reap.
+            hasPlayer.store(false);
+            if (encoder) {
+                encoder->flush();
+                encoder.reset();
+            }
+            encW = encH = 0;
+            transport.store(wire::kTransportH264);
+            capturePixels.store(true);
+            cmdstream::setLiveCapture(nullptr);
+            live.resetSession();
+            cmdCache.clear();
+            SPDLOG_INFO("ServerSession: last wire gone — stream state reset");
         }
         if (primaryLost) {
             // The stored viewer surface/authority belonged to the departed
@@ -512,7 +562,12 @@ void ServerSession::Impl::sidebandLoop() {
         if (type == "player_attached" && !sessionId.empty()) {
             openWire(sessionId);
         } else if (type == "player_detached") {
-            closeWire();
+            // 🎯T156.3: the relay names the session (relay.go sends
+            // session_id); close only that wire so surviving seats keep
+            // their sessions and promotion can actually run. No id →
+            // legacy full teardown.
+            if (!sessionId.empty()) closeWireForSession(sessionId);
+            else closeWire();
         }
     }
     closeWire();
