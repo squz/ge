@@ -2217,6 +2217,7 @@ targets:
     acceptance:
     - 'A location-transparent game API (e.g. ge::frameLog(text)) injects light per-frame log entries; games never branch on modality'
     - Entries serialize as a cmdstream op riding the frame that carried them (mirrored in the player replayer; unknown-op safety preserved for pre-version peers)
+    - 'Built-in metadata on every entry, not opt-in: BOTH the generation timestamp (stamped by the engine when the game emits the entry, game/server clock) and the emission timestamp (stamped by the presenting backend at present time, backend clock). The pair makes each entry a per-frame generation→present span on whichever pathway presented it'
     - 'The PRESENTING backend emits each entry with its own timestamp at present time: direct host at frame present, player glass at glass present (pacing queue included); a frame shed under overflow emits its logs flagged as dropped'
     - Comparing the direct-run and glass-run emission streams for the same scripted gesture localizes transport/present stutter to specific game frames (the same content yields two cadence timelines)
     - TiltBuggy carries an env-gated per-frame pose log as the reference user
