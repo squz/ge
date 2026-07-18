@@ -172,13 +172,16 @@ case "$PLATFORM" in
     AR=emar
     AR_FLAGS=(rcs)
     # emcc disables C++ exception catching by default; ge relies on
-    # exceptions (guardCallback, resolveFont, sqlpipe). -fwasm-exceptions
-    # uses the native wasm EH proposal (all evergreen browsers, 2026) and
-    # must match the consumer's compile+link flags.
+    # exceptions (guardCallback, resolveFont, sqlpipe). JS-based exceptions
+    # (-fexceptions), NOT -fwasm-exceptions: the web run loop suspends via
+    # Asyncify (SessionHost.mm ge_web_await_frame), and Asyncify cannot
+    # instrument functions holding wasm-EH pads ("Aborted(invalid state)"
+    # at runtime). Must match the consumer's compile+link flags
+    # (cmake/web-wasm.cmake keeps them in sync).
     # -msimd128 -msse2: box2d's __EMSCRIPTEN__ branch selects its SSE2 SIMD
     # path (emmintrin.h over wasm SIMD — box2d's own CMake passes the same
     # pair for Emscripten); wasm SIMD is likewise universal in 2026.
-    COMMON_FLAGS+=(-fwasm-exceptions -msimd128 -msse2)
+    COMMON_FLAGS+=(-fexceptions -msimd128 -msse2)
     GE_PLATFORM_DEFINE=-DGE_WEB
     GE_MANIFEST_TARGET=print-direct-web
     SDL_STUB_NEEDED=true
@@ -356,10 +359,21 @@ if [[ "$MODE" == "full" ]]; then
 
   # ─── sqlite3 ────────────────────────────────────────────────────────────
   echo "── sqlite3 ──"
+  # 🎯T157 web: no-op sqlite's xSync. fsync maps to the suspending
+  # __wasi_fd_sync import under Asyncify, and sqlite fsyncs beneath C++
+  # try scopes (invoke trampolines) — an unsuspendable position ("Aborted:
+  # import invoke_* changed the state"). Durability on web comes from the
+  # explicit FS.syncfs in tools/web-template/pre.js; fsync on MEMFS/IDBFS
+  # is meaningless anyway.
+  SQLITE_PLATFORM_DEFINES=()
+  if [[ "$PLATFORM" == "web-wasm" ]]; then
+    SQLITE_PLATFORM_DEFINES=(-DSQLITE_NO_SYNC)
+  fi
   SQLITE_OBJ="$OBJ_DIR/sqlite3/sqlite3.o"
   run_job compile_c "$SQLITE_OBJ" "vendor/src/sqlite3.c" \
     -I vendor/include \
     -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
+    "${SQLITE_PLATFORM_DEFINES[@]}" \
     -Wno-everything
   wait_jobs
   archive "$OUT_DIR/libsqlite3_ge.a" "$SQLITE_OBJ"
@@ -440,6 +454,17 @@ compile_ge_source() {
       local lang_flag=()
       if [[ "$ext" == "mm" && ( "$PLATFORM" == "android-arm64" || "$PLATFORM" == "web-wasm" ) ]]; then
         lang_flag=(-x c++)
+      fi
+      # 🎯T157 web: the run-loop TU must contain no JS-exception invoke
+      # trampolines — Asyncify cannot suspend beneath a JS frame, and the
+      # ge_web_await_frame suspend lives here (inlining fuses run /
+      # runDirectHosted / the import call into one function, so a per-call
+      # noexcept wrapper cannot protect it). Last flag wins in clang;
+      # guardCallback / renderBatch degrade via __cpp_exceptions.
+      if [[ "$PLATFORM" == "web-wasm" && "$src" == "src/SessionHost.mm" ]]; then
+        # SPDLOG_NO_EXCEPTIONS: spdlog's inline headers otherwise contain
+        # throw/try, which -fno-exceptions rejects (its no-EH mode aborts).
+        lang_flag+=(-fno-exceptions -DSPDLOG_NO_EXCEPTIONS)
       fi
       "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \
         "${lang_flag[@]}" "${GE_INCLUDES[@]}" "${GE_DEFINES[@]}" \

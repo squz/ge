@@ -6,7 +6,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "4731cac565774344da9616a4edfa022f5b2a6d605b80fb069a9f8b2e4cfebcad",
-    "tools/prebuild.sh": "a5a90f5804dde3a813fabc2a1e4b8d99fdfe3da1dbe6045335a21fe261570134",
+    "tools/prebuild.sh": "489bd888db7e55a03a4a6e4dde255f12c8b9c086a1101963f37839678e1b2704",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "a56cabb988b573a6aa1bbf20c7c86c7a5dc56cc0a31972c546f9a8824f39676e"
   },
@@ -23,13 +23,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/web-wasm/libbox2d.a": "7d0eaf8e7e9ad3313db6e4836997c64caad013f53e1b45b5133f28eb0de5b5b2",
-    "prebuilt/web-wasm/libge.a": "67f84848ace2700fdbc10e5625128117cf4f2b95688432132af549edadb391d6",
-    "prebuilt/web-wasm/libliteparser.a": "66a19ffe9c375601dac7786a401ef65303f1a4c22be4d9055e95830f3aceda53",
-    "prebuilt/web-wasm/liblunasvg_ge.a": "ecba1b00d24765a3577ff5992adf7783cf2458b7b7a860808b9f86346058e110",
-    "prebuilt/web-wasm/liblz4_ge.a": "3cd52bb7ff5cd44d81fa0008e598e9115c9f06936b9e908df90f9c4e9e114b8d",
-    "prebuilt/web-wasm/libplutovg_ge.a": "0508cfea5ef05ae5598fcdfde63db33ec23186f8d21727cc9edb79018bfb7d40",
-    "prebuilt/web-wasm/libsqlite3_ge.a": "023e89579921b4eb497391e4334d6408e27ff15c0841a037b6107f75e6a57eee"
+    "prebuilt/web-wasm/libbox2d.a": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
+    "prebuilt/web-wasm/libge.a": "517ca81d15fbaa1b5b5ab0dd588f5cbea615ebd90cbec132588b75f7ff866839",
+    "prebuilt/web-wasm/libliteparser.a": "8b995ab0f9bc2db4c6fae4f68586d1995083cc245baa3ca63db81538c664f9b7",
+    "prebuilt/web-wasm/liblunasvg_ge.a": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
+    "prebuilt/web-wasm/liblz4_ge.a": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
+    "prebuilt/web-wasm/libplutovg_ge.a": "73c82d449f9aed66dec12f45a9b8140e1b0faa4e7ed93478f330384d6a85ab04",
+    "prebuilt/web-wasm/libsqlite3_ge.a": "356f3d66dff468f48ff2c7826dfb99e959b00c753e8fe1fae871fe26665f8a71"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -159,8 +159,8 @@
     "include/ge/RefreshRateBoost.h": "0a5c96808be7e4c3782d878ed58913f40563a45107bdc844df633a6bf7b2d815",
     "include/ge/RenderHost.h": "36b5b3514fc3838bb66199bbf4e5fc4315f7d65bbc8416e487cff3ad8468444f",
     "include/ge/Resource.h": "c6665367d9271bee0c7e38b3a9ae206786069cf03fba472d3c15cae64b5070c3",
-    "include/ge/SessionHost.h": "ba192f2cf8fe8193dd29ffe56a4a7c5bb59c82a71ac34b8fb10b9e9e3997a425",
-    "include/ge/Signal.h": "c1855f32c57e5959d4954f4481bae58b8ed7d7bde53da57256afbaaa36e5bd40",
+    "include/ge/SessionHost.h": "8c33d1d8235e14041ad7201d5bc83948133d2194aaf52a921d56855c053a088a",
+    "include/ge/Signal.h": "a9216e6b22038d5451310e682591b84a6e30cdb0e66be786589ac1fb4eaa59c2",
     "include/ge/SokolContext.h": "52ab16fc79486460b189a8c1eeda758c403d816e61ab8695d1235c0ccd44b6c7",
     "include/ge/Tweak.h": "267ae920d9c5f90a3fe59da3ee4d8ade4fc1d72e5a5b06fe3738475d4534a29b",
     "include/ge/appchannel.h": "7486c10b8d42e4f1675b6fb104f27a06ff585e0f541a28ee8213a96eddbe84f6",
@@ -190,10 +190,10 @@
     "src/Immersive_stub.cpp": "a13eec311166436a9cd380351b1664b76a5d41cbd6552a22d47553fe5751902e",
     "src/Pass.cpp": "0950b75c3f6ae57ed1e352c591cd37e26df6d82a5358833fc957841350241eac",
     "src/Resource.cpp": "65c837c942c5c7ca93adf5ddd24132663f2599214a5fce2a0b9f36824723a0d1",
-    "src/RunDirect.h": "b66b2146ccbc8c11eb9144c7e1b045156a52b0c7056f08ef4bf85d817f2809bd",
-    "src/SessionHost.mm": "de49f7be327ceb4f4dc8cdc051dbc6ea00fc5b99b6af7112ac3b749d098f0112",
+    "src/RunDirect.h": "26bc1a6a393490d7603e091a250533ce9c00deb13c9d0e3dcac38a040235c01b",
+    "src/SessionHost.mm": "3db14ad26b3252bb921fc386694116ecdc7b1bdb77e0aaa57cfe09d63cb70cfe",
     "src/Signal.cpp": "2e6e04294d561310aea1a60f0b3ead68d6e91389a2c78c25e935141cce44d9e5",
-    "src/SokolContext_web.cpp": "75ec654e7e3a34070a120e8be0bef2fb468808fc1b1d0cab2877e095dd607a93",
+    "src/SokolContext_web.cpp": "20d622b9d7c962f80923b6861e4d7451626ab7e7080cdc2d9debfc02f085d868",
     "src/appchannel.cpp": "e546a176775748e51fa2f14f0b56fd0b84c94c90d7e1a06696756d8ab9009eba",
     "src/appchannel_internal.h": "e7df9d1945c56681bb94b499af4b86eb71a108e8614e5ce8be1ac9ddd6e88fce",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",

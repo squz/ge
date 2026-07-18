@@ -63,6 +63,13 @@ struct SokolContext::M {
 SokolContext::SokolContext(const SokolConfig& config) : m(new M) {
     ge::installSignalHandlers();  // no-op on web; kept for cross-platform symmetry
 
+    // ge paces frames itself (RAF-aligned Asyncify await in SessionHost.mm).
+    // Without this hint SDL's SwapWindow calls emscripten_sleep(0) on every
+    // swap — a second, redundant suspend that fires beneath the frame's C++
+    // try scopes (invoke trampolines), where Asyncify aborts ("import
+    // invoke_* changed the state").
+    SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SPDLOG_ERROR("SDL_Init failed: {}", SDL_GetError());
         return;
@@ -101,7 +108,11 @@ SokolContext::SokolContext(const SokolConfig& config) : m(new M) {
         SPDLOG_ERROR("SDL_GL_MakeCurrent failed: {}", SDL_GetError());
         return;
     }
-    SDL_GL_SetSwapInterval(1);  // advisory on web; RAF paces the loop
+    // Swap interval 0: ge's run loop is already RAF-paced (Asyncify await in
+    // SessionHost.mm), and a non-zero interval makes SDL's SwapWindow call
+    // emscripten_sleep — a suspend beneath the frame's C++ try scopes, which
+    // Asyncify aborts on ("import invoke_* changed the state").
+    SDL_GL_SetSwapInterval(0);
 
     int pxW = 0, pxH = 0;
     if (SDL_GetWindowSizeInPixels(m->window, &pxW, &pxH) && pxW > 0 && pxH > 0) {

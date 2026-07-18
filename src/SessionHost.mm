@@ -37,6 +37,23 @@
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
+
+// 🎯T157 Suspend the wasm stack until the browser's next animation frame.
+// Requires -sASYNCIFY (see cmake/web-wasm.cmake): Asyncify saves the live
+// frames (main → ge::run → runDirectHosted) and rewinds them on resume, so
+// the blocking loop below runs unmodified — locals stay alive, destructors
+// never run spuriously, and a hidden tab (RAF stops) pauses the loop.
+//
+// Why not emscripten_set_main_loop(simulate_infinite_loop)? That "never
+// returns" by throwing a JS exception through the wasm stack, and with
+// -fwasm-exceptions every C++ cleanup pad on the way out CATCHES the
+// foreign exception and runs its destructors — host/rc/the consumer's
+// pre-ge::run state were all destroyed with the RAF callback still
+// registered (memory fault on the first tick). Asyncify's unwind is a
+// code transform, not an exception, so no cleanup pads fire.
+EM_ASYNC_JS(void, ge_web_await_frame, (), {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+});
 #endif
 
 namespace ge {
@@ -217,7 +234,7 @@ void DirectLoop::step() {
 } // namespace
 
 void runDirectHosted(Factory factory, SessionHostConfig config,
-                     const ServerHook* server) {
+                     const ServerHook* server) noexcept {
     DirectRenderHost host(config);
     applyImmersive(config.immersive);
 
@@ -243,20 +260,21 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
 
     DirectLoop loop{host, rc, config, server};
 
-#if defined(__EMSCRIPTEN__)
-    // 🎯T157 The browser owns the frame cadence: hand DirectLoop::step to
-    // requestAnimationFrame (fps=0) and never return. simulate_infinite_loop
-    // unwinds the JS stack without running C++ destructors, leaving this
-    // frame's locals (host, rc, loop — and the caller's pre-ge::run state)
-    // alive for the page's lifetime, so the documented state-before-run
-    // capture pattern works verbatim. Shutdown on the web is page teardown;
-    // onShutdown does not run (see docs/web-platform.md).
-    emscripten_set_main_loop_arg(
-        [](void* p) { static_cast<DirectLoop*>(p)->step(); },
-        &loop, 0, true);
-#else
     while (!host.shouldQuit()) {
         loop.step();
+#if defined(__EMSCRIPTEN__)
+        // 🎯T157 Yield to the browser between frames (Asyncify suspend —
+        // see ge_web_await_frame above). The loop, its locals, and the
+        // caller's pre-ge::run state survive verbatim; effectively the
+        // browser's requestAnimationFrame paces this while-loop.
+        //
+        // Asyncify cannot suspend beneath a JS-exception invoke trampoline,
+        // so on web this TU compiles -fno-exceptions (tools/prebuild.sh):
+        // every call on the suspend chain — including this import — is a
+        // plain wasm `call`, and guardCallback/renderBatch degrade via
+        // __cpp_exceptions.
+        ge_web_await_frame();
+#endif
     }
 
     if (rc.onShutdown) rc.onShutdown();
@@ -264,12 +282,11 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     // 🎯T92.2.2 Stop the ServerSession (close sockets, join threads) after the
     // loop exits — runServer installed onStop for this.
     if (server && server->onStop) server->onStop();
-#endif
 }
 
 // ── ge::run — dispatch by modality ────────────────────────────────
 
-void run(Factory factory, const SessionHostConfig& config) {
+void run(Factory factory, const SessionHostConfig& config) noexcept {
     // Install the cross-platform spdlog sink (🎯T66) before any other
     // engine logging — SDL/sokol/IAP startup all emit SPDLOG_INFO and
     // we want those visible on iOS/Android logs without per-app
@@ -310,7 +327,13 @@ int renderBatch(Factory factory, SessionHostConfig config,
 
     int ok = 0;
     for (const auto& item : items) {
+        // Per-item error capture (one bad fixture doesn't sink the run) —
+        // except in a no-EH TU (🎯T157 web: this file is -fno-exceptions so
+        // the Asyncify suspend chain has no invoke trampolines; the render
+        // verb is a desktop tool, so nothing is lost there).
+#if defined(__cpp_exceptions)
         try {
+#endif
             if (item.prepare) item.prepare();
             std::vector<std::uint8_t> rgba;
             int w = 0, h = 0;
@@ -327,9 +350,11 @@ int renderBatch(Factory factory, SessionHostConfig config,
             } else {
                 SPDLOG_ERROR("renderBatch: no frame for '{}'", item.outPath);
             }
+#if defined(__cpp_exceptions)
         } catch (const std::exception& e) {
             SPDLOG_ERROR("renderBatch: '{}' threw: {}", item.outPath, e.what());
         }
+#endif
     }
     if (rc.onShutdown) rc.onShutdown();
     return ok;

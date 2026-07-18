@@ -33,8 +33,9 @@ struct ServerHook {
 
 // The direct run loop, optionally driving server mode via `server` (null = the
 // normal windowed path). Defined in SessionHost.mm; called by runDirect's
-// dispatch there and by runServer in the wire TU.
+// dispatch there and by runServer in the wire TU. noexcept for the same
+// reason as ge::run (see SessionHost.h — the web Asyncify suspend chain).
 void runDirectHosted(Factory factory, SessionHostConfig config,
-                     const ServerHook* server);
+                     const ServerHook* server) noexcept;
 
 } // namespace ge

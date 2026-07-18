@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- ge web shell (🎯T157). Configured by tools/web-template/CMakeLists.txt;
+     emcc replaces {{{ SCRIPT }}} with the app's script tag at link time. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>@APP_DISPLAY_NAME@</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    /* SDL sets the canvas backing size; scale down to fit the viewport
+       preserving aspect. image-rendering stays default (smooth). */
+    canvas.ge {
+      max-width: 100vw;
+      max-height: 100vh;
+      outline: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas class="ge" id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas'),
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

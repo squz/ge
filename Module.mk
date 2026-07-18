@@ -555,6 +555,33 @@ ge/android: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_
 	cd android && ./gradlew assembleDebug
 	@echo "APK: android/app/build/outputs/apk/debug/app-debug.apk"
 
+# ── Consuming app's web build (🎯T157) ─────────────────────────────
+#
+# Emscripten/wasm + WebGL2 via the prebuilt web-wasm lane. No per-consumer
+# scaffolding: the CMake project is ge's tools/web-template/, parameterized
+# by the same APP_* vars the native build uses. Output lands in
+# $(BUILD_DIR)/web/$(APP_BIN_NAME).html (+ .js/.wasm/.data); serve the
+# directory over HTTP — file:// cannot fetch wasm.
+
+ge/empty :=
+ge/space := $(ge/empty) $(ge/empty)
+
+.PHONY: web
+web:
+	@command -v emcmake >/dev/null 2>&1 || { \
+	    echo "error: emcmake not found — install Emscripten (brew install emscripten)"; \
+	    exit 1; \
+	}
+	emcmake cmake -B $(BUILD_DIR)/web -S $(ge)/tools/web-template \
+	    -DCMAKE_BUILD_TYPE=Release \
+	    -DGE_ROOT=$(abspath $(ge)) \
+	    -DAPP_ROOT=$(CURDIR) \
+	    -DAPP_NAME=$(APP_BIN_NAME) \
+	    "-DAPP_DISPLAY_NAME=$(APP_DISPLAY_NAME)" \
+	    "-DAPP_SOURCES=$(subst $(ge/space),;,$(abspath $(APP_SRC)))"
+	cmake --build $(BUILD_DIR)/web -j
+	@echo "→ $(BUILD_DIR)/web/$(APP_BIN_NAME).html  (serve: python3 -m http.server -d $(BUILD_DIR)/web 8080)"
+
 # ── ge player for iOS / Android ────────────────────────────────────
 #
 # The brokered ge player (tools/ios + tools/android) is dormant pending
