@@ -1967,11 +1967,11 @@ targets:
     - 'One sensor authority per virtual device, bound at construction/seating and never contended per-event: the SDL-queue merge of synth emits and wire sensor samples is gone; gravity and presentation tilt derive from the same authority state'
     - 'Multi-attach is N remote devices, not one merged device: seats are explicit (N independent virtual devices, or primary seat + spectators); DeviceInfo and content-surface authority follow the seat'
     - 'Sensor-authority policy contains no stream/direct, GE_SERVER_BUILD, or simulator build-flag conditional: AccelSynth exists and arms solely because the seat''s virtual device declares no hardware accelerometer and feeds it touch/pointer events'
-    - 'The real player (spyder bin/player, headless) runs in the oracle loop over a loopback transport — full handshake (SessionConfig → DeviceInfo incl. sensor capability → SP2I input/sensors); game-observed gravity and presentation-tilt traces are identical to direct mode for the same script, modulo documented normalization (frame counts; virtual/hold clock where asserted)'
+    - The real player (spyder bin/player, headless) runs in the oracle loop over a loopback transport — full handshake (SessionConfig → DeviceInfo incl. sensor capability → SP2I input/sensors); game-observed gravity and presentation-tilt traces are identical to direct mode for the same script, modulo documented normalization (frame counts; virtual/hold clock where asserted)
     - Real-wire deployment differs from loopback only in documented transport properties (latency, coalescing) — the sole permitted tolerances in the parity oracle
     - 'Player remains glass-only: applies SessionConfig, reports DeviceInfo, forwards device-local input and real sensors; no second AccelSynth or gravity model. Spyder streamrelay routes player-protocol bytes opaquely; control plane (app-channel, logs, telemetry, deploy) is out of scope and unchanged'
     - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; the trace-equality oracle fails if a stream-only semantic pathway reappears
-    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
     context: '2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
     depends_on:
     - T154
@@ -2001,7 +2001,7 @@ targets:
     - 'Arm-policy rule stated: any arming-UX difference (Shift vs primary-drag) derives from declared device capabilities, never from GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or stream-vs-direct conditionals'
     - 'Terminology pinned: sensor samples travel as SDL sensor events inside SP2I — there is no SENSOR_UPDATE wire message; ge/include/ge/Protocol.h and the spyder player mirror are layout oracles for the same serialization'
     - 'Spyder statement: streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
-    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
     context: 'Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
     tags:
     - docs
@@ -2020,15 +2020,15 @@ targets:
     acceptance:
     - 'AccelSynth existence and arming are predicated solely on the seat''s virtual device: constructed only when the device API reports no hardware accelerometer for that seat (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct), armed only by that device''s own modifier/touch/pointer events'
     - src/render/AccelSynth.h contains no GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or other build/modality conditional in existence, arm, or ownership policy (mechanically checkable by grep)
-    - 'When the seat''s glass declares a hardware accelerometer, that real sensor stream is the sole authority and reaches the game unfiltered; no synth is constructed for that seat, so ownsSensorStream can never suppress the seat''s own authority'
-    - 'The DeviceInfo capabilities byte gains a hasAccelerometer bit (protocol bump + spyder player declaration + server predicate) in the same change — the predicate must be knowable before the first sensor sample arrives'
+    - When the seat's glass declares a hardware accelerometer, that real sensor stream is the sole authority and reaches the game unfiltered; no synth is constructed for that seat, so ownsSensorStream can never suppress the seat's own authority
+    - The DeviceInfo capabilities byte gains a hasAccelerometer bit (protocol bump + spyder player declaration + server predicate) in the same change — the predicate must be knowable before the first sensor sample arrives
     - A virtual device has exactly one sensor authority, bound at construction/seating per the contract; no code path delivers a non-authority sensor event to the game's sensor handler
     - 'Gravity and presentation tilt derive from the same authority state: hold-still holds (no decay, no reversal); mid-gesture external overwrite is structurally impossible, not merely improbable'
     - On disarm/release, ease-back behaviour matches direct mode (documented)
     - 'No arming-window or time-multiplexed arbitration exists: authority never changes per-event, only by explicit re-seat'
     - 'Oracle: a synthetic hold-left sequence can never yield opposite gravity while presentation remains left'
-    - 'The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction'
-    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
+    - The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
     context: 'Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
     depends_on:
     - T156.1
@@ -2119,7 +2119,7 @@ targets:
     - A real-wire run (live player attached) matches within the contract's transport tolerances (latency, coalescing) only; any semantic difference fails
     - End-to-end latency from glass gesture/sensor sample to game-observed gravity is measured on the live run and falls within a documented tolerance — closing out the reported 1–2 s delay with numbers, not impressions
     - Evidence is durable and in-repo (committed under verdicts/ or a TEST-REPORT-equivalent); ephemeral temp dirs (/var/folders goal SCRATCH) do not count as attestation
-    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
     context: |-
       Closes the loop. Trace equality against the player-in-loop is strictly stronger than trajectory-tolerance parity; the live-wire run certifies only transport. Without this, stream and direct re-diverge silently.
 
@@ -2149,7 +2149,7 @@ targets:
     - 'The oracle drives the real player binary as a subprocess over a localhost/loopback transport — the same bytes and the same player logic as production; no test-double glass, and no linking spyder code into ge (the plateau coupling rule holds: the repos couple through the protocol, and the oracle exercises the player across it)'
     - Scripted device-local input and synthetic sensor streams are injectable into the headless player deterministically, with declared device capabilities configurable per run (accelerometer present vs absent), and game-observed traces are captured for T156.6
     - Harness runs on the laptop with no physical device or GUI attached
-    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
     context: 'Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
     depends_on:
     - T156.1
@@ -2160,6 +2160,50 @@ targets:
     - spyder
     - oracle-infrastructure
     origin: split from T156.4 after the 2026-07-18 false completion
+    discovered: 2026-07-18
+  T157:
+    name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - sample/tiltbuggy compiles to wasm via an Emscripten lane and is playable (input, audio, rendering) in current Chrome, Safari, and Firefox
+    - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
+    - Web host lives behind ge::run (callback-driven frame loop, e.g. emscripten_set_main_loop or SDL3 callback mode); state-before-run capture pattern still works
+    - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
+    - Context::db()/sqlite persists across page reloads (OPFS or equivalent backing)
+    - Release web builds exclude app-channel/asio networking cleanly (no raw-TCP references in the wasm link)
+    context: Web is a new direct-mode platform for ge. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU is a follow-on. ge::run already abstracts the execution model per platform (direct hosts, server modality), so the browser's callback-driven loop is another host implementation, not an API change.
+    tags:
+    - web
+    - wasm
+    - emscripten
+    - webgl2
+    - sokol
+    - direct-mode
+    - platform
+    origin: manual
+    discovered: 2026-07-18
+  T157.1:
+    name: Web builds additionally offer a WebGPU (SOKOL_WGPU) backend with JS feature-detect fallback to WebGL2
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - wgsl added to the shader cross-compile output and a SOKOL_WGPU web build variant exists
+    - Loader feature-detects navigator.gpu and serves the WebGPU build, falling back to the WebGL2 build otherwise (dual-wasm or T107-style dispatch — decided at implementation time)
+    - tiltbuggy renders identically (imgdiff within tolerance) on both backends
+    - 'Activation condition documented: pursued only when WebGPU coverage crosses the bar or a concrete perf/feature need appears'
+    context: Follow-on to the WebGL2 plateau. WebGPU coverage (~70-85% mid-2026, gap in pre-26 Apple OSes and Linux/Android Firefox) does not justify making it the primary backend; ge's rendering surface (textured quads, small meshes) needs no WebGPU features today. The Android T107 dispatch-shim precedent makes adding a second compile-time sokol backend a known pattern.
+    depends_on:
+    - T157
+    tags:
+    - web
+    - wasm
+    - webgpu
+    - sokol
+    - follow-on
+    origin: manual
     discovered: 2026-07-18
   T16:
     name: TiltBuggy vehicle dynamics feel right
