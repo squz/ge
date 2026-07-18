@@ -2167,95 +2167,6 @@ targets:
     origin: split from T156.4 after the 2026-07-18 false completion
     discovered: 2026-07-18
     achieved: 2026-07-18
-  T158:
-    name: 'Arm-state is server-owned on the wire: the glass''s relative-mouse delivery follows an explicit server signal, not a policy approximation'
-    status: achieved
-    value: 2.0
-    cost: 2.0
-    actual_cost: 2.0
-    acceptance:
-    - The server (which owns AccelSynth and its arm policy) signals arm/disarm to the primary glass over the player protocol
-    - The player's relative-mouse enable follows that signal; the class-derived local heuristic (PlayerRender syncRelativeMouseForTilt) is removed
-    - Contract notes the signal as delivery plumbing (no tilt semantics on the glass)
-    context: 'ACHIEVED 2026-07-18: SP2A wire message (protocol v9); the host reports AccelSynth arm transitions (setArmStateSink), ServerSession sends to the primary seat only, and the glass's relative-mouse follows the signal — the PlayerRender heuristic is deleted. Contract updated (delivery plumbing). Oracle observes [0,1,0] transitions in both gesture scenarios and never-armed for a real-accel seat; live Jevons receipt in verdicts/T158-T159. 2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
-    depends_on:
-    - T156.2
-    tags:
-    - player
-    - protocol
-    - delivery
-    - anti-drift
-    origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
-    discovered: 2026-07-18
-    achieved: 2026-07-18
-  T159:
-    name: 'Frame metadata sidecar: a server timestamp rides each SP2S frame; the glass logs (seq, server_us, present_us) for absolute end-to-end latency'
-    status: achieved
-    value: 3.0
-    cost: 2.0
-    actual_cost: 2.0
-    acceptance:
-    - Each SP2S frame (or a periodic subset) carries a server emit timestamp in a small metadata op
-    - The player's PresentTrace logs per-present (seq, server_us, present_us), giving absolute emit-to-glass latency, not just cadence
-    - A live-run tolerance for end-to-end latency is documented and checked in the oracle's live tier
-    context: 'ACHIEVED 2026-07-18: SP2F FrameMeta (protocol v9) precedes each cmdstream frame with (seq, server epoch us). Glass logs emit-to-present in PresentTrace (live Jevons: avg 52-64 ms over Wi-Fi incl. pacing queue) and sampled emit-to-receipt in the headless trace; the oracle's live tier checks median <= 150 ms (measured 0.11-0.15 ms loopback). Tolerance documented in docs/device-api.md. Evidence: verdicts/T158-T159, verdicts/T156.6/20260718T130828Z. From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
-    depends_on:
-    - T156.7
-    tags:
-    - telemetry
-    - cmdstream
-    - latency
-    - oracle-infrastructure
-    origin: 2026-07-18 Jevons judder diagnosis
-    discovered: 2026-07-18
-    achieved: 2026-07-18
-  T160:
-    name: 'Game-injected frame logs ride the render stream and are emitted by the presenting backend with backend-decided timestamps'
-    status: identified
-    value: 3.0
-    cost: 3.0
-    acceptance:
-    - 'A location-transparent game API (e.g. ge::frameLog(text)) injects light per-frame log entries; games never branch on modality'
-    - Entries serialize as a cmdstream op riding the frame that carried them (mirrored in the player replayer; unknown-op safety preserved for pre-version peers)
-    - 'Built-in metadata on every entry, not opt-in: BOTH the generation timestamp (stamped by the engine when the game emits the entry, game/server clock) and the emission timestamp (stamped by the presenting backend at present time, backend clock). The pair makes each entry a per-frame generation→present span on whichever pathway presented it'
-    - 'The PRESENTING backend emits each entry with its own timestamp at present time: direct host at frame present, player glass at glass present (pacing queue included); a frame shed under overflow emits its logs flagged as dropped'
-    - Comparing the direct-run and glass-run emission streams for the same scripted gesture localizes transport/present stutter to specific game frames (the same content yields two cadence timelines)
-    - TiltBuggy carries an env-gated per-frame pose log as the reference user
-    context: 'User-requested during the 2026-07-18 T159 wrap-up: SP2F measures backend-to-backend emit-to-present latency, but game-authored markers stamped at PRESENT by whichever backend shows the frame give per-frame content correlation — direct vs glass cadence for identical frames isolates transport-induced stutter. Not urgent; filed for a later pass. Groundwork: Op enum has room (next free ~50), player CmdStream.h is a namespace-renamed mirror of ge''s, and the player trace/PresentTrace plumbing (T159) is the natural emission sink.'
-    depends_on:
-    - T159
-    tags:
-    - telemetry
-    - cmdstream
-    - frame-log
-    - oracle-infrastructure
-    origin: user clarification of T159 intent, 2026-07-18
-    discovered: 2026-07-18
-  T161:
-    name: 'The stream self-detects anachronisms: temporal invariants checked online at the glass, violations classified and reported without human log-reading'
-    status: identified
-    value: 5.0
-    cost: 5.0
-    acceptance:
-    - 'Temporal contract documented in device-api.md: presented seq strictly increasing; generation timestamps non-decreasing with seq; emission timestamps non-decreasing in present order; every generated frame presented or explicitly shed (conservation); transport is a time-shift, not a time-warp (inter-generation deltas match inter-presentation deltas within documented tolerance)'
-    - 'Online checker at the glass: bounded ring of (seq, gen_us, recv_us, present_us) tuples, incremental invariant checks, negligible per-frame cost'
-    - 'Violations are CLASSIFIED anomaly records (reorder, seq regression, silent loss, stall, jitter burst, cadence warp, clock skew, identical-sample flood) carrying the implicated seq window and both cadence timelines; cadence warps are auto-attributed to transport vs glass by comparing receive-deltas against generation-deltas'
-    - 'Both directions are monitored: s2p frames AND p2s input/sensor events. Sensor invariant: real accelerometers always carry noise, so N consecutive bit-identical samples is an anomaly (observed live 2026-07-18: a flat-on-table A9 tablet emitted a burst of 175 identical 73-degree-tilt samples in one pump — a stale/corrupt event replayed by the Android sensor path — which ran the buggy off-world)'
-    - 'Reporting is automatic on three paths: trace/telemetry sink on the glass; periodic rollup in the PresentTrace summary line; echo to the server over a small wire message so server logs and the oracle see anomalies without device log access (spyder remains an opaque router)'
-    - The scripted oracle and its live tier assert ZERO anomalies on clean runs
-    - 'Fault-injection test proves the detector detects: artificially delayed, reordered, and dropped frames each fire the correct classification (a detector with no positive test is theater)'
-    context: 'User-requested 2026-07-18, extending T160: with dual timestamps (generation + emission) and seq as builtin metadata, the stream supports a formal temporal contract checked by machine. The 2026-07-18 judder hunt did all of this manually (arrival-delta vs present-delta comparison localized Wi-Fi burst jitter; the black-glass bug was a silent-loss violation; the standing-backlog bug was a cadence warp) — this target turns that afternoon of human analysis into an always-on detector.'
-    depends_on:
-    - T159
-    - T160
-    tags:
-    - telemetry
-    - cmdstream
-    - invariants
-    - anomaly-detection
-    - oracle-infrastructure
-    origin: user request during T160 filing, 2026-07-18
-    discovered: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
     status: identified
@@ -2300,6 +2211,48 @@ targets:
     - follow-on
     origin: manual
     discovered: 2026-07-18
+  T158:
+    name: 'Arm-state is server-owned on the wire: the glass''s relative-mouse delivery follows an explicit server signal, not a policy approximation'
+    status: achieved
+    value: 2.0
+    cost: 2.0
+    actual_cost: 2.0
+    acceptance:
+    - The server (which owns AccelSynth and its arm policy) signals arm/disarm to the primary glass over the player protocol
+    - The player's relative-mouse enable follows that signal; the class-derived local heuristic (PlayerRender syncRelativeMouseForTilt) is removed
+    - Contract notes the signal as delivery plumbing (no tilt semantics on the glass)
+    context: 'ACHIEVED 2026-07-18: SP2A wire message (protocol v9); the host reports AccelSynth arm transitions (setArmStateSink), ServerSession sends to the primary seat only, and the glass''s relative-mouse follows the signal — the PlayerRender heuristic is deleted. Contract updated (delivery plumbing). Oracle observes [0,1,0] transitions in both gesture scenarios and never-armed for a real-accel seat; live Jevons receipt in verdicts/T158-T159. 2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
+    depends_on:
+    - T156.2
+    tags:
+    - player
+    - protocol
+    - delivery
+    - anti-drift
+    origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T159:
+    name: 'Frame metadata sidecar: a server timestamp rides each SP2S frame; the glass logs (seq, server_us, present_us) for absolute end-to-end latency'
+    status: achieved
+    value: 3.0
+    cost: 2.0
+    actual_cost: 2.0
+    acceptance:
+    - Each SP2S frame (or a periodic subset) carries a server emit timestamp in a small metadata op
+    - The player's PresentTrace logs per-present (seq, server_us, present_us), giving absolute emit-to-glass latency, not just cadence
+    - A live-run tolerance for end-to-end latency is documented and checked in the oracle's live tier
+    context: 'ACHIEVED 2026-07-18: SP2F FrameMeta (protocol v9) precedes each cmdstream frame with (seq, server epoch us). Glass logs emit-to-present in PresentTrace (live Jevons: avg 52-64 ms over Wi-Fi incl. pacing queue) and sampled emit-to-receipt in the headless trace; the oracle''s live tier checks median <= 150 ms (measured 0.11-0.15 ms loopback). Tolerance documented in docs/device-api.md. Evidence: verdicts/T158-T159, verdicts/T156.6/20260718T130828Z. From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
+    depends_on:
+    - T156.7
+    tags:
+    - telemetry
+    - cmdstream
+    - latency
+    - oracle-infrastructure
+    origin: 2026-07-18 Jevons judder diagnosis
+    discovered: 2026-07-18
+    achieved: 2026-07-18
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
@@ -2317,6 +2270,69 @@ targets:
     origin: discovered while testing tiltbuggy stage 2
     discovered: 2026-04-16
     achieved: 2026-07-01
+  T160:
+    name: Game-injected frame logs ride the render stream and are emitted by the presenting backend with backend-decided timestamps
+    status: identified
+    value: 3.0
+    cost: 3.0
+    acceptance:
+    - A location-transparent game API (e.g. ge::frameLog(text)) injects light per-frame log entries; games never branch on modality
+    - Entries serialize as a cmdstream op riding the frame that carried them (mirrored in the player replayer; unknown-op safety preserved for pre-version peers)
+    - 'Built-in metadata on every entry, not opt-in: BOTH the generation timestamp (stamped by the engine when the game emits the entry, game/server clock) and the emission timestamp (stamped by the presenting backend at present time, backend clock). The pair makes each entry a per-frame generation→present span on whichever pathway presented it'
+    - 'The PRESENTING backend emits each entry with its own timestamp at present time: direct host at frame present, player glass at glass present (pacing queue included); a frame shed under overflow emits its logs flagged as dropped'
+    - Comparing the direct-run and glass-run emission streams for the same scripted gesture localizes transport/present stutter to specific game frames (the same content yields two cadence timelines)
+    - TiltBuggy carries an env-gated per-frame pose log as the reference user
+    context: 'User-requested during the 2026-07-18 T159 wrap-up: SP2F measures backend-to-backend emit-to-present latency, but game-authored markers stamped at PRESENT by whichever backend shows the frame give per-frame content correlation — direct vs glass cadence for identical frames isolates transport-induced stutter. Not urgent; filed for a later pass. Groundwork: Op enum has room (next free ~50), player CmdStream.h is a namespace-renamed mirror of ge''s, and the player trace/PresentTrace plumbing (T159) is the natural emission sink.'
+    depends_on:
+    - T159
+    tags:
+    - telemetry
+    - cmdstream
+    - frame-log
+    - oracle-infrastructure
+    origin: user clarification of T159 intent, 2026-07-18
+    discovered: 2026-07-18
+  T161:
+    name: 'The stream self-detects anachronisms: temporal invariants checked online at the glass, violations classified and reported without human log-reading'
+    status: identified
+    value: 5.0
+    cost: 5.0
+    acceptance:
+    - 'Temporal contract documented in device-api.md: presented seq strictly increasing; generation timestamps non-decreasing with seq; emission timestamps non-decreasing in present order; every generated frame presented or explicitly shed (conservation); transport is a time-shift, not a time-warp (inter-generation deltas match inter-presentation deltas within documented tolerance)'
+    - 'Online checker at the glass: bounded ring of (seq, gen_us, recv_us, present_us) tuples, incremental invariant checks, negligible per-frame cost'
+    - Violations are CLASSIFIED anomaly records (reorder, seq regression, silent loss, stall, jitter burst, cadence warp, clock skew, identical-sample flood) carrying the implicated seq window and both cadence timelines; cadence warps are auto-attributed to transport vs glass by comparing receive-deltas against generation-deltas
+    - 'Both directions are monitored: s2p frames AND p2s input/sensor events. Sensor invariant: real accelerometers always carry noise, so N consecutive bit-identical samples is an anomaly (observed live 2026-07-18: a flat-on-table A9 tablet emitted a burst of 175 identical 73-degree-tilt samples in one pump — a stale/corrupt event replayed by the Android sensor path — which ran the buggy off-world)'
+    - 'Reporting is automatic on three paths: trace/telemetry sink on the glass; periodic rollup in the PresentTrace summary line; echo to the server over a small wire message so server logs and the oracle see anomalies without device log access (spyder remains an opaque router)'
+    - The scripted oracle and its live tier assert ZERO anomalies on clean runs
+    - 'Fault-injection test proves the detector detects: artificially delayed, reordered, and dropped frames each fire the correct classification (a detector with no positive test is theater)'
+    context: 'User-requested 2026-07-18, extending T160: with dual timestamps (generation + emission) and seq as builtin metadata, the stream supports a formal temporal contract checked by machine. The 2026-07-18 judder hunt did all of this manually (arrival-delta vs present-delta comparison localized Wi-Fi burst jitter; the black-glass bug was a silent-loss violation; the standing-backlog bug was a cadence warp) — this target turns that afternoon of human analysis into an always-on detector.'
+    depends_on:
+    - T159
+    - T160
+    tags:
+    - telemetry
+    - cmdstream
+    - invariants
+    - anomaly-detection
+    - oracle-infrastructure
+    origin: user request during T160 filing, 2026-07-18
+    discovered: 2026-07-18
+  T162:
+    name: Direct-mode iOS games hide the status bar by default
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A ge::run game on physical iOS shows no status bar by default (matching the stream path's SessionConfig immersive behaviour), without per-game Info.plist or code
+    - An explicit opt-out exists for games that want the bar
+    context: Promoted from docs/TODO.md (file retired; targets are the sole record of followable work). The stream path already hides chrome via SessionConfig immersive (T154.2); direct-mode packaging should match by default.
+    tags:
+    - ios
+    - direct
+    - chrome
+    - packaging
+    origin: promoted from docs/TODO.md, 2026-07-19
+    discovered: 2026-07-19
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
