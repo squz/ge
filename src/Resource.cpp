@@ -19,6 +19,13 @@ std::string resource(const std::string& relativePath) {
         // them via AssetManager when given a relative path — no prefix needed.
         return std::string();
 #endif
+#if defined(__EMSCRIPTEN__)
+        // 🎯T157 Web: assets are preloaded into the wasm virtual FS at
+        // absolute paths mirroring the project layout (--preload-file
+        // assets@/assets etc.), so the project root is the FS root — not
+        // the "up one level from the binary" desktop heuristic below.
+        return std::string("/");
+#endif
         auto p = SDL_GetBasePath();
         if (!p) return std::string();
         std::string dir(p);
@@ -46,6 +53,8 @@ const char* shaderProfileSuffix() {
     default: break;  // shouldn't happen on Android
     }
     return "-gles";   // safer fallback (no SPIR-V mismatch)
+#elif defined(__EMSCRIPTEN__)
+    return "-gles";   // 🎯T157 WebGL2 == the GLES3 profile, single backend
 #else
     return "";        // Apple → Metal, single canonical "shaders/" dir
 #endif

@@ -35,6 +35,10 @@
 #include <string>
 #include <vector>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
+
 namespace ge {
 
 // 🎯T92.2.2 Server entry point — a hidden-window DirectRenderHost that streams
@@ -239,6 +243,18 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
 
     DirectLoop loop{host, rc, config, server};
 
+#if defined(__EMSCRIPTEN__)
+    // 🎯T157 The browser owns the frame cadence: hand DirectLoop::step to
+    // requestAnimationFrame (fps=0) and never return. simulate_infinite_loop
+    // unwinds the JS stack without running C++ destructors, leaving this
+    // frame's locals (host, rc, loop — and the caller's pre-ge::run state)
+    // alive for the page's lifetime, so the documented state-before-run
+    // capture pattern works verbatim. Shutdown on the web is page teardown;
+    // onShutdown does not run (see docs/web-platform.md).
+    emscripten_set_main_loop_arg(
+        [](void* p) { static_cast<DirectLoop*>(p)->step(); },
+        &loop, 0, true);
+#else
     while (!host.shouldQuit()) {
         loop.step();
     }
@@ -248,6 +264,7 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     // 🎯T92.2.2 Stop the ServerSession (close sockets, join threads) after the
     // loop exits — runServer installed onStop for this.
     if (server && server->onStop) server->onStop();
+#endif
 }
 
 // ── ge::run — dispatch by modality ────────────────────────────────

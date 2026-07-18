@@ -37,6 +37,9 @@
 #define GE_SIGNAL_SUPPORTED 0
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
 #define GE_SIGNAL_SUPPORTED 0
+#elif defined(__EMSCRIPTEN__)
+// 🎯T157 No POSIX signals reach a wasm module; the page owns the lifecycle.
+#define GE_SIGNAL_SUPPORTED 0
 #else
 #define GE_SIGNAL_SUPPORTED 1
 #endif
@@ -126,8 +129,15 @@ void crashHandler(int sig) {
 }  // namespace
 
 void installCrashHandlers() {
+#if defined(__EMSCRIPTEN__)
+    // 🎯T157 A wasm trap aborts the module without invoking C signal
+    // handlers, so installing them would only feign coverage. The browser
+    // console carries the trap + stack instead.
+    return;
+#else
     if (!g_crashDiag.load(std::memory_order_relaxed)) return;
     for (int s : kCrashSignals) std::signal(s, crashHandler);
+#endif
 }
 
 bool crashDiagnosticsEnabled() { return g_crashDiag.load(std::memory_order_relaxed); }
