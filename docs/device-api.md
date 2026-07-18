@@ -109,6 +109,17 @@ is a **defect**.
   as an explicit opt-in broadcast mode for genuinely shared-world titles.
   This model has been erased twice by executors codifying implemented
   behaviour as spec; do not "simplify" it away again.
+- **Implementation (recorded per 🎯T163): process-per-session.** The
+  registered server process is a *mother* (catalogue presence); each
+  `player_attached` spawns a *child* process (`GE_WIRE_SESSION` env) that
+  opens that one session's wire and runs a complete independent game.
+  This preserves the one-game-per-process programming model (games stay
+  single-instance-simple), keeps spyder a pure router, and gives SP2T,
+  capture, transport, and sensor authority per session for free. The
+  rejected alternative — in-process multi-world — would have made
+  LiveCapture/Context/the run loop N-instance and leaked multi-session
+  awareness into game code. `GE_BROADCAST=1` opts in to the legacy
+  shared-world fan-out for genuinely shared-world titles.
 - Within a session: one sensor authority (this section), seat handoff (if
   ever supported) is an **explicit** session event — not per-event
   “arming window” arbitration.

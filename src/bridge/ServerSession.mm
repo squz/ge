@@ -24,6 +24,12 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+
+#include <mach-o/dyld.h>
+#include <signal.h>
+#include <spawn.h>
+
+extern char** environ;
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -105,6 +111,17 @@ struct ServerSession::Impl {
     // flow, glass stays black). Each attach forces one cold frame — the
     // cache clear happens on the RENDER thread at the next onFrameBegin.
     std::atomic<bool> forceColdStart{false};
+    // 🎯T163 per-session instances: default multi-session model. The
+    // registered process is a MOTHER (catalogue presence + supervisor);
+    // each player_attached spawns a CHILD process (GE_WIRE_SESSION env)
+    // that opens that one session's wire and runs its own complete game —
+    // world, Context, SP2T seeded from its own glass, capture, transport.
+    // GE_BROADCAST=1 opts in to the legacy shared-world fan-out for
+    // genuinely shared-world titles.
+    bool childMode = false;
+    std::string childSession;
+    bool broadcastMode = false;
+    void spawnChild(const std::string& sessionId);
 
     // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
@@ -298,6 +315,41 @@ void ServerSession::sendArmState(bool armed) {
     }
 }
 
+void ServerSession::Impl::spawnChild(const std::string& sessionId) {
+    char exe[4096];
+    uint32_t sz = sizeof(exe);
+    if (_NSGetExecutablePath(exe, &sz) != 0) {
+        SPDLOG_ERROR("ServerSession: executable path too long — cannot "
+                     "spawn child for session {}", sessionId);
+        return;
+    }
+    std::vector<std::string> envStrings;
+    for (char** e = environ; *e; ++e) {
+        // Child gets a fresh trace target; drop the mother's, if any.
+        if (std::strncmp(*e, "GE_SENSOR_TRACE=", 16) == 0) continue;
+        envStrings.emplace_back(*e);
+    }
+    envStrings.push_back("GE_WIRE_SESSION=" + sessionId);
+    if (const char* dir = std::getenv("GE_CHILD_TRACE_DIR")) {
+        envStrings.push_back(std::string("GE_SENSOR_TRACE=") + dir + "/" +
+                             sessionId + ".trace");
+    }
+    std::vector<char*> envp;
+    envp.reserve(envStrings.size() + 1);
+    for (auto& e : envStrings) envp.push_back(e.data());
+    envp.push_back(nullptr);
+    char* argv[] = {exe, nullptr};
+    pid_t pid = 0;
+    const int rc = posix_spawn(&pid, exe, nullptr, nullptr, argv, envp.data());
+    if (rc != 0) {
+        SPDLOG_ERROR("ServerSession: child spawn failed for session {}: {}",
+                     sessionId, rc);
+        return;
+    }
+    SPDLOG_INFO("ServerSession: spawned child pid {} for session {} "
+                "(own world/state)", pid, sessionId);
+}
+
 void ServerSession::Impl::closeWireForSession(const std::string& sessionId) {
     std::shared_ptr<WsConnection> victim;
     {
@@ -356,6 +408,11 @@ void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
             }
             if (primaryLost && !wires.empty()) survivor = wires.front();
             lastWireGone = wires.empty();
+        }
+        if (lastWireGone && childMode) {
+            SPDLOG_INFO("ServerSession: session {} wire closed — child "
+                        "exiting", childSession);
+            std::exit(0);
         }
         if (lastWireGone) {
             // Last glass gone: reset stream state. Mirrors closeWire minus
@@ -571,14 +628,25 @@ void ServerSession::Impl::sidebandLoop() {
         // Multi-session (🎯T100.2): every player_attached opens a wire.
         // Detach currently tears down all sessions (fan-out encode model).
         if (type == "player_attached" && !sessionId.empty()) {
-            openWire(sessionId);
+            if (broadcastMode) {
+                openWire(sessionId); // explicit opt-in: shared-world fan-out
+            } else {
+                spawnChild(sessionId); // 🎯T163: per-session game instance
+            }
         } else if (type == "player_detached") {
             // 🎯T156.3: the relay names the session (relay.go sends
             // session_id); close only that wire so surviving seats keep
             // their sessions and promotion can actually run. No id →
-            // legacy full teardown.
-            if (!sessionId.empty()) closeWireForSession(sessionId);
-            else closeWire();
+            // legacy full teardown. In per-session-instance mode the
+            // children own their lifecycle (their wire dies → they exit).
+            if (!broadcastMode) {
+                SPDLOG_INFO("ServerSession: detach {} — child owns teardown",
+                            sessionId);
+            } else if (!sessionId.empty()) {
+                closeWireForSession(sessionId);
+            } else {
+                closeWire();
+            }
         }
     }
     closeWire();
@@ -609,6 +677,27 @@ ServerSession::~ServerSession() { stop(); }
 
 void ServerSession::start() {
     i_->running.store(true);
+    if (const char* cs = std::getenv("GE_WIRE_SESSION"); cs && cs[0]) {
+        // 🎯T163 child: no catalogue registration, no sideband — open this
+        // one session's wire and run a complete independent game for it.
+        i_->childMode = true;
+        i_->childSession = cs;
+        i_->sidebandThread = std::thread([this] {
+            i_->openWire(i_->childSession);
+            if (!i_->hasPlayer.load()) {
+                SPDLOG_ERROR("ServerSession: child wire open failed for "
+                             "session {} — exiting", i_->childSession);
+                std::exit(1);
+            }
+        });
+        return;
+    }
+    if (const char* b = std::getenv("GE_BROADCAST"); b && b[0] == '1') {
+        i_->broadcastMode = true;
+        SPDLOG_INFO("ServerSession: BROADCAST mode (opt-in shared world)");
+    }
+    // Mother: auto-reap spawned children.
+    signal(SIGCHLD, SIG_IGN);
     i_->sidebandThread = std::thread([this] { i_->sidebandLoop(); });
 }
 

@@ -104,9 +104,12 @@ run_direct() { # name script
 run_stream() { # name script extra-player-flags...
     local name=$1 script=$2; shift 2
     echo "t156-oracle: stream run [$name]"
+    # 🎯T163: the session's game runs in a spawned CHILD process; its
+    # game-boundary trace lands in GE_CHILD_TRACE_DIR/<session>.trace and
+    # is renamed to $name-stream.trace below. The mother's world idles.
     (cd "$APP_DIR" &&
      GE_SERVER="127.0.0.1:$RELAY_PORT" \
-     GE_SENSOR_TRACE="$EVIDENCE/$name-stream.trace" \
+     GE_CHILD_TRACE_DIR="$EVIDENCE" \
      ./bin/tiltbuggy-server > "$EVIDENCE/$name-server.log" 2>&1) &
     SERVER_PID=$!
     sleep 2
@@ -115,10 +118,13 @@ run_stream() { # name script extra-player-flags...
         --trace "$EVIDENCE/$name-player.trace" "$@" \
         > "$EVIDENCE/$name-player.log" 2>&1 || true
     PLAYER_PID=
-    sleep 1
+    sleep 3   # child sees its wire close and exits on its own
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=
+    local latest
+    latest=$(ls -t "$EVIDENCE"/s[0-9]*.trace 2>/dev/null | head -1)
+    [ -n "$latest" ] && mv "$latest" "$EVIDENCE/$name-stream.trace"
 }
 
 run_direct shift "$EVIDENCE/gesture-shift.txt"
