@@ -100,6 +100,11 @@ struct ServerSession::Impl {
     // only that wire (guarded by wireSendMu).
     std::map<std::string, std::weak_ptr<WsConnection>> wireBySession;
     void closeWireForSession(const std::string& sessionId);
+    // 🎯T156.3 late joiners: a wire attaching mid-stream has an empty blob
+    // cache, so warm frames reference textures it never received (bytes
+    // flow, glass stays black). Each attach forces one cold frame — the
+    // cache clear happens on the RENDER thread at the next onFrameBegin.
+    std::atomic<bool> forceColdStart{false};
 
     // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
@@ -231,6 +236,7 @@ void ServerSession::Impl::openWire(const std::string& sessionId) {
         seats.onAttach(w.get());
     }
     (void)first;
+    forceColdStart.store(true); // late joiner → next frame is cold for all
     inputThreads.emplace_back([this, w] { wireInputLoop(w); });
     SPDLOG_INFO("ServerSession: player attached (session {}), wires={} primary={}",
                 sessionId, wires.size(), seats.isPrimary(w.get()) ? 1 : 0);
@@ -307,8 +313,13 @@ void ServerSession::Impl::closeWireForSession(const std::string& sessionId) {
                     sessionId);
         victim->close(); // recv loop exits → cull + seat promotion
     } else {
-        // Unknown/absent session id: legacy full teardown.
-        closeWire();
+        // Already gone: the wire's own death usually beats the relay's
+        // sideband notification here (the wire thread culls + promotes
+        // first). This MUST be a no-op — falling back to full teardown
+        // nuked every attached glass whenever one detached (observed
+        // 2026-07-19: seven sessions killed in 25 ms by one terminate).
+        SPDLOG_INFO("ServerSession: detach for already-culled session {} — "
+                    "no-op", sessionId);
     }
 }
 
@@ -671,6 +682,13 @@ void ServerSession::onFrameBegin(int contentW, int contentH) {
     if (i_->transport.load() != wire::kTransportCommandStream) return;
     const uint32_t s = i_->seq.fetch_add(1);
     i_->lastFrameSeq = s;
+    if (i_->forceColdStart.exchange(false)) {
+        // Render thread: safe to reset cmdstream state. Existing glasses
+        // tolerate the re-sent full blobs; the newcomer needs them.
+        i_->cmdCache.clear();
+        i_->live.resetSession();
+        SPDLOG_INFO("ServerSession: cold frame forced for late joiner");
+    }
     const uint16_t cw = contentW > 0 ? static_cast<uint16_t>(
         std::min(contentW, 65535)) : 0;
     const uint16_t ch = contentH > 0 ? static_cast<uint16_t>(
