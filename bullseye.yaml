@@ -2169,14 +2169,15 @@ targets:
     achieved: 2026-07-18
   T158:
     name: 'Arm-state is server-owned on the wire: the glass''s relative-mouse delivery follows an explicit server signal, not a policy approximation'
-    status: identified
+    status: achieved
     value: 2.0
     cost: 2.0
+    actual_cost: 2.0
     acceptance:
     - The server (which owns AccelSynth and its arm policy) signals arm/disarm to the primary glass over the player protocol
     - The player's relative-mouse enable follows that signal; the class-derived local heuristic (PlayerRender syncRelativeMouseForTilt) is removed
     - Contract notes the signal as delivery plumbing (no tilt semantics on the glass)
-    context: '2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
+    context: 'ACHIEVED 2026-07-18: SP2A wire message (protocol v9); the host reports AccelSynth arm transitions (setArmStateSink), ServerSession sends to the primary seat only, and the glass's relative-mouse follows the signal — the PlayerRender heuristic is deleted. Contract updated (delivery plumbing). Oracle observes [0,1,0] transitions in both gesture scenarios and never-armed for a real-accel seat; live Jevons receipt in verdicts/T158-T159. 2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
     depends_on:
     - T156.2
     tags:
@@ -2186,16 +2187,18 @@ targets:
     - anti-drift
     origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T159:
     name: 'Frame metadata sidecar: a server timestamp rides each SP2S frame; the glass logs (seq, server_us, present_us) for absolute end-to-end latency'
-    status: identified
+    status: achieved
     value: 3.0
     cost: 2.0
+    actual_cost: 2.0
     acceptance:
     - Each SP2S frame (or a periodic subset) carries a server emit timestamp in a small metadata op
     - The player's PresentTrace logs per-present (seq, server_us, present_us), giving absolute emit-to-glass latency, not just cadence
     - A live-run tolerance for end-to-end latency is documented and checked in the oracle's live tier
-    context: 'From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
+    context: 'ACHIEVED 2026-07-18: SP2F FrameMeta (protocol v9) precedes each cmdstream frame with (seq, server epoch us). Glass logs emit-to-present in PresentTrace (live Jevons: avg 52-64 ms over Wi-Fi incl. pacing queue) and sampled emit-to-receipt in the headless trace; the oracle's live tier checks median <= 150 ms (measured 0.11-0.15 ms loopback). Tolerance documented in docs/device-api.md. Evidence: verdicts/T158-T159, verdicts/T156.6/20260718T130828Z. From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
     depends_on:
     - T156.7
     tags:
@@ -2205,6 +2208,7 @@ targets:
     - oracle-infrastructure
     origin: 2026-07-18 Jevons judder diagnosis
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
     status: identified

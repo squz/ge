@@ -47,6 +47,9 @@ struct ServerHook {
     ViewerMetricsStore* viewer = nullptr;
     // 🎯T154: after host Context is built, bind working db for SP2T apply.
     std::function<void(std::shared_ptr<sqlpipe::Database>)> bindDb;
+    // 🎯T158: server-owned arm state — host reports AccelSynth arm
+    // transitions; the session signals the primary glass (SP2A).
+    std::function<void(bool)> armSink;
 };
 
 // The direct run loop, optionally driving server mode via `server` (null = the

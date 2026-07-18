@@ -93,6 +93,8 @@ struct ServerSession::Impl {
     std::mutex inputDispatchMu; // DeviceInfo / SP2T / negotiate shared state
     // 🎯T156.3: primary seat = first attach; spectators get content only.
     SeatPolicy seats;
+    // 🎯T159: seq allocated at onFrameBegin, stamped into SP2F at onFrameEnd.
+    uint32_t lastFrameSeq = 0;
 
     // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
@@ -259,6 +261,29 @@ void ServerSession::Impl::closeWire() {
     inputThreads.clear();
     seats.onDetachAll();
     SPDLOG_INFO("ServerSession: player detached (all sessions)");
+}
+
+// 🎯T158: SP2A to the primary seat only — spectators must not toggle
+// relative mouse. Lock order matches dispatch: inputDispatchMu, wireSendMu.
+void ServerSession::sendArmState(bool armed) {
+    wire::ArmState as{};
+    as.armed = armed ? 1 : 0;
+    wire::MessageHeader hdr{wire::kArmStateMagic,
+                            static_cast<uint32_t>(sizeof(as))};
+    std::vector<uint8_t> msg(sizeof(hdr) + sizeof(as));
+    std::memcpy(msg.data(), &hdr, sizeof(hdr));
+    std::memcpy(msg.data() + sizeof(hdr), &as, sizeof(as));
+    std::lock_guard<std::mutex> lk(i_->inputDispatchMu);
+    const SeatId prim = i_->seats.primary();
+    if (prim == nullptr) return;
+    std::lock_guard<std::mutex> slk(i_->wireSendMu);
+    for (auto& w : i_->wires) {
+        if (w && w.get() == prim && w->isOpen()) {
+            w->sendBinary(msg.data(), msg.size());
+            SPDLOG_INFO("ServerSession: SP2A arm={} → primary seat", as.armed);
+            break;
+        }
+    }
 }
 
 void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
@@ -590,6 +615,7 @@ void ServerSession::onFrameBegin(int contentW, int contentH) {
     if (!i_->hasPlayer.load()) return;
     if (i_->transport.load() != wire::kTransportCommandStream) return;
     const uint32_t s = i_->seq.fetch_add(1);
+    i_->lastFrameSeq = s;
     const uint16_t cw = contentW > 0 ? static_cast<uint16_t>(
         std::min(contentW, 65535)) : 0;
     const uint16_t ch = contentH > 0 ? static_cast<uint16_t>(
@@ -604,6 +630,16 @@ void ServerSession::onFrameEnd() {
     auto payload = i_->live.end();
     if (payload.empty()) return;
     const auto st = i_->live.stats();
+    // 🎯T159: emit metadata precedes its frame on the same ordered stream.
+    {
+        using namespace std::chrono;
+        wire::FrameMeta fm{};
+        fm.seq = i_->lastFrameSeq;
+        fm.serverUs = static_cast<uint64_t>(duration_cast<microseconds>(
+            system_clock::now().time_since_epoch()).count());
+        i_->sendWire(wire::kFrameMetaMagic, &fm,
+                     static_cast<uint32_t>(sizeof(fm)));
+    }
     i_->sendWire(wire::kCommandStreamMagic, payload.data(),
                  static_cast<uint32_t>(payload.size()));
     // Bandwidth telemetry: every frame when CMDSTREAM_BW_LOG=1, else

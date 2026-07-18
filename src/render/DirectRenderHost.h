@@ -61,6 +61,9 @@ public:
     // Wire-mode viewer discovery (DeviceInfo / SafeAreaUpdate). Null = physical
     // host only. Server path installs the ServerSession store.
     void setViewerMetricsStore(ViewerMetricsStore* store);
+    // 🎯T158: called with AccelSynth arm transitions while a seat is
+    // attached (server mode); the session forwards SP2A to the primary glass.
+    void setArmStateSink(std::function<void(bool)> sink);
 
 private:
     la::float2 updateParallax();

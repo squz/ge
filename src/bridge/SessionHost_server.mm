@@ -115,6 +115,8 @@ void runServer(Factory factory, const SessionHostConfig& config) {
         server->maybePushSp2t();
     };
     hook.onStop = [server] { server->stop(); };
+    // 🎯T158: AccelSynth arm transitions → SP2A to the primary glass.
+    hook.armSink = [server](bool armed) { server->sendArmState(armed); };
     // Capture schema so setWorkingDb can retain it for post-seed re-apply.
     const std::string schema = config.schemaDdl;
     hook.bindDb = [server, schema](std::shared_ptr<sqlpipe::Database> db) {

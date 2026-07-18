@@ -339,6 +339,13 @@ struct DirectRenderHost::Impl {
     std::ofstream sensorTrace;
     bool sensorTraceOn = false;
 
+    // 🎯T158 server-owned arm state: report synth arm transitions upstream
+    // while a seat is attached; state resets on detach so a re-attaching
+    // glass receives the current state.
+    std::function<void(bool)> armStateSink;
+    bool armSent = false;
+    bool armSentValid = false;
+
     // Parallax pipeline (SessionHostConfig.parallaxFactor > 0).
     // attitude provider polled per frame; baseline is the EMA-tracked
     // neutral, delta is computed inverse(baseline) * current and
@@ -782,6 +789,10 @@ void DirectRenderHost::setViewerMetricsStore(ViewerMetricsStore* store) {
     i_->viewerMetrics = store;
 }
 
+void DirectRenderHost::setArmStateSink(std::function<void(bool)> sink) {
+    i_->armStateSink = std::move(sink);
+}
+
 void DirectRenderHost::pumpEvents() {
     // 🎯T156.6: scripted input (parity oracle) enters the same SDL queue
     // as OS input — no separate delivery path.
@@ -796,8 +807,19 @@ void DirectRenderHost::pumpEvents() {
                                       if (i_->eventHandler) i_->eventHandler(e);
                                       return;
                                   }
-                                  SDL_Event ev = e;
-                                  SDL_PushEvent(&ev);
+                                  if (e.type == SDL_EVENT_QUIT) {
+                                      SDL_Event ev = e;
+                                      SDL_PushEvent(&ev);
+                                      return;
+                                  }
+                                  // Scripted device input: deliver through
+                                  // the synth/handler directly. Real host
+                                  // input is dropped below while a script
+                                  // is active, so oracle runs are
+                                  // deterministic even on a busy desktop.
+                                  if (i_->synth && i_->synth->handle(e))
+                                      return;
+                                  if (i_->eventHandler) i_->eventHandler(e);
                               });
     }
     // Drain off-thread OS events first so back / memory-warning
@@ -939,6 +961,27 @@ void DirectRenderHost::pumpEvents() {
                 i_->pendingH = newH;
             }
             continue;
+        }
+        // Oracle determinism: while a script drives this host, real device
+        // input (keys/mouse/finger/sensor) is dropped — the script is the
+        // sole input source. Window/lifecycle events still flow.
+        if (i_->inputScript) {
+            switch (e.type) {
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+            case SDL_EVENT_MOUSE_MOTION:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_WHEEL:
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP:
+            case SDL_EVENT_FINGER_MOTION:
+            case SDL_EVENT_FINGER_CANCELED:
+            case SDL_EVENT_SENSOR_UPDATE:
+                continue;
+            default:
+                break;
+            }
         }
         if (i_->synth && i_->synth->handle(e)) continue;
         // 🎯T156.2: no sensor arbitration here. Authority is constructional —
@@ -1093,6 +1136,24 @@ void DirectRenderHost::refreshFrame(float dt) {
         i_->sensorTrace << "{\"k\":\"tilt\",\"t_ms\":" << SDL_GetTicks()
                         << ",\"x\":" << presentationTilt.x
                         << ",\"y\":" << presentationTilt.y << "}\n";
+    }
+
+    // 🎯T158: signal AccelSynth arm transitions to the primary glass while
+    // a seat is attached (initial state included per attach).
+    if (i_->armStateSink) {
+        const bool seatAttached =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (seatAttached) {
+            const bool armedNow = i_->synth && i_->synth->armed();
+            if (!i_->armSentValid || armedNow != i_->armSent) {
+                i_->armStateSink(armedNow);
+                i_->armSent = armedNow;
+                i_->armSentValid = true;
+            }
+        } else {
+            i_->armSentValid = false;
+        }
     }
 
     // 🎯T101 The swap-chain pass is no longer opened here — the game opens it

@@ -144,6 +144,18 @@ public:
         gravityFromTilt(tilt_, gx, gy);
     }
 
+    // Armed when Shift is held (key event or current mod state), or on
+    // touch-first virtual devices (setArmOnPrimary) while the primary
+    // button/finger is down. Public: the stream host reports transitions
+    // to the glass (SP2A) so relative-mouse delivery follows the server's
+    // arm state instead of a glass-side approximation (🎯T158).
+    bool armed() const {
+        if (shiftKey_) return true;
+        if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) return true;
+        if (armOnPrimary_ && primaryDown_) return true;
+        return false;
+    }
+
     // true = consumed (do not forward to the game as raw mouse/key).
     bool handle(const SDL_Event& e) {
         // ── Modifier / button arm ─────────────────────────────────
@@ -286,16 +298,6 @@ private:
         // Keycode path (some hosts fill key, not only scancode).
         if (e.key.key == SDLK_LSHIFT || e.key.key == SDLK_RSHIFT)
             return true;
-        return false;
-    }
-
-    // Armed when Shift is held (key event or current mod state), or on
-    // touch-first virtual devices (setArmOnPrimary) while the primary
-    // button/finger is down — see file header arm policy.
-    bool armed() const {
-        if (shiftKey_) return true;
-        if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) return true;
-        if (armOnPrimary_ && primaryDown_) return true;
         return false;
     }
 

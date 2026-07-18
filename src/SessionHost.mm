@@ -85,6 +85,7 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
         host.setServerFrameSink(server->sink, server->active,
                                 server->capturePixels);
         host.setViewerMetricsStore(server->viewer);
+        if (server->armSink) host.setArmStateSink(server->armSink);
         if (server->bindDb) server->bindDb(host.context().db());
     }
 

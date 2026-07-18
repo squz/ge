@@ -69,6 +69,8 @@ public:
     // 🎯T128 command-stream: arm/flush LiveCapture around onRender.
     // contentW/H = server swapchain pixels (for player aspect-fit letterbox).
     void onFrameBegin(int contentW, int contentH);
+    // 🎯T158: SP2A arm-state to the primary seat's glass (transitions only).
+    void sendArmState(bool armed);
     void onFrameEnd();
 
     // When false, DirectRenderHost skips GPU framebuffer readback.

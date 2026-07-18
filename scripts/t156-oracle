@@ -236,6 +236,45 @@ for name in ("shift", "finger", "accel"):
               and r["direct_no_reversal"] and r["stream_no_reversal"]
               and len(a) > 0)
 
+    # 🎯T158: server-owned arm state observed on the glass. Gesture
+    # scenarios must see armed=1 then armed=0 (Shift/finger press+release);
+    # the real-accel scenario has no synth, so no SP2A traffic at all.
+    arms = []
+    try:
+        with open(f"{ev}/{name}-player.trace") as f:
+            arms = [json.loads(l)["armed"] for l in f if '"armstate"' in l]
+    except FileNotFoundError:
+        pass
+    if name == "accel":
+        # A synth-less seat may receive one authoritative initial disarm
+        # (sent per attach); the invariant is that it is NEVER armed.
+        r["armstate_events"] = arms
+        r["armstate_ok"] = 1 not in arms
+    else:
+        r["armstate_events"] = arms
+        r["armstate_ok"] = (1 in arms) and arms[-1] == 0 if arms else False
+    ok = ok and r["armstate_ok"]
+
+    # 🎯T159: absolute emit→receipt latency (same host ⇒ same clock).
+    # Documented tolerance: median <= 150 ms (docs/device-api.md).
+    lats = []
+    try:
+        with open(f"{ev}/{name}-player.trace") as f:
+            for l in f:
+                if '"frame_meta"' in l:
+                    j = json.loads(l)
+                    lats.append((j["recv_us"] - j["server_us"]) / 1000.0)
+    except FileNotFoundError:
+        pass
+    if lats:
+        lats.sort()
+        r["emit_to_receipt_median_ms"] = lats[len(lats)//2]
+        r["emit_latency_ok"] = r["emit_to_receipt_median_ms"] <= 150.0
+    else:
+        r["emit_to_receipt_median_ms"] = None
+        r["emit_latency_ok"] = False
+    ok = ok and r["emit_latency_ok"]
+
     # Latency: first player inject epoch → first game-boundary sensor with
     # a non-baseline value on the server.
     lat = None

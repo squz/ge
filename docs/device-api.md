@@ -64,6 +64,8 @@ section and remains first-class spyder surface.
 | `SafeAreaUpdate` | Glass → host discovery refresh (chrome/cutouts) |
 | SP2I + `SDL_Event` payload | Device-local input (mouse/finger/key/wheel) and sensor samples when present — **no separate SENSOR_UPDATE magic**; samples travel as `SDL_EVENT_SENSOR_UPDATE` inside SP2I |
 | SP2L lifecycle | Viewer foreground/background, back, memory, audio focus |
+| `ArmState` (SP2A) | Host → primary glass: AccelSynth arm transitions. **Delivery plumbing only** — the glass toggles relative-mouse capture; no tilt semantics (🎯T158) |
+| `FrameMeta` (SP2F) | Host → glass: (seq, server emit µs) preceding each cmdstream frame — latency telemetry (🎯T159) |
 | SP2T | Durable db snapshot (player authority; server `:memory:` working set) |
 
 Protocol layout oracles: `ge/include/ge/Protocol.h` and the spyder player mirror.
@@ -145,7 +147,18 @@ capability** — never by host sensor enumeration, build flags, or transport:
 
 Apply SessionConfig; report DeviceInfo; forward device-local input and real
 sensors. Relative-mouse arming is **delivery quality** (usable `xrel`), not
-tilt semantics. No AccelSynth synthesis, no gravity model.
+tilt semantics — and it follows the **server's SP2A arm signal** (the
+authority that owns AccelSynth), never a glass-side approximation of arm
+policy (🎯T158). No AccelSynth synthesis, no gravity model.
+
+### Latency telemetry and tolerance (🎯T159)
+
+Each cmdstream frame is preceded by `FrameMeta` (seq, server emit time in
+unix-epoch µs). The glass records (seq, server_us, present_us / recv_us).
+**Tolerance:** on the same-host loopback oracle (shared clock), median
+emit→receipt latency must be **≤ 150 ms**; the oracle's live tier checks
+this. Cross-device runs are informative only — NTP skew applies — and are
+judged by the human proof point plus PresentTrace cadence.
 
 ### Parity oracle
 
