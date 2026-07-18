@@ -654,7 +654,7 @@ struct SessionHostConfig {
 
     // App identity for persistent DB path (via SDL_GetPrefPath) on **direct**
     // builds only. Server builds (`GE_SERVER_BUILD`) always open :memory: —
-    // durable state is player-authoritative (sqlpipe GE2T; 🎯T154).
+    // durable state is player-authoritative (sqlpipe SP2T; 🎯T154).
     const char* orgName = nullptr;
     const char* appName = nullptr;
 

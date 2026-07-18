@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Stream host packaging policy used by DirectRenderHost under GE_SERVER_BUILD
-// and by the player for durable GE2T state (🎯T154).
+// and by the player for durable SP2T state (🎯T154).
 // Kept header-only so unit tests drive the same functions as production.
 
 #pragma once
@@ -51,7 +51,7 @@ inline std::string sanitizeGameId(const char* gameId) {
 }
 
 // Durable path for the *player* (glass) process — player-authoritative store
-// under stream (GE2T). One file per game so a player can attach to different
+// under stream (SP2T). One file per game so a player can attach to different
 // servers without sharing state.
 //
 // Layout: <prefPath>/games/<sanitized-gameId>.db
@@ -68,7 +68,7 @@ inline std::string durableDbPathForPlayer(const char* gameId,
     return std::string(prefPathOrNull) + "games/" + id + ".db";
 }
 
-// ── GE2T snapshot helpers (full SQLite serialize of "main") ──────────
+// ── SP2T snapshot helpers (full SQLite serialize of "main") ──────────
 // Wire payload after MessageHeader{kSqlpipeMsgMagic}: raw sqlite3_serialize
 // bytes of the main schema. Player holds durable file; server applies into
 // :memory: on attach and pushes continuously (rate-limited) + on detach so

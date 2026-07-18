@@ -38,7 +38,7 @@ Projects implement `ge::run({...})` only. They do **not** invent dual-host packa
 | `make` / `make game` | `bin/<app>` | Windowed **game** (direct device) |
 | `make server` | `bin/<app>-server` | **Console stream host** (different build, `-DGE_SERVER_BUILD`) |
 | `make run-server` | runs server | Runtime relay via env `GE_SERVER=host:port` (default `127.0.0.1:3030`) |
-| `make player` | `bin/player` | Stream glass (desktop); mobile players under `tools/` |
+| stream player | spyder `bin/player` | Stream glass lives in **spyder** (`make player` there); protocol-only |
 
 These are **totally different builds**, not one binary with a mode flag. App **source** is shared; packaging and host entry (`runServer` vs windowed) are ge’s.
 
@@ -225,7 +225,7 @@ Engine-internal variables use the `ge/` prefix. These are read-only — the pare
 | `ge/SDL_LIBS` | SDL3 static libraries (SDL3, SDL3_image, SDL3_ttf, freetype, harfbuzz, etc.) |
 | `ge/TEST_SRC`, `ge/TEST_OBJ` | Unit test sources and objects |
 | `ge/TRIANGLE_OBJ` | Triangle library object — **opt-in; not linked into `libge.a`**. Commercial builds should not reference this without first reading NOTICES.md's Triangle section (restrictive license; commercial distribution requires arrangement with the author). |
-| `ge/PLAYER` | ge player binary path (`bin/player`) |
+| (player) | owned by spyder — not a ge product |
 
 ### Shared Variables
 
@@ -435,16 +435,16 @@ Server → player:        MessageHeader{kAspectLockMagic} + AspectLock (optional
 |----------|-------|---------|
 | `kProtocolVersion` | 6 | Protocol version for compatibility checking |
 | `kMaxMessageSize` | 512 MB | Maximum single message size |
-| `kDeviceInfoMagic` | `0x47453244` | "GE2D" — player → server: player dimensions/class |
-| `kSdlEventMagic` | `0x47453249` | "GE2I" — player → server: SDL input event |
-| `kSessionEndMagic` | `0x4745324D` | "GE2M" — relay → player: server disconnected |
-| `kServerAssignedMagic` | `0x4745324E` | "GE2N" — relay → player: assigned server name |
-| `kSqlpipeMsgMagic` | `0x47453254` | "GE2T" — bidirectional sqlpipe messages |
-| `kVideoStreamMagic` | `0x47453256` | "GE2V" — server → player: H.264 NAL units |
-| `kStreamStartMagic` | `0x47453257` | "GE2W" — relay → player: start streaming |
-| `kStreamStopMagic` | `0x47453258` | "GE2X" — relay → player: stop streaming |
-| `kSafeAreaMagic` | `0x47453245` | "GE2E" — player → server: safe area update |
-| `kAspectLockMagic` | `0x47453260` | "GE2`" — server → player: lock aspect ratio |
+| `kDeviceInfoMagic` | `0x53503244` | "SP2D" — player → server: player dimensions/class |
+| `kSdlEventMagic` | `0x53503249` | "SP2I" — player → server: SDL input event |
+| `kSessionEndMagic` | `0x5350324D` | "SP2M" — relay → player: server disconnected |
+| `kServerAssignedMagic` | `0x5350324E` | "SP2N" — relay → player: assigned server name |
+| `kSqlpipeMsgMagic` | `0x53503254` | "SP2T" — bidirectional sqlpipe messages |
+| `kVideoStreamMagic` | `0x53503256` | "SP2V" — server → player: H.264 NAL units |
+| `kStreamStartMagic` | `0x53503257` | "SP2W" — relay → player: start streaming |
+| `kStreamStopMagic` | `0x53503258` | "SP2X" — relay → player: stop streaming |
+| `kSafeAreaMagic` | `0x53503245` | "SP2E" — player → server: safe area update |
+| `kAspectLockMagic` | `0x53503260` | "SP2`" — server → player: lock aspect ratio |
 
 ### Address Resolution (server-mode / stream)
 
@@ -452,16 +452,17 @@ Server-mode builds dial **spyder's stream relay** (not a local ge daemon). Typic
 1. `GE_SERVER` / stream host:port injected by the launch path (see sample/tiltbuggy)
 2. Local default when developing against a loopback spyder: `127.0.0.1:3030`
 
-Players attach through the same relay (`bin/player --host … --port … --name …`).
+Players attach through the same relay. The **spyder player** (checkout
+`marcelocantos/spyder`, `make player` → `bin/player`) is the stream glass.
+ge and spyder couple **only through protocols** (stream wire + app channel),
+not by linking each other's libraries.
 
 ## Player
 
-The ge player is a standalone H.264 video player. It receives encoded frames from a
-server-mode ge app via **spyder's opaque stream relay**, decodes them via VideoToolbox
-(macOS/iOS) or MediaCodec (Android), and renders to an SDL window. Input is forwarded
-back over the wire.
-
-The player has no app-specific code — it works with any ge app.
+The stream player is owned by **spyder**. It receives encoded frames from a
+server-mode ge app via spyder's opaque stream relay, decodes them, and
+forwards input over the wire. It has no app-specific code — any ge server
+that speaks the wire works.
 
 ### Reconnection
 
@@ -516,7 +517,7 @@ Direct-mode consumer apps on iOS/Android are the primary ship path.
 Two signing paths, deliberately separate. `build_project.rb` owns the `CODE_SIGN_*` settings — **never hand-edit signing into the generated xcodeproj.**
 
 - **Development — `make ge/ios-device`** (install on your own test devices). Debug build with `GE_IOS_SIGNING=development` → **Automatic** signing + **Apple Development** (no match, no shared secret), paired with `xcodebuild -allowProvisioningUpdates`. Each developer signs with **their own** cert; iOS devices accumulate multiple dev certs fine, so "different developers, different certs" is a non-problem at the dev layer (match would be *worse* here — shared secret, single point of failure). Sim builds (`make ge/ios`) don't sign.
-- **Prebuilt freshness:** `make ge/ios`, `ge/ios-device`, and `ge/android` run `tools/ensure-prebuilt.sh` first. That verifies `prebuilt/<platform>/libge.a` against source hashes and **auto-refreshes** when stale so engine edits cannot silently ship with last week's archive. Do not hand-run `prebuild-libge` for routine mobile iteration unless you are committing prebuilts alone.
+- **Prebuilt freshness + co-cook:** `make ge/ios`, `ge/ios-device`, and `ge/android` run `tools/ensure-prebuilt.sh` first. That verifies the platform manifest, requires `cook.json` to match every `.a` on disk (`tools/verify-cook.py`), and **auto-refreshes with a full co-cook** when stale. Partial `--libge-only` cooks are removed — they desynced libge from vendor libs. **Link-time refusal is platform-symmetric:** Android via `cmake/android-arm64.cmake` → `verify-cook.py`; iOS via the Xcode "Verify prebuilt cook" script phase generated by `tools/ios-build/build_project.rb` (runs every build, even when Xcode is opened without Make). Do not hand-copy archives into `prebuilt/` — the gate will fail.
 - **Ship — `make ge/ios-device-release`** (TestFlight / App Store). Release build, default `GE_IOS_SIGNING=appstore` → **Manual** + **Apple Distribution (Squz)** + the **match**-installed `match AppStore <bundle>` profile. The Distribution cert is the one identity that genuinely must be shared, so it lives in match (`fastlane/Fastfile`, `MATCH_PASSWORD` + ASC API key). See [[project_squz_cert_policy]].
 
 **The Apple model in one line:** a *certificate* says **who** signed; a *provisioning profile* says **what that signature may do** (which app, which devices — or any device for App Store — which entitlements). The cert's display name (`Apple Development: MARCELO CANTOS`) names the *member*; the `TeamIdentifier` (`SWA3H3N7TW`) is what attributes the build to **Squz**. They are not the same entity — a dev cert under Team Squz is still a Squz build.
@@ -556,9 +557,9 @@ This was the takeaway of a long debugging session in v0.1.0 (see commit `e0da016
 
 | Target | Bundle ID | Plist orientations | Use for |
 |---|---|---|---|
-| **Player** | `com.squz.player` | all four (don't-care) | free-rotate games; diagnostic attach |
-| **PlayerLand** | `com.squz.player.land` | landscape L+R only | landscape / AnyLandscape games (e.g. TiltBuggy) |
-| **PlayerPort** | `com.squz.player.port` | portrait + upside-down only | portrait-locked games |
+| **Player** | `com.spyder.player` | all four (don't-care) | free-rotate games; diagnostic attach |
+| **PlayerLand** | `com.spyder.player.land` | landscape L+R only | landscape / AnyLandscape games (e.g. TiltBuggy) |
+| **PlayerPort** | `com.spyder.player.port` | portrait + upside-down only | portrait-locked games |
 
 Build: `cd tools/ios && cmake -B build/xcode -G Xcode && cmake --build build/xcode --config Debug --target PlayerLand -- -sdk iphonesimulator -arch arm64`. Match the **packaging** variant to the game's orientation class; SessionConfig still supplies knob 2 over the wire.
 
@@ -595,7 +596,7 @@ The engine narrows supported orientations at runtime via the swizzle (knob 2). T
 - **OS memory-pressure warnings (`RunConfig::onMemoryWarning`, 🎯T45)** — Fires when iOS sends `UIApplicationDidReceiveMemoryWarningNotification` (always Critical) or Android sends `onTrimMemory(level)` (mapped to `Low` / `Moderate` / `Critical` via the engine's collapse of the five Android buckets — `RUNNING_MODERATE`→Low, `RUNNING_LOW`/`UI_HIDDEN`/`BACKGROUND`/`MODERATE`→Moderate, `RUNNING_CRITICAL`/`COMPLETE`→Critical). The engine drops its own caches first; the game's response is layered on top. Recommended action: drop high-cost caches (texture mips, audio decoders, font glyph atlases) in proportion to the level. Both events fire on the game thread (the engine drains a pending atomic in `pumpEvents`, same pattern as back-press).
 - **Performance metrics (`RunConfig::onMetrics` + `ge::Metrics`, 🎯T111)** — Opt-in callback for adapting the running render path to measured performance. `ge::Metrics` is an extensible bundle — `float fps` (smoothed frames/sec) first, `float frameTime` (seconds, `== 1/fps`) second; future fields (dropped frames, GPU time, render backend, resident memory) join it with default initialisers, so existing `const Metrics&` handlers keep compiling. Fires on the game thread *between frames* (after the per-frame refresh, before `onRender`) so a decision taken in the handler applies to the next frame's draw. Cadence is one knob — `SessionHostConfig.metricsReportThreshold` (relative fraction, default `0.1`): fire when smoothed fps deviates from the last *reported* value by ≥ the threshold; `0` ⇒ every frame; a baseline report fires on the first valid reading (gating against the last *reported* value, not the last frame, means no chatter at a boundary). The metric is an EMA of the run-loop `dt` — the same value the debug overlay's FPS readout shows — so it reads validly on desktop / wire / iOS / Android alike, `0` only before the first timed frame. **ge reports, the app decides:** the engine never steps quality, shows UI, or disables a visual; the consumer owns the decision *and the hysteresis*. The correct sticky pattern is a two-threshold band — drop at a low fps, restore only above a *higher* fps, and remember you simplified — so a recovery caused by simplifying doesn't snap back to the expensive path. For passive display only, `Context::fps()` / `Context::frameTime()` poll the same EMA (e.g. a HUD counter); don't drive adaptation off a polled read inside `onRender` — that stateless `if (fps < x) simplify()` is exactly the snap-back antipattern the callback exists to avoid.
 - **Render-on-demand (`Context::setContinuousRendering` / `requestRedraw`, 🎯T132)** — Opt-in; ge renders every frame by default. `ctx.setContinuousRendering(false)` tells the run loop to stop drawing a *static* screen: it renders only when input arrives or `requestRedraw()` is called, and idles (blocks on `SDL_WaitEventTimeout` at ~0% CPU, never busy-spins) in between — so a still menu / level-picker costs ~no GPU / present / battery. The first input event resumes rendering on the next frame (no dropped interaction); `requestRedraw()` is thread-safe — call it from a timer / async / IAP callback to wake the idle loop and draw one frame. Both are `const` (they mutate shared per-session state), so they work on the `const Context&` `onRender` / `onEvent` receive. The consumer owns the policy of *when* the screen is static (a dirty flag, box2d body-sleep, etc.). Direct-mode (desktop / iOS / Android) only — the brokered/streaming path is unaffected (🎯T34). Backward compatible: never call it and every frame renders exactly as before. A continuous sensor stream (accelerometer / gyro, 🎯T134) does **not** force a redraw on a static screen — it isn't discrete input, and on a physical device an always-on accelerometer would otherwise render every sample; if you want sensor-driven redraws in on-demand mode, call `requestRedraw()` from `onEvent`.
-- **Render-on-demand convenience layer (🎯T131)** — built on T132 so ge *assembles* the "render this frame?" decision and the app writes little-to-no on/off logic. One redraw bit, two ways to raise it: `requestRedraw()` (the *edge* — discrete transitions; any number of calls per frame from any thread coalesce to one wake + one frame, no central collector) and **`Context::addRenderTrigger(pred)`** (the *level* — a predicate ge polls each frame; the loop renders while any trigger is true and idles when all are false, drawing the settling frame on the way down). Built-ins so the common sources cost ~no code: **`ge::box2d::renderWhileAwake(ctx, world)`** (`<ge/box2d_render.h>`, 🎯T131.2 — render while the b2 world has an awake body; island-sleep is velocity-thresholded, hence noise-immune), and ge's interactors self-invalidate — **`ge::Button` / `ButtonGroup` / `LongPressWatcher` / `GlobeController` gained an `onRedraw` sink** (🎯T131.3) fired on visible-state transitions (edge) or while active (level — a long-press timer, globe inertia), so wiring `widget.onRedraw = [ctx]{ ctx.requestRedraw(); }` once gives correct on-demand feedback with zero render-control code; raw `DampedValue` / `DampedRotation` expose `isMoving()` for a one-line `addRenderTrigger`. **`Context::renderWhenStateChanges(genFn)`** (🎯T131.4) is the zero-bookkeeping tier for discrete-state screens (menus): provide an O(1) generation counter that changes when render-relevant State changes (the `tweak::generation()` pattern), ge renders only on a change and idles when stable — render must be a pure function of State with no ambient time (the 🎯T124 contract); incidental fields (timestamps) must be excluded or it never idles. **`Context::framesPresented()`** (🎯T131.5) is the monotonic present counter — flat ⇒ idle, advancing ⇒ rendering — the ground-truth that presents fell to ~0/sec (onMetrics / `fps()` go *stale*, not zero, when idle). `sample/tiltbuggy` demonstrates it end-to-end under `GE_RENDER_ON_DEMAND=1` (box2d-awake trigger; held still → buggy sleeps → idles at 0% CPU; a tilt wakes it via `Scene::wakeBuggy` + `requestRedraw`); `tools/render-on-demand-check.sh` is the desktop idle check (device arms via spyder `app_perf_get frames_presented`). Brokered streaming quiet-when-static is emergent (the detection is server-side) and gated on 🎯T34, not built here.
+- **Render-on-demand convenience layer (🎯T131)** — built on T132 so ge *assembles* the "render this frame?" decision and the app writes little-to-no on/off logic. One redraw bit, two ways to raise it: `requestRedraw()` (the *edge* — discrete transitions; any number of calls per frame from any thread coalesce to one wake + one frame, no central collector) and **`Context::addRenderTrigger(pred)`** (the *level* — a predicate ge polls each frame; the loop renders while any trigger is true and idles when all are false, drawing the settling frame on the way down). Built-ins so the common sources cost ~no code: **`ge::box2d::renderWhileAwake(ctx, world)`** (`<ge/box2d_render.h>`, 🎯T131.2 — render while the b2 world has an awake body; island-sleep is velocity-thresholded, hence noise-immune), and ge's interactors self-invalidate — **`ge::Button` / `ButtonGroup` / `LongPressWatcher` / `GlobeController` gained an `onRedraw` sink** (🎯T131.3) fired on visible-state transitions (edge) or while active (level — a long-press timer, globe inertia), so wiring `widget.onRedraw = [ctx]{ ctx.requestRedraw(); }` once gives correct on-demand feedback with zero render-control code; raw `DampedValue` / `DampedRotation` expose `isMoving()` for a one-line `addRenderTrigger`. **`Context::renderWhenStateChanges(genFn)`** (🎯T131.4) is the zero-bookkeeping tier for discrete-state screens (menus): provide an O(1) generation counter that changes when render-relevant State changes (the `tweak::generation()` pattern), ge renders only on a change and idles when stable — render must be a pure function of State with no ambient time (the 🎯T124 contract); incidental fields (timestamps) must be excluded or it never idles. **`Context::framesPresented()`** (🎯T131.5) is the monotonic present counter — flat ⇒ idle, advancing ⇒ rendering — the ground-truth that presents fell to ~0/sec (onMetrics / `fps()` go *stale*, not zero, when idle). `sample/tiltbuggy` demonstrates it end-to-end under `RENDER_ON_DEMAND=1` (box2d-awake trigger; held still → buggy sleeps → idles at 0% CPU; a tilt wakes it via `Scene::wakeBuggy` + `requestRedraw`); `tools/render-on-demand-check.sh` is the desktop idle check (device arms via spyder `app_perf_get frames_presented`). Brokered streaming quiet-when-static is emergent (the detection is server-side) and gated on 🎯T34, not built here.
 - **Device-tilt parallax (`parallax()` + `SessionHostConfig.parallaxFactor`, 🎯T9)** — Reproduces the Apple Spatial Scenes effect: subtle device tilt drives a parallax offset that the game applies to its scene. Set `SessionHostConfig.parallaxFactor` > 0 to opt in (the same float controls both opt-in and sensitivity, scaling the engine's screen-XY delta before exposure). The engine maintains a 1.0 s EMA baseline so sustained tilts settle to the new neutral; `Context::parallax()` returns the recent delta as `la::float2{rotX, rotY}` in radians, suitable for `cameraOffset += ctx.parallax() * depth;` or feeding a small rotation matrix. Sensor source: iOS `CMMotionManager.deviceMotion.attitude` (sensor-fused, captures vertical-axis twist that gravity alone misses); Android `Sensor.TYPE_GAME_ROTATION_VECTOR` via JNI to the activity's `getAttitude()` (gyro+accel, no magnetometer — the EMA absorbs whatever heading reference Android picks). Desktop is a no-op (returns `{0, 0}`). Wire-mode parallax (player→server attitude streaming) is deferred until the player port lands.
 - **`ge::Rect`** — `{ x, y, w, h }` float rectangle. Returned by `Context::drawSafeRectInPts()`, `Context::uiSafeRectInPts()`, and `Context::fullRectInPts()` (all in point space per 🎯T60; +y points down per SDL screen-coord convention). The Rect type is **direction-agnostic** (caller decides what +y means) and **sign-honest** (methods compute their formulas as written; signed-area rects produce well-defined non-conventional results rather than asserting). Corner accessors are direction-agnostic: `x0y0()`, `x1y0()`, `x0y1()`, `x1y1()` — first index is position along x (0 = origin, 1 = far), second along y.
   - **Constructors:**
@@ -741,7 +742,7 @@ internally it's two sokol pipelines (line list + triangle list) sharing one
 program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
 
 - **`ge::debug::enabled()` / `setEnabled(bool)`** — runtime on/off. First query
-  latches the `GE_DEBUG_OVERLAY` env var (`1/true/yes/on` → enabled), else off.
+  latches the `DEBUG_OVERLAY` env var (`1/true/yes/on` → enabled), else off.
 - **`ge::debug::line` / `tri`** — ad-hoc world-space primitives (`la::float2` or
   `la::float3`), transformed by the `worldToClip` passed to `flush`.
 - **Submit-mesh convention — `ge::debug::mesh(verts, indices, wireColor=magenta, fillColor={})`**
@@ -783,7 +784,7 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   are created lazily on first enabled flush.
 
 `sample/tiltbuggy` demonstrates all three surfaces end-to-end (sector-tinted
-playfield, buggy-chassis wireframe, tilt HUD); run it with `GE_DEBUG_OVERLAY=1`.
+playfield, buggy-chassis wireframe, tilt HUD); run it with `DEBUG_OVERLAY=1`.
 
 ### Protocol
 
@@ -963,7 +964,7 @@ ge::iap::buy("pro", [](ge::iap::Result r) {
 ge::iap::restore([](auto){ });  // Apple App Review requires a "Restore Purchases" button — route here.
 ```
 
-**Backend selection** at process startup from `GE_IAP_MODE`:
+**Backend selection** at process startup from `IAP_MODE`:
 
 | Mode | Backend | When |
 |---|---|---|
@@ -1022,13 +1023,13 @@ The bridge is wired into the iOS Xcode project via CMake (`enable_language(Swift
 
 **Adding new SK2 surface:** extend the `GEStoreKit2Bridge` / `GEStoreKit2Listener` protocols in `iap_apple_bridge.h`, add the Swift implementation in `iap_apple.swift`, route from C++ in `iap_apple.mm`. The protocol-typed `id<GEStoreKit2Bridge>` keeps C++ type-checked.
 
-**LocalStore mode on iOS (🎯T65.4).** When `GE_IAP_MODE=local`, `iap_apple.mm` instantiates `GEStoreKit2LocalBridgeImpl` (from `iap_apple_local.swift`) instead of `GEStoreKit2BridgeImpl`. The local bridge starts an `SKTestSession` pointed at `StoreKit.storekit` in the app bundle, then delegates all product/purchase calls to the production bridge — the session intercepts StoreKit calls globally. Consumer setup:
+**LocalStore mode on iOS (🎯T65.4).** When `IAP_MODE=local`, `iap_apple.mm` instantiates `GEStoreKit2LocalBridgeImpl` (from `iap_apple_local.swift`) instead of `GEStoreKit2BridgeImpl`. The local bridge starts an `SKTestSession` pointed at `StoreKit.storekit` in the app bundle, then delegates all product/purchase calls to the production bridge — the session intercepts StoreKit calls globally. Consumer setup:
 
 1. Run `make ge/storekit-init` to copy `ge/ios/StoreKit.storekit` into `ios/StoreKit.storekit`.
 2. Edit the file to match your `setCatalogue()` registration (remember: ge auto-prefixes local IDs, so `"pro"` → `"com.squz.mygame.pro"`).
 3. In Xcode: **Build Phases → Copy Bundle Resources** → add `StoreKit.storekit`.
 4. In Xcode: **Build Phases → Link Binary With Libraries** → add `StoreKitTest.framework`, set to **Optional**.
-5. Set `GE_IAP_MODE=local` in the Xcode scheme environment variables.
+5. Set `IAP_MODE=local` in the Xcode scheme environment variables.
 
 See `docs/iap-testing.md` for the full LocalStore walkthrough and Android `android.test.*` SKU mapping.
 
@@ -1058,17 +1059,19 @@ make unit-test    # Build and run ge unit tests
 
 ### Modifying the engine
 
-Changes to `ge/` affect all apps that consume it. After modifying engine code, rebuild both the app and player to ensure compatibility:
+Changes to `ge/` affect all apps that consume it. After modifying the
+stream wire (`include/ge/Protocol.h` / server encoder), rebuild the
+server here and the spyder player there so both sides stay compatible:
 
 ```bash
-make && make player
+make server
+# in spyder: make player
 ```
 
 ### Modifying the player
 
-The player entry point is `ge/tools/player.cpp`. The Apple capture backend is `ge/tools/player_capture_apple.mm`. Mobile player ports (`ge/tools/ios/`, `ge/tools/android/`) are dormant pending 🎯T34 (sokol_gfx rewrite).
-
-The player is app-agnostic — it decodes and displays whatever H.264 stream it receives. Avoid adding app-specific logic to the player.
+Player sources live in the **spyder** repo under `player/`. Do not add
+player code back into ge.
 
 ### Modifying the streaming protocol
 

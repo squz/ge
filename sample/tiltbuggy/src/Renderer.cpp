@@ -246,7 +246,7 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         i_->batch.submit(titleMvp);
     }
 
-    // 🎯T97 debug overlay — opt-in (GE_DEBUG_OVERLAY); a no-op while disabled.
+    // 🎯T97 debug overlay — opt-in (DEBUG_OVERLAY); a no-op while disabled.
     {
         const auto che = scene.chassisHalfExtents();
         ge::debug::box(ge::Rect{-hwid, -he, 2.f * hwid, 2.f * he});

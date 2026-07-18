@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Pre-commit hook: catch stale prebuilt/ios-arm64/ artefacts before they
-# escape to a push. Activated by `git config core.hooksPath scripts/hooks`
-# (per global CLAUDE.md's post-clone hooks rule).
+# Pre-commit hook for ge.
+# Activated by: git config core.hooksPath scripts/hooks
 #
-# Triggers verifier only when staged changes affect inputs to the
-# prebuilts; otherwise stays silent.
+# 1) Always: reject staged binary paths that have filter=lfs but whose
+#    index blob is not an LFS pointer (would bloat the git object store).
+# 2) When prebuilt inputs change: run tools/verify-prebuilds.py.
 #
 # Bypass for an unrelated change:  git commit --no-verify
 #
@@ -13,11 +13,46 @@
 
 set -euo pipefail
 
-# What might affect the prebuilts? Source compiled into libge, lifted
-# headers consumed by vendor compiles, the prebuild/lift scripts
-# themselves, and the submodule pointers (.gitmodules + the gitlink
-# tree entries under vendor/github.com/, but we check the gitmodules
-# file as a coarse proxy + the manifest itself catches gitlink drift).
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# ── 1. Git LFS: staged files with filter=lfs must be pointers ─────────────
+# Covers new prebuilt/**/*.a, vendor .a, jars, etc. once .gitattributes
+# routes them through LFS. A missing git-lfs clean filter is the usual
+# failure mode (full archive committed as a plain blob).
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
+
+lfs_bad=()
+for path in "${staged[@]}"; do
+  # Renames: check the destination path only.
+  filter="$(git check-attr filter -- "$path" | awk -F': ' '{print $NF}')"
+  if [[ "$filter" != "lfs" ]]; then
+    continue
+  fi
+  # Index blob must start with the LFS pointer header (small text file).
+  if ! git cat-file -p ":$path" 2>/dev/null | head -c 100 | grep -q '^version https://git-lfs.github.com/spec/v1'; then
+    lfs_bad+=("$path")
+  fi
+done
+
+if ((${#lfs_bad[@]} > 0)); then
+  {
+    echo "error: staged file(s) are LFS-tracked but not LFS pointers:"
+    for p in "${lfs_bad[@]}"; do
+      size="$(git cat-file -s ":$p" 2>/dev/null || echo '?')"
+      echo "  $p  (index blob ~${size} bytes)"
+    done
+    echo ""
+    echo "Fix: install git-lfs, then re-stage:"
+    echo "  git lfs install"
+    echo "  git lfs track   # confirm patterns in .gitattributes"
+    echo "  git add --renormalize -- ${lfs_bad[*]}"
+    echo ""
+    echo "Never commit large .a/.so/.jar as plain git blobs."
+  } >&2
+  exit 1
+fi
+
+# ── 2. Prebuilt freshness (only when relevant paths are staged) ───────────
 RELEVANT_PATTERNS=(
   '^src/'
   '^include/'
@@ -33,11 +68,7 @@ RELEVANT_PATTERNS=(
   '^prebuilt/'
 )
 
-# Staged-but-unpushed paths.
-mapfile -t staged < <(git diff --cached --name-only)
-
-# Also include any vendor/github.com/* gitlink updates (submodule SHA
-# bumps don't always touch .gitmodules — only the gitlink in tree).
+# Submodule SHA bumps (gitlink) under vendor/github.com/.
 for path in "${staged[@]}"; do
   if [[ "$path" == vendor/github.com/* ]] && \
      [[ "$(git ls-files --stage -- "$path" 2>/dev/null | awk '{print $1}')" == "160000" ]]; then
@@ -45,7 +76,6 @@ for path in "${staged[@]}"; do
   fi
 done
 
-# Does any staged file match a relevant pattern?
 relevant=false
 for path in "${staged[@]}"; do
   for pat in "${RELEVANT_PATTERNS[@]}"; do
@@ -60,5 +90,4 @@ if ! $relevant; then
   exit 0
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
 exec python3 "$REPO_ROOT/tools/verify-prebuilds.py"

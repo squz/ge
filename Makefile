@@ -109,21 +109,29 @@ prebuild-ios-arm64-simulator:
 prebuild-android-arm64:
 	tools/prebuild.sh android-arm64
 
+# Debug prebuilts: prebuilt/<platform>-debug/ with -g -O2 on *all* archives
+# (libge + vendor) so optimised-only bugs still reproduce under the debugger.
+# GE_PREBUILD_OPT=0 for true -O0. Android Studio Debug links
+# android-arm64-debug via cmake/android-arm64.cmake.
+prebuild-ios-arm64-debug:
+	tools/prebuild.sh --debug ios-arm64
+
+prebuild-ios-arm64-simulator-debug:
+	tools/prebuild.sh --debug ios-arm64-simulator
+
+prebuild-android-arm64-debug:
+	tools/prebuild.sh --debug android-arm64
+
+prebuild-debug: prebuild-ios-arm64-debug prebuild-ios-arm64-simulator-debug prebuild-android-arm64-debug
+
 prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
 
-# Source-only engine refresh: rebuild just libge.a for each platform and
-# preserve existing vendor archives + their manifest input hashes. Use this
-# when ge sources/headers change but vendor submodules and vendor sources do not.
-prebuild-libge-ios-arm64:
-	tools/prebuild.sh --libge-only ios-arm64
-
-prebuild-libge-ios-arm64-simulator:
-	tools/prebuild.sh --libge-only ios-arm64-simulator
-
-prebuild-libge-android-arm64:
-	tools/prebuild.sh --libge-only android-arm64
-
-prebuild-libge: prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator prebuild-libge-android-arm64
+# Historical names: always full cook (partial libge-only cooks removed).
+prebuild-libge-ios-arm64: prebuild-ios-arm64
+prebuild-libge-ios-arm64-simulator: prebuild-ios-arm64-simulator
+prebuild-libge-android-arm64: prebuild-android-arm64
+prebuild-libge: prebuild
+prebuild-libge-android-arm64-debug: prebuild-android-arm64-debug
 
 # ── ge-maintenance rules (not for consuming apps) ──────────────────
 #

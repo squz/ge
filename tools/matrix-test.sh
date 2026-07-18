@@ -471,19 +471,19 @@ cell_ios_sim_player() {
     sleep 2
 
     # Terminate → install → launch.
-    xcrun simctl terminate booted com.squz.player 2>/dev/null || true
+    xcrun simctl terminate booted com.spyder.player 2>/dev/null || true
     if ! run xcrun simctl install booted "$app_path"; then
         record "$cell" FAIL "simctl install"
         kill_bg "$srv_pid"; return
     fi
-    if ! run xcrun simctl launch booted com.squz.player; then
+    if ! run xcrun simctl launch booted com.spyder.player; then
         record "$cell" FAIL "simctl launch"
         kill_bg "$srv_pid"; return
     fi
 
     if ! wait_for_sessions $((baseline + 1)); then
         record "$cell" FAIL "no new session after launch"
-        xcrun simctl terminate booted com.squz.player 2>/dev/null || true
+        xcrun simctl terminate booted com.spyder.player 2>/dev/null || true
         kill_bg "$srv_pid"; return
     fi
     sleep "$TIMEOUT"
@@ -491,7 +491,7 @@ cell_ios_sim_player() {
     local shot="$TMPDIR_ROOT/$cell-untilted.png"
     xcrun simctl io booted screenshot "$shot" >/dev/null 2>&1
 
-    xcrun simctl terminate booted com.squz.player 2>/dev/null || true
+    xcrun simctl terminate booted com.spyder.player 2>/dev/null || true
     kill_bg "$srv_pid"
 
     if [[ ! -s "$shot" ]]; then
@@ -628,15 +628,15 @@ cell_android_emu_player() {
     local srv_pid=$!
     sleep 2
 
-    $adb_cmd shell am force-stop com.squz.player 2>/dev/null || true
+    $adb_cmd shell am force-stop com.spyder.player 2>/dev/null || true
     run $adb_cmd install -r "$apk" \
         || { record "$cell" FAIL "adb install"; kill_bg "$srv_pid"; return; }
-    run $adb_cmd shell am start -n com.squz.player/.GeActivity \
+    run $adb_cmd shell am start -n com.spyder.player/.PlayerActivity \
         || { record "$cell" FAIL "adb am start"; kill_bg "$srv_pid"; return; }
 
     if ! wait_for_sessions $((baseline + 1)); then
         record "$cell" FAIL "no new session after launch"
-        $adb_cmd shell am force-stop com.squz.player 2>/dev/null || true
+        $adb_cmd shell am force-stop com.spyder.player 2>/dev/null || true
         kill_bg "$srv_pid"; return
     fi
     sleep "$TIMEOUT"
@@ -644,7 +644,7 @@ cell_android_emu_player() {
     local shot="$TMPDIR_ROOT/$cell-untilted.png"
     $adb_cmd exec-out screencap -p > "$shot" 2>/dev/null
 
-    $adb_cmd shell am force-stop com.squz.player 2>/dev/null || true
+    $adb_cmd shell am force-stop com.spyder.player 2>/dev/null || true
     kill_bg "$srv_pid"
 
     if [[ ! -s "$shot" ]]; then

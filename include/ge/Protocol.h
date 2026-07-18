@@ -11,8 +11,8 @@
 static_assert(std::endian::native == std::endian::little, "Little-endian required");
 
 // Wire protocol for the streaming dev mode (H.264 baseline + command-stream rung).
-// The server either encodes H.264 (GE2V) or serialises a sokol command stream
-// (GE2S); the player decodes/replays and forwards SDL input over the same
+// The server either encodes H.264 (SP2V) or serialises a sokol command stream
+// (SP2S); the player decodes/replays and forwards SDL input over the same
 // spyder-brokered WebSocket. Rung negotiation is end-to-end (see DeviceInfo
 // capabilities + SessionConfig.transport); the relay is magic-agnostic.
 //
@@ -20,20 +20,20 @@ static_assert(std::endian::native == std::endian::little, "Little-endian require
 // with the rest of the Dawn/WebGPU dependency.
 namespace wire {
 
-// Magic numbers for message type identification (ASCII: "GE2x")
-constexpr uint32_t kDeviceInfoMagic     = 0x47453244;  // "GE2D" — player → relay: player dimensions/class
-constexpr uint32_t kSdlEventMagic       = 0x47453249;  // "GE2I" — player → server: SDL input event
-constexpr uint32_t kSessionEndMagic     = 0x4745324D;  // "GE2M" — relay → player: server disconnected
-constexpr uint32_t kServerAssignedMagic = 0x4745324E;  // "GE2N" — relay → player: assigned server name
-constexpr uint32_t kCommandStreamMagic  = 0x47453253;  // "GE2S" — server → player: cmdstream ops (T128)
-constexpr uint32_t kSqlpipeMsgMagic     = 0x47453254;  // "GE2T" — bidirectional sqlpipe messages
-constexpr uint32_t kVideoStreamMagic    = 0x47453256;  // "GE2V" — server → relay: H.264 NALs
-constexpr uint32_t kStreamStartMagic    = 0x47453257;  // "GE2W" — relay → player: start streaming
-constexpr uint32_t kStreamStopMagic     = 0x47453258;  // "GE2X" — relay → player: stop streaming
-constexpr uint32_t kSafeAreaMagic       = 0x47453245;  // "GE2E" — player → server: safe area update
-constexpr uint32_t kLifecycleMagic      = 0x4745324C;  // "GE2L" — player → server: viewer lifecycle
-constexpr uint32_t kAspectLockMagic     = 0x47453260;  // "GE2`" — server → player: lock aspect ratio
-constexpr uint32_t kSessionConfigMagic  = 0x47453243;  // "GE2C" — server → player: session requirements
+// Magic numbers for message type identification (ASCII: "SP2x")
+constexpr uint32_t kDeviceInfoMagic     = 0x53503244;  // "SP2D" — player → relay: player dimensions/class
+constexpr uint32_t kSdlEventMagic       = 0x53503249;  // "SP2I" — player → server: SDL input event
+constexpr uint32_t kSessionEndMagic     = 0x5350324D;  // "SP2M" — relay → player: server disconnected
+constexpr uint32_t kServerAssignedMagic = 0x5350324E;  // "SP2N" — relay → player: assigned server name
+constexpr uint32_t kCommandStreamMagic  = 0x53503253;  // "SP2S" — server → player: cmdstream ops (T128)
+constexpr uint32_t kSqlpipeMsgMagic     = 0x53503254;  // "SP2T" — bidirectional sqlpipe messages
+constexpr uint32_t kVideoStreamMagic    = 0x53503256;  // "SP2V" — server → relay: H.264 NALs
+constexpr uint32_t kStreamStartMagic    = 0x53503257;  // "SP2W" — relay → player: start streaming
+constexpr uint32_t kStreamStopMagic     = 0x53503258;  // "SP2X" — relay → player: stop streaming
+constexpr uint32_t kSafeAreaMagic       = 0x53503245;  // "SP2E" — player → server: safe area update
+constexpr uint32_t kLifecycleMagic      = 0x5350324C;  // "SP2L" — player → server: viewer lifecycle
+constexpr uint32_t kAspectLockMagic     = 0x53503260;  // "SP2`" — server → player: lock aspect ratio
+constexpr uint32_t kSessionConfigMagic  = 0x53503243;  // "SP2C" — server → player: session requirements
 
 // v7: DeviceInfo.capabilities + SessionConfig.transport (command-stream ladder).
 // v8: dual safe rects on DeviceInfo / SafeAreaUpdate (draw vs ui).
@@ -41,7 +41,7 @@ constexpr uint16_t kProtocolVersion = 8;
 constexpr size_t   kMaxMessageSize = 512 * 1024 * 1024;  // 512MB (matches ged/bridge.go)
 
 // DeviceInfo.capabilities bits (player → server).
-constexpr uint8_t kCapCommandStream = 1u << 0;  // player can replay GE2S
+constexpr uint8_t kCapCommandStream = 1u << 0;  // player can replay SP2S
 constexpr uint8_t kCapDualSafe      = 1u << 1;  // drawSafe* fields present and meaningful
 
 // SessionConfig.transport (server → player): selected rung after intersection.
@@ -170,5 +170,12 @@ struct MessageHeader {
     uint32_t magic;
     uint32_t length;  // Payload length in bytes
 };
+
+// Layout oracles — spyder player has a matching client header
+// (player/include/wire/Protocol.h). Protocol-only coupling: keep
+// magics and sizes identical when either side changes the wire.
+static_assert(sizeof(MessageHeader) == 8, "wire MessageHeader is 8 bytes");
+static_assert(kVideoStreamMagic == 0x53503256u, "SP2V");
+static_assert(kSdlEventMagic == 0x53503249u, "SP2I");
 
 } // namespace wire

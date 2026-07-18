@@ -15,7 +15,8 @@
 // onCapturedFrame() on the game thread, H.264-encoded, and sent as a
 // kVideoStreamMagic packet. Relayed SDL events arrive on the input thread and
 // are pushed into the SDL event queue (DirectRenderHost's pumpEvents dispatches
-// them). Single player. LAN/dev only.
+// them). Multi-session fan-out encode (🎯T100.2): multiple players may
+// attach; video is broadcast to every open wire. LAN/dev only.
 #pragma once
 
 #include <ge/Protocol.h>
@@ -77,7 +78,7 @@ public:
     // Owned by this session; outlives the host while start()..stop() is active.
     ViewerMetricsStore* viewerMetrics();
 
-    // 🎯T154 GE2T: bind the host Context::db() (:memory: under stream) so
+    // 🎯T154 SP2T: bind the host Context::db() (:memory: under stream) so
     // player snapshots can seed it and continuous / detach pushes can write
     // durable state back to the player. schemaDdl is re-applied after a
     // player seed so empty or older dumps cannot leave the working set
@@ -85,11 +86,11 @@ public:
     void setWorkingDb(std::shared_ptr<sqlpipe::Database> db,
                       std::string schemaDdl = {});
 
-    // 🎯T154 GE2T: fire-and-forget push of the working set to the player
+    // 🎯T154 SP2T: fire-and-forget push of the working set to the player
     // durable store. Rate-limited (~0.5s). Safe to call every frame from
     // the game thread; no-op when no player is attached. Does not block
     // on player ack — dump + wire send only.
-    void maybePushGe2t();
+    void maybePushSp2t();
 
 private:
     struct Impl;

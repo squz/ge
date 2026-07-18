@@ -33,3 +33,6 @@ vendor/bundle/
 # Playwright MCP browser session artefacts
 .playwright-mcp/
 asc-keys-page.png
+
+# Local reference captures (full-res, not for git)
+.local-ref/

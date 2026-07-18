@@ -25,7 +25,7 @@ ge::run → windowed DirectRenderHost ge::run → runServer (console identity)
 
 Streaming discovery/state coupling: the *viewing* device must be Context authority while a player is attached; durable state on the player.
 
-The **player process** (`playerCore` / Android `com.squz.player`) is **not** a `ge::run` app. It is a display + sensor proxy. Completing the polymorphic API does **not** require the player to become a full game (T34 is related polish); it requires the **server-side game** to see a complete virtual device through the same types.
+The **player process** (`playerCore` / Android `com.spyder.player`) is **not** a `ge::run` app. It is a display + sensor proxy. Completing the polymorphic API does **not** require the player to become a full game (T34 is related polish); it requires the **server-side game** to see a complete virtual device through the same types.
 
 ---
 
@@ -45,7 +45,7 @@ The **player process** (`playerCore` / Android `com.squz.player`) is **not** a `
 | `parallax()` | Host attitude (iOS/Android) | **Host** (Mac → usually 0) | **Yes — viewer attitude** (or document always-0 under stream if parallax is direct-only feature) |
 | `presentationTilt()` | AccelSynth on host | AccelSynth on **server** from remote mouse | **Out of scope** (AccelSynth axis) |
 | `fps()` / `frameTime()` / `framesPresented()` | Host run loop | Host run loop (server tick) | **Partial:** OK as *simulation/present rate of game process*; not viewer display FPS. Optional: expose viewer FPS later — not required for decoupling if documented |
-| `db()` | PrefPath `game.db` on device | **`:memory:`** working set; player holds per-game durable file | **shipped** — GE2T attach seed + ~0.5s stream push + detach; path `<ge-player pref>/games/<serverName>.db` |
+| `db()` | PrefPath `game.db` on device | **`:memory:`** working set; player holds per-game durable file | **shipped** — SP2T attach seed + ~0.5s stream push + detach; path `<ge-player pref>/games/<serverName>.db` |
 | Tweaks DB | PrefPath `tweaks.db` on host | Server Mac | **Yes — with player state** or session-ephemeral policy |
 | `swapchainPass()` | Local present | Present + capture/cmdstream side effect | **OK if opaque:** game must not care; verify no stream branch in apps |
 | Render-on-demand APIs | Direct only (docs: brokered unaffected) | Continuous forced for stream | **Yes or document:** either ROD works under stream (viewer still, save encode) or API returns “always continuous” without game branching |
@@ -54,7 +54,7 @@ The **player process** (`playerCore` / Android `com.squz.player`) is **not** a `
 
 | Surface | Direct | Stream | Migrate? |
 |---------|--------|--------|----------|
-| Pointer / touch / mouse / wheel | Local SDL | GE2I memcpy SDL_Event; content map on player | **Harden:** full event set, multi-touch, focus, text input if used; tests |
+| Pointer / touch / mouse / wheel | Local SDL | SP2I memcpy SDL_Event; content map on player | **Harden:** full event set, multi-touch, focus, text input if used; tests |
 | Keyboard | Local | Forwarded | **Harden** |
 | `SDL_EVENT_SENSOR_UPDATE` | Local (+ AccelSynth path) | Player screen-rotated samples; server skips re-rotate when streaming | **Harden:** sensor on/off, availability, rate; **AccelSynth out of scope** |
 | Other sensors (gyro raw, etc.) | If any | Not on wire | **Only if games use them** — audit samples; default out until needed |
@@ -76,8 +76,8 @@ The **player process** (`playerCore` / Android `com.squz.player`) is **not** a `
 
 | Surface | Status | Migrate? |
 |---------|--------|----------|
-| H.264 GE2V | Works | Keep as negotiated present rung |
-| Cmdstream GE2S | Works (sprite/recipe subset) | Keep; expand under T128 family |
+| H.264 SP2V | Works | Keep as negotiated present rung |
+| Cmdstream SP2S | Works (sprite/recipe subset) | Keep; expand under T128 family |
 | SessionConfig (sensors, orientation, transport) | Partial | **immersive / disableScreenSaver missing on wire** (Pixel status bar repro 2026-07-14) → 🎯T154.2 |
 | AspectLock | Protocol exists | Wire if games need forced letterbox policy |
 | “Game doesn’t branch on stream” | Mostly true for draw API | **Guard:** no sample checks transport/env |
@@ -89,7 +89,7 @@ Present stays **push to viewer**; decoupling means the game never opens sockets 
 | Surface | Status | Migrate? |
 |---------|--------|----------|
 | `Context::db()` path | Server uses Mac PrefPath when org/app set — **contradicts** SessionHostConfig comment (“headless :memory:, player owns via sqlpipe”) | **Yes — fix:** stream session db is player-authoritative |
-| `kSqlpipeMsgMagic` (GE2T) | Defined, **no server/player handlers** | **Yes — implement** bidirectional sqlpipe |
+| `kSqlpipeMsgMagic` (SP2T) | Defined, **no server/player handlers** | **Yes — implement** bidirectional sqlpipe |
 | Tweak overrides | Server-local file | **Yes — player or sqlpipe** |
 | Save games / progress in samples | Via db or files | **Player store** under stream |
 
@@ -111,7 +111,7 @@ Present stays **push to viewer**; decoupling means the game never opens sockets 
 | Server = hidden `DirectRenderHost` on Mac | Context defaults to Mac until viewer metrics applied | **WireDevice (or equivalent)** owns discovery refresh from player only while attached; host window is encode target only |
 | Player not `ge::run` | Fine for dumb glass; discovery must still be complete | Complete discover/push protocols |
 | Multi-session (≥0 players) | Which viewer’s metrics apply per game instance? | **Per-session Context** from that session’s player |
-| `GE_TRANSPORT`, relay URL | Process env for server packaging | OK if **outside** game code |
+| `TRANSPORT`, relay URL | Process env for server packaging | OK if **outside** game code |
 | Spyder streamrelay | Byte-agnostic pipe | Keep; new magics for lifecycle/sqlpipe/IAP as needed |
 
 ---
@@ -134,7 +134,7 @@ Present stays **push to viewer**; decoupling means the game never opens sockets 
 3. **Content vs viewer contract documented:** fullRect/surface size policy fixed; safe insets expressed in content space.  
 4. **Input events** in content space; sensor samples match direct semantics for hardware paths.  
 5. **Lifecycle + audio policy** follow the **viewer** when streaming.  
-6. **Durable `ctx.db()` (and tweaks) on the player** via sqlpipe (GE2T); server ephemeral OK for sim.  
+6. **Durable `ctx.db()` (and tweaks) on the player** via sqlpipe (SP2T); server ephemeral OK for sim.  
 7. **Present** remains negotiated push; opaque to game via `swapchainPass`.  
 8. **IAP / haptics / refresh-rate / immersive** either work via player bridge or are documented unavailable with a single API that no-ops both sides consistently.  
 9. **AccelSynth out of scope.**  
@@ -156,7 +156,7 @@ be applied on the player. Host-only fields stay off the wire.
 | **`immersive`** | **Yes — status/nav bars** | **Yes — `kSessionFlagImmersive`** | Applied on player before DeviceInfo (T154.2) |
 | **`disableScreenSaver`** | **Yes — keep awake** | **Yes — `kSessionFlagNoScreenSaver`** | Applied on player before DeviceInfo (T154.2) |
 | `width` / `height` | Content surface (initial) | Server-local; **aspect retargets to viewer** under stream | Content fills glass; fullRect is content space |
-| `orgName` / `appName` / `schemaDdl` | Durable id/db | Server :memory:; player store via GE2T | T154 sqlpipe residual |
+| `orgName` / `appName` / `schemaDdl` | Durable id/db | Server :memory:; player store via SP2T | T154 sqlpipe residual |
 | `parallaxFactor` | Motion feel | Not on wire; stream zeros parallax | Document or viewer attitude later |
 | `metricsReportThreshold` | Host process | Host only | OK host-only |
 | `crashDiagnostics` | Host process | Host only | OK host-only |
@@ -191,9 +191,9 @@ resulting glass, not a pre-init snapshot that needs patching.
 | **T154.2** | **SessionConfig policy on glass: immersive + disableScreenSaver** (status bar repro) |
 | T154.discovery | Dual safe rects when cutout API exists; density/class; Context contract |
 | T154.input | Event set completeness, content-space contract, tests |
-| T154.lifecycle | GE2L back/memory/fg/bg (partially shipped) |
+| T154.lifecycle | SP2L back/memory/fg/bg (partially shipped) |
 | T154.audio | Viewer focus/background drives pause policy |
-| T154.sqlpipe | GE2T + player durable db; server :memory: |
+| T154.sqlpipe | SP2T + player durable db; server :memory: |
 | T154.services | IAP/haptics/refresh bridges or uniform no-ops |
 | T154.host | Viewer metrics sole Context source while attached; multi-session |
 | T154.oracles | Docs matrix + sample + device proof |
@@ -207,8 +207,8 @@ resulting glass, not a pre-init snapshot that needs patching.
 | Content aspect matches viewer under stream | **shipped** (no letterbox gutters) |
 | Content-surface fullRect docs | **shipped** |
 | Stream server :memory: db (not PrefPath) | **shipped** (`durableDbPathForHost`) |
-| GE2T full player db sync | **snapshot rung shipped** (player durable PrefPath ↔ server :memory: attach seed + detach push); richer Peer protocol residual |
-| Viewer lifecycle GE2L + audio/back/memory inject | **shipped** |
+| SP2T full player db sync | **snapshot rung shipped** (player durable PrefPath ↔ server :memory: attach seed + detach push); richer Peer protocol residual |
+| Viewer lifecycle SP2L + audio/back/memory inject | **shipped** |
 | Parallax under stream | **{0,0}** (documented) |
 | make game / make server products | **shipped** in Module.mk |
 | Console server identity | **shipped** (🎯T154.1: Accessory + `make server`) |

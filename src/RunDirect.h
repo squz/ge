@@ -30,7 +30,7 @@ namespace ge {
 // once the loop exits (ServerSession::stop()).
 //
 // Command-stream (🎯T128): `beforeRender` / `afterRender` arm LiveCapture around
-// onRender so SpriteBatch serialises GE2S; when `capturePixels` is non-null and
+// onRender so SpriteBatch serialises SP2S; when `capturePixels` is non-null and
 // false, GPU framebuffer readback is skipped (sprite path does not need it).
 //
 // `viewer` — optional player surface metrics. When non-null and valid, the
@@ -40,12 +40,12 @@ struct ServerHook {
     std::function<void(const std::uint8_t*, int, int)> sink;
     std::atomic<bool>* active = nullptr;
     std::function<void()> onStop;
-    // contentW/H = host swapchain pixels (for GE2S FrameBegin aspect letterbox).
+    // contentW/H = host swapchain pixels (for SP2S FrameBegin aspect letterbox).
     std::function<void(int contentW, int contentH)> beforeRender;
     std::function<void()> afterRender;
     std::atomic<bool>* capturePixels = nullptr; // null ⇒ capture when active
     ViewerMetricsStore* viewer = nullptr;
-    // 🎯T154: after host Context is built, bind working db for GE2T apply.
+    // 🎯T154: after host Context is built, bind working db for SP2T apply.
     std::function<void(std::shared_ptr<sqlpipe::Database>)> bindDb;
 };
 

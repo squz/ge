@@ -60,8 +60,13 @@ void adoptConsoleProcessIdentity() {
 
 void runServer(Factory factory, const SessionHostConfig& config) {
     adoptConsoleProcessIdentity();
-    const std::string name =
+    std::string name =
         config.appName && *config.appName ? config.appName : "server";
+    // Optional catalogue override for multi-server proof / factory renames
+    // (🎯T100.5): GE_SERVER_NAME=multimaze2 bin/tiltbuggy-server.
+    if (const char* n = std::getenv("GE_SERVER_NAME"); n && *n) {
+        name = n;
+    }
 
     // The relay address is a RUNTIME parameter of a server build (an address,
     // not a mode): GE_SERVER=<host:port>, set by whatever spawns the instance
@@ -106,8 +111,8 @@ void runServer(Factory factory, const SessionHostConfig& config) {
     hook.beforeRender = [server](int w, int h) { server->onFrameBegin(w, h); };
     hook.afterRender = [server] {
         server->onFrameEnd();
-        // 🎯T154 GE2T: continuous fire-and-forget durable push (~0.5s).
-        server->maybePushGe2t();
+        // 🎯T154 SP2T: continuous fire-and-forget durable push (~0.5s).
+        server->maybePushSp2t();
     };
     hook.onStop = [server] { server->stop(); };
     // Capture schema so setWorkingDb can retain it for post-seed re-apply.

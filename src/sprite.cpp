@@ -4,7 +4,7 @@
 // T38 spike: sokol_gfx port of ge::Sprite + ge::SpriteBatch.
 //
 // One global pipeline (created lazily), one sampler, and one
-// SG_USAGE_STREAM vertex buffer fed via sg_append_buffer. sokol's
+// SG_USASTREAM vertex buffer fed via sg_append_buffer. sokol's
 // "one update per frame, many appends per frame" model maps cleanly
 // onto how SpriteBatch streams its per-frame quad-vertex runs.
 
@@ -69,7 +69,7 @@ Sprite& Sprite::operator=(Sprite&& o) noexcept {
 
 namespace {
 
-// Per-buffer size of each pooled SG_USAGE_STREAM vertex buffer (~1820
+// Per-buffer size of each pooled SG_USASTREAM vertex buffer (~1820
 // quads). All Sprite::draw + SpriteBatch::submit calls in a frame share
 // the pool, appending into the current buffer until it fills, then
 // spilling into the next pooled buffer (🎯T113). A frame that needs

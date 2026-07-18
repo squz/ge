@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "prebuilt_key": "ios-arm64-simulator",
+  "config": "release",
+  "opt": "-O2",
+  "flags": "-O2 -fvisibility=hidden -fno-color-diagnostics -target arm64-apple-ios16.3-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk",
+  "flags_sha256": "4466f4539abe82ae345d15939045277dd2a122eb736f1eb9c8a942fc38477766",
+  "utc": "2026-07-15T12:40:51Z",
+  "archives": {
+    "box2d": "16ef4262a3e3d142fd27b18d511adb2321ea9545504326e52f44f589d9c8efb4",
+    "ge": "6831e29fb53cd2ad57409bd92babca7e0a2ec3eaed89d5005d16255d6977f254",
+    "liteparser": "32aa18e27c6452f13a0b6bf43c5bf0d289a14b7f4c9a8a1bc848416101bd1c12",
+    "lunasvg_ge": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
+    "lz4_ge": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
+    "plutovg_ge": "ee0db6b08a6cb02008fbf3e098c9649feb2db943e5d9f14a9f2edc1040452f09",
+    "sqlite3_ge": "e9f43cb6fd03ac59c6b5ae806ea9f960b3166b3a57377a18b582c34df482171b"
+  }
+}

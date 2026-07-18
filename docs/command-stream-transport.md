@@ -483,15 +483,16 @@ Metal path. The spike therefore:
 1. Ships a **codec + content-addressed cache** (`ge::cmdstream`) with a
    synthetic tiltbuggy-like scene for cold/warm/create-tax measurement
    (class-1 oracle: `CmdStream_test.cpp`).
-2. Uses **wire negotiation** (`DeviceInfo.capabilities` ∩ `GE_TRANSPORT=cmdstream`
-   → `SessionConfig.transport`) and a **GE2S spike frame** on negotiate so the
+2. Uses **wire negotiation** (`DeviceInfo.capabilities` ∩ server rungs →
+   best common `SessionConfig.transport`; cmdstream preferred over H.264;
+   `TRANSPORT=h264` forces baseline) and a **SP2S spike frame** on negotiate so the
    player/relay path is live without a full GPU capture backend yet.
 3. Leaves **live sokol capture** to `sg_install_trace_hooks` (Apple) / a null
    serialising `ge_sg_api` (Android dispatch, T128.6). Full GPU replay is the
    remaining residue of this spike.
 
 spyder needs **no broker code change** for the rung; 🎯T97 is the class-1
-proof that non-`GE2V` magics pipe and counter correctly.
+proof that non-`SP2V` magics pipe and counter correctly.
 
 ### Synthetic go/no-go (2026-07-14, class-1)
 
@@ -512,10 +513,11 @@ estimate at 2048×1536):
 reconnect crush full-res H.264; create-tax and cold dump are one-time costs in
 the accepted class.
 
-### Runnable interim on device (2026-07-14) — GE2S Present
+### Runnable interim on device (2026-07-14) — SP2S Present
 
 Until full sokol capture/replay (T128.2.1 / T128.2.2), the multi-session server
-ships a **framebuffer Present** over GE2S when `GE_TRANSPORT=cmdstream`:
+ships a **framebuffer Present** over SP2S when cmdstream is selected
+(player `kCapCommandStream`, unless `TRANSPORT=h264`):
 
 - Capture sink is RGBA; Present tagged RGBA (wrong BGRA tag → blue dirt).
 - LZ4 + content-addressed blobs; **identical frames are not sent** (player holds
@@ -532,7 +534,7 @@ ships a **framebuffer Present** over GE2S when `GE_TRANSPORT=cmdstream`:
 | Colours | Correct after RGBA tag (brown dirt) |
 | 16 KB page dialog | Fixed by restoring player T75 linker flag + `c++_static` |
 
-**Implication:** Present is enough to prove negotiation, GE2S, cache, and device
+**Implication:** Present is enough to prove negotiation, SP2S, cache, and device
 playback. It is **not** the bandwidth win for motion — that still needs draw-list
 remoting. Synthetic codec GO stands; OTA Present GO is only for still/dev
 preview until T128.2.1/2.2 land.

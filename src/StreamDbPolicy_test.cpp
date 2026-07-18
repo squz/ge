@@ -1,7 +1,7 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// 🎯T154: drive the shipped durableDbPath + GE2T dump/load policy.
+// 🎯T154: drive the shipped durableDbPath + SP2T dump/load policy.
 
 #include <doctest.h>
 #include <ge/StreamHostPolicy.h>
@@ -52,9 +52,9 @@ TEST_CASE("sanitizeGameId strips path separators and dots-only") {
     CHECK(ge::sanitizeGameId("TiltBuggy-1") == "TiltBuggy-1");
 }
 
-TEST_CASE("GE2T dump/load round-trips rows through shipped helpers") {
+TEST_CASE("SP2T dump/load round-trips rows through shipped helpers") {
     // Write on the "player" side durable file (per-game path).
-    const auto dir = std::filesystem::temp_directory_path() / "ge-t154-ge2t";
+    const auto dir = std::filesystem::temp_directory_path() / "ge-t154-sp2t";
     std::filesystem::create_directories(dir / "games");
     const std::string playerPath =
         ge::durableDbPathForPlayer("tiltbuggy", (dir.string() + "/").c_str());
@@ -99,7 +99,7 @@ TEST_CASE("GE2T dump/load round-trips rows through shipped helpers") {
         std::vector<uint8_t> dump2;
         REQUIRE(ge::dumpSqliteMain(server.handle(), dump2));
 
-        // Player durable store is the raw serialize image on disk (GE2T body).
+        // Player durable store is the raw serialize image on disk (SP2T body).
         {
             std::ofstream out(playerPath, std::ios::binary | std::ios::trunc);
             REQUIRE(out.good());

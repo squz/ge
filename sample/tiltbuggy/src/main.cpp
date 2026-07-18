@@ -66,7 +66,7 @@ constexpr float kWorldHalfExtent = 10.0f;
 // equivalent knob at this world scale (tuned in 🎯T16).
 constexpr float kGravityGain = 10.0f;
 
-// 🎯T154 GE2T pose durability test: single-row pose table written every 0.5s.
+// 🎯T154 SP2T pose durability test: single-row pose table written every 0.5s.
 // Schema is applied by DirectRenderHost via SessionHostConfig.schemaDdl.
 constexpr const char* kPoseSchemaDdl =
     "CREATE TABLE pose ("
@@ -327,8 +327,8 @@ int main(int argc, char* argv[]) {
                 // spyder's app_perf_get alongside the engine's frame_ms.
                 ge::appchannel::perfEmit("buggy_x", p.x);
 
-                // 🎯T154 GE2T test: durable pose every 0.5s. Under stream the
-                // server working set is :memory:; ServerSession pushes GE2T
+                // 🎯T154 SP2T test: durable pose every 0.5s. Under stream the
+                // server working set is :memory:; ServerSession pushes SP2T
                 // to the player PrefPath file (per-game) on the same cadence.
                 state.poseWriteAccum += dt;
                 if (state.db && state.poseWriteAccum >= kPoseWriteIntervalSec) {

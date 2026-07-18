@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/SessionHost.h>
+#include <spdlog/spdlog.h>
 
 #include <SDL3/SDL_events.h>
 
@@ -60,7 +61,14 @@ Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
     m->surfacePxW = surfaceWidth;
     m->surfacePxH = surfaceHeight;
     m->deviceClass = deviceClass;
-    m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
+    SPDLOG_INFO("Context: opening db path='{}' schemaDdl={}B", dbPath, schemaDdl.size());
+    try {
+        m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
+        SPDLOG_INFO("Context: db open ok");
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Context: db open threw: {}", e.what());
+        throw;
+    }
 }
 
 Rect Context::drawSafeRectInPts() const {

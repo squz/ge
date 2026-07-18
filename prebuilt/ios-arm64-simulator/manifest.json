@@ -1,6 +1,8 @@
 {
   "version": 2,
   "platform": "ios-arm64-simulator",
+  "base_platform": "ios-arm64-simulator",
+  "config": "release",
   "toolchain": {
     "clang": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
     "sdk": "iphonesimulator",
@@ -9,9 +11,9 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "18b34b4df311ac9eb1b8c60a7cd9f0da6ebfe93200c8e541ef7770f7f976aee5",
-    "tools/prebuild.sh": "822d7fadb907a49dc76f4332d63091e9231230e5aeaa5c0146b1f9b72b559726",
+    "tools/prebuild.sh": "600f3223d9228b0a87b94647ba5937d34094d2bf2ab61bccde2610b72cc00996",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
-    "tools/write-manifest.py": "05bc42c622d967bf718708b4b4bfcad26b0acdb7709c759ebaeafdb020f0b829"
+    "tools/write-manifest.py": "76b5b2db919a08f54adfe8e3a5222bb883c54985e223075daf630e59e997175b"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",
@@ -27,7 +29,7 @@
   },
   "prebuilts": {
     "prebuilt/ios-arm64-simulator/libbox2d.a": "16ef4262a3e3d142fd27b18d511adb2321ea9545504326e52f44f589d9c8efb4",
-    "prebuilt/ios-arm64-simulator/libge.a": "45a4484358a715d6daedafaad2b010c7b04bb8231e607f3c15388c6888e7980d",
+    "prebuilt/ios-arm64-simulator/libge.a": "6831e29fb53cd2ad57409bd92babca7e0a2ec3eaed89d5005d16255d6977f254",
     "prebuilt/ios-arm64-simulator/libliteparser.a": "32aa18e27c6452f13a0b6bf43c5bf0d289a14b7f4c9a8a1bc848416101bd1c12",
     "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
     "prebuilt/ios-arm64-simulator/liblz4_ge.a": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
@@ -189,7 +191,7 @@
     "src/Attitude.h": "95cd666372faa01419773a7171607ac8735cdb81d8c889abebe6c49f06017ed7",
     "src/Attitude_apple.mm": "4e999fe76f1828978d2037d40d62e4111c117d281d4bcf43fea139501cde86ec",
     "src/CmdStream.cpp": "cb394358c681b4917957636007b546124574b9c3d6a40f5779fa9690452434aa",
-    "src/Context.cpp": "85be4be95a0fe08fedb61b946914fe5d6a720c6ddf52f2fc6ae2fb3301b702c1",
+    "src/Context.cpp": "f67565dfbfb201d79694ee59070c08c0f1bffd5fc96d52b62a7f584e244b3acf",
     "src/CutoutInsets.h": "0445b792c8217eb620e42fbf03322eebf0fd3348689cc6ebcaa4af4a1f1bc8e5",
     "src/CutoutInsets_stub.cpp": "1b6160f61d47ee419e28deb79e1a785087635624cff438da1b0fbeff624529ff",
     "src/FileIO.cpp": "71cb81085b7883e7f701ce77cb3a1ae42846317c1adc400afff28c6d70edc4ae",
@@ -199,7 +201,7 @@
     "src/Pass.cpp": "0950b75c3f6ae57ed1e352c591cd37e26df6d82a5358833fc957841350241eac",
     "src/Resource.cpp": "9167f746e367c05e5d75e591b9db2aacf2a6cd0408412077fce55808c94972e7",
     "src/RunDirect.h": "7a0d18546cafd087dcc411377ab71176a74749b3288f3eb1e9661ff6b333abda",
-    "src/SessionHost.mm": "281d49a07b7415dec9d86564f7993cd8f6a3ff34009b1c217264ef959aff42d2",
+    "src/SessionHost.mm": "9851d4044420feffa52c8b4f4fceeb1755cb6509eda160233496ddd13adea65c",
     "src/Signal.cpp": "7b5356006b9b46e3970e3317c1e302e3e49f706ed1ca3f21654ea58dab7917d4",
     "src/SokolContext.mm": "097d39668d549c74daa7db3f22c199030937c86225345aefde063f3229754253",
     "src/appchannel.cpp": "e546a176775748e51fa2f14f0b56fd0b84c94c90d7e1a06696756d8ab9009eba",
@@ -218,9 +220,9 @@
     "src/long_press.cpp": "a8d604cd733eb5cf70e5bc61cd4c3b0d89f92b7dc4c7156eb63e15a39e7a01d9",
     "src/manifest.cpp": "02620d490465b09d869e441c9bda26ff0403e999093e15399dc3072366408a04",
     "src/png.cpp": "06b772371cdeb45a757490d19c922ae03db215a3a8cc6a5f49c317514be731c7",
-    "src/render/AccelSynth.h": "924d8932058ab277f6c89be680e19494af2d90ebf1bc973c95c0850e245725a0",
+    "src/render/AccelSynth.h": "65637e421cc358cc737dabc827e1456f03a3ec1460ea1cb712036c41d0ea0076",
     "src/render/DirectRenderHost.h": "96d8fb10a10e93962cddf96c9013065206781eafdd4ea2c401995e7e333c7a4d",
-    "src/render/DirectRenderHost.mm": "1b8b893f89b46463874911cccbab2812e1f3a251c69b4d2062d87678fdaa3e42",
+    "src/render/DirectRenderHost.mm": "d58c322fbd2d6903e7961e9112f4bc31b3534c5d48219eed4ec1cfe99ba68f3a",
     "src/render/LifecycleInject.h": "043d863ff022dcd30879aee85890f67ce512d32fc8d972f4d3498addd7f74476",
     "src/render/RefreshRateBoost_apple.mm": "bdbc1634be9c01048dfce47bfcead8bdf51fc12422a45e4cc2c4f2be69f82f2f",
     "src/render/RenderOnDemand.h": "66d403490137c52289466a61e43d1530aab322a6a981dc1727a776eeb1c829d2",
@@ -231,7 +233,7 @@
     "src/sprite_internal.h": "e29dec8f978a07590b6b3e2eeb03a28996844fe0ad1003ee9c7d222a91b78665",
     "src/svg.cpp": "2ef04b17a036efcd8ce020abf0f63975da338a62c2bb4f3143fa9aac10e79b86",
     "src/text.cpp": "d0c52ff7ca6dc934e9f9f5ff8bdd56a9cff53450b6f417d4d2a41ad6f79487f1",
-    "tools/player_orientation.h": "2ec92259560949274d24612a9be5cd34038a76cdf45f53bb80180f8d8447396d",
+    "tools/player_orientation.h": "52f0d50003dd1f1cf78c61361ee748578a34350546fa3ae20b75183fa761eb09",
     "tools/player_orientation_ios.mm": "cbbbaa659f676c0fa44a302c5856995848573e033456de5a8cb9bb147005c3e2",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",

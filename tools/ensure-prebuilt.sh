@@ -1,30 +1,48 @@
 #!/usr/bin/env bash
-# Ensure prebuilt/<platform>/ matches the working tree before a mobile link.
+# Ensure prebuilt/<platform>/ (or prebuilt/<platform>-debug/) matches the
+# working tree before a mobile link.
 #
 # Usage:
-#   tools/ensure-prebuilt.sh <platform>
+#   tools/ensure-prebuilt.sh [--debug] <platform>
 #
 # platform: ios-arm64 | ios-arm64-simulator | android-arm64
+# --debug / GE_PREBUILD_DEBUG=1 → prebuilt/<platform>-debug/
 #
 # If the platform's manifest is already fresh (tools/verify-prebuilds.py),
-# exit 0 immediately. Otherwise refresh libge.a (--libge-only); if the
-# tree is still stale (vendor/submodule drift), run a full prebuild for
-# that platform. Fail only if verify still fails after both attempts.
+# exit 0. Otherwise run a *full* prebuild of every archive in the tree.
+# Partial (--libge-only) cooks are gone: they left libge ahead of vendor
+# libs and caused the 2026-07 Android sqldeep SIGSEGV.
 #
 # Wired from Module.mk into `make ge/ios`, `ge/ios-device`, `ge/android`,
-# etc., so mobile packages cannot silently link a stale libge.a.
+# etc.
 #
 # Copyright 2026 Marcelo Cantos
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <platform>" >&2
+DEBUG=0
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --debug) DEBUG=1; shift ;;
+    -*)
+      echo "error: unknown option: $1" >&2
+      exit 1
+      ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#ARGS[@]} -ne 1 ]]; then
+  echo "usage: $0 [--debug] <platform>" >&2
   echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
   exit 1
 fi
-PLATFORM="$1"
+PLATFORM="${ARGS[0]}"
+if [[ "${GE_PREBUILD_DEBUG:-}" == "1" ]]; then
+  DEBUG=1
+fi
 
 case "$PLATFORM" in
   ios-arm64|ios-arm64-simulator|android-arm64) ;;
@@ -34,38 +52,38 @@ case "$PLATFORM" in
     ;;
 esac
 
+if [[ "$DEBUG" -eq 1 ]]; then
+  PREBUILT_KEY="${PLATFORM}-debug"
+  PREBUILD_FLAGS=(--debug)
+else
+  PREBUILT_KEY="$PLATFORM"
+  PREBUILD_FLAGS=()
+fi
+
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
-VERIFY=(python3 "$GE_ROOT/tools/verify-prebuilds.py" --platform "$PLATFORM")
+VERIFY=(python3 "$GE_ROOT/tools/verify-prebuilds.py" --platform "$PREBUILT_KEY")
 
+if "${VERIFY[@]}" >/dev/null 2>&1 \
+   && python3 "$GE_ROOT/tools/verify-cook.py" "prebuilt/$PREBUILT_KEY" >/dev/null 2>&1; then
+  echo "ge: prebuilt/$PREBUILT_KEY is fresh (manifest + cook)"
+  exit 0
+fi
 if "${VERIFY[@]}" >/dev/null 2>&1; then
-  echo "ge: prebuilt/$PLATFORM is fresh"
-  exit 0
+  echo "ge: prebuilt/$PREBUILT_KEY cook.json does not match archives — full recook"
 fi
 
-echo "ge: prebuilt/$PLATFORM is stale relative to sources — refreshing…"
-echo "ge: (this is automatic so mobile packages never link a silent old libge.a)"
+echo "ge: prebuilt/$PREBUILT_KEY is stale — full prebuild of every archive…"
+tools/prebuild.sh "${PREBUILD_FLAGS[@]}" "$PLATFORM"
 
-# Prefer the cheap path: ge sources/headers only.
-if [[ -f "prebuilt/$PLATFORM/manifest.json" ]]; then
-  if tools/prebuild.sh --libge-only "$PLATFORM"; then
-    if "${VERIFY[@]}" >/dev/null 2>&1; then
-      echo "ge: prebuilt/$PLATFORM refreshed (libge-only)"
-      exit 0
-    fi
-    echo "ge: still stale after libge-only (vendor/submodule drift?) — full prebuild…"
-  else
-    echo "ge: libge-only failed — falling back to full prebuild…"
-  fi
+if ! "${VERIFY[@]}"; then
+  echo "error: prebuilt/$PREBUILT_KEY still stale after full rebuild." >&2
+  exit 1
 fi
-
-tools/prebuild.sh "$PLATFORM"
-
-if "${VERIFY[@]}"; then
-  echo "ge: prebuilt/$PLATFORM refreshed (full)"
-  exit 0
+if ! python3 "$GE_ROOT/tools/verify-cook.py" "prebuilt/$PREBUILT_KEY"; then
+  echo "error: prebuilt/$PREBUILT_KEY cook check failed after full rebuild." >&2
+  exit 1
 fi
-
-echo "error: prebuilt/$PLATFORM still stale after rebuild. See diagnostics above." >&2
-exit 1
+echo "ge: prebuilt/$PREBUILT_KEY refreshed (full cook)"
+exit 0

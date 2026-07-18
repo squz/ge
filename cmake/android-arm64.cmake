@@ -65,17 +65,74 @@ endif()
 # Verify:  llvm-readelf -lW <lib>.so  → every PT_LOAD shows Align 0x4000.
 string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
 
-set(GE_PREBUILT_DIR "${GE_ROOT}/prebuilt/android-arm64")
+# Debug packages link prebuilt/android-arm64-debug/ (-g -O2 cook of libge +
+# every vendor archive — symbols without hiding optimised-only bugs).
+# Release keeps prebuilt/android-arm64/ (-O2, no DWARF). Force with
+# -DGE_ANDROID_DEBUG_PREBUILT=ON/OFF.
+if(NOT DEFINED GE_ANDROID_DEBUG_PREBUILT)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(GE_ANDROID_DEBUG_PREBUILT ON)
+    else()
+        set(GE_ANDROID_DEBUG_PREBUILT OFF)
+    endif()
+endif()
+if(GE_ANDROID_DEBUG_PREBUILT)
+    set(GE_PREBUILT_DIR "${GE_ROOT}/prebuilt/android-arm64-debug")
+else()
+    set(GE_PREBUILT_DIR "${GE_ROOT}/prebuilt/android-arm64")
+endif()
+if(NOT EXISTS "${GE_PREBUILT_DIR}/libge.a")
+    if(GE_ANDROID_DEBUG_PREBUILT)
+        message(FATAL_ERROR
+            "cmake/android-arm64.cmake: missing debug prebuilts at\n"
+            "  ${GE_PREBUILT_DIR}\n"
+            "Cook them with:\n"
+            "  tools/prebuild.sh --debug android-arm64\n"
+            "(or: make prebuild-android-arm64-debug)")
+    else()
+        message(FATAL_ERROR
+            "cmake/android-arm64.cmake: missing prebuilts at\n"
+            "  ${GE_PREBUILT_DIR}\n"
+            "Cook them with: tools/prebuild.sh android-arm64")
+    endif()
+endif()
+
+# Hard co-cook gate (same tool as iOS Xcode phase + ensure-prebuilt.sh):
+# every .a must match cook.json from a single full prebuild. Prevents
+# linking a fresh libge against a stale libliteparser (2026-07 Android
+# sqldeep SIGSEGV). No human guideline can substitute.
+if(GE_ANDROID_DEBUG_PREBUILT)
+    set(_GE_PREBUILD_HINT "tools/prebuild.sh --debug android-arm64")
+else()
+    set(_GE_PREBUILD_HINT "tools/prebuild.sh android-arm64")
+endif()
+find_program(_GE_PYTHON3 NAMES python3 python REQUIRED)
+execute_process(
+    COMMAND "${_GE_PYTHON3}" "${GE_ROOT}/tools/verify-cook.py" "${GE_PREBUILT_DIR}"
+    RESULT_VARIABLE _GE_COOK_RC
+    OUTPUT_VARIABLE _GE_COOK_OUT
+    ERROR_VARIABLE _GE_COOK_ERR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _GE_COOK_RC EQUAL 0)
+    message(FATAL_ERROR
+        "cmake/android-arm64.cmake: prebuilt cook check failed\n"
+        "  dir: ${GE_PREBUILT_DIR}\n"
+        "  ${_GE_COOK_ERR}\n"
+        "  ${_GE_COOK_OUT}\n"
+        "Run: ${_GE_PREBUILD_HINT}")
+endif()
+set(_GE_PREBUILT_LIBS ge box2d lunasvg_ge plutovg_ge sqlite3_ge lz4_ge liteparser)
+message(STATUS "ge: prebuilts from ${GE_PREBUILT_DIR}"
+    " (debug=${GE_ANDROID_DEBUG_PREBUILT}, cook verified)")
+
 set(GE_VENDOR "${GE_ROOT}/vendor")
 set(GE_HEADERS "${GE_ROOT}/headers")
 
 # ── ge + first-party vendor static libs (prebuilt) ──────────────────
 
-foreach(_lib IN ITEMS
-        ge
-        box2d
-        lunasvg_ge plutovg_ge
-        sqlite3_ge lz4_ge liteparser)
+foreach(_lib IN LISTS _GE_PREBUILT_LIBS)
     add_library(${_lib} STATIC IMPORTED GLOBAL)
     set_target_properties(${_lib} PROPERTIES
         IMPORTED_LOCATION "${GE_PREBUILT_DIR}/lib${_lib}.a"

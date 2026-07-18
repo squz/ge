@@ -2,17 +2,25 @@
 # Prebuild static libs for one of ge's supported platforms.
 #
 # Usage:
-#   tools/prebuild.sh [--libge-only] <platform>
+#   tools/prebuild.sh [--debug] <platform>
 #
 # Where <platform> is one of:
 #   ios-arm64             — iOS arm64 device (iphoneos SDK, Metal backend)
 #   ios-arm64-simulator   — iOS arm64 simulator (iphonesimulator SDK)
 #   android-arm64         — Android arm64 (NDK clang, Vulkan + GLES backends)
 #
-# Full mode outputs vendor static libs plus libge into prebuilt/<platform>/,
-# plus a manifest.json for staleness detection. --libge-only reuses the
-# existing vendor archives and refreshes just libge.a + manifest metadata; use
-# it for ge source/header edits, not vendor/submodule bumps.
+# Always cooks *every* archive in the tree together (vendor + libge). There is
+# no partial refresh: a mixed cook (new libge + old libliteparser) caused the
+# 2026-07 Android sqldeep SIGSEGV. Output goes to prebuilt/<platform>/ or
+# prebuilt/<platform>-debug/ plus manifest.json + cook.json (hashes of every
+# .a). Consumers refuse to link if cook.json does not match the archives.
+#
+# --debug builds *every* archive in that tree with DWARF + the same -O2 as
+# release (plus -fno-omit-frame-pointer). O0 is intentionally NOT used: it
+# can hide optimised-only bugs (sqldeep SEGV was one). For a pure -O0 cook
+# set GE_PREBUILD_OPT=0. Release and debug trees are separate so optimised
+# no-DWARF archives are not clobbered. Android Debug packages select the
+# -debug tree via cmake/android-arm64.cmake.
 #
 # Per-platform differences are confined to the case statement at the top
 # (toolchain, flags, output dir, ge source list). The compile
@@ -33,46 +41,121 @@ set -euo pipefail
 # the env var is harmless there).
 export ZERO_AR_DATE=1
 
-MODE=full
-if [[ $# -eq 2 && "$1" == "--libge-only" ]]; then
-  MODE=libge-only
-  shift
-fi
+DEBUG=0
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    # Historical flag: partial cooks are forbidden (mixed libge/vendor = SIGSEGV).
+    # Accept and ignore so old scripts still run a full coherent cook.
+    --libge-only)
+      echo "ge: --libge-only is removed; always cooking full tree (vendor + libge)." >&2
+      shift
+      ;;
+    --debug) DEBUG=1; shift ;;
+    -h|--help)
+      echo "usage: $0 [--debug] <platform>" >&2
+      echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+      echo "  Always rebuilds every archive in the tree (no partial cooks)." >&2
+      echo "  --debug:  write prebuilt/<platform>-debug/ with -g -O2 (symbols+opt)" >&2
+      echo "            GE_PREBUILD_OPT=0|1|2|3|s|g|fast  (default 2)" >&2
+      exit 0
+      ;;
+    -*)
+      echo "error: unknown option: $1" >&2
+      exit 1
+      ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 [--libge-only] <platform>" >&2
+if [[ ${#ARGS[@]} -ne 1 ]]; then
+  echo "usage: $0 [--debug] <platform>" >&2
   echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
   exit 1
 fi
-PLATFORM="$1"
+PLATFORM="${ARGS[0]}"
+
+# Env override keeps older callers working (GE_PREBUILD_DEBUG=1 tools/prebuild.sh …).
+if [[ "${GE_PREBUILD_DEBUG:-}" == "1" ]]; then
+  DEBUG=1
+fi
 
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
-OUT_DIR="prebuilt/$PLATFORM"
-OBJ_DIR="build/prebuilt/$PLATFORM"
+# Debug and release prebuilts are separate trees so a debug cook never
+# overwrites the optimised archives consumers ship / CI verifies.
+if [[ "$DEBUG" -eq 1 ]]; then
+  PREBUILT_KEY="${PLATFORM}-debug"
+else
+  PREBUILT_KEY="$PLATFORM"
+fi
+OUT_DIR="prebuilt/$PREBUILT_KEY"
+OBJ_DIR="build/prebuilt/$PREBUILT_KEY"
 # Wipe stale .d files so write-manifest.py only sees deps from this run.
 rm -rf "$OBJ_DIR"
 mkdir -p "$OUT_DIR" "$OBJ_DIR"
 
-if [[ "$MODE" == "libge-only" ]]; then
-  if [[ ! -f "$OUT_DIR/manifest.json" ]]; then
-    echo "error: $OUT_DIR/manifest.json missing; run a full prebuild first." >&2
-    exit 1
-  fi
-  for lib in libbox2d.a libliteparser.a liblunasvg_ge.a liblz4_ge.a \
-             libplutovg_ge.a libsqlite3_ge.a; do
-    if [[ ! -f "$OUT_DIR/$lib" ]]; then
-      echo "error: $OUT_DIR/$lib missing; run a full prebuild first." >&2
-      exit 1
-    fi
-  done
-fi
+# cook.json: single co-build identity for every .a in this tree. Consumers
+# refuse to link unless every archive hash matches (tools/verify-cook.py —
+# used by cmake/android-arm64.cmake, iOS Xcode script phase, ensure-prebuilt).
+write_cook_json() {
+  local flags_joined="$1"
+  python3 - "$OUT_DIR/cook.json" "$PREBUILT_KEY" "$DEBUG" "$OPT_FLAG" "$flags_joined" <<'PY'
+import hashlib, json, sys, time
+from pathlib import Path
+path, key, debug, opt, flags = sys.argv[1:6]
+out = Path(path).parent
+# Keys are stems (ge, liteparser) — no ".a", so CMake string(JSON) is unambiguous.
+archives = {}
+for a in sorted(out.glob("*.a")):
+    h = hashlib.sha256()
+    with open(a, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    archives[a.stem.removeprefix("lib")] = h.hexdigest()
+doc = {
+    "version": 1,
+    "prebuilt_key": key,
+    "config": "debug" if debug == "1" else "release",
+    "opt": opt,
+    "flags": flags,
+    "flags_sha256": hashlib.sha256(flags.encode()).hexdigest(),
+    "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "archives": archives,
+}
+with open(path, "w") as f:
+    json.dump(doc, f, indent=2)
+    f.write("\n")
+print(f"wrote {path} ({len(archives)} archives)")
+PY
+}
 
 # ─── platform-specific setup ──────────────────────────────────────────────
 # Everything that differs across platforms lives here. The compile body
 # below uses these variables and doesn't branch further.
-COMMON_FLAGS=(-O2 -fvisibility=hidden -fno-color-diagnostics)
+#
+# Optimisation level: release defaults to -O2. --debug defaults to -O2 as
+# well (plus -g) so Heisenbugs that only fire under opt still reproduce in
+# Android Studio. Override: GE_PREBUILD_OPT=0 for a true no-opt cook.
+OPT_LEVEL="${GE_PREBUILD_OPT:-2}"
+case "$OPT_LEVEL" in
+  0|1|2|3|s|g) OPT_FLAG="-O${OPT_LEVEL}" ;;
+  fast)        OPT_FLAG="-Ofast" ;;
+  *)
+    echo "error: GE_PREBUILD_OPT must be 0|1|2|3|s|g|fast (got '$OPT_LEVEL')" >&2
+    exit 1
+    ;;
+esac
+if [[ "$DEBUG" -eq 1 ]]; then
+  # DWARF + frame pointers on every archive (libge + vendor) so AS/lldb can
+  # step into sqldeep, liteparser, box2d, sqlite while still matching release
+  # optimisation unless GE_PREBUILD_OPT overrides.
+  COMMON_FLAGS=(-g "$OPT_FLAG" -fno-omit-frame-pointer -fvisibility=hidden -fno-color-diagnostics)
+else
+  COMMON_FLAGS=("$OPT_FLAG" -fvisibility=hidden -fno-color-diagnostics)
+fi
+
 GE_PLATFORM_DEFINE=
 GE_PLATFORM_SOURCES=()
 SDL_STUB_NEEDED=false   # Android needs a stub SDL_revision.h; Apple gets real one from headers/sdl3.
@@ -166,7 +249,9 @@ case "$PLATFORM" in
 esac
 
 echo "── platform: $PLATFORM ──"
-echo "   mode: $MODE"
+echo "   prebuilt: $OUT_DIR"
+echo "   config: $([ "$DEBUG" -eq 1 ] && echo debug || echo release)  ${OPT_FLAG}$([ "$DEBUG" -eq 1 ] && echo ' -g' || true)"
+echo "   mode: full (all archives; partial cooks disabled)"
 echo "   CC:  $CC"
 echo "   AR:  $AR"
 
@@ -270,80 +355,76 @@ wait_jobs() {
 # src/SokolContext_android.cpp on Android — no separate static library
 # to produce or archive.
 
-if [[ "$MODE" == "full" ]]; then
-  # ─── box2d ──────────────────────────────────────────────────────────────
-  echo "── box2d ──"
-  BOX2D_OBJS=()
-  for src in "$BOX2D_DIR"/src/*.c; do
-    obj="$OBJ_DIR/box2d/$(basename "${src%.c}").o"
-    run_job compile_c "$obj" "$src" \
-      -I"$BOX2D_DIR/include" -I"$BOX2D_DIR/src" \
-      -Wno-everything
-    BOX2D_OBJS+=("$obj")
-  done
-  wait_jobs
-  archive "$OUT_DIR/libbox2d.a" "${BOX2D_OBJS[@]}"
-
-  # ─── lunasvg ────────────────────────────────────────────────────────────
-  echo "── lunasvg ──"
-  LUNASVG_OBJS=()
-  for src in "$LUNASVG_DIR"/source/*.cpp; do
-    obj="$OBJ_DIR/lunasvg/$(basename "${src%.cpp}").o"
-    run_job compile_cxx17 "$obj" "$src" \
-      -I"$LUNASVG_DIR/include" -I"$LUNASVG_DIR/source" -I"$PLUTOVG_DIR/include" \
-      -DLUNASVG_BUILD -DLUNASVG_BUILD_STATIC -DPLUTOVG_BUILD_STATIC \
-      -Wno-everything
-    LUNASVG_OBJS+=("$obj")
-  done
-  wait_jobs
-  archive "$OUT_DIR/liblunasvg_ge.a" "${LUNASVG_OBJS[@]}"
-
-  # ─── plutovg ────────────────────────────────────────────────────────────
-  echo "── plutovg ──"
-  PLUTOVG_OBJS=()
-  for src in "$PLUTOVG_DIR"/source/*.c; do
-    obj="$OBJ_DIR/plutovg/$(basename "${src%.c}").o"
-    run_job compile_c "$obj" "$src" \
-      -I"$PLUTOVG_DIR/include" -I"$PLUTOVG_DIR/source" \
-      -DPLUTOVG_BUILD -DPLUTOVG_BUILD_STATIC \
-      -Wno-everything
-    PLUTOVG_OBJS+=("$obj")
-  done
-  wait_jobs
-  archive "$OUT_DIR/libplutovg_ge.a" "${PLUTOVG_OBJS[@]}"
-
-  # ─── liteparser ─────────────────────────────────────────────────────────
-  echo "── liteparser ──"
-  LITEPARSER_OBJS=()
-  for src in "$LITEPARSER_DIR/arena.c" "$LITEPARSER_DIR/liteparser.c" \
-             "$LITEPARSER_DIR/lp_tokenize.c" "$LITEPARSER_DIR/lp_unparse.c" \
-             "$LITEPARSER_DIR/parse.c"; do
-    obj="$OBJ_DIR/liteparser/$(basename "${src%.c}").o"
-    run_job compile_c "$obj" "$src" -I"$LITEPARSER_DIR" -Wno-everything
-    LITEPARSER_OBJS+=("$obj")
-  done
-  wait_jobs
-  archive "$OUT_DIR/libliteparser.a" "${LITEPARSER_OBJS[@]}"
-
-  # ─── sqlite3 ────────────────────────────────────────────────────────────
-  echo "── sqlite3 ──"
-  SQLITE_OBJ="$OBJ_DIR/sqlite3/sqlite3.o"
-  run_job compile_c "$SQLITE_OBJ" "vendor/src/sqlite3.c" \
-    -I vendor/include \
-    -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
+# ─── box2d ──────────────────────────────────────────────────────────────
+echo "── box2d ──"
+BOX2D_OBJS=()
+for src in "$BOX2D_DIR"/src/*.c; do
+  obj="$OBJ_DIR/box2d/$(basename "${src%.c}").o"
+  run_job compile_c "$obj" "$src" \
+    -I"$BOX2D_DIR/include" -I"$BOX2D_DIR/src" \
     -Wno-everything
-  wait_jobs
-  archive "$OUT_DIR/libsqlite3_ge.a" "$SQLITE_OBJ"
+  BOX2D_OBJS+=("$obj")
+done
+wait_jobs
+archive "$OUT_DIR/libbox2d.a" "${BOX2D_OBJS[@]}"
 
-  # ─── lz4 ────────────────────────────────────────────────────────────────
-  echo "── lz4 ──"
-  LZ4_OBJ="$OBJ_DIR/lz4/lz4.o"
-  run_job compile_c "$LZ4_OBJ" "vendor/src/lz4.c" -I vendor/include -Wno-everything
-  wait_jobs
-  archive "$OUT_DIR/liblz4_ge.a" "$LZ4_OBJ"
-else
-  echo "── vendor libs (reuse existing archives) ──"
-fi
+# ─── lunasvg ────────────────────────────────────────────────────────────
+echo "── lunasvg ──"
+LUNASVG_OBJS=()
+for src in "$LUNASVG_DIR"/source/*.cpp; do
+  obj="$OBJ_DIR/lunasvg/$(basename "${src%.cpp}").o"
+  run_job compile_cxx17 "$obj" "$src" \
+    -I"$LUNASVG_DIR/include" -I"$LUNASVG_DIR/source" -I"$PLUTOVG_DIR/include" \
+    -DLUNASVG_BUILD -DLUNASVG_BUILD_STATIC -DPLUTOVG_BUILD_STATIC \
+    -Wno-everything
+  LUNASVG_OBJS+=("$obj")
+done
+wait_jobs
+archive "$OUT_DIR/liblunasvg_ge.a" "${LUNASVG_OBJS[@]}"
+
+# ─── plutovg ────────────────────────────────────────────────────────────
+echo "── plutovg ──"
+PLUTOVG_OBJS=()
+for src in "$PLUTOVG_DIR"/source/*.c; do
+  obj="$OBJ_DIR/plutovg/$(basename "${src%.c}").o"
+  run_job compile_c "$obj" "$src" \
+    -I"$PLUTOVG_DIR/include" -I"$PLUTOVG_DIR/source" \
+    -DPLUTOVG_BUILD -DPLUTOVG_BUILD_STATIC \
+    -Wno-everything
+  PLUTOVG_OBJS+=("$obj")
+done
+wait_jobs
+archive "$OUT_DIR/libplutovg_ge.a" "${PLUTOVG_OBJS[@]}"
+
+# ─── liteparser ─────────────────────────────────────────────────────────
+echo "── liteparser ──"
+LITEPARSER_OBJS=()
+for src in "$LITEPARSER_DIR/arena.c" "$LITEPARSER_DIR/liteparser.c" \
+           "$LITEPARSER_DIR/lp_tokenize.c" "$LITEPARSER_DIR/lp_unparse.c" \
+           "$LITEPARSER_DIR/parse.c"; do
+  obj="$OBJ_DIR/liteparser/$(basename "${src%.c}").o"
+  run_job compile_c "$obj" "$src" -I"$LITEPARSER_DIR" -Wno-everything
+  LITEPARSER_OBJS+=("$obj")
+done
+wait_jobs
+archive "$OUT_DIR/libliteparser.a" "${LITEPARSER_OBJS[@]}"
+
+# ─── sqlite3 ────────────────────────────────────────────────────────────
+echo "── sqlite3 ──"
+SQLITE_OBJ="$OBJ_DIR/sqlite3/sqlite3.o"
+run_job compile_c "$SQLITE_OBJ" "vendor/src/sqlite3.c" \
+  -I vendor/include \
+  -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
+  -Wno-everything
+wait_jobs
+archive "$OUT_DIR/libsqlite3_ge.a" "$SQLITE_OBJ"
+
+# ─── lz4 ────────────────────────────────────────────────────────────────
+echo "── lz4 ──"
+LZ4_OBJ="$OBJ_DIR/lz4/lz4.o"
+run_job compile_c "$LZ4_OBJ" "vendor/src/lz4.c" -I vendor/include -Wno-everything
+wait_jobs
+archive "$OUT_DIR/liblz4_ge.a" "$LZ4_OBJ"
 
 # ─── libge (engine itself) ────────────────────────────────────────────────
 echo "── ge ──"
@@ -446,18 +527,15 @@ done
 wait_jobs
 archive "$OUT_DIR/libge.a" "${GE_OBJS[@]}"
 
-# ─── manifest ─────────────────────────────────────────────────────────────
+# ─── manifest + cook identity ─────────────────────────────────────────────
 echo ""
 echo "── manifest ──"
-MANIFEST_ARGS=(--platform "$PLATFORM")
-if [[ "$MODE" == "libge-only" ]]; then
-  MANIFEST_ARGS+=(--merge-existing-inputs)
-fi
-python3 tools/write-manifest.py "${MANIFEST_ARGS[@]}"
+python3 tools/write-manifest.py --platform "$PREBUILT_KEY"
+write_cook_json "${COMMON_FLAGS[*]}"
 
 # ─── summary ──────────────────────────────────────────────────────────────
 echo ""
-echo "── prebuilt $PLATFORM vendor libs ──"
+echo "── prebuilt $PREBUILT_KEY libs ──"
 ls -lh "$OUT_DIR"/*.a | awk '{printf "  %-30s %s\n", $NF, $5}'
 echo ""
 echo "Total: $(du -sh "$OUT_DIR" | cut -f1)"

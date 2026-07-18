@@ -49,7 +49,12 @@ SCRIPTS_TO_HASH_COMMON = [
     "tools/verify-prebuilds.py",
     "tools/prebuild.sh",
 ]
-SUPPORTED_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
+SUPPORTED_BASE_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
+# Release trees: prebuilt/<base>/. Debug trees: prebuilt/<base>-debug/
+# (same toolchain as base; -g -O0 archives for native stepping).
+SUPPORTED_PLATFORMS = SUPPORTED_BASE_PLATFORMS + tuple(
+    f"{p}-debug" for p in SUPPORTED_BASE_PLATFORMS
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -258,11 +263,19 @@ def main() -> int:
     for a in sorted(prebuilt_dir.glob("*.a")):
         prebuilts[a.relative_to(REPO_ROOT).as_posix()] = sha256_file(a)
 
-    toolchain = get_toolchain_ios(platform) if platform.startswith("ios-") else get_toolchain_android()
+    base_platform = platform.removesuffix("-debug")
+    is_debug = platform.endswith("-debug")
+    toolchain = (
+        get_toolchain_ios(base_platform)
+        if base_platform.startswith("ios-")
+        else get_toolchain_android()
+    )
 
     manifest = {
         "version": 2,
         "platform": platform,
+        "base_platform": base_platform,
+        "config": "debug" if is_debug else "release",
         "toolchain": toolchain,
         "scripts": dict(sorted(scripts.items())),
         "submodule_shas": dict(sorted(submodule_shas.items())),

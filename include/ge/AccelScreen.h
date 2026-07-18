@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Rotate accelerometer samples from device-hardware frame into screen frame.
-// Shared by DirectRenderHost (local games) and PlayerRender (streamed player).
+// Shared by DirectRenderHost (local games) and stream player (spyder).
 //
 // SDL3 sensor convention (device frame): +X = physical right edge up,
 // +Y = physical top edge up, +Z = screen up. Touch/mouse already arrive in

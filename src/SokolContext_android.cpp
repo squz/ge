@@ -552,7 +552,17 @@ struct VkM final : SokolContext::M {
         swapchainFormat = chosen.format;
         colorSpace      = chosen.colorSpace;
 
-        if (caps.currentExtent.width != UINT32_MAX) {
+        // Prefer the SDL window pixel size (logical glass). currentExtent can
+        // stay in panel-native portrait while the activity is landscape; using
+        // it with IDENTITY preTransform re-locks the swapchain to portrait and
+        // fights the per-frame size sync. Only trust currentExtent when it
+        // matches the window's aspect class (both landscape or both portrait).
+        const bool winLandscape = width >= height;
+        const bool extLandscape = caps.currentExtent.width >= caps.currentExtent.height;
+        if (caps.currentExtent.width != UINT32_MAX
+            && caps.currentExtent.width > 0
+            && caps.currentExtent.height > 0
+            && winLandscape == extLandscape) {
             extent = caps.currentExtent;
         } else {
             extent.width  = std::clamp<uint32_t>(uint32_t(std::max(1, width)),
@@ -575,7 +585,25 @@ struct VkM final : SokolContext::M {
         ci.imageArrayLayers = 1;
         ci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        ci.preTransform     = caps.currentTransform;
+        // Prefer IDENTITY preTransform. Matching caps.currentTransform (often
+        // ROTATE_90 on a landscape-locked phone whose panel is natively
+        // portrait) without an app-side pre-rotation matrix makes the
+        // compositor spin the framebuffer: landscape content appears on its
+        // side and aspect-squashed. Emulator stays on GLES and never hits
+        // this; S24/Xclipse takes Vulkan and did. IDENTITY is always
+        // supported on Android surfaces we care about; the cost is an
+        // occasional compositor blit vs a full clip-space prerotation path.
+        // https://developer.android.com/games/optimize/vulkan-prerotation
+        VkSurfaceTransformFlagBitsKHR pre = caps.currentTransform;
+        if (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            pre = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        }
+        if (pre != caps.currentTransform) {
+            SPDLOG_INFO("Vulkan swapchain: preTransform IDENTITY "
+                        "(current was {:#x}) — avoid uncompensated rotate",
+                        static_cast<unsigned>(caps.currentTransform));
+        }
+        ci.preTransform     = pre;
         ci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         ci.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
         ci.clipped          = VK_TRUE;
@@ -731,6 +759,20 @@ struct VkM final : SokolContext::M {
     void beginFrame(const float clearColor[4]) override {
         if (paused || !sg_isvalid() || !swapchain || sync.empty()) return;
 
+        // Match GLES: adopt the live window size every frame. Landscape lock
+        // settles after the first createSwapchain (portrait → landscape); if
+        // we only rebuild on OUT_OF_DATE the game can update Context to
+        // landscape while the swapchain is still the portrait images — or
+        // the reverse after a preTransform mismatch. Either way content
+        // paints "portrait upright" on a landscape-locked activity.
+        int pxW = 0, pxH = 0;
+        if (window && SDL_GetWindowSizeInPixels(window, &pxW, &pxH)
+            && pxW > 0 && pxH > 0
+            && (pxW != width || pxH != height)) {
+            createSwapchain();
+            if (!swapchain) return;
+        }
+
         auto& s = sync[frameIndex % sync.size()];
         VkResult ar = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
                                              s.presentComplete, VK_NULL_HANDLE, &imageIndex);
@@ -794,9 +836,12 @@ struct VkM final : SokolContext::M {
         pi.pSwapchains        = &swapchain;
         pi.pImageIndices      = &imageIndex;
         VkResult pr = vkQueuePresentKHR(queue, &pi);
-        if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) {
+        // OUT_OF_DATE: must recreate. SUBOPTIMAL alone is expected when we
+        // deliberately use IDENTITY preTransform while currentTransform is
+        // ROTATE_90 — recreating every frame is a livelock (and was).
+        if (pr == VK_ERROR_OUT_OF_DATE_KHR) {
             createSwapchain();
-        } else if (pr != VK_SUCCESS) {
+        } else if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) {
             SPDLOG_ERROR("vkQueuePresentKHR failed: VkResult {}", int(pr));
         }
         frameIndex = (frameIndex + 1) % std::max<size_t>(1, sync.size());
