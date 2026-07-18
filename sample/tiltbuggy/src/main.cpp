@@ -65,6 +65,13 @@ constexpr float kWorldHalfExtent = 10.0f;
 // game drove gravity at ~100 per g for a snappy arcade feel; this gain is the
 // equivalent knob at this world scale (tuned in 🎯T16).
 constexpr float kGravityGain = 10.0f;
+// A device standing fully upright puts ~1 g on one axis → |gravity| ≈ 98
+// world units/s² against a ~20-unit world: the buggy tunnels through the
+// walls and escapes (seen live on the A9 tablet). Clamp tilt gravity to a
+// playable ceiling, and teleport an escaped buggy back to spawn — the
+// latter also self-heals stale SP2T poses seeded from a glass's old db.
+constexpr float kMaxTiltGravity = 30.0f;
+constexpr float kEscapeBound = kWorldHalfExtent * 8.0f;
 
 // 🎯T154 SP2T pose durability test: single-row pose table written every 0.5s.
 // Schema is applied by DirectRenderHost via SessionHostConfig.schemaDdl.
@@ -350,6 +357,13 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+                if (std::fabs(p.x) > kEscapeBound ||
+                    std::fabs(p.y) > kEscapeBound) {
+                    SPDLOG_WARN("tiltbuggy: buggy escaped world at "
+                                "[{:.1f},{:.1f}] — respawning", p.x, p.y);
+                    state.scene->applyPose({0.0f, 0.0f, 0.0f});
+                }
+
                 static int frame = 0;
                 if (++frame % 60 == 0) {
                     const auto gr = state.scene->gripState();
@@ -403,6 +417,12 @@ int main(int argc, char* argv[]) {
                     const b2Vec2 oldG = state.gravity;
                     state.gravity.x = -e.sensor.data[0] * kGravityGain;
                     state.gravity.y = -e.sensor.data[1] * kGravityGain;
+                    const float gm = std::sqrt(state.gravity.x * state.gravity.x +
+                                               state.gravity.y * state.gravity.y);
+                    if (gm > kMaxTiltGravity) {
+                        state.gravity.x *= kMaxTiltGravity / gm;
+                        state.gravity.y *= kMaxTiltGravity / gm;
+                    }
                     // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
                     // idle loop on its own, but a *meaningful tilt change* must:
                     // otherwise a tilt while the buggy is asleep would update

@@ -1100,6 +1100,18 @@ void DirectRenderHost::refreshFrame(float dt) {
                                                : "host AccelSynth");
             }
         } else {
+            // Seat authority departed: neutralize gravity so the game does
+            // not keep integrating the seat's last sensor sample forever
+            // (observed: a detached glass left |g|≈94 latched and the buggy
+            // ran off-world indefinitely). Lifecycle plumbing, not sensor
+            // semantics — equivalent to the device being laid flat.
+            if (i_->seatAuthorityLogged && i_->eventHandler) {
+                SDL_Event ze{};
+                ze.type = SDL_EVENT_SENSOR_UPDATE;
+                i_->eventHandler(ze);
+                SPDLOG_INFO("DirectRenderHost: seat detached — gravity "
+                            "neutralized");
+            }
             i_->seatAuthorityLogged = false;
             // Unattached (or direct): local device facts.
             if (!i_->accelSensor && !i_->synth) {

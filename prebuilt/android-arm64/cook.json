@@ -5,10 +5,10 @@
   "opt": "-O2",
   "flags": "-O2 -fvisibility=hidden -fno-color-diagnostics --target=aarch64-none-linux-android26 --sysroot=/Users/marcelo/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -fPIC -DANDROID -D__ANDROID__",
   "flags_sha256": "a10c0b67bcd84455b966cc7d4292c265f75f1f984403db47a22e8663e4205991",
-  "utc": "2026-07-18T13:09:57Z",
+  "utc": "2026-07-18T13:44:38Z",
   "archives": {
     "box2d": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
-    "ge": "e08b7c3910da5c7380eb14b72b5f2ba379a9c74994dd0bb3edf25ac14d52d1d5",
+    "ge": "6bb1346174b78089f36fe91f549017ad8e8d8a99f3c55fb4386c129a194b5119",
     "liteparser": "e34dcb900550d23d4c5dd0919f6d1c0edf411e088670fd5b97c1a291ac2bb5b0",
     "lunasvg_ge": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "lz4_ge": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",

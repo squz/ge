@@ -29,7 +29,7 @@
   },
   "prebuilts": {
     "prebuilt/ios-arm64/libbox2d.a": "9c9d4edc5f07f1acf58a742f1827575b4a799131ba9ad41387a82925b57741ca",
-    "prebuilt/ios-arm64/libge.a": "412fd74fe794f223dc94dd54e669cbddf55d3b9dd3f89cb3c6768e03f9f28998",
+    "prebuilt/ios-arm64/libge.a": "7b8258d9137ac831b90edec8c4e89e250d9c1ed88270b5606375136fbc83eb64",
     "prebuilt/ios-arm64/libliteparser.a": "56be3212284256df85f775a87366de4b65f5f07c919616a29258d6e92737cca0",
     "prebuilt/ios-arm64/liblunasvg_ge.a": "4cbd0867c2d3811f63378ba44f82d4469dd5d9525c4b87ea1f3e8a3f360cd9f3",
     "prebuilt/ios-arm64/liblz4_ge.a": "72a95f6f6feafab3a1bf0d0b4b7e34d3f4edca525561a2ca24ff0540c314cb4f",
@@ -224,7 +224,7 @@
     "src/png.cpp": "06b772371cdeb45a757490d19c922ae03db215a3a8cc6a5f49c317514be731c7",
     "src/render/AccelSynth.h": "b7b5fc6bd52ee6927004f3feac2e939d7d0bc478ea3c7915f07b333808b95081",
     "src/render/DirectRenderHost.h": "a22f6ebd58bc92daa91e9280337da5d043861d9603c930a1cbcac3f99cb3b4cc",
-    "src/render/DirectRenderHost.mm": "4d388b36fe1026fa8c3ac08528c35abb2ed0331d5a719b2e66f0f05f618cac50",
+    "src/render/DirectRenderHost.mm": "0d72af3d6dfb15f8f18cd8a20eba3bee1215ee6fa8f22781432dfce78313341c",
     "src/render/LifecycleInject.h": "043d863ff022dcd30879aee85890f67ce512d32fc8d972f4d3498addd7f74476",
     "src/render/RefreshRateBoost_apple.mm": "bdbc1634be9c01048dfce47bfcead8bdf51fc12422a45e4cc2c4f2be69f82f2f",
     "src/render/RenderOnDemand.h": "66d403490137c52289466a61e43d1530aab322a6a981dc1727a776eeb1c829d2",
