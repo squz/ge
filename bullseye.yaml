@@ -1988,10 +1988,10 @@ targets:
     discovered: 2026-07-18
   T156.1:
     name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model with device-capability sensor authority; spyder is an opaque router'
-    status: converging
+    status: achieved
     value: 3.0
     cost: 3.0
-    actual_cost: 2.0
+    actual_cost: 3.0
     acceptance:
     - docs/device-api.md (or successor) gains a section defining the wire protocol as the serialization of the polymorphic device API, with a 1:1 message ↔ call/callback mapping table (SessionConfig, DeviceInfo, SafeAreaUpdate, ViewerLifecycle, SP2I input, SP2T state, present/push)
     - 'Full device-API surface is classified marshalled | uniform-no-op | named-divergence; each named divergence cites a tracked target (T154 migration-matrix residuals: viewer back/memory lifecycle, foreground/background render gating, audio focus, parallax/attitude, haptics, refresh-rate boost, IAP, tweaks DB)'
@@ -2002,7 +2002,7 @@ targets:
     - 'Terminology pinned: sensor samples travel as SDL sensor events inside SP2I — there is no SENSOR_UPDATE wire message; ge/include/ge/Protocol.h and the spyder player mirror are layout oracles for the same serialization'
     - 'Spyder statement: streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
     - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
-    context: 'Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
+    context: 'ACHIEVED 2026-07-18 (second pass): device-api.md Sensor authority section rewritten to the seat-device capability predicate (kCapHasAccelerometer), arm policy derived from declared class, no-arbitration rule, promotion re-handshake. Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
     tags:
     - docs
     - device-api
@@ -2011,12 +2011,13 @@ targets:
     - location-transparency
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T156.2:
     name: 'One sensor authority per virtual device, chosen by the device''s declared capability: no build-flag arm policy; a real-accelerometer glass is never suppressed'
-    status: converging
+    status: achieved
     value: 8.0
     cost: 5.0
-    actual_cost: 3.0
+    actual_cost: 6.0
     acceptance:
     - 'AccelSynth existence and arming are predicated solely on the seat''s virtual device: constructed only when the device API reports no hardware accelerometer for that seat (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct), armed only by that device''s own modifier/touch/pointer events'
     - src/render/AccelSynth.h contains no GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or other build/modality conditional in existence, arm, or ownership policy (mechanically checkable by grep)
@@ -2029,7 +2030,7 @@ targets:
     - 'Oracle: a synthetic hold-left sequence can never yield opposite gravity while presentation remains left'
     - The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction
     - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
-    context: 'Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
+    context: 'ACHIEVED 2026-07-18 (second pass): armed() de-flagged (setArmOnPrimary from declared device facts); kCapHasAccelerometer end-to-end (protocol + player declaration + ViewerMetrics + per-frame seat lifecycle in DirectRenderHost); arbitration filter removed; flag-free grep enforced by unit test; live Jevons run shows caps=0x7 and synth destroyed for the real-accel seat (verdicts/T156/20260718-jevons-live). Delay root cause recorded there; loopback gesture-to-gravity 5-57 ms. Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
     depends_on:
     - T156.1
     tags:
@@ -2039,6 +2040,7 @@ targets:
     - sensor-authority
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T156.3:
     name: 'Multi-attach seats are explicit: N remote devices or primary seat + spectators; DeviceInfo and content-surface authority follow the seat'
     status: achieved
@@ -2109,10 +2111,10 @@ targets:
     achieved: 2026-07-18
   T156.6:
     name: 'Trace-equality oracle is green: direct vs headless-player-loopback traces identical; real wire differs only by documented transport tolerances'
-    status: converging
+    status: achieved
     value: 8.0
     cost: 4.0
-    actual_cost: 2.0
+    actual_cost: 4.0
     acceptance:
     - Oracle drives identical scripted input through the direct backend and the headless player over loopback (T156.7) and asserts the game-observed traces (event sequence, order, payloads, resulting state transitions) are identical modulo the contract's documented normalization (e.g. timestamps under a virtual clock) — trace equality, not tolerance bands
     - 'Coverage includes at least: single-seat Shift-drag (hold, reverse, release/ease-back); finger-drag arming on a glass that declares NO accelerometer; a glass that declares a real accelerometer keeping unfiltered authority with no synth constructed; attach-order seating including primary-seat detach/reseat; DeviceInfo/content-surface authority'
@@ -2139,18 +2141,20 @@ targets:
     - verification
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T156.7:
     name: 'Headless real player in the oracle loop: spyder bin/player runs the full handshake over loopback with scripted input and trace capture'
-    status: identified
+    status: achieved
     value: 5.0
     cost: 5.0
+    actual_cost: 4.0
     acceptance:
     - 'spyder player builds a headless mode (no GPU/GUI presentation) that still runs the full wire bridge: SessionConfig apply, DeviceInfo report including the hasAccelerometer capability bit, SP2I input/sensor forwarding, SP2T'
     - 'The oracle drives the real player binary as a subprocess over a localhost/loopback transport — the same bytes and the same player logic as production; no test-double glass, and no linking spyder code into ge (the plateau coupling rule holds: the repos couple through the protocol, and the oracle exercises the player across it)'
     - Scripted device-local input and synthetic sensor streams are injectable into the headless player deterministically, with declared device capabilities configurable per run (accelerometer present vs absent), and game-observed traces are captured for T156.6
     - Harness runs on the laptop with no physical device or GUI attached
     - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
-    context: 'Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
+    context: 'ACHIEVED 2026-07-18: bin/player --headless runs the full wire bridge under the SDL dummy driver with --script/--trace/--geometry/--device-class/--accel; exercised as the stream leg of scripts/t156-oracle. Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
     depends_on:
     - T156.1
     tags:
@@ -2160,6 +2164,26 @@ targets:
     - spyder
     - oracle-infrastructure
     origin: split from T156.4 after the 2026-07-18 false completion
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T158:
+    name: 'Arm-state is server-owned on the wire: the glass''s relative-mouse delivery follows an explicit server signal, not a policy approximation'
+    status: identified
+    value: 2.0
+    cost: 2.0
+    acceptance:
+    - The server (which owns AccelSynth and its arm policy) signals arm/disarm to the primary glass over the player protocol
+    - The player's relative-mouse enable follows that signal; the class-derived local heuristic (PlayerRender syncRelativeMouseForTilt) is removed
+    - Contract notes the signal as delivery plumbing (no tilt semantics on the glass)
+    context: '2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
+    depends_on:
+    - T156.2
+    tags:
+    - player
+    - protocol
+    - delivery
+    - anti-drift
+    origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
     discovered: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
