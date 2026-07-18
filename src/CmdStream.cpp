@@ -6,6 +6,7 @@
 #include <lz4.h>
 
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace ge::cmdstream {
@@ -79,6 +80,9 @@ bool Cache::put(const Hash& h, std::vector<uint8_t> bytes) {
 }
 
 bool Cache::put(const Hash& h, const void* data, size_t n) {
+    if (n == 0 || !data) {
+        return put(h, std::vector<uint8_t>{});
+    }
     std::vector<uint8_t> v(static_cast<const uint8_t*>(data),
                            static_cast<const uint8_t*>(data) + n);
     return put(h, std::move(v));
@@ -117,6 +121,8 @@ void Writer::putHash(const Hash& h) {
     buf_.insert(buf_.end(), h.begin(), h.end());
 }
 void Writer::putBytes(const void* p, size_t n) {
+    if (n == 0) return;
+    if (!p) return;
     auto* b = static_cast<const uint8_t*>(p);
     buf_.insert(buf_.end(), b, b + n);
 }
@@ -137,6 +143,12 @@ void Writer::frameBegin(uint32_t seq, bool fullState,
 void Writer::frameEnd() { putOp(Op::FrameEnd); }
 
 Hash Writer::emitBlob(const void* data, size_t n) {
+    // Empty / null payload: stable zero-length blob (no pointer deref).
+    static const uint8_t kEmpty = 0;
+    if (n == 0 || !data) {
+        data = &kEmpty;
+        n = 0;
+    }
     Hash h = hashBytes(data, n);
     const std::string k = keyOf(h);
     const bool already =
@@ -529,9 +541,14 @@ H264Estimate estimateH264FullRes(int width, int height) {
 }
 
 // ── Live capture + image registry ─────────────────────────────────
+//
+// Wire/input threads may call closeWire → setLiveCapture(nullptr) +
+// resetSession while the game/render thread is mid noteRegisteredImage
+// / emitBlob. All g_live and LiveCapture Writer mutations take g_liveMu.
 
 namespace {
 
+std::mutex g_liveMu;
 LiveCapture* g_live = nullptr;
 
 std::unordered_map<uint32_t, ImageRecipe>& imageRegistry() {
@@ -541,8 +558,14 @@ std::unordered_map<uint32_t, ImageRecipe>& imageRegistry() {
 
 } // namespace
 
-void setLiveCapture(LiveCapture* cap) { g_live = cap; }
-LiveCapture* liveCapture() { return g_live; }
+void setLiveCapture(LiveCapture* cap) {
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    g_live = cap;
+}
+LiveCapture* liveCapture() {
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    return g_live;
+}
 
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
                          const void* rgba, size_t n) {
@@ -625,6 +648,7 @@ const ImageRecipe* lookupImageRecipe(uint32_t imageId) {
 
 void LiveCapture::begin(uint32_t seq, Cache* serverCache,
                         uint16_t contentW, uint16_t contentH) {
+    std::lock_guard<std::mutex> lk(g_liveMu);
     cache_ = serverCache;
     w_ = std::make_unique<Writer>(serverCache);
     w_->frameBegin(seq, /*fullState*/ imagesEmitted_.empty(),
@@ -635,12 +659,34 @@ void LiveCapture::begin(uint32_t seq, Cache* serverCache,
 
 void LiveCapture::noteImage(uint32_t imageId, uint16_t w, uint16_t h,
                             const void* rgba, size_t n) {
-    if (!active_ || !w_ || !rgba || n == 0) return;
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    if (g_live != this || !active_ || !w_ || !rgba || n == 0) return;
     if (imagesEmitted_.count(imageId)) return;
     // Prefer a registered recipe if present for this id.
     if (const ImageRecipe* rec = lookupImageRecipe(imageId)) {
         if (rec->kind != ImageRecipeKind::Pixels) {
-            noteRegisteredImage(imageId);
+            // Inlined (already hold g_liveMu — do not re-enter noteRegisteredImage).
+            if (imagesEmitted_.count(imageId)) return;
+            switch (rec->kind) {
+            case ImageRecipeKind::Svg:
+                w_->makeSvg(imageId, rec->svgTargetW, rec->svgTargetH,
+                            rec->svg.data(), rec->svg.size());
+                break;
+            case ImageRecipeKind::Text:
+                w_->makeText(imageId, rec->sizePt,
+                             rec->colorR, rec->colorG, rec->colorB, rec->colorA,
+                             rec->faceIndex,
+                             rec->fontBytes.data(), rec->fontBytes.size(),
+                             rec->text.data(), rec->text.size());
+                break;
+            case ImageRecipeKind::Encoded:
+                w_->makeEncodedImage(imageId, rec->encodedFormat,
+                                     rec->encoded.data(), rec->encoded.size());
+                break;
+            case ImageRecipeKind::Pixels:
+                break;
+            }
+            imagesEmitted_[imageId] = true;
             return;
         }
     }
@@ -650,7 +696,9 @@ void LiveCapture::noteImage(uint32_t imageId, uint16_t w, uint16_t h,
 }
 
 void LiveCapture::noteRegisteredImage(uint32_t imageId) {
-    if (!active_ || !w_ || imageId == 0) return;
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    // Drop work if wire thread disarmed us mid-frame (closeWire).
+    if (g_live != this || !active_ || !w_ || imageId == 0) return;
     if (imagesEmitted_.count(imageId)) return;
     const ImageRecipe* rec = lookupImageRecipe(imageId);
     if (!rec) return;
@@ -681,19 +729,33 @@ void LiveCapture::noteRegisteredImage(uint32_t imageId) {
 
 void LiveCapture::spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
                             const float mvp[16]) {
-    if (!active_ || !w_ || !verts || nVerts == 0 || !mvp) return;
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    if (g_live != this || !active_ || !w_ || !verts || nVerts == 0 || !mvp)
+        return;
     w_->spriteRun(imageId, verts, nVerts, mvp);
     ++runCount_;
 }
 
 std::vector<uint8_t> LiveCapture::end() {
+    std::lock_guard<std::mutex> lk(g_liveMu);
     if (!active_ || !w_) return {};
     w_->frameEnd();
     lastStats_ = w_->stats();
     active_ = false;
+    const size_t runs = runCount_;
     auto payload = w_->take();
-    if (runCount_ == 0) return {};
+    if (runs == 0) return {};
     return payload;
+}
+
+void LiveCapture::resetSession() {
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    imagesEmitted_.clear();
+    active_ = false;
+    w_.reset();
+    runCount_ = 0;
+    lastStats_ = {};
+    cache_ = nullptr;
 }
 
 } // namespace ge::cmdstream

@@ -239,6 +239,8 @@ void ServerSession::Impl::closeWire() {
     encW = encH = 0;
     transport.store(wire::kTransportH264);
     capturePixels.store(true);
+    // Disarm + destroy Writer under LiveCapture's mutex so the render
+    // thread cannot UAF emitBlob mid-frame (was SIGSEGV on attach).
     cmdstream::setLiveCapture(nullptr);
     live.resetSession();
     cmdCache.clear();

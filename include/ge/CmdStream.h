@@ -4,7 +4,7 @@
 // Command-stream codec + content-addressed cache (🎯T128 pass-through + cache MVP).
 //
 // Wire envelope is still wire::MessageHeader with magic kCommandStreamMagic
-// ("GE2S"). Payload is a sequence of tagged ops (see Op). Large blobs are
+// ("SP2S"). Payload is a sequence of tagged ops (see Op). Large blobs are
 // content-addressed: first transmission may carry full bytes; later ops refer
 // to the hash only when the peer is known (or assumed) to have the blob.
 //
@@ -165,7 +165,7 @@ private:
 
 // ── Writer ────────────────────────────────────────────────────────
 
-// Builds one GE2S payload. Does not include MessageHeader.
+// Builds one SP2S payload. Does not include MessageHeader.
 class Writer {
 public:
     explicit Writer(Cache* serverCache = nullptr);
@@ -259,7 +259,7 @@ class Reader {
 public:
     explicit Reader(Cache* playerCache);
 
-    // Parse one GE2S payload. Invokes the callback per op. Returns false on
+    // Parse one SP2S payload. Invokes the callback per op. Returns false on
     // malformed input. Blob ops populate the cache; BlobRef requires a hit.
     using OpFn = bool (*)(Op op, const uint8_t* payload, size_t payloadLen, void* user);
     // Lower-level: walk ops with a visitor that can pull typed fields via
@@ -348,19 +348,14 @@ public:
     void noteRegisteredImage(uint32_t imageId);
     void spriteRun(uint32_t imageId, const void* verts, uint16_t nVerts,
                    const float mvp[16]);
-    // Finish frame; returns GE2S payload (may be empty if no runs).
+    // Finish frame; returns SP2S payload (may be empty if no runs).
     std::vector<uint8_t> end();
     bool active() const { return active_; }
     Writer::Stats stats() const { return lastStats_; }
     size_t runCount() const { return runCount_; }
     // Drop session-local MakeImage memo (player detached / cache cleared).
-    void resetSession() {
-        imagesEmitted_.clear();
-        active_ = false;
-        w_.reset();
-        runCount_ = 0;
-        lastStats_ = {};
-    }
+    // Thread-safe vs note*/spriteRun (wire thread may call on detach).
+    void resetSession();
 
 private:
     std::unique_ptr<Writer> w_;
