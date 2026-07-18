@@ -1,0 +1,121 @@
+[2026-07-18 21:56:03.937] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-18 21:56:03.938] [info] [main.cpp:198] iap: restore complete ok=true error=
+[2026-07-18 21:56:04.005] [ge] [info] [SessionHost_server.mm:98] runServer: 'tiltbuggy' streaming to relay 127.0.0.1:3131
+[2026-07-18 21:56:04.005] [ge] [info] [SessionHost_server.mm:124] runServer: console stream host (not a desktop game window)
+[2026-07-18 21:56:04.006] [ge] [info] [ServerSession.mm:469] ServerSession: connected to relay 127.0.0.1:3131 as 'tiltbuggy'
+[2026-07-18 21:56:04.085] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-18 21:56:04.085] [ge] [info] [DirectRenderHost.mm:449] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-18 21:56:04.085] [ge] [info] [DirectRenderHost.mm:466] DirectRenderHost: GE_SENSOR_TRACE on (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T115558Z/shift-stream.trace)
+[2026-07-18 21:56:04.085] [ge] [info] [DirectRenderHost.mm:469] DirectRenderHost: 2048x1536
+[2026-07-18 21:56:04.085] [ge] [info] [DirectRenderHost.mm:499] DirectRenderHost: stream server ephemeral db (:memory:)
+[2026-07-18 21:56:04.085] [ge] [info] [Context.cpp:64] Context: opening db path=':memory:' schemaDdl=145B
+[2026-07-18 21:56:04.086] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-18 21:56:04.086] [ge] [info] [DirectRenderHost.mm:515] DirectRenderHost: Context ready — applying safe insets
+[2026-07-18 21:56:04.086] [ge] [info] [DirectRenderHost.mm:517] DirectRenderHost: drawSafe insets applied
+[2026-07-18 21:56:04.086] [ge] [info] [DirectRenderHost.mm:519] DirectRenderHost: uiSafe insets applied
+[2026-07-18 21:56:04.086] [ge] [info] [DirectRenderHost.mm:579] DirectRenderHost: constructor complete
+[2026-07-18 21:56:04.086] [ge] [info] [ServerSession.mm:535] ServerSession: SP2T working db bound (ok, schema=145 bytes)
+[2026-07-18 21:56:04.122] [ge] [info] [main.cpp:397] onEvent type=0x305
+[2026-07-18 21:56:04.122] [ge] [info] [main.cpp:397] onEvent type=0x404
+[2026-07-18 21:56:04.122] [ge] [info] [main.cpp:397] onEvent type=0x214
+[2026-07-18 21:56:04.586] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [0.00,0.00,0.00] t=0.6
+[2026-07-18 21:56:05.069] [ge] [info] [main.cpp:358] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-18 21:56:05.103] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.1
+[2026-07-18 21:56:05.603] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.6
+[2026-07-18 21:56:06.069] [ge] [info] [main.cpp:358] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-18 21:56:06.119] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [0.00,0.00,0.00] t=2.1
+[2026-07-18 21:56:06.357] [ge] [info] [ServerSession.mm:217] ServerSession: SessionConfig sensors=0x1 orientation=254 transport=0 flags=0x3 (immersive=1 noSaver=1) session=s1
+[2026-07-18 21:56:06.357] [ge] [info] [ServerSession.mm:228] ServerSession: player attached (session s1), wires=1 primary=1
+[2026-07-18 21:56:06.358] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.358] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.358] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:420] ServerSession: SP2T snapshot applied (24576 bytes, schemaDdl=145B retained for bind)
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.359] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:06.360] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+... [truncated for repo evidence: full log was   364681 lines] ...
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:354] ServerSession: player DeviceInfo 2048x1536 @1x class=3 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:449] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:454] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-18 21:56:10.059] [ge] [info] [ServerSession.mm:302] ServerSession: primary seat detached; no seats left
+[2026-07-18 21:56:10.060] [ge] [info] [ServerSession.mm:261] ServerSession: player detached (all sessions)
+[2026-07-18 21:56:10.069] [ge] [info] [main.cpp:358] tick: dt=0.0167 g=[-0.00,-0.00] pose=[1.34,8.95,0.41] grip=[150,150] pro=false
+[2026-07-18 21:56:10.069] [ge] [info] [main.cpp:433] TiltBuggy shutdown

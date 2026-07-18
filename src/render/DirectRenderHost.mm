@@ -29,6 +29,10 @@
 #include <ge/StreamHostPolicy.h>
 #include <ge/Tweak.h>
 #include <ge/ViewerMetrics.h>
+#include <ge/InputScript.h>
+
+#include <chrono>
+#include <fstream>
 
 #include "RenderOnDemand.h"
 
@@ -151,10 +155,18 @@ int mapAndroidTrimLevel(int level) {
 // AccelSynth on primary drag (no reliable modifier keys). This describes
 // the DEVICE the direct build runs on — it is not a stream/direct branch.
 #if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__ANDROID__)
-constexpr bool kLocalDeviceTouchFirst = true;
+constexpr bool kLocalDeviceTouchFirstDefault = true;
 #else
-constexpr bool kLocalDeviceTouchFirst = false;
+constexpr bool kLocalDeviceTouchFirstDefault = false;
 #endif
+// GE_DEVICE_TOUCH_FIRST overrides the local virtual-device description for
+// the parity oracle (declared device facts, like the player's
+// --device-class) — it does not select a modality.
+inline bool localDeviceTouchFirst() {
+    if (const char* v = std::getenv("GE_DEVICE_TOUCH_FIRST"))
+        return v[0] == '1';
+    return kLocalDeviceTouchFirstDefault;
+}
 
 // 🎯T154 viewer-background atomic (wire SP2L); also used by paused().
 std::atomic<bool> g_viewerBackgrounded{false};
@@ -316,6 +328,17 @@ struct DirectRenderHost::Impl {
     bool wantAccelInput = false;
     bool seatAuthorityLogged = false;
 
+    // 🎯T156.6 parity-oracle instrumentation (env-gated, mode-agnostic:
+    // identical in direct and stream hosts).
+    //  GE_INPUT_SCRIPT — scripted device-local input injected into the SDL
+    //  queue each pump (direct-mode counterpart of the headless player's
+    //  --script injection).
+    //  GE_SENSOR_TRACE — JSONL trace at the game boundary: every sensor
+    //  event the game sees, and per-frame presentation tilt, with wall-time.
+    std::optional<InputScriptPlayer> inputScript;
+    std::ofstream sensorTrace;
+    bool sensorTraceOn = false;
+
     // Parallax pipeline (SessionHostConfig.parallaxFactor > 0).
     // attitude provider polled per frame; baseline is the EMA-tracked
     // neutral, delta is computed inverse(baseline) * current and
@@ -421,10 +444,26 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         if (!i_->accelSensor) {
             i_->synth.emplace();
             i_->synth->setWindow(i_->sokolCtx->window());
-            i_->synth->setArmOnPrimary(kLocalDeviceTouchFirst);
+            i_->synth->setArmOnPrimary(localDeviceTouchFirst());
             SPDLOG_INFO("DirectRenderHost: gesture accelerometer synthesis "
-                        "enabled (armOnPrimary={})", kLocalDeviceTouchFirst);
+                        "enabled (armOnPrimary={})", localDeviceTouchFirst());
         }
+    }
+
+    if (const char* sp = std::getenv("GE_INPUT_SCRIPT")) {
+        std::vector<ScriptedEvent> evs;
+        if (loadInputScript(sp, evs)) {
+            i_->inputScript.emplace(std::move(evs));
+            SPDLOG_INFO("DirectRenderHost: GE_INPUT_SCRIPT loaded ({})", sp);
+        } else {
+            SPDLOG_ERROR("DirectRenderHost: GE_INPUT_SCRIPT open failed ({})", sp);
+        }
+    }
+    if (const char* tp = std::getenv("GE_SENSOR_TRACE")) {
+        i_->sensorTrace.open(tp, std::ios::trunc);
+        i_->sensorTraceOn = i_->sensorTrace.good();
+        SPDLOG_INFO("DirectRenderHost: GE_SENSOR_TRACE {} ({})",
+                    i_->sensorTraceOn ? "on" : "OPEN FAILED", tp);
     }
 
     SPDLOG_INFO("DirectRenderHost: {}x{}", i_->width, i_->height);
@@ -684,6 +723,23 @@ void DirectRenderHost::send(const wire::SessionConfig& cfg) {
 }
 
 void DirectRenderHost::setEventHandler(std::function<void(const SDL_Event&)> h) {
+    if (i_->sensorTraceOn) {
+        auto* impl = i_.get();
+        h = [impl, inner = std::move(h)](const SDL_Event& e) {
+            if (e.type == SDL_EVENT_SENSOR_UPDATE && impl->sensorTraceOn) {
+                using namespace std::chrono;
+                const auto eus = duration_cast<microseconds>(
+                    system_clock::now().time_since_epoch()).count();
+                impl->sensorTrace << "{\"k\":\"sensor\",\"t_ms\":"
+                                  << SDL_GetTicks() << ",\"e_us\":" << eus
+                                  << ",\"gx\":"
+                                  << e.sensor.data[0] << ",\"gy\":"
+                                  << e.sensor.data[1] << "}\n";
+                impl->sensorTrace.flush();
+            }
+            inner(e);
+        };
+    }
     i_->eventHandler = h;
     if (i_->synth) i_->synth->setEmit(h);
 }
@@ -727,6 +783,23 @@ void DirectRenderHost::setViewerMetricsStore(ViewerMetricsStore* store) {
 }
 
 void DirectRenderHost::pumpEvents() {
+    // 🎯T156.6: scripted input (parity oracle) enters the same SDL queue
+    // as OS input — no separate delivery path.
+    if (i_->inputScript && !i_->inputScript->done()) {
+        i_->inputScript->poll(static_cast<uint32_t>(SDL_GetTicks()),
+                              [this](const SDL_Event& e) {
+                                  if (e.type == SDL_EVENT_SENSOR_UPDATE) {
+                                      // Script SENSOR speaks screen frame —
+                                      // the same boundary the player forwards
+                                      // real samples at. Bypass the raw
+                                      // device-frame rotation below.
+                                      if (i_->eventHandler) i_->eventHandler(e);
+                                      return;
+                                  }
+                                  SDL_Event ev = e;
+                                  SDL_PushEvent(&ev);
+                              });
+    }
     // Drain off-thread OS events first so back / memory-warning
     // callbacks see a coherent game state without racing the SDL
     // event drain below.
@@ -990,7 +1063,7 @@ void DirectRenderHost::refreshFrame(float dt) {
                 i_->synth.emplace();
                 i_->synth->setWindow(i_->sokolCtx->window());
                 if (i_->eventHandler) i_->synth->setEmit(i_->eventHandler);
-                i_->synth->setArmOnPrimary(kLocalDeviceTouchFirst);
+                i_->synth->setArmOnPrimary(localDeviceTouchFirst());
             }
         }
     }
@@ -1015,6 +1088,11 @@ void DirectRenderHost::refreshFrame(float dt) {
             // the presentation-tilt's y-up "tilt forward/back" sense.
             presentationTilt = la::float2{t.x, -t.y} * kTiltRadPerPixel;
         }
+    }
+    if (i_->sensorTraceOn) {
+        i_->sensorTrace << "{\"k\":\"tilt\",\"t_ms\":" << SDL_GetTicks()
+                        << ",\"x\":" << presentationTilt.x
+                        << ",\"y\":" << presentationTilt.y << "}\n";
     }
 
     // 🎯T101 The swap-chain pass is no longer opened here — the game opens it

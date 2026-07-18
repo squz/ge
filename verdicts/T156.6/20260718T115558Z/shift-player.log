@@ -1,0 +1,121 @@
+[2026-07-18 21:56:06.356] [info] [player_core.cpp:42] spyder player starting (H.264 + SP2S cmdstream)
+[2026-07-18 21:56:06.357] [info] [PlayerWireBridge.cpp:119] PlayerWireBridge: connected to stream relay
+[2026-07-18 21:56:06.357] [info] [player_core.cpp:68] SessionConfig: sensors=0x1 orientation=254 transport=0 flags=0x3
+[2026-07-18 21:56:06.357] [info] [PlayerRender.cpp:174] PlayerRender: window 2048x1536 for orientation=254
+[2026-07-18 21:56:06.358] [info] [PlayerRender.cpp:182] PlayerRender: headless — no renderer/decoder
+[2026-07-18 21:56:06.358] [info] [PlayerRender.cpp:248] PlayerRender: no local accelerometer — tilt gestures (Shift+drag) forward to the server's synthesizer
+[2026-07-18 21:56:06.358] [info] [player_core.cpp:147] orientation settle: window 2048x1536 after 0ms
+[2026-07-18 21:56:06.358] [info] [player_core.cpp:180] DeviceInfo 2048x1536 @1x class=3 safe=(0,0 2048x1536) draw=(0,0 2048x1536)
+[2026-07-18 21:56:06.359] [info] [player_core.cpp:208] SP2T: opened durable db /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db
+[2026-07-18 21:56:06.359] [info] [PlayerWireBridge.cpp:201] PlayerWireBridge: SP2T snapshot sent (24576 bytes)
+[2026-07-18 21:56:06.359] [info] [player_core.cpp:232] SP2T: seeded server from player durable db /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-18 21:56:06.359] [info] [player_core.cpp:242] player: entering main loop (wire open=true)
+[2026-07-18 21:56:06.359] [info] [player_core.cpp:309] player: input script loaded (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T115558Z/gesture-shift.txt)
+[2026-07-18 21:56:06.359] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.359] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.360] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.360] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:06.361] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:06.361] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+... [truncated for repo evidence: full log was   242975 lines] ...
+[2026-07-18 21:56:10.058] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.058] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.058] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.058] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.058] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [PlayerWireBridge.cpp:639] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:255] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:364] player: script complete — exiting
+[2026-07-18 21:56:10.059] [info] [player_core.cpp:460] Player exited (222 frames decoded)
+[2026-07-18 21:56:10.375] [info] [player_core.cpp:297] PlayerLog: 2313508 ticks, 120 decoded (2313388 empty), seq 0-119 (0 gaps), maxDrain=0.0ms maxRender=0.0ms maxGap=26.3ms pump avg=0.0/max=26.3ms ev avg=0.0/max=0.0ms upload avg=0.0/max=0.0ms
