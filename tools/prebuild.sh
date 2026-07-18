@@ -8,6 +8,7 @@
 #   ios-arm64             — iOS arm64 device (iphoneos SDK, Metal backend)
 #   ios-arm64-simulator   — iOS arm64 simulator (iphonesimulator SDK)
 #   android-arm64         — Android arm64 (NDK clang, Vulkan + GLES backends)
+#   web-wasm              — Web via Emscripten (wasm32, WebGL2 backend) 🎯T157
 #
 # Full mode outputs vendor static libs plus libge into prebuilt/<platform>/,
 # plus a manifest.json for staleness detection. --libge-only reuses the
@@ -41,7 +42,7 @@ fi
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 [--libge-only] <platform>" >&2
-  echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+  echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64 | web-wasm" >&2
   exit 1
 fi
 PLATFORM="$1"
@@ -158,9 +159,33 @@ case "$PLATFORM" in
     GE_MANIFEST_TARGET=print-direct-android
     SDL_STUB_NEEDED=true
     ;;
+  web-wasm)
+    # 🎯T157 Emscripten/wasm (WebGL2 via SOKOL_GLES3). Single wasm32 arch;
+    # toolchain from PATH (brew install emscripten, or an activated emsdk).
+    if ! command -v em++ >/dev/null 2>&1; then
+      echo "error: em++ not found — install Emscripten (brew install emscripten" >&2
+      echo "  or https://emscripten.org/docs/getting_started/downloads.html)." >&2
+      exit 1
+    fi
+    CC=emcc
+    CXX=em++
+    AR=emar
+    AR_FLAGS=(rcs)
+    # emcc disables C++ exception catching by default; ge relies on
+    # exceptions (guardCallback, resolveFont, sqlpipe). -fwasm-exceptions
+    # uses the native wasm EH proposal (all evergreen browsers, 2026) and
+    # must match the consumer's compile+link flags.
+    # -msimd128 -msse2: box2d's __EMSCRIPTEN__ branch selects its SSE2 SIMD
+    # path (emmintrin.h over wasm SIMD — box2d's own CMake passes the same
+    # pair for Emscripten); wasm SIMD is likewise universal in 2026.
+    COMMON_FLAGS+=(-fwasm-exceptions -msimd128 -msse2)
+    GE_PLATFORM_DEFINE=-DGE_WEB
+    GE_MANIFEST_TARGET=print-direct-web
+    SDL_STUB_NEEDED=true
+    ;;
   *)
     echo "error: unsupported platform '$PLATFORM'" >&2
-    echo "  supported: ios-arm64 ios-arm64-simulator android-arm64" >&2
+    echo "  supported: ios-arm64 ios-arm64-simulator android-arm64 web-wasm" >&2
     exit 1
     ;;
 esac
@@ -191,6 +216,11 @@ EOF
 fi
 
 C_STD=(-std=c11)
+if [[ "$PLATFORM" == "web-wasm" ]]; then
+  # Strict c11 hides POSIX names (CLOCK_MONOTONIC in box2d's timer.c) in
+  # Emscripten's musl headers; bionic/Darwin expose them regardless.
+  C_STD=(-std=gnu11)
+fi
 CXX_STD=(-std=c++20)
 CXX17_STD=(-std=c++17)
 DEPFLAGS=(-MMD -MP)
@@ -405,9 +435,10 @@ compile_ge_source() {
   mkdir -p "$(dirname "$obj")"
   case "$ext" in
     cpp|mm)
-      # On Apple .mm is ObjC++; on Android (no ObjC) treat .mm as plain C++.
+      # On Apple .mm is ObjC++; on Android and web (no ObjC) treat .mm as
+      # plain C++.
       local lang_flag=()
-      if [[ "$ext" == "mm" && "$PLATFORM" == "android-arm64" ]]; then
+      if [[ "$ext" == "mm" && ( "$PLATFORM" == "android-arm64" || "$PLATFORM" == "web-wasm" ) ]]; then
         lang_flag=(-x c++)
       fi
       "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \

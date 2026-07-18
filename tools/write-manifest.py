@@ -49,7 +49,7 @@ SCRIPTS_TO_HASH_COMMON = [
     "tools/verify-prebuilds.py",
     "tools/prebuild.sh",
 ]
-SUPPORTED_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
+SUPPORTED_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64", "web-wasm")
 
 
 def sha256_file(path: Path) -> str:
@@ -178,6 +178,19 @@ def get_toolchain_android() -> dict[str, str]:
     return {"clang": "<unavailable>", "ndk_path": ndk}
 
 
+def get_toolchain_web() -> dict[str, str]:
+    """Emscripten version (🎯T157). emcc from PATH, same resolution as
+    tools/prebuild.sh's web-wasm case."""
+    try:
+        full = subprocess.check_output(
+            ["emcc", "--version"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        emcc_line = full.split("\n", 1)[0] if full else "<unavailable>"
+    except Exception:
+        emcc_line = "<unavailable>"
+    return {"emcc": emcc_line}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument(
@@ -258,7 +271,12 @@ def main() -> int:
     for a in sorted(prebuilt_dir.glob("*.a")):
         prebuilts[a.relative_to(REPO_ROOT).as_posix()] = sha256_file(a)
 
-    toolchain = get_toolchain_ios(platform) if platform.startswith("ios-") else get_toolchain_android()
+    if platform.startswith("ios-"):
+        toolchain = get_toolchain_ios(platform)
+    elif platform == "web-wasm":
+        toolchain = get_toolchain_web()
+    else:
+        toolchain = get_toolchain_android()
 
     manifest = {
         "version": 2,
@@ -276,7 +294,7 @@ def main() -> int:
         f.write("\n")
 
     print(f"wrote {manifest_path.relative_to(REPO_ROOT)}")
-    print(f"  toolchain: {toolchain.get('clang', '<unavailable>')}")
+    print(f"  toolchain: {toolchain.get('clang') or toolchain.get('emcc') or '<unavailable>'}")
     print(f"  scripts:        {len(scripts):4d}")
     print(f"  submodules:     {len(submodule_shas):4d}")
     print(f"  prebuilts:      {len(prebuilts):4d}")
