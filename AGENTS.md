@@ -42,6 +42,12 @@ Projects implement `ge::run({...})` only. They do **not** invent dual-host packa
 
 These are **totally different builds**, not one binary with a mode flag. App **source** is shared; packaging and host entry (`runServer` vs windowed) are ge’s.
 
+**Multi-session is per-session state (🎯T163).** The stream server serves
+multiple clients, EACH with its own game world/Context/durable state. If you
+find a single shared world mirrored to N glasses, that is an interim defect —
+never re-document it as the design, and never write "single-world game" seat
+policy into contracts or code comments as if it were intended.
+
 **Direct:** `ge::run` → windowed `DirectRenderHost`. App-channel when `SPYDER_APP_CHANNEL` is set.
 
 **Stream:** server binary dials spyder’s relay; player attaches. Server is a

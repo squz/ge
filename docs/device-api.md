@@ -99,14 +99,21 @@ is a **defect**.
 ### Seat model (one authority per virtual device)
 
 - **Direct:** one physical device → one sensor authority (real accel **or** AccelSynth).
-- **Stream:** N attached players are **N remote devices** (seats). Default for
-  single-world games (TiltBuggy): **primary seat = first attached wire**;
-  spectators receive content fan-out; **only the primary seat** may update
-  DeviceInfo/content-surface authority and deliver sensor samples to the game.
-- Seat handoff (if ever supported) is an **explicit** session event — not
-  per-event “arming window” arbitration.
+- **Stream: N attached players are N remote devices, and EACH SESSION RUNS
+  ITS OWN GAME INSTANCE** — per-session world, Context, input, and durable
+  state, driven by that glass's own sensors (🎯T163; T154 structural rule:
+  "each session's Context tracks that session's player"). The game server
+  serves multiple clients each with its own state. **The current
+  shared-world broadcast (primary seat + spectators) is an interim defect,
+  not the design** — it survives only until T163 lands, and afterwards only
+  as an explicit opt-in broadcast mode for genuinely shared-world titles.
+  This model has been erased twice by executors codifying implemented
+  behaviour as spec; do not "simplify" it away again.
+- Within a session: one sensor authority (this section), seat handoff (if
+  ever supported) is an **explicit** session event — not per-event
+  “arming window” arbitration.
 - **Rejected:** time-multiplexed merge of multiple seats’ sensors into one
-  gravity/tilt story.
+  gravity/tilt story; a spectator model as the default multi-session shape.
 
 ### Sensor authority (AccelSynth vs real)
 
