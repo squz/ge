@@ -2333,6 +2333,28 @@ targets:
     - packaging
     origin: promoted from docs/TODO.md, 2026-07-19
     discovered: 2026-07-19
+  T163:
+    name: 'Each attached session runs its own game instance: per-session world, Context, and state — the shared-world broadcast is a defect, not the default'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'N attached glasses each play their OWN game: independent world/physics/Context/durable-state per session, driven by that glass''s own sensors/input — no seat is a spectator of someone else''s game'
+    - The device-api.md contract states per-session instances as THE multi-session model; the 'primary seat + spectators' shared-world mode survives only as an explicitly opt-in broadcast mode for genuinely shared-world titles, never as a default
+    - 'SP2T durable state is coherent per session: each glass''s db seeds and receives ONLY its own session''s world (the attach-order ''whose save wins'' ambiguity is gone)'
+    - 'T156.3''s seat policy is recast: input gating remains per session, but there is nothing to ''spectate'' by default because sessions do not share a world'
+    - Implementation may be in-process multi-world or process-per-session (e.g. spyder pool spawning a server instance per attach) — the choice is recorded with its tradeoffs; either way the wire/cmdstream capture is per-session
+    - 'Oracle: two glasses attach, each drives its own buggy with its own tilt, each screenshot shows independent state; detach of one does not disturb the other'
+    context: '2026-07-19: the user re-stated the standing design — the game server serves multiple clients EACH WITH ITS OWN STATE (T154 structural rule: each session''s Context tracks that session''s player) — after catching the whole fleet mirroring one world. The single-shared-world behavior kept re-codifying itself because executors wrote implemented behavior back into specs: SeatPolicy''s ''single-world games'' framing (morning) and the T156.1 contract demoting per-session worlds to an option with primary-seat-broadcast as default (evening) are both instances. This target makes per-session instances the contract; the T156.1 sensor-authority and arm-policy work remains valid per session.'
+    depends_on:
+    - T156.1
+    tags:
+    - multi-session
+    - architecture
+    - contract
+    - per-session-state
+    origin: user design re-statement, 2026-07-19
+    discovered: 2026-07-19
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
