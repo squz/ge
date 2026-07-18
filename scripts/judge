@@ -1,0 +1,116 @@
+#!/bin/sh
+# Copyright 2026 Marcelo Cantos
+# SPDX-License-Identifier: Apache-2.0
+#
+# judge — independent verdict on a bullseye target's acceptance criteria.
+#
+# Usage: scripts/judge <target-id> [evidence-dir ...]
+#
+# Extracts the target's block from bullseye.yaml and asks Claude (claude -p,
+# a different model/harness than the executing agent) to adversarially verify
+# every acceptance criterion against the working tree and any evidence dirs.
+# Writes verdicts/<id>/<stamp>.md and exits 0 only on VERDICT: CONFIRMED.
+#
+# Convention (docs/judging.md): no target moves to status: achieved without a
+# committed verdict artifact from this script. Executor self-attestation — or
+# executor-edited acceptance criteria — does not count.
+
+set -eu
+
+if [ $# -lt 1 ]; then
+    echo "usage: scripts/judge <target-id> [evidence-dir ...]" >&2
+    exit 2
+fi
+
+id=$1
+shift
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# Extract the target block: from "  <id>:" to the next "  T<digit>" sibling.
+id_re=$(printf '%s' "$id" | sed 's/\./\\./g')
+block=$(awk "
+    /^  ${id_re}:\$/ { f = 1 }
+    f && /^  T[0-9]/ && !/^  ${id_re}:\$/ { exit }
+    f { print }
+" bullseye.yaml)
+
+if [ -z "$block" ]; then
+    echo "judge: target ${id} not found in bullseye.yaml" >&2
+    exit 2
+fi
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+outdir="verdicts/${id}"
+outfile="${outdir}/${stamp}.md"
+mkdir -p "$outdir"
+
+evidence=""
+for d in "$@"; do
+    evidence="${evidence}
+- ${d}"
+done
+if [ -z "$evidence" ]; then
+    evidence="
+- (none)"
+fi
+
+prompt=$(cat <<EOF
+You are an independent judge for target ${id} in this repository's
+bullseye.yaml. An executing agent claims (or is about to claim) this target
+is achieved. Your job is to adversarially verify EVERY acceptance criterion
+against the actual working tree, git history, tests, and evidence — not
+against the executor's narrative.
+
+Target block from bullseye.yaml:
+
+\`\`\`yaml
+${block}
+\`\`\`
+
+Evidence directories supplied by the executor (may be empty):${evidence}
+
+Rules of judgment:
+- Verify by inspection and execution: read the shipped code, run builds and
+  tests where feasible (make unit-test, targeted test binaries), and check
+  that evidence artifacts are real outputs of real runs.
+- Treat these as THEATER and refute the criterion they support: comparing an
+  implementation against itself (double-run of one function); stub or
+  hand-written "result" files; greps or log excerpts presented as run
+  evidence; evidence living only in ephemeral temp dirs; tests that start
+  past the thing under test or re-implement it; acceptance criteria that
+  appear to have been edited to match the implementation (check git log -p
+  for the bullseye.yaml block).
+- A criterion you cannot verify is UNVERIFIABLE, not confirmed.
+- You are read/execute only: never edit files, never commit, never touch
+  the ledger.
+
+Output format — for each acceptance criterion, one line:
+  [CONFIRMED|REFUTED|UNVERIFIABLE] <criterion summary> — <one-line justification>
+Then any material observations, then EXACTLY one final line:
+  VERDICT: CONFIRMED
+only if every criterion is CONFIRMED; otherwise:
+  VERDICT: REFUTED
+EOF
+)
+
+echo "judge: ${id} → ${outfile}" >&2
+
+{
+    echo "# Judge verdict: ${id}"
+    echo
+    echo "- Stamp: ${stamp}"
+    echo "- Commit: $(git rev-parse HEAD)"
+    echo "- Judge: claude -p ($(claude --version 2>/dev/null || echo unknown))"
+    echo
+} > "$outfile"
+
+claude -p "$prompt" --allowedTools "Read" "Glob" "Grep" "Bash" \
+    | tee -a "$outfile"
+
+if grep -q '^VERDICT: CONFIRMED$' "$outfile"; then
+    echo "judge: ${id} CONFIRMED — commit ${outfile} with the achieve" >&2
+    exit 0
+fi
+echo "judge: ${id} NOT confirmed — see ${outfile}" >&2
+exit 1

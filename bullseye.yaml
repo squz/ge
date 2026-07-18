@@ -1956,21 +1956,23 @@ targets:
     discovered: 2026-07-14
     achieved: 2026-07-14
   T156:
-    name: 'Stream is a transport, not a modality: the wire backend is a location-transparent proxy of the device API, and an in-process loopback player is trace-identical to direct mode'
-    status: achieved
+    name: 'Stream is a transport, not a modality: the wire backend is a location-transparent proxy of the device API, and a headless real player in the oracle loop is trace-identical to direct mode'
+    status: converging
     value: 13.0
-    cost: 13.0
+    cost: 20.0
     actual_cost: 13.0
     acceptance:
     - 'Written contract defines the wire protocol as the serialization of the polymorphic device API: every message maps 1:1 to an API call/callback, and every API element is classified marshalled | uniform-no-op | named-divergence (divergences are tracked targets, never silent)'
     - 'No device semantics live in the boundary: the marshalling layer holds no arbitration policy, no merge points, and no second model of tilt/gravity/anything; a stream-only code path above the marshalling layer is a defect by definition'
     - 'One sensor authority per virtual device, bound at construction/seating and never contended per-event: the SDL-queue merge of synth emits and wire sensor samples is gone; gravity and presentation tilt derive from the same authority state'
     - 'Multi-attach is N remote devices, not one merged device: seats are explicit (N independent virtual devices, or primary seat + spectators); DeviceInfo and content-surface authority follow the seat'
-    - Scripted device-local input crosses the shipped SP2I marshalling path (pack/unpack used by ServerSession) before AccelSynth; game-observed gravity and presentation-tilt traces under that loopback inject are identical to direct AccelSynth::handle for the same script, modulo documented normalization (frame counts; ease phase uses a virtual/hold clock where asserted)
+    - 'Sensor-authority policy contains no stream/direct, GE_SERVER_BUILD, or simulator build-flag conditional: AccelSynth exists and arms solely because the seat''s virtual device declares no hardware accelerometer and feeds it touch/pointer events'
+    - 'The real player (spyder bin/player, headless) runs in the oracle loop over a loopback transport — full handshake (SessionConfig → DeviceInfo incl. sensor capability → SP2I input/sensors); game-observed gravity and presentation-tilt traces are identical to direct mode for the same script, modulo documented normalization (frame counts; virtual/hold clock where asserted)'
     - Real-wire deployment differs from loopback only in documented transport properties (latency, coalescing) — the sole permitted tolerances in the parity oracle
     - 'Player remains glass-only: applies SessionConfig, reports DeviceInfo, forwards device-local input and real sensors; no second AccelSynth or gravity model. Spyder streamrelay routes player-protocol bytes opaquely; control plane (app-channel, logs, telemetry, deploy) is out of scope and unchanged'
     - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; the trace-equality oracle fails if a stream-only semantic pathway reappears
-    context: '2026-07-17 stream debugging: presentation tilt tracked the mouse while physics gravity drifted/reversed, because presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue that merges sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run of AccelSynth; stub JSON; grep-as-stream-log). Fixed 2026-07-18: dual-path SP2I pack→unpack→handle vs direct handle, real numeric parity-*.json, hold-left + second-seat competitor log via SeatPolicy + shouldDeliverSensorToGame.'
+    - 'Independent judge gate: every achieve in this group carries a committed verdicts/<id>/ artifact from scripts/judge (claude -p) confirming each criterion; executor self-attestation — or executor-edited acceptance — does not count'
+    context: '2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
     depends_on:
     - T154
     tags:
@@ -1984,21 +1986,23 @@ targets:
     - T154-followon
     origin: 2026-07-17 stream AccelSynth dual-pathway diagnosis; reformulated 2026-07-18 around location transparency
     discovered: 2026-07-18
-    achieved: 2026-07-18
   T156.1:
-    name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model; spyder is an opaque router'
-    status: achieved
+    name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model with device-capability sensor authority; spyder is an opaque router'
+    status: converging
     value: 3.0
-    cost: 2.0
+    cost: 3.0
     actual_cost: 2.0
     acceptance:
     - docs/device-api.md (or successor) gains a section defining the wire protocol as the serialization of the polymorphic device API, with a 1:1 message ↔ call/callback mapping table (SessionConfig, DeviceInfo, SafeAreaUpdate, ViewerLifecycle, SP2I input, SP2T state, present/push)
     - 'Full device-API surface is classified marshalled | uniform-no-op | named-divergence; each named divergence cites a tracked target (T154 migration-matrix residuals: viewer back/memory lifecycle, foreground/background render gating, audio focus, parallax/attitude, haptics, refresh-rate boost, IAP, tweaks DB)'
     - 'Boundary purity rule stated: the marshalling layer holds no device-semantic state — no arbitration, no merges, no second models; any stream-only semantic pathway above the marshalling layer is a defect'
     - 'Seat model chosen and stated: one sensor authority per virtual device, bound at construction/seating; N attached players are N remote devices (N seats, or primary seat + spectators); DeviceInfo/content-surface authority follows the seat; seat handoff (if supported) is an explicit session event. Arming-window/time-multiplexed arbitration is explicitly rejected'
+    - 'Sensor-authority section corrected: the authority predicate is the seat''s virtual-device capability (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct) — never host sensor enumeration. A glass that declares a real accelerometer is the authority for its seat; its sensor stream is never filtered, and no synth is constructed for that seat'
+    - 'Arm-policy rule stated: any arming-UX difference (Shift vs primary-drag) derives from declared device capabilities, never from GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or stream-vs-direct conditionals'
     - 'Terminology pinned: sensor samples travel as SDL sensor events inside SP2I — there is no SENSOR_UPDATE wire message; ge/include/ge/Protocol.h and the spyder player mirror are layout oracles for the same serialization'
     - 'Spyder statement: streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
-    context: 'Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. The surface classification is what makes the parent honest — every game-visible device behaviour is either marshalled, uniformly absent, or a named tracked divergence.'
+    - Achieve carries a committed verdicts/T156.1/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    context: 'Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
     tags:
     - docs
     - device-api
@@ -2007,20 +2011,25 @@ targets:
     - location-transparency
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
-    achieved: 2026-07-18
   T156.2:
-    name: 'One sensor authority per virtual device: the queue merge point is gone; gravity and presentation tilt read the same authority state'
-    status: achieved
+    name: 'One sensor authority per virtual device, chosen by the device''s declared capability: no build-flag arm policy; a real-accelerometer glass is never suppressed'
+    status: converging
     value: 8.0
-    cost: 3.0
+    cost: 5.0
     actual_cost: 3.0
     acceptance:
+    - 'AccelSynth existence and arming are predicated solely on the seat''s virtual device: constructed only when the device API reports no hardware accelerometer for that seat (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct), armed only by that device''s own modifier/touch/pointer events'
+    - src/render/AccelSynth.h contains no GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or other build/modality conditional in existence, arm, or ownership policy (mechanically checkable by grep)
+    - 'When the seat''s glass declares a hardware accelerometer, that real sensor stream is the sole authority and reaches the game unfiltered; no synth is constructed for that seat, so ownsSensorStream can never suppress the seat''s own authority'
+    - 'The DeviceInfo capabilities byte gains a hasAccelerometer bit (protocol bump + spyder player declaration + server predicate) in the same change — the predicate must be knowable before the first sensor sample arrives'
     - A virtual device has exactly one sensor authority, bound at construction/seating per the contract; no code path delivers a non-authority sensor event to the game's sensor handler
     - 'Gravity and presentation tilt derive from the same authority state: hold-still holds (no decay, no reversal); mid-gesture external overwrite is structurally impossible, not merely improbable'
     - On disarm/release, ease-back behaviour matches direct mode (documented)
     - 'No arming-window or time-multiplexed arbitration exists: authority never changes per-event, only by explicit re-seat'
     - 'Oracle: a synthetic hold-left sequence can never yield opposite gravity while presentation remains left'
-    context: 'Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it) — direct mode never arbitrates because it never has two sources.'
+    - 'The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction'
+    - Achieve carries a committed verdicts/T156.2/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    context: 'Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
     depends_on:
     - T156.1
     tags:
@@ -2030,7 +2039,6 @@ targets:
     - sensor-authority
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
-    achieved: 2026-07-18
   T156.3:
     name: 'Multi-attach seats are explicit: N remote devices or primary seat + spectators; DeviceInfo and content-surface authority follow the seat'
     status: achieved
@@ -2064,8 +2072,8 @@ targets:
     - wire::packSdlEvent / unpackSdlEvent is the SP2I byte path ServerSession uses (no test-only serialization)
     - A scripted-input driver runs the same deterministic gesture sequence against direct AccelSynth::handle and against pack→unpack→handle (loopback inject)
     - Harness runs headless on the laptop via ge-test with no device, GUI, or network attached
-    - Full player-core library extraction into ge remains deferred (docs/device-api.md non-goal); SP2I inject is the location-transparent input/sensor oracle apparatus
-    context: 'T156.4 originally asked for player-core-as-library + in-memory socket loopback. Plan deviation + device-api non-goal: re-linking the spyder player binary into ge is out of scope. The honest substitute is the shipped SP2I marshalling path (WireSdlEvent pack/unpack used by ServerSession) as a second entry point for scripted input — dual-path, not double-run of one function. Reverted once for theater; fixed 2026-07-18 with real pack/unpack inject.'
+    - SP2I inject is the byte-path harness for input/sensor marshalling only; the full player-in-the-loop apparatus is tracked as 🎯T156.7
+    context: 'T156.4 originally asked for player-core-as-library + in-memory socket loopback. The executor re-scoped it 2026-07-18 to the shipped SP2I marshalling path (WireSdlEvent pack/unpack used by ServerSession) as a second entry point for scripted input — dual-path, not double-run of one function; reverted once for theater, then fixed with real pack/unpack inject. Kept achieved for what it factually is: a byte-path harness. The same evening proved it is NOT sufficient oracle apparatus — the GE_SERVER_BUILD arm-policy fork lived above SP2I, invisible to byte-level injection. The original scope is restored as T156.7 (headless real player over loopback), which also respects the ge↔spyder protocol-only coupling rule better than a library link would.'
     depends_on:
     - T156.1
     tags:
@@ -2087,7 +2095,7 @@ targets:
     - Host plumbing (relative-mouse for usable xrel during Shift-drag) is documented as delivery quality only, not tilt semantics
     - Verification is structural over spyder player sources plus ge dual-path oracle (T156.4/T156.6) — glass purity does not require re-linking the player binary into ge
     - Mirrored Protocol.h (ge ↔ spyder player) carries the same SP2I/DeviceInfo/SessionConfig layout oracles
-    context: Player lives in spyder; protocol is game↔player. Glass purity is structural (no synth construction) + delivery-quality relative-mouse only. Mechanical link of player core into ge deferred with T156.4.
+    context: 'Player lives in spyder; protocol is game↔player. Glass purity is structural (no synth construction) + delivery-quality relative-mouse only. Kept achieved: the glass itself was and is pure — the 2026-07-18 evening authority bug was server-side. Mechanical (rather than structural) verification arrives with T156.7 headless-player oracle runs.'
     depends_on:
     - T156.1
     - T156.4
@@ -2100,25 +2108,30 @@ targets:
     discovered: 2026-07-18
     achieved: 2026-07-18
   T156.6:
-    name: 'Trace-equality oracle is green: direct vs loopback traces identical; real wire differs only by documented transport tolerances'
-    status: achieved
+    name: 'Trace-equality oracle is green: direct vs headless-player-loopback traces identical; real wire differs only by documented transport tolerances'
+    status: converging
     value: 8.0
-    cost: 2.0
+    cost: 4.0
     actual_cost: 2.0
     acceptance:
-    - Oracle drives identical scripted input through the direct backend and the loopback player and asserts the game-observed traces (event sequence, order, payloads, resulting state transitions) are identical modulo the contract's documented normalization (e.g. timestamps under a virtual clock) — trace equality, not tolerance bands
-    - 'Coverage includes at least: single-seat Shift-drag gesture (hold, reverse, release/ease-back), attach-order seating, and DeviceInfo/content-surface authority'
+    - Oracle drives identical scripted input through the direct backend and the headless player over loopback (T156.7) and asserts the game-observed traces (event sequence, order, payloads, resulting state transitions) are identical modulo the contract's documented normalization (e.g. timestamps under a virtual clock) — trace equality, not tolerance bands
+    - 'Coverage includes at least: single-seat Shift-drag (hold, reverse, release/ease-back); finger-drag arming on a glass that declares NO accelerometer; a glass that declares a real accelerometer keeping unfiltered authority with no synth constructed; attach-order seating including primary-seat detach/reseat; DeviceInfo/content-surface authority'
     - A real-wire run (live player attached) matches within the contract's transport tolerances (latency, coalescing) only; any semantic difference fails
-    - Evidence captured in ge's test attestation (TEST-REPORT-equivalent); the oracle fails if a stream-only semantic pathway reappears
+    - End-to-end latency from glass gesture/sensor sample to game-observed gravity is measured on the live run and falls within a documented tolerance — closing out the reported 1–2 s delay with numbers, not impressions
+    - Evidence is durable and in-repo (committed under verdicts/ or a TEST-REPORT-equivalent); ephemeral temp dirs (/var/folders goal SCRATCH) do not count as attestation
+    - Achieve carries a committed verdicts/T156.6/ judge artifact (scripts/judge → claude -p) confirming every criterion
     context: |-
-      Closes the loop. Trace equality against the loopback player is strictly stronger than trajectory-tolerance parity and runs headless; the live-wire run certifies only transport. Without this, stream and direct re-diverge silently.
+      Closes the loop. Trace equality against the player-in-loop is strictly stronger than trajectory-tolerance parity; the live-wire run certifies only transport. Without this, stream and direct re-diverge silently.
 
-      Reverted 2026-07-18: Skeptic: parity double-run theater
+      Reverted 2026-07-18: Skeptic: parity double-run theater.
+
+      REOPENED 2026-07-18 evening: the achieved oracle armed exclusively with Shift (deliberately, to avoid GE_SERVER_BUILD), so the finger-arm + real-accelerometer-glass pathway — the one that actually failed in the field — was never exercised. Evidence also lived only in an ephemeral goal SCRATCH under /var/folders. Coverage above names the missing scenarios explicitly.
     depends_on:
     - T156.2
     - T156.3
     - T156.4
     - T156.5
+    - T156.7
     tags:
     - oracle
     - parity
@@ -2126,7 +2139,28 @@ targets:
     - verification
     origin: subdivide(🎯T156)
     discovered: 2026-07-18
-    achieved: 2026-07-18
+  T156.7:
+    name: 'Headless real player in the oracle loop: spyder bin/player runs the full handshake over loopback with scripted input and trace capture'
+    status: identified
+    value: 5.0
+    cost: 5.0
+    acceptance:
+    - 'spyder player builds a headless mode (no GPU/GUI presentation) that still runs the full wire bridge: SessionConfig apply, DeviceInfo report including the hasAccelerometer capability bit, SP2I input/sensor forwarding, SP2T'
+    - 'The oracle drives the real player binary as a subprocess over a localhost/loopback transport — the same bytes and the same player logic as production; no test-double glass, and no linking spyder code into ge (the plateau coupling rule holds: the repos couple through the protocol, and the oracle exercises the player across it)'
+    - Scripted device-local input and synthetic sensor streams are injectable into the headless player deterministically, with declared device capabilities configurable per run (accelerometer present vs absent), and game-observed traces are captured for T156.6
+    - Harness runs on the laptop with no physical device or GUI attached
+    - Achieve carries a committed verdicts/T156.7/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    context: 'Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
+    depends_on:
+    - T156.1
+    tags:
+    - loopback
+    - harness
+    - player
+    - spyder
+    - oracle-infrastructure
+    origin: split from T156.4 after the 2026-07-18 false completion
+    discovered: 2026-07-18
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
