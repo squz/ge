@@ -2231,6 +2231,30 @@ targets:
     - oracle-infrastructure
     origin: user clarification of T159 intent, 2026-07-18
     discovered: 2026-07-18
+  T161:
+    name: 'The stream self-detects anachronisms: temporal invariants checked online at the glass, violations classified and reported without human log-reading'
+    status: identified
+    value: 5.0
+    cost: 5.0
+    acceptance:
+    - 'Temporal contract documented in device-api.md: presented seq strictly increasing; generation timestamps non-decreasing with seq; emission timestamps non-decreasing in present order; every generated frame presented or explicitly shed (conservation); transport is a time-shift, not a time-warp (inter-generation deltas match inter-presentation deltas within documented tolerance)'
+    - 'Online checker at the glass: bounded ring of (seq, gen_us, recv_us, present_us) tuples, incremental invariant checks, negligible per-frame cost'
+    - 'Violations are CLASSIFIED anomaly records (reorder, seq regression, silent loss, stall, jitter burst, cadence warp, clock skew) carrying the implicated seq window and both cadence timelines; cadence warps are auto-attributed to transport vs glass by comparing receive-deltas against generation-deltas'
+    - 'Reporting is automatic on three paths: trace/telemetry sink on the glass; periodic rollup in the PresentTrace summary line; echo to the server over a small wire message so server logs and the oracle see anomalies without device log access (spyder remains an opaque router)'
+    - The scripted oracle and its live tier assert ZERO anomalies on clean runs
+    - 'Fault-injection test proves the detector detects: artificially delayed, reordered, and dropped frames each fire the correct classification (a detector with no positive test is theater)'
+    context: 'User-requested 2026-07-18, extending T160: with dual timestamps (generation + emission) and seq as builtin metadata, the stream supports a formal temporal contract checked by machine. The 2026-07-18 judder hunt did all of this manually (arrival-delta vs present-delta comparison localized Wi-Fi burst jitter; the black-glass bug was a silent-loss violation; the standing-backlog bug was a cadence warp) — this target turns that afternoon of human analysis into an always-on detector.'
+    depends_on:
+    - T159
+    - T160
+    tags:
+    - telemetry
+    - cmdstream
+    - invariants
+    - anomaly-detection
+    - oracle-infrastructure
+    origin: user request during T160 filing, 2026-07-18
+    discovered: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
     status: identified
