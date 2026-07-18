@@ -109,7 +109,10 @@ prebuild-ios-arm64-simulator:
 prebuild-android-arm64:
 	tools/prebuild.sh android-arm64
 
-prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
+prebuild-web-wasm:
+	tools/prebuild.sh web-wasm
+
+prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 prebuild-web-wasm
 
 # Source-only engine refresh: rebuild just libge.a for each platform and
 # preserve existing vendor archives + their manifest input hashes. Use this

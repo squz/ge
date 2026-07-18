@@ -82,7 +82,14 @@ public:
                 // past the window edge (desktop). On iOS simulator it causes
                 // a stuck-touch indicator when the mouse button is released,
                 // and motion is delivered via touch synthesis anyway — skip.
-#if !(defined(__APPLE__) && TARGET_OS_IOS)
+                // On web (🎯T157) relative mode means requestPointerLock,
+                // which browsers may deny (no transient activation, headless)
+                // — and SDL then DISCARDS absolute motion while relative mode
+                // is on (SDL_HINT_MOUSE_RELATIVE_WARP_MOTION default), so the
+                // synth would go dead. Plain absolute motion carries xrel on
+                // web anyway; the lost past-the-edge drag is a fair trade for
+                // input that always works.
+#if !((defined(__APPLE__) && TARGET_OS_IOS) || defined(__EMSCRIPTEN__))
                 if (window_) {
                     SDL_SetWindowRelativeMouseMode(window_, shiftDown_);
                 }

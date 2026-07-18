@@ -80,6 +80,16 @@ GE_SRC_ANDROID := \
 	src/render/RefreshRateBoost_android.cpp \
 	tools/sokol-dispatch/generated/ge_sokol_dispatch.c \
 	tools/vkprobe/ge_vkprobe.c
+
+# 🎯T157 Web (Emscripten/wasm) glue. Single WebGL2 backend, so SOKOL_IMPL is
+# inline in SokolContext_web.cpp (the Apple model — no T107 dispatch shim).
+# iap/log/audio need no web variant: neither __APPLE__ nor __ANDROID__ is
+# defined, so their cross-platform paths (StubStore, stderr sink → browser
+# console, plain SDL audio) apply.
+GE_SRC_WEB := \
+	src/FontLoader_web.cpp \
+	src/SokolContext_web.cpp \
+	src/render/RefreshRateBoost_web.cpp
 # 🎯T107: the sokol IMPL is NOT in libge on Android — it lives in
 # libgesokol-{gles,vk}.so. libge instead links the generated dispatch shim
 # (real sg_* → the table a backend .so installs). Apple keeps SOKOL_IMPL inline
@@ -135,6 +145,11 @@ GE_SRC_DIRECT_IOS              := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_STUB
 # Android direct-mode: core + android glue + stub orientation.
 GE_SRC_DIRECT_ANDROID          := $(GE_SRC_COMMON) $(GE_SRC_ANDROID) $(GE_SRC_ORIENTATION_STUB)
 
+# 🎯T157 Web direct-mode: core + web glue + every stub (no chrome, no
+# sensors, no orientation lock in the browser). Never combined with
+# GE_SRC_BROKERED — the web build is direct-only by construction.
+GE_SRC_DIRECT_WEB              := $(GE_SRC_COMMON) $(GE_SRC_WEB) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_STUB_ATTITUDE) $(GE_SRC_ORIENTATION_STUB)
+
 # ── helper print targets (for tools/prebuild.sh extraction) ────────
 # `make -s -f tools/ge-sources.mk print-direct-ios` etc. Newline-separated
 # so bash mapfile / read can ingest line-at-a-time.
@@ -155,6 +170,9 @@ print-direct-android:
 
 print-direct-apple-desktop:
 	@printf '%s\n' $(GE_SRC_DIRECT_APPLE_DESKTOP)
+
+print-direct-web:
+	@printf '%s\n' $(GE_SRC_DIRECT_WEB)
 
 print-brokered:
 	@printf '%s\n' $(GE_SRC_BROKERED)

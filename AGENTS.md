@@ -143,7 +143,7 @@ Inspect/tweak/logs: spyder `app_exec` builtins (`app_tweak_*`, `app_log_get`, `a
 
 | Concern | ge handles it | You write |
 |---------|--------------|-----------|
-| Rendering backend | sokol_gfx — Metal on Apple, Vulkan with GLES3 fallback on Android (🎯T107) | sokol_gfx (`sg_*`) draw calls in `onRender` |
+| Rendering backend | sokol_gfx — Metal on Apple, Vulkan with GLES3 fallback on Android (🎯T107), WebGL2 on web (🎯T157) | sokol_gfx (`sg_*`) draw calls in `onRender` |
 | H.264 encoding (server-mode / dev stream) | `VideoEncoder_apple.mm` (VideoToolbox) | Nothing |
 | H.264 decoding (native player) | `VideoDecoder_apple.mm` (VideoToolbox) | Nothing |
 | Frame loop | `ge::run` with delta timing + signal handling | `onUpdate(dt)` + `onRender(const Context&)` callbacks |
@@ -227,6 +227,7 @@ Module.mk defines these targets so the parent doesn't need to:
 | `compile_commands.json` | Generate clangd compile database from `$(COMPILE_DB_DEPS)` |
 | `ge/ios` | Generate the iOS Xcode project |
 | `ge/android` | Build the Android debug APK |
+| `web` | Build the browser app — `<app>.html/.js/.wasm` via Emscripten + WebGL2 (🎯T157; see [`docs/web-platform.md`](docs/web-platform.md)) |
 | `ge/app-icons` | Expand `icons/icon.svg` into iOS + Android icon resources (🎯T50) |
 
 ### App icons (🎯T50)

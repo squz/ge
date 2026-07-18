@@ -7,7 +7,7 @@ need to recompile ge from sources.
 
 The artefacts:
 
-- **`ge/prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/lib<name>.a`**
+- **`ge/prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64,web-wasm}/lib<name>.a`**
   — static libs for box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
   liteparser, and **ge**, tracked via Git LFS.
 - **`ge/headers/<dep>/include/`** — lifted public-header subset of
@@ -193,7 +193,7 @@ without consuming TestFlight build slots
 
 ```
 ge/
-├── prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64}/
+├── prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64,web-wasm}/
 │   ├── libge.a             8.9 MB
 │   ├── libsqlite3_ge.a     1.5 MB
 │   ├── libbox2d.a          490 KB
