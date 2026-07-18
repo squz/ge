@@ -11,6 +11,7 @@
 
 #include "DirectRenderHost.h"
 #include "AccelSynth.h"
+#include <ge/WireSdlEvent.h>
 #include "LifecycleInject.h"
 #include "ScreenshotBridge.h"
 
@@ -112,7 +113,7 @@ std::atomic<bool> g_backHandlerActive{false};
 std::atomic<bool> g_pendingBackPressed{false};
 // -1 = no event; 0/1/2 = MemoryPressureLevel::{Low, Moderate, Critical}.
 std::atomic<int>  g_pendingMemoryWarning{-1};
-// 🎯T43 / 🎯T154 audio focus (Android host or stream viewer GE2L).
+// 🎯T43 / 🎯T154 audio focus (Android host or stream viewer SP2L).
 // +1 gained, -1 lost; pumpEvents drains on game thread.
 std::atomic<int> g_pendingAudioFocusChange{0};
 
@@ -146,7 +147,7 @@ int mapAndroidTrimLevel(int level) {
 }
 #endif
 
-// 🎯T154 viewer-background atomic (wire GE2L); also used by paused().
+// 🎯T154 viewer-background atomic (wire SP2L); also used by paused().
 std::atomic<bool> g_viewerBackgrounded{false};
 
 // 🎯T92.6 Screenshot bridge state.
@@ -378,9 +379,9 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     if (i_->sokolCtx->height() > 0) i_->height = i_->sokolCtx->height();
 
     if (config.sensors & wire::kSensorAccelerometer) {
-        // Prefer real sensors when usable. iOS Simulator reports Core Motion
-        // as available but AccelSynth::realSensorAvailable() is false there —
-        // Shift-drag is the only practical tilt path on sim.
+        // Prefer real sensors when usable. iOS Simulator and Android emulator
+        // report sensors but AccelSynth::realSensorAvailable() is false there —
+        // host mouse / click-drag is the practical tilt path.
         if (AccelSynth::realSensorAvailable()) {
             int count = 0;
             SDL_SensorID* sensors = SDL_GetSensors(&count);
@@ -451,8 +452,11 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
 #endif
     i_->ctx.emplace(i_->width, i_->height, deviceClass(),
                     dbPath, config.schemaDdl);
+    SPDLOG_INFO("DirectRenderHost: Context ready — applying safe insets");
     i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+    SPDLOG_INFO("DirectRenderHost: drawSafe insets applied");
     i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
+    SPDLOG_INFO("DirectRenderHost: uiSafe insets applied");
     // 🎯T101 Install the swapchain-pass factory. The game opens it once at the
     // top of onRender via ctx.swapchainPass(); the ctor opens the sokol swap-
     // chain pass and the returned ge::Pass's teardown arms any pending
@@ -468,7 +472,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                     });
             } else if (i_->serverActive && i_->serverActive->load()) {
                 // 🎯T92.2.2 server mode: GPU readback for H.264 / Present.
-                // Command-stream (sprite GE2S) sets capturePixels=false and
+                // Command-stream (sprite SP2S) sets capturePixels=false and
                 // serialises via LiveCapture around onRender instead.
                 const bool wantPx = !i_->serverCapturePixels ||
                                     i_->serverCapturePixels->load();
@@ -512,6 +516,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         SPDLOG_INFO("DirectRenderHost: launched into background — render gated until foreground");
     }
 #endif
+    SPDLOG_INFO("DirectRenderHost: constructor complete");
 }
 
 DirectRenderHost::~DirectRenderHost() {
@@ -842,6 +847,14 @@ void DirectRenderHost::pumpEvents() {
             continue;
         }
         if (i_->synth && i_->synth->handle(e)) continue;
+        // 🎯T156.2: when AccelSynth owns the gesture, it is the sole sensor
+        // authority — drop external SENSOR_UPDATE (wire real samples, etc.).
+        // Synth asserts gravity via setEmit(), not this queue path.
+        // Filter is wire::shouldDeliverSensorToGame (shared with unit oracle).
+        if (!wire::shouldDeliverSensorToGame(
+                i_->synth ? &*i_->synth : nullptr, e)) {
+            continue;
+        }
         // Rotate real-sensor accel into screen frame using the live
         // display orientation. AccelSynth events bypass — they arrive
         // via setEmit() callback, already in screen frame

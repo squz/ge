@@ -1957,7 +1957,7 @@ targets:
     achieved: 2026-07-14
   T156:
     name: 'Stream is a transport, not a modality: the wire backend is a location-transparent proxy of the device API, and an in-process loopback player is trace-identical to direct mode'
-    status: converging
+    status: achieved
     value: 13.0
     cost: 13.0
     actual_cost: 13.0
@@ -1984,6 +1984,7 @@ targets:
     - T154-followon
     origin: 2026-07-17 stream AccelSynth dual-pathway diagnosis; reformulated 2026-07-18 around location transparency
     discovered: 2026-07-18
+    achieved: 2026-07-18
   T156.1:
     name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model; spyder is an opaque router'
     status: achieved

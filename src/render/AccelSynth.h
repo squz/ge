@@ -115,6 +115,22 @@ public:
 
     Tilt current() const { return tilt_; }
 
+    // 🎯T156.2: while AccelSynth owns the gesture, it is the sole sensor
+    // authority for this virtual device. External SDL_EVENT_SENSOR_UPDATE
+    // (wire-forwarded real samples, etc.) must not reach the game.
+    bool ownsSensorStream() const {
+        if (armed()) return true;
+        if (easing_) return true;
+        const float m = std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y);
+        return m > kOwnershipDeadzonePx;
+    }
+
+    // Gravity sample derived from current tilt_ (same math as emit).
+    // Used by presentation/gravity parity oracles.
+    void gravitySample(float& gx, float& gy) const {
+        gravityFromTilt(tilt_, gx, gy);
+    }
+
     // true = consumed (do not forward to the game as raw mouse/key).
     bool handle(const SDL_Event& e) {
         // ── Modifier / button arm ─────────────────────────────────
@@ -211,25 +227,31 @@ public:
             SPDLOG_INFO("AccelSynth: GE_ACCELSYNTH_AUTODRIVE drive complete, easing");
         }
 #endif
-        if (!easing_) return;
-        const uint64_t now = SDL_GetPerformanceCounter();
-        if (lastTickNs_ == 0) {
+        if (easing_) {
+            const uint64_t now = SDL_GetPerformanceCounter();
+            if (lastTickNs_ == 0) {
+                lastTickNs_ = now;
+                emitSensorFromTilt();
+                return;
+            }
+            const uint64_t freq = SDL_GetPerformanceFrequency();
+            const float dt = float(now - lastTickNs_) / float(freq);
             lastTickNs_ = now;
+
+            constexpr float kTau = 0.08f;
+            const float decay = std::exp(-dt / kTau);
+            tilt_.x *= decay;
+            tilt_.y *= decay;
+            if (std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y) < 0.5f) {
+                tilt_ = {};
+                easing_ = false;
+            }
+            emitSensorFromTilt();
             return;
         }
-        const uint64_t freq = SDL_GetPerformanceFrequency();
-        const float dt = float(now - lastTickNs_) / float(freq);
-        lastTickNs_ = now;
-
-        constexpr float kTau = 0.08f;
-        const float decay = std::exp(-dt / kTau);
-        tilt_.x *= decay;
-        tilt_.y *= decay;
-        if (std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y) < 0.5f) {
-            tilt_ = {};
-            easing_ = false;
-        }
-        emitSensorFromTilt();
+        // Hold: re-assert gravity from tilt_ every frame while we own the
+        // stream so presentation and physics stay one authority (🎯T156.2).
+        if (ownsSensorStream()) emitSensorFromTilt();
     }
 
     // Usable real accelerometer? iOS Simulator always false.
@@ -324,16 +346,24 @@ private:
         return 1.f;
     }
 
+    static constexpr float kOwnershipDeadzonePx = 0.5f;
+
+    static void gravityFromTilt(Tilt t, float& gx, float& gy) {
+        const float mag = std::sqrt(t.x * t.x + t.y * t.y);
+        gx = 0.f;
+        gy = 0.f;
+        if (mag > 0.f) {
+            const float angle = mag * kTiltRadPerPixel;
+            const float s = std::sin(angle);
+            gx = -kG * s * t.x / mag;
+            gy =  kG * s * t.y / mag;
+        }
+    }
+
     void emitSensorFromTilt() {
         if (!emit_) return;
-        float mag = std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y);
         float gx = 0.f, gy = 0.f;
-        if (mag > 0.f) {
-            float angle = mag * kTiltRadPerPixel;
-            float s = std::sin(angle);
-            gx = -kG * s * tilt_.x / mag;
-            gy =  kG * s * tilt_.y / mag;
-        }
+        gravityFromTilt(tilt_, gx, gy);
         SDL_Event se{};
         se.type = SDL_EVENT_SENSOR_UPDATE;
         se.sensor.data[0] = gx;

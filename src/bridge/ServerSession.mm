@@ -7,10 +7,12 @@
 
 #include <ge/CmdStream.h>
 #include <ge/Protocol.h>
+#include <ge/SeatPolicy.h>
 #include <ge/StreamHostPolicy.h>
 #include <ge/VideoEncoder.h>
 #include <ge/ViewerMetrics.h>
 #include <ge/WebSocketClient.h>
+#include <ge/WireSdlEvent.h>
 
 #include <ge/audio.h>
 
@@ -72,7 +74,11 @@ struct ServerSession::Impl {
     wire::SessionConfig sessionConfig{};
 
     std::shared_ptr<WsConnection> sideband;
+    // Multi-session (🎯T100.2 / T154): one wire per attached player.
+    // `wire` remains the most recently opened connection for code paths that
+    // still assume a single peer (sqlpipe push, input loop primary).
     std::shared_ptr<WsConnection> wire;
+    std::vector<std::shared_ptr<WsConnection>> wires;
     std::mutex wireSendMu;
 
     std::unique_ptr<VideoEncoder> encoder;
@@ -82,28 +88,33 @@ struct ServerSession::Impl {
     std::atomic<bool> running{false};
     std::atomic<bool> hasPlayer{false};
     std::thread sidebandThread;
-    std::thread inputThread;
+    // One input reader per player wire (blocking recv).
+    std::vector<std::thread> inputThreads;
+    std::mutex inputDispatchMu; // DeviceInfo / SP2T / negotiate shared state
+    // 🎯T156.3: primary seat = first attach; spectators get content only.
+    SeatPolicy seats;
 
     // Player surface discovery (DeviceInfo / SafeAreaUpdate). Applied to game
     // Context by DirectRenderHost when streaming. Encode/cmdstream size remains
     // the server surface — never resized from DeviceInfo.
     ViewerMetricsStore viewer{};
 
-    // 🎯T154 GE2T: host Context::db() working set (:memory: under stream).
-    // Player dumps seed on attach; continuous maybePushGe2t + detach push
+    // 🎯T154 SP2T: host Context::db() working set (:memory: under stream).
+    // Player dumps seed on attach; continuous maybePushSp2t + detach push
     // keep the player durable file current.
     std::shared_ptr<sqlpipe::Database> workingDb;
     std::mutex workingDbMu;
     std::string schemaDdl;  // re-applied after player seed (sqlift-safe tables)
-    std::chrono::steady_clock::time_point lastGe2tPush{};
-    static constexpr auto kGe2tPushInterval =
+    std::chrono::steady_clock::time_point lastSp2tPush{};
+    static constexpr auto kSp2tPushInterval =
         std::chrono::milliseconds(500);
 
-    // 🎯T128.9 — negotiated transport. Defaults H.264; upgraded when the
-    // player advertises kCapCommandStream and the server opts in
-    // (GE_TRANSPORT=cmdstream). SessionConfig is re-sent after negotiation.
+    // 🎯T128.9 — negotiated transport. Server offers H.264 + cmdstream;
+    // pick the highest rung in the intersection with player DeviceInfo
+    // capabilities (cmdstream > H.264). TRANSPORT=h264 forces baseline for
+    // debugging. SessionConfig is re-sent after negotiation.
     std::atomic<uint8_t> transport{wire::kTransportH264};
-    cmdstream::Cache cmdCache; // server-side "already sent" memo for GE2S
+    cmdstream::Cache cmdCache; // server-side "already sent" memo for SP2S
     cmdstream::LiveCapture live; // sprite-run capture under cmdstream
     // false when cmdstream is selected — skip multi-MB GPU readback.
     std::atomic<bool> capturePixels{true};
@@ -112,7 +123,8 @@ struct ServerSession::Impl {
     void sidebandLoop();
     void openWire(const std::string& sessionId);
     void closeWire();
-    void inputLoop();
+    void wireInputLoop(std::shared_ptr<WsConnection> w);
+    void dispatchPlayerMessage(const std::vector<char>& data, SeatId from);
     void onEncoded(VideoEncoder::Frame f);  // VideoToolbox thread
     void negotiateTransport(uint8_t playerCaps);
 
@@ -122,12 +134,18 @@ struct ServerSession::Impl {
         std::memcpy(msg.data(), &hdr, sizeof(hdr));
         if (payloadLen) std::memcpy(msg.data() + sizeof(hdr), payload, payloadLen);
         std::lock_guard<std::mutex> lk(wireSendMu);
-        if (wire && wire->isOpen()) wire->sendBinary(msg.data(), msg.size());
+        // Fan-out to every open player wire (multi-session).
+        for (auto& w : wires) {
+            if (w && w->isOpen()) w->sendBinary(msg.data(), msg.size());
+        }
+        if (wires.empty() && wire && wire->isOpen()) {
+            wire->sendBinary(msg.data(), msg.size());
+        }
     }
 
-    // Dump working set and send GE2T. Caller holds no workingDbMu.
+    // Dump working set and send SP2T. Caller holds no workingDbMu.
     // Returns true if a non-empty snapshot was sent.
-    bool pushGe2tSnapshot(const char* reason) {
+    bool pushSp2tSnapshot(const char* reason) {
         std::vector<uint8_t> dump;
         {
             std::lock_guard<std::mutex> lk(workingDbMu);
@@ -137,52 +155,83 @@ struct ServerSession::Impl {
         }
         sendWire(wire::kSqlpipeMsgMagic, dump.data(),
                  static_cast<uint32_t>(dump.size()));
-        SPDLOG_INFO("ServerSession: GE2T snapshot pushed ({} bytes, {})",
+        SPDLOG_INFO("ServerSession: SP2T snapshot pushed ({} bytes, {})",
                     dump.size(), reason);
         return true;
     }
 };
 
 void ServerSession::Impl::onEncoded(VideoEncoder::Frame f) {
-    if (!wire || !wire->isOpen() || !f.data || f.size == 0) return;
+    if (!f.data || f.size == 0) return;
     uint32_t s = seq.fetch_add(1);
     uint8_t flags = f.isKeyframe ? 1 : 0;
     uint32_t payloadSize = uint32_t(sizeof(flags) + sizeof(s) + f.size);
-    WireWriter w(sizeof(wire::MessageHeader) + payloadSize);
-    w.put(wire::MessageHeader{wire::kVideoStreamMagic, payloadSize});
-    w.put(flags);
-    w.put(s);
-    w.append(f.data, f.size);
+    WireWriter wr(sizeof(wire::MessageHeader) + payloadSize);
+    wr.put(wire::MessageHeader{wire::kVideoStreamMagic, payloadSize});
+    wr.put(flags);
+    wr.put(s);
+    wr.append(f.data, f.size);
     std::lock_guard<std::mutex> lk(wireSendMu);
-    if (wire && wire->isOpen()) wire->sendBinary(w.data(), w.size());
+    bool any = false;
+    for (auto& w : wires) {
+        if (w && w->isOpen()) {
+            w->sendBinary(wr.data(), wr.size());
+            any = true;
+        }
+    }
+    if (!any && wire && wire->isOpen()) wire->sendBinary(wr.data(), wr.size());
 }
 
 void ServerSession::Impl::openWire(const std::string& sessionId) {
-    wire = connectWebSocket(host, port, "/ws/server/wire/" + sessionId, 2000);
-    if (!wire || !wire->isOpen()) {
+    auto w = connectWebSocket(host, port, "/ws/server/wire/" + sessionId, 2000);
+    if (!w || !w->isOpen()) {
         SPDLOG_ERROR("ServerSession: wire open failed for session {}", sessionId);
         return;
+    }
+    const bool first = !hasPlayer.load();
+    {
+        std::lock_guard<std::mutex> lk(wireSendMu);
+        wires.push_back(w);
+        wire = w; // latest peer for single-wire helpers
     }
     hasPlayer.store(true);
 
     // Advertise session requirements BEFORE the player creates its window —
     // the player blocks on this in PlayerWireBridge::connect (handshake step 1).
-    sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
+    // Send SessionConfig only on this new wire (not fan-out to existing players).
+    {
+        wire::MessageHeader hdr{wire::kSessionConfigMagic,
+                                static_cast<uint32_t>(sizeof(sessionConfig))};
+        std::vector<uint8_t> msg(sizeof(hdr) + sizeof(sessionConfig));
+        std::memcpy(msg.data(), &hdr, sizeof(hdr));
+        std::memcpy(msg.data() + sizeof(hdr), &sessionConfig, sizeof(sessionConfig));
+        std::lock_guard<std::mutex> lk(wireSendMu);
+        w->sendBinary(msg.data(), msg.size());
+    }
     SPDLOG_INFO("ServerSession: SessionConfig sensors={:#x} orientation={} "
-                "transport={} flags={:#x} (immersive={} noSaver={})",
+                "transport={} flags={:#x} (immersive={} noSaver={}) session={}",
                 sessionConfig.sensors, sessionConfig.orientation,
                 sessionConfig.transport, sessionConfig.flags,
                 (sessionConfig.flags & wire::kSessionFlagImmersive) ? 1 : 0,
-                (sessionConfig.flags & wire::kSessionFlagNoScreenSaver) ? 1 : 0);
+                (sessionConfig.flags & wire::kSessionFlagNoScreenSaver) ? 1 : 0,
+                sessionId);
 
-    inputThread = std::thread([this] { inputLoop(); });
-    SPDLOG_INFO("ServerSession: player attached (session {}), streaming", sessionId);
+    // Primary seat = first attach (🎯T156.3). Spectators still get content
+    // fan-out; only primary may drive DeviceInfo and game input/sensors.
+    {
+        std::lock_guard<std::mutex> lk(inputDispatchMu);
+        seats.onAttach(w.get());
+    }
+    (void)first;
+    inputThreads.emplace_back([this, w] { wireInputLoop(w); });
+    SPDLOG_INFO("ServerSession: player attached (session {}), wires={} primary={}",
+                sessionId, wires.size(), seats.isPrimary(w.get()) ? 1 : 0);
 }
 
 void ServerSession::Impl::closeWire() {
     if (!hasPlayer.exchange(false)) return;
-    // 🎯T154 GE2T: final push of working set to player durable store.
-    pushGe2tSnapshot("detach");
+    // 🎯T154 SP2T: final push of working set to player durable store.
+    pushSp2tSnapshot("detach");
     if (encoder) {
         encoder->flush();
         encoder.reset();
@@ -193,131 +242,165 @@ void ServerSession::Impl::closeWire() {
     cmdstream::setLiveCapture(nullptr);
     live.resetSession();
     cmdCache.clear();
-    if (wire) wire->close();
-    if (inputThread.joinable()) inputThread.join();
-    wire.reset();
-    SPDLOG_INFO("ServerSession: player detached");
+    {
+        std::lock_guard<std::mutex> lk(wireSendMu);
+        for (auto& w : wires) {
+            if (w) w->close();
+        }
+        wires.clear();
+        if (wire) wire->close();
+        wire.reset();
+    }
+    for (auto& t : inputThreads) {
+        if (t.joinable()) t.join();
+    }
+    inputThreads.clear();
+    seats.onDetachAll();
+    SPDLOG_INFO("ServerSession: player detached (all sessions)");
 }
 
-void ServerSession::Impl::inputLoop() {
-    while (running.load() && wire && wire->isOpen()) {
+void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
+    const SeatId from = w.get();
+    while (running.load() && w && w->isOpen()) {
         std::vector<char> data;
-        if (!wire->recvBinary(data)) break;
-        if (data.size() < sizeof(wire::MessageHeader)) continue;
-        uint32_t magic = 0;
-        std::memcpy(&magic, data.data(), 4);
-        if (magic == wire::kSdlEventMagic &&
-            data.size() >= sizeof(wire::MessageHeader) + sizeof(SDL_Event)) {
-            SDL_Event ev;
-            std::memcpy(&ev, data.data() + sizeof(wire::MessageHeader), sizeof(SDL_Event));
-            SDL_PushEvent(&ev);
-        } else if (magic == wire::kDeviceInfoMagic &&
-                   data.size() >= sizeof(wire::MessageHeader) + 14) {
-            // DeviceInfo: at least pre-v7 fields (through orientation). v7 adds
-            // capabilities; short payloads default capabilities=0.
-            wire::DeviceInfo info{};
-            const size_t avail = data.size() - sizeof(wire::MessageHeader);
-            std::memcpy(&info, data.data() + sizeof(wire::MessageHeader),
-                        std::min(avail, sizeof(info)));
-            // v7 payload ends before drawSafe*; short copies leave drawW=0.
-            viewer.applyDeviceInfo(info.width, info.height, info.pixelRatio,
-                                   info.deviceClass, info.safeX, info.safeY,
-                                   info.safeW, info.safeH,
-                                   info.drawSafeX, info.drawSafeY,
-                                   info.drawSafeW, info.drawSafeH);
-            SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} "
-                        "ui=({},{} {}x{}) draw=({},{} {}x{}) caps={:#x}",
-                        info.width, info.height, info.pixelRatio, info.deviceClass,
-                        info.safeX, info.safeY, info.safeW, info.safeH,
-                        info.drawSafeX, info.drawSafeY, info.drawSafeW, info.drawSafeH,
-                        info.capabilities);
-            negotiateTransport(info.capabilities);
-        } else if (magic == wire::kSafeAreaMagic &&
-                   data.size() >= sizeof(wire::MessageHeader) + 12) {
-            // Min: magic+ui rect (4+8). v8 adds drawSafe*.
-            wire::SafeAreaUpdate sa{};
-            const size_t avail = data.size() - sizeof(wire::MessageHeader);
-            std::memcpy(&sa, data.data() + sizeof(wire::MessageHeader),
-                        std::min(avail, sizeof(sa)));
-            viewer.applySafeArea(sa.safeX, sa.safeY, sa.safeW, sa.safeH,
-                                 sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
-            SPDLOG_INFO("ServerSession: player SafeAreaUpdate ui=({},{} {}x{}) "
-                        "draw=({},{} {}x{})",
-                        sa.safeX, sa.safeY, sa.safeW, sa.safeH,
-                        sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
-        } else if (magic == wire::kLifecycleMagic &&
-                   data.size() >= sizeof(wire::MessageHeader) + 2) {
-            wire::ViewerLifecycle life{};
-            const size_t avail = data.size() - sizeof(wire::MessageHeader);
-            std::memcpy(&life, data.data() + sizeof(wire::MessageHeader),
-                        std::min(avail, sizeof(life)));
-            switch (life.kind) {
-            case wire::kLifeForeground:
-                detail::injectViewerBackgrounded(false);
-                ge::audio::onForeground();
-                break;
-            case wire::kLifeBackground:
-                detail::injectViewerBackgrounded(true);
-                ge::audio::onBackground();
-                break;
-            case wire::kLifeBackPressed:
-                detail::injectBackPressed();
-                break;
-            case wire::kLifeMemory:
-                detail::injectMemoryWarning(
-                    static_cast<MemoryPressureLevel>(life.memoryLevel));
-                break;
-            case wire::kLifeAudioLost:
-                detail::injectAudioFocus(false);
-                ge::audio::onAudioFocusLost();
-                break;
-            case wire::kLifeAudioGained:
-                detail::injectAudioFocus(true);
-                ge::audio::onAudioFocusGained();
-                break;
-            default:
-                break;
-            }
-            SPDLOG_INFO("ServerSession: viewer lifecycle kind={}", life.kind);
-        } else if (magic == wire::kSqlpipeMsgMagic &&
-                   data.size() > sizeof(wire::MessageHeader)) {
-            // 🎯T154 GE2T: player → server durable seed into :memory: working set.
-            const auto* payload = reinterpret_cast<const uint8_t*>(
-                data.data() + sizeof(wire::MessageHeader));
-            const size_t n = data.size() - sizeof(wire::MessageHeader);
-            std::lock_guard<std::mutex> lk(workingDbMu);
-            if (workingDb && n > 0 &&
-                loadSqliteMain(workingDb->handle(),
-                               std::span<const uint8_t>(payload, n))) {
-                // Player only seeds when it has user tables, so schema travels
-                // with the dump. schemaDdl was applied at Database open before
-                // this replace; notify watchers of the new contents.
-                workingDb->notify();
-                SPDLOG_INFO("ServerSession: GE2T snapshot applied ({} bytes, "
-                            "schemaDdl={}B retained for bind)",
-                            n, schemaDdl.size());
-            } else {
-                SPDLOG_WARN("ServerSession: GE2T snapshot apply failed "
-                            "(db={} n={})", workingDb ? 1 : 0, n);
-            }
+        if (!w->recvBinary(data)) break;
+        std::lock_guard<std::mutex> lk(inputDispatchMu);
+        dispatchPlayerMessage(data, from);
+    }
+}
+
+void ServerSession::Impl::dispatchPlayerMessage(const std::vector<char>& data,
+                                                SeatId from) {
+    if (data.size() < sizeof(wire::MessageHeader)) return;
+    uint32_t magic = 0;
+    std::memcpy(&magic, data.data(), 4);
+    if (magic == wire::kSdlEventMagic) {
+        SDL_Event ev{};
+        // Shipped unpack (same as loopback inject oracle).
+        if (!wire::unpackSdlEvent(
+                reinterpret_cast<const uint8_t*>(data.data()), data.size(), ev))
+            return;
+        if (!seats.acceptSdlEvent(from, ev)) return; // spectator
+        SDL_PushEvent(&ev);
+    } else if (magic == wire::kDeviceInfoMagic &&
+               data.size() >= sizeof(wire::MessageHeader) + 14) {
+        if (!seats.acceptDeviceInfo(from)) {
+            SPDLOG_INFO("ServerSession: ignoring DeviceInfo from non-primary seat");
+            return;
+        }
+        // DeviceInfo: at least pre-v7 fields (through orientation). v7 adds
+        // capabilities; short payloads default capabilities=0.
+        wire::DeviceInfo info{};
+        const size_t avail = data.size() - sizeof(wire::MessageHeader);
+        std::memcpy(&info, data.data() + sizeof(wire::MessageHeader),
+                    std::min(avail, sizeof(info)));
+        // v7 payload ends before drawSafe*; short copies leave drawW=0.
+        viewer.applyDeviceInfo(info.width, info.height, info.pixelRatio,
+                               info.deviceClass, info.safeX, info.safeY,
+                               info.safeW, info.safeH,
+                               info.drawSafeX, info.drawSafeY,
+                               info.drawSafeW, info.drawSafeH);
+        SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} "
+                    "ui=({},{} {}x{}) draw=({},{} {}x{}) caps={:#x}",
+                    info.width, info.height, info.pixelRatio, info.deviceClass,
+                    info.safeX, info.safeY, info.safeW, info.safeH,
+                    info.drawSafeX, info.drawSafeY, info.drawSafeW, info.drawSafeH,
+                    info.capabilities);
+        negotiateTransport(info.capabilities);
+    } else if (magic == wire::kSafeAreaMagic &&
+               data.size() >= sizeof(wire::MessageHeader) + 12) {
+        if (!seats.acceptSafeArea(from)) return;
+        // Min: magic+ui rect (4+8). v8 adds drawSafe*.
+        wire::SafeAreaUpdate sa{};
+        const size_t avail = data.size() - sizeof(wire::MessageHeader);
+        std::memcpy(&sa, data.data() + sizeof(wire::MessageHeader),
+                    std::min(avail, sizeof(sa)));
+        viewer.applySafeArea(sa.safeX, sa.safeY, sa.safeW, sa.safeH,
+                             sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
+        SPDLOG_INFO("ServerSession: player SafeAreaUpdate ui=({},{} {}x{}) "
+                    "draw=({},{} {}x{})",
+                    sa.safeX, sa.safeY, sa.safeW, sa.safeH,
+                    sa.drawSafeX, sa.drawSafeY, sa.drawSafeW, sa.drawSafeH);
+    } else if (magic == wire::kLifecycleMagic &&
+               data.size() >= sizeof(wire::MessageHeader) + 2) {
+        wire::ViewerLifecycle life{};
+        const size_t avail = data.size() - sizeof(wire::MessageHeader);
+        std::memcpy(&life, data.data() + sizeof(wire::MessageHeader),
+                    std::min(avail, sizeof(life)));
+        switch (life.kind) {
+        case wire::kLifeForeground:
+            detail::injectViewerBackgrounded(false);
+            ge::audio::onForeground();
+            break;
+        case wire::kLifeBackground:
+            detail::injectViewerBackgrounded(true);
+            ge::audio::onBackground();
+            break;
+        case wire::kLifeBackPressed:
+            detail::injectBackPressed();
+            break;
+        case wire::kLifeMemory:
+            detail::injectMemoryWarning(
+                static_cast<MemoryPressureLevel>(life.memoryLevel));
+            break;
+        case wire::kLifeAudioLost:
+            detail::injectAudioFocus(false);
+            ge::audio::onAudioFocusLost();
+            break;
+        case wire::kLifeAudioGained:
+            detail::injectAudioFocus(true);
+            ge::audio::onAudioFocusGained();
+            break;
+        default:
+            break;
+        }
+        SPDLOG_INFO("ServerSession: viewer lifecycle kind={}", life.kind);
+    } else if (magic == wire::kSqlpipeMsgMagic &&
+               data.size() > sizeof(wire::MessageHeader)) {
+        // 🎯T154 SP2T: player → server durable seed into :memory: working set.
+        const auto* payload = reinterpret_cast<const uint8_t*>(
+            data.data() + sizeof(wire::MessageHeader));
+        const size_t n = data.size() - sizeof(wire::MessageHeader);
+        std::lock_guard<std::mutex> lk(workingDbMu);
+        if (workingDb && n > 0 &&
+            loadSqliteMain(workingDb->handle(),
+                           std::span<const uint8_t>(payload, n))) {
+            // Player only seeds when it has user tables, so schema travels
+            // with the dump. schemaDdl was applied at Database open before
+            // this replace; notify watchers of the new contents.
+            workingDb->notify();
+            SPDLOG_INFO("ServerSession: SP2T snapshot applied ({} bytes, "
+                        "schemaDdl={}B retained for bind)",
+                        n, schemaDdl.size());
+        } else {
+            SPDLOG_WARN("ServerSession: SP2T snapshot apply failed "
+                        "(db={} n={})", workingDb ? 1 : 0, n);
         }
     }
 }
 
 void ServerSession::Impl::negotiateTransport(uint8_t playerCaps) {
+    // Rung ladder (high → low): cmdstream, H.264. Server always offers both;
+    // player advertises via DeviceInfo.capabilities. Pick the best common
+    // rung — no env opt-in required to "fall up".
     const bool playerCmd = (playerCaps & wire::kCapCommandStream) != 0;
-    const char* pref = std::getenv("GE_TRANSPORT");
-    // Default remains H.264. Opt into command-stream only when the player
-    // can replay and the server was launched with GE_TRANSPORT=cmdstream.
-    const bool wantCmd = pref && std::strcmp(pref, "cmdstream") == 0;
+    const char* pref = std::getenv("TRANSPORT");
+    // Optional force-down for debugging (TRANSPORT=h264). TRANSPORT=cmdstream
+    // is accepted as a no-op synonym for auto when the player can replay.
+    const bool forceH264 =
+        pref && (std::strcmp(pref, "h264") == 0 || std::strcmp(pref, "H264") == 0);
+
     uint8_t next = wire::kTransportH264;
-    if (playerCmd && wantCmd) next = wire::kTransportCommandStream;
+    if (playerCmd && !forceH264) {
+        next = wire::kTransportCommandStream;
+    }
+
     transport.store(next);
     sessionConfig.transport = next;
     sendWire(wire::kSessionConfigMagic, &sessionConfig, sizeof(sessionConfig));
-    SPDLOG_INFO("ServerSession: transport={} (player_cmdstream={} want={})",
+    SPDLOG_INFO("ServerSession: transport={} (player_cmdstream={} force_h264={})",
                 next == wire::kTransportCommandStream ? "cmdstream" : "h264",
-                playerCmd, wantCmd);
+                playerCmd, forceH264);
 
     // Pixel GPU readback only needed for H.264 / legacy Present.
     capturePixels.store(next != wire::kTransportCommandStream);
@@ -346,7 +429,9 @@ void ServerSession::Impl::sidebandLoop() {
         const std::string msg(data.begin(), data.end());
         const std::string type = jsonStr(msg, "type");
         const std::string sessionId = jsonStr(msg, "session_id");
-        if (type == "player_attached" && !sessionId.empty() && !hasPlayer.load()) {
+        // Multi-session (🎯T100.2): every player_attached opens a wire.
+        // Detach currently tears down all sessions (fan-out encode model).
+        if (type == "player_attached" && !sessionId.empty()) {
             openWire(sessionId);
         } else if (type == "player_detached") {
             closeWire();
@@ -375,9 +460,18 @@ void ServerSession::start() {
 void ServerSession::stop() {
     if (!i_->running.exchange(false)) return;
     if (i_->sideband) i_->sideband->close();
-    if (i_->wire) i_->wire->close();
+    {
+        std::lock_guard<std::mutex> lk(i_->wireSendMu);
+        for (auto& w : i_->wires) {
+            if (w) w->close();
+        }
+        if (i_->wire) i_->wire->close();
+    }
     if (i_->sidebandThread.joinable()) i_->sidebandThread.join();
-    if (i_->inputThread.joinable()) i_->inputThread.join();
+    for (auto& t : i_->inputThreads) {
+        if (t.joinable()) t.join();
+    }
+    i_->inputThreads.clear();
 }
 
 bool ServerSession::active() const { return i_->hasPlayer.load(); }
@@ -391,21 +485,21 @@ void ServerSession::setWorkingDb(std::shared_ptr<sqlpipe::Database> db,
     std::lock_guard<std::mutex> lk(i_->workingDbMu);
     i_->workingDb = std::move(db);
     i_->schemaDdl = std::move(schemaDdl);
-    SPDLOG_INFO("ServerSession: GE2T working db bound ({}, schema={} bytes)",
+    SPDLOG_INFO("ServerSession: SP2T working db bound ({}, schema={} bytes)",
                 i_->workingDb ? "ok" : "null", i_->schemaDdl.size());
 }
 
-void ServerSession::maybePushGe2t() {
+void ServerSession::maybePushSp2t() {
     if (!i_->hasPlayer.load()) return;
     const auto now = std::chrono::steady_clock::now();
-    if (i_->lastGe2tPush.time_since_epoch().count() != 0 &&
-        now - i_->lastGe2tPush < Impl::kGe2tPushInterval) {
+    if (i_->lastSp2tPush.time_since_epoch().count() != 0 &&
+        now - i_->lastSp2tPush < Impl::kSp2tPushInterval) {
         return;
     }
     // Mark interval even if dump is empty so we do not spin dump every frame
     // when the working set is missing.
-    i_->lastGe2tPush = now;
-    i_->pushGe2tSnapshot("stream");
+    i_->lastSp2tPush = now;
+    i_->pushSp2tSnapshot("stream");
 }
 
 void ServerSession::onCapturedFrame(const std::uint8_t* px, int w, int h) {
@@ -448,17 +542,17 @@ void ServerSession::onFrameEnd() {
     const auto st = i_->live.stats();
     i_->sendWire(wire::kCommandStreamMagic, payload.data(),
                  static_cast<uint32_t>(payload.size()));
-    // Bandwidth telemetry: every frame when GE_CMDSTREAM_BW_LOG=1, else
+    // Bandwidth telemetry: every frame when CMDSTREAM_BW_LOG=1, else
     // first 5 frames + every 60th (steady-state sample).
     static uint32_t logN = 0;
     const uint32_t n = ++logN;
     static const bool every =
         [] {
-            const char* e = std::getenv("GE_CMDSTREAM_BW_LOG");
+            const char* e = std::getenv("CMDSTREAM_BW_LOG");
             return e && e[0] == '1';
         }();
     if (every || n <= 5 || (n % 60) == 0) {
-        SPDLOG_INFO("ServerSession: GE2S frame#{} wire={}B runs={} "
+        SPDLOG_INFO("ServerSession: SP2S frame#{} wire={}B runs={} "
                     "full_blobs={} refs={} full_blob_bytes={}",
                     n, payload.size(), i_->live.runCount(),
                     st.fullBlobCount, st.refBlobCount, st.fullBlobBytes);
