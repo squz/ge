@@ -28,6 +28,20 @@ public:
 
     void onDetachAll() { primary_ = nullptr; }
 
+    // Per-wire detach. Returns true if the PRIMARY seat was lost — the
+    // caller promotes the eldest remaining wire (explicit re-seat event,
+    // per the virtual-device contract) and re-establishes its authority.
+    bool onDetach(SeatId id) {
+        if (primary_ != nullptr && id == primary_) {
+            primary_ = nullptr;
+            return true;
+        }
+        return false;
+    }
+
+    // Explicit promotion of a surviving wire after primary loss.
+    void promote(SeatId id) { primary_ = id; }
+
     SeatId primary() const { return primary_; }
 
     bool isPrimary(SeatId id) const {

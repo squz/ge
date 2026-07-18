@@ -73,3 +73,28 @@ TEST_CASE("SeatPolicy: detach all clears primary") {
     seats.onAttach(&a);
     CHECK(seats.isPrimary(&a));
 }
+
+TEST_CASE("SeatPolicy: primary detach promotes explicitly (🎯T156.3)") {
+    ge::SeatPolicy seats;
+    const int a = 1, b = 2, c = 3;
+    seats.onAttach(&a);
+    seats.onAttach(&b);
+    seats.onAttach(&c);
+    REQUIRE(seats.isPrimary(&a));
+
+    // Spectator detach does not disturb the seat.
+    CHECK_FALSE(seats.onDetach(&b));
+    CHECK(seats.isPrimary(&a));
+
+    // Primary detach reports loss; caller promotes the eldest survivor.
+    CHECK(seats.onDetach(&a));
+    CHECK(seats.primary() == nullptr);
+    seats.promote(&c);
+    CHECK(seats.isPrimary(&c));
+
+    // Promoted seat now owns DeviceInfo/input authority.
+    CHECK(seats.acceptDeviceInfo(&c));
+    SDL_Event ev{};
+    ev.type = SDL_EVENT_SENSOR_UPDATE;
+    CHECK(seats.acceptSdlEvent(&c, ev));
+}

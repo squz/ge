@@ -15,15 +15,23 @@
 //    for the host cursor — so arming relative mode silences all tilt motion.
 //    AccelSynth uses absolute x/y deltas (and any non-zero xrel) instead.
 //  - Hardware-keyboard Shift is unreliable on sim (Connect Hardware Keyboard
-//    must be on). So on TARGET_OS_SIMULATOR we also arm while the primary
-//    mouse button is held — click-drag alone tilts.
+//    must be on) — a touch-first virtual device arms on primary drag instead
+//    (see arm policy below).
 //
-// Stream server (GE_SERVER_BUILD): same primary-button arm as the simulator.
-// Player forwards device-local raw events (no content remap). Finger denorm
-// uses setSurfacePixels(player DeviceInfo) — never the stream-host window.
+// Arm policy (🎯T156.2) derives from the VIRTUAL DEVICE's declared facts,
+// passed in by the construction site via setArmOnPrimary — never from
+// GE_SERVER_BUILD / TARGET_OS_SIMULATOR / stream-vs-direct conditionals:
+//  - Keyboard/desktop-class device: Shift + drag only, with relative mouse
+//    mode so the cursor doesn't leave the window. Button alone doesn't tilt.
+//  - Touch-first device (phone/tablet class) with no accelerometer: primary
+//    button / finger drag arms — click-drag alone tilts.
+// Existence is likewise capability-decided at the construction site: the
+// synth is only built for a virtual device that declares NO hardware
+// accelerometer; a real-accelerometer glass is its own sensor authority.
 //
-// Desktop direct (not server, not sim): Shift + drag only, with relative mouse
-// mode so the cursor doesn't leave the window. Button alone does not tilt.
+// Stream: the player forwards device-local raw events (no content remap).
+// Finger denorm uses setSurfacePixels(player DeviceInfo) — never the
+// stream-host window.
 //
 // Belongs to the render subsystem. DirectRenderHost owns synthesis.
 // Stream players forward raw Shift/drag; server-side synth interprets.
@@ -33,8 +41,8 @@
 // Tilt model: mouse displacement from the arm point is the tilt vector.
 // Magnitude × kTiltRadPerPixel → angle; axis ⊥ displacement in screen plane.
 //
-// GE_ACCELSYNTH_AUTODRIVE=1 (iOS Simulator only): fixed 100 px X tilt for 2 s
-// then ease — for matrix cells that cannot inject GCKeyboard Shift.
+// GE_ACCELSYNTH_AUTODRIVE=1 (env opt-in, any platform): fixed 100 px X tilt
+// for 2 s then ease — for matrix cells that cannot inject GCKeyboard Shift.
 #pragma once
 
 #include <SDL3/SDL.h>
@@ -113,6 +121,11 @@ public:
 
     void setEmit(std::function<void(const SDL_Event&)> fn) { emit_ = std::move(fn); }
 
+    // 🎯T156.2: arm-on-primary is a declared fact of the virtual device
+    // (touch-first, no accelerometer), supplied by the construction site.
+    // The synth itself never inspects build flags or transport.
+    void setArmOnPrimary(bool v) { armOnPrimary_ = v; }
+
     Tilt current() const { return tilt_; }
 
     // 🎯T156.2: while AccelSynth owns the gesture, it is the sole sensor
@@ -156,12 +169,13 @@ public:
                 }
             }
             // Do not consume button events — games may still want them.
-            // On sim, button arms tilt but still reaches the game as a no-op.
+            // On touch-first devices, button arms tilt but still reaches the
+            // game as a no-op.
             return false;
         }
 
-        // Finger drag — same arm policy as primary mouse button (sim + stream
-        // server). iOS Simulator host clicks often arrive as finger events;
+        // Finger drag — same arm policy as primary mouse button (touch-first
+        // devices). iOS Simulator host clicks often arrive as finger events;
         // without this path, only GCMouse-shaped motion would tilt.
         if (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_UP ||
             e.type == SDL_EVENT_FINGER_CANCELED) {
@@ -200,7 +214,6 @@ public:
     }
 
     void update() {
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
         if (!autodriveChecked_) {
             autodriveChecked_ = true;
             const char* env = std::getenv("GE_ACCELSYNTH_AUTODRIVE");
@@ -226,7 +239,6 @@ public:
             lastTickNs_ = 0;
             SPDLOG_INFO("AccelSynth: GE_ACCELSYNTH_AUTODRIVE drive complete, easing");
         }
-#endif
         if (easing_) {
             const uint64_t now = SDL_GetPerformanceCounter();
             if (lastTickNs_ == 0) {
@@ -277,15 +289,13 @@ private:
         return false;
     }
 
-    // Armed when Shift is held (key event or current mod state).
-    // On iOS Simulator and stream server also when primary button is held
-    // (click-drag) — see file header for why.
+    // Armed when Shift is held (key event or current mod state), or on
+    // touch-first virtual devices (setArmOnPrimary) while the primary
+    // button/finger is down — see file header arm policy.
     bool armed() const {
         if (shiftKey_) return true;
         if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) return true;
-#if (defined(__APPLE__) && TARGET_OS_SIMULATOR) || defined(GE_SERVER_BUILD)
-        if (primaryDown_) return true;
-#endif
+        if (armOnPrimary_ && primaryDown_) return true;
         return false;
     }
 
@@ -385,11 +395,10 @@ private:
     int surfaceH_ = 0;
     bool surfacePinned_ = false;
     std::function<void(const SDL_Event&)> emit_;
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+    bool armOnPrimary_ = false;
     bool autodriveChecked_ = false;
     bool autodriveActive_ = false;
     uint64_t autodriveStartNs_ = 0;
-#endif
 };
 
 } // namespace ge

@@ -76,7 +76,7 @@ Protocol layout oracles: `ge/include/ge/Protocol.h` and the spyder player mirror
 | DeviceInfo / dual safe / class | **marshalled** | Seat-bound (see below) |
 | Pointer/touch/key/wheel | **marshalled** | Device-local units; no host-Mac content remap |
 | Hardware accelerometer samples | **marshalled** | Inside SP2I; only when glass has a real sensor |
-| AccelSynth / presentation tilt | **marshalled (host-side)** | Engine-only; constructed when no usable real sensor — same class as direct |
+| AccelSynth / presentation tilt | **marshalled (host-side)** | Engine-only; constructed iff the seat's device declares no accelerometer (`kCapHasAccelerometer` absent) |
 | Present H.264 / cmdstream | **marshalled** | Negotiated transport |
 | SP2T durable state | **marshalled** | Snapshot rung |
 | Parallax / host attitude under stream | **uniform-no-op** | `{0,0}` same call site (T154) |
@@ -108,15 +108,31 @@ is a **defect**.
 
 ### Sensor authority (AccelSynth vs real)
 
-When AccelSynth is constructed (no usable real host sensor — direct desktop /
-sim / stream server):
+One sensor authority per virtual device, decided by the **device's declared
+capability** — never by host sensor enumeration, build flags, or transport:
 
-- Gravity **and** presentation tilt derive from AccelSynth `tilt_` state.
-- While AccelSynth owns the gesture (`armed` or non-zero tilt / ease-back),
-  external `SDL_EVENT_SENSOR_UPDATE` (e.g. wire-forwarded mobile samples) must
-  **not** reach the game sensor handler.
-- Hold-still keeps gravity aligned with presentation (authority re-asserts each
-  frame). Ease-back on disarm matches direct.
+- **The predicate:** does the seat's virtual device have a hardware
+  accelerometer? Direct: sensor enumeration on the local device itself.
+  Stream: the primary seat's `DeviceInfo.capabilities`
+  `kCapHasAccelerometer` bit — knowable before the first sample arrives.
+- Glass declares an accelerometer → that real sensor stream **is** the
+  authority. It reaches the game unfiltered, and **no AccelSynth is
+  constructed for that seat**. Nothing may suppress a seat's own authority.
+- Glass declares none → AccelSynth is constructed for that virtual device
+  and is the sole authority: gravity **and** presentation tilt derive from
+  its `tilt_` state; hold-still re-asserts each frame; ease-back on disarm
+  is the same documented behaviour everywhere.
+- **Arm policy derives from declared device capabilities, never modality:**
+  Shift arms on keyboard/desktop-class devices; primary-button/finger drag
+  arms on touch-first (phone/tablet-class) devices without an accelerometer.
+  `GE_SERVER_BUILD`, `TARGET_OS_SIMULATOR`, and stream-vs-direct
+  conditionals are forbidden in existence, arm, and ownership policy — the
+  construction site passes device facts in; the synth never asks about the
+  build.
+- **No arbitration filter.** Correctness is constructional — exactly one
+  source exists per seat — not a runtime suppression rule. On primary-seat
+  detach, the eldest remaining wire is promoted and its DeviceInfo
+  re-establishes the seat's authority.
 
 ### Spyder on the player path
 

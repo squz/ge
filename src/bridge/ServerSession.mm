@@ -269,6 +269,49 @@ void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
         std::lock_guard<std::mutex> lk(inputDispatchMu);
         dispatchPlayerMessage(data, from);
     }
+    if (!running.load()) return; // session teardown handles the rest
+
+    // Per-wire death (🎯T156.3): cull this wire; if it held the primary
+    // seat, promote the eldest survivor and re-establish its authority.
+    // Lock order matches dispatch: inputDispatchMu, then wireSendMu.
+    std::shared_ptr<WsConnection> promoted;
+    {
+        std::lock_guard<std::mutex> lk(inputDispatchMu);
+        const bool primaryLost = seats.onDetach(from);
+        std::shared_ptr<WsConnection> survivor;
+        {
+            std::lock_guard<std::mutex> sendLk(wireSendMu);
+            wires.erase(std::remove_if(wires.begin(), wires.end(),
+                                       [&](const std::shared_ptr<WsConnection>& x) {
+                                           return x.get() == w.get();
+                                       }),
+                        wires.end());
+            if (primaryLost && !wires.empty()) survivor = wires.front();
+        }
+        if (primaryLost) {
+            // The stored viewer surface/authority belonged to the departed
+            // seat. Invalidate; the promoted seat's DeviceInfo (sent in
+            // response to SessionConfig below) re-establishes it.
+            viewer.valid.store(false, std::memory_order_release);
+            viewer.hasAccel.store(false, std::memory_order_relaxed);
+            if (survivor) {
+                seats.promote(survivor.get());
+                promoted = survivor;
+            }
+            SPDLOG_INFO("ServerSession: primary seat detached; {}",
+                        promoted ? "promoted eldest survivor" : "no seats left");
+        }
+    }
+    if (promoted) {
+        wire::MessageHeader hdr{wire::kSessionConfigMagic,
+                                static_cast<uint32_t>(sizeof(sessionConfig))};
+        std::vector<uint8_t> msg(sizeof(hdr) + sizeof(sessionConfig));
+        std::memcpy(msg.data(), &hdr, sizeof(hdr));
+        std::memcpy(msg.data() + sizeof(hdr), &sessionConfig,
+                    sizeof(sessionConfig));
+        std::lock_guard<std::mutex> lk(wireSendMu);
+        promoted->sendBinary(msg.data(), msg.size());
+    }
 }
 
 void ServerSession::Impl::dispatchPlayerMessage(const std::vector<char>& data,
@@ -301,7 +344,8 @@ void ServerSession::Impl::dispatchPlayerMessage(const std::vector<char>& data,
                                info.deviceClass, info.safeX, info.safeY,
                                info.safeW, info.safeH,
                                info.drawSafeX, info.drawSafeY,
-                               info.drawSafeW, info.drawSafeH);
+                               info.drawSafeW, info.drawSafeH,
+                               (info.capabilities & wire::kCapHasAccelerometer) != 0);
         SPDLOG_INFO("ServerSession: player DeviceInfo {}x{} @{}x class={} "
                     "ui=({},{} {}x{}) draw=({},{} {}x{}) caps={:#x}",
                     info.width, info.height, info.pixelRatio, info.deviceClass,

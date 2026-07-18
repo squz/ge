@@ -183,8 +183,11 @@ void requireMatchingSensor(const std::vector<SDL_Event>& a,
 AuthorityTrace driveAuthorityScript(bool wireStyle,
                                     const std::vector<SDL_Event>& gesture,
                                     int holdFrames,
-                                    int easeFrames = 0) {
+                                    int easeFrames = 0,
+                                    bool armOnPrimary = false) {
     AccelSynth synth;
+    synth.setArmOnPrimary(armOnPrimary);
+    synth.setSurfacePixels(1000, 1000);
     AuthorityTrace t;
     synth.setEmit([&](const SDL_Event& e) {
         REQUIRE(e.type == SDL_EVENT_SENSOR_UPDATE);
@@ -286,9 +289,11 @@ TEST_CASE("AccelSynth: motion without Shift is not consumed") {
     CHECK(emitted.empty());
 }
 
-#if (defined(__APPLE__) && TARGET_OS_SIMULATOR) || defined(GE_SERVER_BUILD)
-TEST_CASE("AccelSynth: primary button arms without Shift (sim/server)") {
+// 🎯T156.2: arm policy is a declared device fact (setArmOnPrimary), never a
+// build flag — these run on every platform and build.
+TEST_CASE("AccelSynth: primary button arms on touch-first device (no Shift)") {
     AccelSynth synth;
+    synth.setArmOnPrimary(true); // touch-first virtual device, no accel
     std::vector<SDL_Event> emitted;
     synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
 
@@ -301,8 +306,9 @@ TEST_CASE("AccelSynth: primary button arms without Shift (sim/server)") {
     CHECK(emitted[0].type == SDL_EVENT_SENSOR_UPDATE);
 }
 
-TEST_CASE("AccelSynth: finger drag arms and tilts (sim/server)") {
+TEST_CASE("AccelSynth: finger drag arms and tilts on touch-first device") {
     AccelSynth synth;
+    synth.setArmOnPrimary(true);
     synth.setSurfacePixels(1000, 1000);
     std::vector<SDL_Event> emitted;
     synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
@@ -314,7 +320,39 @@ TEST_CASE("AccelSynth: finger drag arms and tilts (sim/server)") {
     CHECK(emitted[0].type == SDL_EVENT_SENSOR_UPDATE);
     CHECK(synth.current().x == doctest::Approx(50.f));
 }
-#endif
+
+TEST_CASE("AccelSynth: primary button does NOT arm keyboard-class device") {
+    AccelSynth synth; // default armOnPrimary=false (desktop-class)
+    std::vector<SDL_Event> emitted;
+    synth.setEmit([&](const SDL_Event& e) { emitted.push_back(e); });
+
+    SDL_Event down{};
+    down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    down.button.button = SDL_BUTTON_LEFT;
+    CHECK_FALSE(synth.handle(down));
+    CHECK_FALSE(synth.handle(motionRel(40.f, 0.f))); // not armed → not consumed
+    CHECK(emitted.empty());
+}
+
+TEST_CASE("T156.2: AccelSynth policy is flag-free (mechanical check)") {
+    // The header must contain no preprocessor conditional on GE_SERVER_BUILD,
+    // and TARGET_OS_SIMULATOR only in realSensorAvailable (device capability
+    // detection — the sim's sensor stack misreports; that is a device fact).
+    std::string dir(__FILE__);
+    dir = dir.substr(0, dir.find_last_of('/'));
+    std::ifstream hdr(dir + "/render/AccelSynth.h");
+    REQUIRE(hdr.good());
+    std::string line;
+    int serverBuildPP = 0, simPP = 0;
+    while (std::getline(hdr, line)) {
+        const auto hash = line.find_first_not_of(" \t");
+        if (hash == std::string::npos || line[hash] != '#') continue;
+        if (line.find("GE_SERVER_BUILD") != std::string::npos) serverBuildPP++;
+        if (line.find("TARGET_OS_SIMULATOR") != std::string::npos) simPP++;
+    }
+    CHECK(serverBuildPP == 0);
+    CHECK(simPP <= 1); // realSensorAvailable's sim force only
+}
 
 TEST_CASE("AccelSynth: non-Shift events pass through") {
     AccelSynth synth;
@@ -554,6 +592,27 @@ TEST_CASE("T156.6: loopback gravity trace equals direct for hold-left script") {
     }
 }
 
+// 🎯T156.6: the field-failure pathway — finger-drag arming on a touch-first
+// glass that declares NO accelerometer. No Shift, no build flags; direct and
+// SP2I-injected traces must match exactly.
+TEST_CASE("T156.6: finger-arm dual-path trace equality (no Shift)") {
+    const std::vector<SDL_Event> gesture = {
+        fingerDown(0.5f, 0.5f),
+        fingerMotion(0.45f, 0.5f, -0.05f, 0.f), // left 50 px on 1000 px glass
+        fingerMotion(0.40f, 0.5f, -0.05f, 0.f), // left again → tilt.x = -100
+    };
+    auto direct = driveAuthorityScript(/*wireStyle=*/false, gesture,
+                                       /*holdFrames=*/20, /*easeFrames=*/10,
+                                       /*armOnPrimary=*/true);
+    auto loopback = driveAuthorityScript(/*wireStyle=*/true, gesture,
+                                         /*holdFrames=*/20, /*easeFrames=*/10,
+                                         /*armOnPrimary=*/true);
+    requireMatchingTraces(direct, loopback);
+    REQUIRE_FALSE(direct.gravity.empty());
+    CHECK(direct.tiltX[0] == doctest::Approx(-100.f));
+    CHECK(direct.gravity.front().first > 0.f); // left → positive gx
+}
+
 // SP2I round-trip preserves SDL_Event payload (marshalling integrity).
 TEST_CASE("T156.4: packSdlEvent/unpackSdlEvent round-trips motion and sensor") {
     SDL_Event motion = motionRel(-42.5f, 7.25f);
@@ -597,7 +656,10 @@ TEST_CASE("T156: hold-left with second-seat competing sensors stays left") {
             << " tilt_x=" << synth.current().x << "\n";
     });
 
-    // Primary seat: Shift + hold-left via SP2I (ServerSession path).
+    // Primary seat: Shift + hold-left via SP2I (ServerSession path). The
+    // synth exists because this seat declared NO accelerometer — so a
+    // competing sensor source for this virtual device cannot exist. No
+    // arbitration filter (🎯T156.2: constructional authority).
     auto injectPrimary = [&](const SDL_Event& e) {
         std::vector<uint8_t> wire;
         wire::packSdlEvent(e, wire);
@@ -605,13 +667,7 @@ TEST_CASE("T156: hold-left with second-seat competing sensors stays left") {
         REQUIRE(wire::unpackSdlEvent(wire, unpacked));
         REQUIRE(seats.acceptSdlEvent(&primary, unpacked));
         if (synth.handle(unpacked)) return; // consumed by AccelSynth
-        // External sensor path (host filter).
-        if (!wire::shouldDeliverSensorToGame(&synth, unpacked)) {
-            log << "drop_external_sensor (ownsSensorStream) gx="
-                << unpacked.sensor.data[0] << "\n";
-            return;
-        }
-        // Would reach game — record as if game latched last sensor.
+        // Anything else reaches the game — record sensor latches.
         if (unpacked.type == SDL_EVENT_SENSOR_UPDATE) {
             gameGravity.emplace_back(unpacked.sensor.data[0],
                                      unpacked.sensor.data[1]);
@@ -642,18 +698,11 @@ TEST_CASE("T156: hold-left with second-seat competing sensors stays left") {
         << "\n";
 
     // Hold frames: authority re-emits; spectator floods opposite gravity.
+    // 🎯T156.2 constructional authority: the ONLY possible competing sensor
+    // source is a non-primary seat (this seat declared no accelerometer),
+    // and the seat gate drops those before any synth/game code runs.
     for (int i = 0; i < 25; ++i) {
         injectSpectator(sensorUpdate(-9.8f, 0.f)); // would reverse if merged
-        // Also try injecting opposite sensor as if it leaked past seat
-        // (defense in depth: host filter).
-        {
-            SDL_Event leak = sensorUpdate(-9.8f, 0.f);
-            if (!wire::shouldDeliverSensorToGame(&synth, leak)) {
-                log << "host_filter_drop competing gx=-9.8\n";
-            } else {
-                FAIL("host must drop external SENSOR while ownsSensorStream");
-            }
-        }
         synth.update();
         CHECK(synth.current().x == doctest::Approx(-100.f));
         float gx = 0.f, gy = 0.f;
@@ -675,5 +724,45 @@ TEST_CASE("T156: hold-left with second-seat competing sensors stays left") {
                           std::ios::trunc);
         REQUIRE(out.good());
         out << log.str();
+    }
+}
+
+// 🎯T156.2: a glass that declares a real accelerometer IS the authority —
+// no synth is constructed for that seat, and its wire sensor samples reach
+// the game unfiltered. Models the DirectRenderHost seat-authority decision.
+TEST_CASE("T156.2: real-accel seat has no synth; wire sensors flow unfiltered") {
+    SeatPolicy seats;
+    const int primary = 1, spectator = 2;
+    seats.onAttach(&primary);
+    seats.onAttach(&spectator);
+
+    // Seat declared kCapHasAccelerometer → host constructs NO synth.
+    std::vector<std::pair<float, float>> gameGravity;
+    auto inject = [&](const void* seat, const SDL_Event& e) {
+        std::vector<uint8_t> wire;
+        wire::packSdlEvent(e, wire);
+        SDL_Event unpacked{};
+        REQUIRE(wire::unpackSdlEvent(wire, unpacked));
+        if (!seats.acceptSdlEvent(seat, unpacked)) return;
+        // No synth in the pipeline for this virtual device.
+        if (unpacked.type == SDL_EVENT_SENSOR_UPDATE)
+            gameGravity.emplace_back(unpacked.sensor.data[0],
+                                     unpacked.sensor.data[1]);
+    };
+
+    // Real glass tilt stream (already screen-framed on the player).
+    for (int i = 0; i < 10; ++i) inject(&primary, sensorUpdate(-3.f, 0.5f));
+    // Finger events from the same glass must NOT create a synth or divert
+    // gravity — there is no synth; they'd reach the game as raw input.
+    inject(&primary, fingerDown(0.5f, 0.5f));
+    inject(&primary, fingerMotion(0.6f, 0.5f, 0.1f, 0.f));
+    for (int i = 0; i < 10; ++i) inject(&primary, sensorUpdate(-3.f, 0.5f));
+    // Spectator sensors still dropped.
+    inject(&spectator, sensorUpdate(9.9f, 0.f));
+
+    REQUIRE(gameGravity.size() == 20);
+    for (const auto& g : gameGravity) {
+        CHECK(g.first == doctest::Approx(-3.f));
+        CHECK(g.second == doctest::Approx(0.5f));
     }
 }

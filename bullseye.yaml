@@ -1971,7 +1971,7 @@ targets:
     - Real-wire deployment differs from loopback only in documented transport properties (latency, coalescing) — the sole permitted tolerances in the parity oracle
     - 'Player remains glass-only: applies SessionConfig, reports DeviceInfo, forwards device-local input and real sensors; no second AccelSynth or gravity model. Spyder streamrelay routes player-protocol bytes opaquely; control plane (app-channel, logs, telemetry, deploy) is out of scope and unchanged'
     - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; the trace-equality oracle fails if a stream-only semantic pathway reappears
-    - 'Independent judge gate: every achieve in this group carries a committed verdicts/<id>/ artifact from scripts/judge (claude -p) confirming each criterion; executor self-attestation — or executor-edited acceptance — does not count'
+    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
     context: '2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
     depends_on:
     - T154
@@ -2001,7 +2001,7 @@ targets:
     - 'Arm-policy rule stated: any arming-UX difference (Shift vs primary-drag) derives from declared device capabilities, never from GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or stream-vs-direct conditionals'
     - 'Terminology pinned: sensor samples travel as SDL sensor events inside SP2I — there is no SENSOR_UPDATE wire message; ge/include/ge/Protocol.h and the spyder player mirror are layout oracles for the same serialization'
     - 'Spyder statement: streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
-    - Achieve carries a committed verdicts/T156.1/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
     context: 'Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
     tags:
     - docs
@@ -2028,7 +2028,7 @@ targets:
     - 'No arming-window or time-multiplexed arbitration exists: authority never changes per-event, only by explicit re-seat'
     - 'Oracle: a synthetic hold-left sequence can never yield opposite gravity while presentation remains left'
     - 'The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction'
-    - Achieve carries a committed verdicts/T156.2/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
     context: 'Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
     depends_on:
     - T156.1
@@ -2119,7 +2119,7 @@ targets:
     - A real-wire run (live player attached) matches within the contract's transport tolerances (latency, coalescing) only; any semantic difference fails
     - End-to-end latency from glass gesture/sensor sample to game-observed gravity is measured on the live run and falls within a documented tolerance — closing out the reported 1–2 s delay with numbers, not impressions
     - Evidence is durable and in-repo (committed under verdicts/ or a TEST-REPORT-equivalent); ephemeral temp dirs (/var/folders goal SCRATCH) do not count as attestation
-    - Achieve carries a committed verdicts/T156.6/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
     context: |-
       Closes the loop. Trace equality against the player-in-loop is strictly stronger than trajectory-tolerance parity; the live-wire run certifies only transport. Without this, stream and direct re-diverge silently.
 
@@ -2149,7 +2149,7 @@ targets:
     - 'The oracle drives the real player binary as a subprocess over a localhost/loopback transport — the same bytes and the same player logic as production; no test-double glass, and no linking spyder code into ge (the plateau coupling rule holds: the repos couple through the protocol, and the oracle exercises the player across it)'
     - Scripted device-local input and synthetic sensor streams are injectable into the headless player deterministically, with declared device capabilities configurable per run (accelerometer present vs absent), and game-observed traces are captured for T156.6
     - Harness runs on the laptop with no physical device or GUI attached
-    - Achieve carries a committed verdicts/T156.7/ judge artifact (scripts/judge → claude -p) confirming every criterion
+    - Independently verified by oracle evidence and the user's live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)
     context: 'Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
     depends_on:
     - T156.1

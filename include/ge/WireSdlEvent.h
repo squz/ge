@@ -41,13 +41,8 @@ inline bool unpackSdlEvent(const std::vector<uint8_t>& msg, SDL_Event& out) {
     return unpackSdlEvent(msg.data(), msg.size(), out);
 }
 
-// Host-side filter used by DirectRenderHost: when AccelSynth owns the
-// gesture, external SENSOR_UPDATE must not reach the game.
-template <typename Synth>
-inline bool shouldDeliverSensorToGame(const Synth* synth, const SDL_Event& e) {
-    if (e.type != SDL_EVENT_SENSOR_UPDATE) return true;
-    if (synth && synth->ownsSensorStream()) return false;
-    return true;
-}
+// 🎯T156.2: there is deliberately NO sensor-arbitration helper here.
+// Authority is constructional — a synth exists only for a virtual device
+// that declared no real accelerometer — so no filter is needed or allowed.
 
 } // namespace wire

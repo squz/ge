@@ -147,6 +147,15 @@ int mapAndroidTrimLevel(int level) {
 }
 #endif
 
+// 🎯T156.2 Local virtual-device description: touch-first platforms arm
+// AccelSynth on primary drag (no reliable modifier keys). This describes
+// the DEVICE the direct build runs on — it is not a stream/direct branch.
+#if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__ANDROID__)
+constexpr bool kLocalDeviceTouchFirst = true;
+#else
+constexpr bool kLocalDeviceTouchFirst = false;
+#endif
+
 // 🎯T154 viewer-background atomic (wire SP2L); also used by paused().
 std::atomic<bool> g_viewerBackgrounded{false};
 
@@ -301,6 +310,11 @@ struct DirectRenderHost::Impl {
 
     std::optional<AccelSynth> synth;
     SDL_Sensor* accelSensor = nullptr;
+    // 🎯T156.2 session wants accelerometer input; seat authority decides the
+    // source per frame (local device when direct/unattached, primary seat's
+    // declared capability while streaming).
+    bool wantAccelInput = false;
+    bool seatAuthorityLogged = false;
 
     // Parallax pipeline (SessionHostConfig.parallaxFactor > 0).
     // attitude provider polled per frame; baseline is the EMA-tracked
@@ -379,6 +393,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     if (i_->sokolCtx->height() > 0) i_->height = i_->sokolCtx->height();
 
     if (config.sensors & wire::kSensorAccelerometer) {
+        i_->wantAccelInput = true;
         // Prefer real sensors when usable. iOS Simulator and Android emulator
         // report sensors but AccelSynth::realSensorAvailable() is false there —
         // host mouse / click-drag is the practical tilt path.
@@ -398,11 +413,17 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                 SDL_free(sensors);
             }
         }
-        // Fall back to Shift-mouse synthesis.
+        // Fall back to gesture synthesis for the LOCAL virtual device
+        // (🎯T156.2): arm policy derives from this device's declared facts
+        // (touch-first platform → primary-drag arms; keyboard-class → Shift).
+        // While a stream seat is attached, the per-frame seat-authority check
+        // in refreshFrame supersedes this with the seat's capability.
         if (!i_->accelSensor) {
             i_->synth.emplace();
             i_->synth->setWindow(i_->sokolCtx->window());
-            SPDLOG_INFO("DirectRenderHost: Shift-mouse accelerometer synthesis enabled");
+            i_->synth->setArmOnPrimary(kLocalDeviceTouchFirst);
+            SPDLOG_INFO("DirectRenderHost: gesture accelerometer synthesis "
+                        "enabled (armOnPrimary={})", kLocalDeviceTouchFirst);
         }
     }
 
@@ -847,14 +868,10 @@ void DirectRenderHost::pumpEvents() {
             continue;
         }
         if (i_->synth && i_->synth->handle(e)) continue;
-        // 🎯T156.2: when AccelSynth owns the gesture, it is the sole sensor
-        // authority — drop external SENSOR_UPDATE (wire real samples, etc.).
-        // Synth asserts gravity via setEmit(), not this queue path.
-        // Filter is wire::shouldDeliverSensorToGame (shared with unit oracle).
-        if (!wire::shouldDeliverSensorToGame(
-                i_->synth ? &*i_->synth : nullptr, e)) {
-            continue;
-        }
+        // 🎯T156.2: no sensor arbitration here. Authority is constructional —
+        // the synth only exists for a virtual device that declared no real
+        // accelerometer, so a competing SENSOR_UPDATE source cannot exist
+        // (spectator input is dropped at the SeatPolicy boundary).
         // Rotate real-sensor accel into screen frame using the live
         // display orientation. AccelSynth events bypass — they arrive
         // via setEmit() callback, already in screen frame
@@ -930,6 +947,54 @@ void DirectRenderHost::refreshFrame(float dt) {
     // accelerometer was found, so this is {0,0} on real-accel platforms — the
     // view tilts only where there's no physical tilt to double up on. Small
     // deadzone (0.7 px) mirrors the player composite's threshold.
+    // 🎯T156.2 Seat sensor authority: while a primary seat is attached, its
+    // DeviceInfo capability decides this virtual device's sensor story.
+    // Glass declares an accelerometer → its real stream is the authority and
+    // no synth exists. Glass declares none → synth, with arm policy from the
+    // seat's device class. Detach reverts to the local device's facts.
+    if (i_->wantAccelInput) {
+        const bool seatAttached =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (seatAttached) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            if (v.hasAccelerometer) {
+                if (i_->synth) {
+                    i_->synth.reset();
+                    SPDLOG_INFO("DirectRenderHost: seat declares a real "
+                                "accelerometer — synth destroyed; the glass "
+                                "is the sensor authority");
+                }
+            } else {
+                if (!i_->synth) {
+                    i_->synth.emplace();
+                    i_->synth->setWindow(i_->sokolCtx->window());
+                    if (i_->eventHandler) i_->synth->setEmit(i_->eventHandler);
+                    SPDLOG_INFO("DirectRenderHost: seat declares no "
+                                "accelerometer — gesture synthesis enabled");
+                }
+                i_->synth->setArmOnPrimary(
+                    v.deviceClass == DeviceClass::Phone ||
+                    v.deviceClass == DeviceClass::Tablet);
+            }
+            if (!i_->seatAuthorityLogged) {
+                i_->seatAuthorityLogged = true;
+                SPDLOG_INFO("DirectRenderHost: seat sensor authority = {}",
+                            v.hasAccelerometer ? "glass accelerometer"
+                                               : "host AccelSynth");
+            }
+        } else {
+            i_->seatAuthorityLogged = false;
+            // Unattached (or direct): local device facts.
+            if (!i_->accelSensor && !i_->synth) {
+                i_->synth.emplace();
+                i_->synth->setWindow(i_->sokolCtx->window());
+                if (i_->eventHandler) i_->synth->setEmit(i_->eventHandler);
+                i_->synth->setArmOnPrimary(kLocalDeviceTouchFirst);
+            }
+        }
+    }
+
     la::float2 presentationTilt{0.0f, 0.0f};
     if (i_->synth) {
         // Stream: denormalize finger 0–1 against the *player* surface

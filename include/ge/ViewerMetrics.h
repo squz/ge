@@ -37,6 +37,9 @@ struct ViewerWindow {
     int safeX = 0, safeY = 0, safeW = 0, safeH = 0;
     // Draw-safe rect (cutouts only). drawSafeW==0 → same as ui-safe.
     int drawSafeX = 0, drawSafeY = 0, drawSafeW = 0, drawSafeH = 0;
+    // 🎯T156.2: seat sensor authority — the glass declared a real
+    // accelerometer (DeviceInfo kCapHasAccelerometer).
+    bool hasAccelerometer = false;
 };
 
 // Aspect-fit content (contentW×contentH) into window (ww×wh) — same geometry
@@ -146,6 +149,7 @@ inline DualSafeInsets mapViewerDualSafeInsets(const ViewerWindow& v,
 // DirectRenderHost::refreshFrame (game thread) under stream.
 struct ViewerMetricsStore {
     std::atomic<bool> valid{false};
+    std::atomic<bool> hasAccel{false};
     std::atomic<int> w{0};
     std::atomic<int> h{0};
     std::atomic<int> pixelRatio{1};
@@ -177,12 +181,15 @@ struct ViewerMetricsStore {
         v.drawSafeY = drawSafeY.load(std::memory_order_relaxed);
         v.drawSafeW = drawSafeW.load(std::memory_order_relaxed);
         v.drawSafeH = drawSafeH.load(std::memory_order_relaxed);
+        v.hasAccelerometer = hasAccel.load(std::memory_order_relaxed);
         return v;
     }
 
     void applyDeviceInfo(int ww, int wh, int pr, int dc,
                          int sx, int sy, int sw, int sh,
-                         int dx = 0, int dy = 0, int dw = 0, int dh = 0) {
+                         int dx = 0, int dy = 0, int dw = 0, int dh = 0,
+                         bool accel = false) {
+        hasAccel.store(accel, std::memory_order_relaxed);
         w.store(ww, std::memory_order_relaxed);
         h.store(wh, std::memory_order_relaxed);
         pixelRatio.store(pr > 0 ? pr : 1, std::memory_order_relaxed);
