@@ -2209,6 +2209,27 @@ targets:
     origin: 2026-07-18 Jevons judder diagnosis
     discovered: 2026-07-18
     achieved: 2026-07-18
+  T160:
+    name: 'Game-injected frame logs ride the render stream and are emitted by the presenting backend with backend-decided timestamps'
+    status: identified
+    value: 3.0
+    cost: 3.0
+    acceptance:
+    - 'A location-transparent game API (e.g. ge::frameLog(text)) injects light per-frame log entries; games never branch on modality'
+    - Entries serialize as a cmdstream op riding the frame that carried them (mirrored in the player replayer; unknown-op safety preserved for pre-version peers)
+    - 'The PRESENTING backend emits each entry with its own timestamp at present time: direct host at frame present, player glass at glass present (pacing queue included); a frame shed under overflow emits its logs flagged as dropped'
+    - Comparing the direct-run and glass-run emission streams for the same scripted gesture localizes transport/present stutter to specific game frames (the same content yields two cadence timelines)
+    - TiltBuggy carries an env-gated per-frame pose log as the reference user
+    context: 'User-requested during the 2026-07-18 T159 wrap-up: SP2F measures backend-to-backend emit-to-present latency, but game-authored markers stamped at PRESENT by whichever backend shows the frame give per-frame content correlation — direct vs glass cadence for identical frames isolates transport-induced stutter. Not urgent; filed for a later pass. Groundwork: Op enum has room (next free ~50), player CmdStream.h is a namespace-renamed mirror of ge''s, and the player trace/PresentTrace plumbing (T159) is the natural emission sink.'
+    depends_on:
+    - T159
+    tags:
+    - telemetry
+    - cmdstream
+    - frame-log
+    - oracle-infrastructure
+    origin: user clarification of T159 intent, 2026-07-18
+    discovered: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
     status: identified
