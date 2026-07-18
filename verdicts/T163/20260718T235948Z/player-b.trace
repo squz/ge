@@ -1,0 +1,13 @@
+{"k":"device","t_ms":54,"class":2,"caps":6}
+{"k":"armstate","t_ms":124,"armed":0}
+{"k":"frame_meta","seq":59,"server_us":1784419193270409,"recv_us":1784419193270482}
+{"k":"frame_meta","seq":119,"server_us":1784419194270417,"recv_us":1784419194270481}
+{"k":"inject","t_ms":2554,"e_us":1784419194739639,"type":4608}
+{"k":"inject","t_ms":3054,"e_us":1784419195239642,"type":4608}
+{"k":"frame_meta","seq":179,"server_us":1784419195270439,"recv_us":1784419195270506}
+{"k":"inject","t_ms":3554,"e_us":1784419195739648,"type":4608}
+{"k":"inject","t_ms":4054,"e_us":1784419196239654,"type":4608}
+{"k":"frame_meta","seq":239,"server_us":1784419196270448,"recv_us":1784419196270529}
+{"k":"frame_meta","seq":299,"server_us":1784419197270444,"recv_us":1784419197270509}
+{"k":"inject","t_ms":5554,"e_us":1784419197739674,"type":256}
+{"k":"exit","t_ms":5554,"frames":328}

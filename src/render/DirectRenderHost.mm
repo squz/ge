@@ -865,6 +865,13 @@ void DirectRenderHost::pumpEvents() {
                               !i_->ctx->redrawPending() &&
                               !i_->ctx->anyRenderTriggerActive();
     bool blocking = paused() || onDemandIdle;
+#if defined(__EMSCRIPTEN__)
+    // 🎯T157 The browser main thread must never block: requestAnimationFrame
+    // paces the loop (and stops entirely while the tab is hidden), so
+    // poll-only is both safe and cheap — an on-demand-idle tick that skips
+    // the render bracket does no GPU work.
+    blocking = false;
+#endif
     bool sawRealEvent = false;
     SDL_Event e;
     for (;;) {

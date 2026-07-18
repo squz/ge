@@ -1,0 +1,330 @@
+[2026-07-19 09:05:10.936] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:05:10.937] [info] [main.cpp:205] iap: restore complete ok=true error=
+[2026-07-19 09:05:10.999] [ge] [info] [SessionHost_server.mm:98] runServer: 'tiltbuggy' streaming to relay 127.0.0.1:3131
+[2026-07-19 09:05:10.999] [ge] [info] [SessionHost_server.mm:126] runServer: console stream host (not a desktop game window)
+[2026-07-19 09:05:10.999] [ge] [info] [ServerSession.mm:619] ServerSession: connected to relay 127.0.0.1:3131 as 'tiltbuggy'
+[2026-07-19 09:05:11.104] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:05:11.104] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-19 09:05:11.104] [ge] [info] [DirectRenderHost.mm:473] DirectRenderHost: GE_SENSOR_TRACE on (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T230454Z/finger-stream.trace)
+[2026-07-19 09:05:11.104] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:05:11.104] [ge] [info] [DirectRenderHost.mm:506] DirectRenderHost: stream server ephemeral db (:memory:)
+[2026-07-19 09:05:11.104] [ge] [info] [Context.cpp:64] Context: opening db path=':memory:' schemaDdl=145B
+[2026-07-19 09:05:11.105] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:05:11.105] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:05:11.105] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:05:11.105] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:05:11.105] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:05:11.105] [ge] [info] [ServerSession.mm:733] ServerSession: SP2T working db bound (ok, schema=145 bytes)
+[2026-07-19 09:05:11.152] [ge] [info] [main.cpp:411] onEvent type=0x305
+[2026-07-19 09:05:11.152] [ge] [info] [main.cpp:411] onEvent type=0x404
+[2026-07-19 09:05:11.152] [ge] [info] [main.cpp:411] onEvent type=0x214
+[2026-07-19 09:05:11.605] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=0.6
+[2026-07-19 09:05:12.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:12.121] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.1
+[2026-07-19 09:05:12.638] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.6
+[2026-07-19 09:05:12.941] [ge] [info] [ServerSession.mm:350] ServerSession: spawned child pid 12431 for session s2 (own world/state)
+[2026-07-19 09:05:12.948] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:05:12.948] [info] [main.cpp:205] iap: restore complete ok=true error=
+[2026-07-19 09:05:12.999] [ge] [info] [SessionHost_server.mm:98] runServer: 'tiltbuggy' streaming to relay 127.0.0.1:3131
+[2026-07-19 09:05:12.999] [ge] [info] [SessionHost_server.mm:126] runServer: console stream host (not a desktop game window)
+[2026-07-19 09:05:12.999] [ge] [info] [ServerSession.mm:247] ServerSession: SessionConfig sensors=0x1 orientation=254 transport=0 flags=0x3 (immersive=1 noSaver=1) session=s2
+[2026-07-19 09:05:12.999] [ge] [info] [ServerSession.mm:259] ServerSession: player attached (session s2), wires=1 primary=1
+[2026-07-19 09:05:13.000] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:05:13.000] [ge] [info] [ServerSession.mm:599] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-19 09:05:13.000] [ge] [info] [ServerSession.mm:604] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-19 09:05:13.001] [ge] [warning] [ServerSession.mm:566] ServerSession: SP2T snapshot apply failed (db=0 n=24576)
+[2026-07-19 09:05:13.001] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:05:13.001] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:05:13.050] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:506] DirectRenderHost: stream server ephemeral db (:memory:)
+[2026-07-19 09:05:13.051] [ge] [info] [Context.cpp:64] Context: opening db path=':memory:' schemaDdl=145B
+[2026-07-19 09:05:13.051] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:05:13.051] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:05:13.051] [ge] [info] [ServerSession.mm:733] ServerSession: SP2T working db bound (ok, schema=145 bytes)
+[2026-07-19 09:05:13.068] [ge] [info] [main.cpp:411] onEvent type=0x305
+[2026-07-19 09:05:13.068] [ge] [info] [main.cpp:411] onEvent type=0x404
+[2026-07-19 09:05:13.068] [ge] [info] [main.cpp:411] onEvent type=0x214
+[2026-07-19 09:05:13.068] [ge] [info] [DirectRenderHost.mm:1100] DirectRenderHost: seat sensor authority = host AccelSynth
+[2026-07-19 09:05:13.068] [ge] [info] [ServerSession.mm:312] ServerSession: SP2A arm=0 → primary seat
+[2026-07-19 09:05:13.068] [ge] [info] [ServerSession.mm:779] ServerSession: cold frame forced for late joiner
+[2026-07-19 09:05:13.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:13.102] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#1 wire=2915593B runs=6 full_blobs=15 refs=4 full_blob_bytes=2914758
+[2026-07-19 09:05:13.102] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:13.104] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#2 wire=469B runs=6 full_blobs=0 refs=12 full_blob_bytes=0
+[2026-07-19 09:05:13.113] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#3 wire=469B runs=6 full_blobs=0 refs=12 full_blob_bytes=0
+[2026-07-19 09:05:13.121] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#4 wire=469B runs=6 full_blobs=0 refs=12 full_blob_bytes=0
+[2026-07-19 09:05:13.130] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#5 wire=469B runs=6 full_blobs=0 refs=12 full_blob_bytes=0
+[2026-07-19 09:05:13.138] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=2.1
+[2026-07-19 09:05:13.551] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=0.6
+[2026-07-19 09:05:13.618] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:13.655] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=2.7
+[2026-07-19 09:05:14.035] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:14.035] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#60 wire=469B runs=6 full_blobs=0 refs=12 full_blob_bytes=0
+[2026-07-19 09:05:14.068] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.1
+[2026-07-19 09:05:14.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:14.118] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:14.155] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=3.2
+[2026-07-19 09:05:14.501] [ge] [info] [main.cpp:411] onEvent type=0x700
+[2026-07-19 09:05:14.501] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.501] [ge] [info] [main.cpp:443] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:14.501] [ge] [info] [ServerSession.mm:312] ServerSession: SP2A arm=1 → primary seat
+[2026-07-19 09:05:14.518] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.518] [ge] [info] [main.cpp:443] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:14.535] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.535] [ge] [info] [main.cpp:443] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:14.551] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.551] [ge] [info] [main.cpp:443] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:14.551] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.551] [ge] [info] [main.cpp:443] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:14.568] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [-0.01,0.00,0.00] t=1.6
+[2026-07-19 09:05:14.568] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.568] [ge] [info] [main.cpp:443] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:14.585] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.585] [ge] [info] [main.cpp:443] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:14.601] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.601] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.601] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.601] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.618] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.618] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.635] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.635] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.635] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:14.651] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.651] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.655] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=3.7
+[2026-07-19 09:05:14.668] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.668] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.685] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.685] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.701] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.701] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.718] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.718] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.735] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.735] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.751] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.751] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.768] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.768] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.785] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.785] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.801] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.801] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.818] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.818] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.835] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.835] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.851] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.851] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.868] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.868] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.885] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.885] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.901] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.901] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.918] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.918] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.935] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.935] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.951] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.951] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.968] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.968] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:14.985] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:14.985] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.001] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.001] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.018] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.018] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.035] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[-30.00,-0.00] pose=[-3.66,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:15.035] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.035] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.035] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#120 wire=3569B runs=6 full_blobs=3 refs=9 full_blob_bytes=3088
+[2026-07-19 09:05:15.051] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.051] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.068] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.068] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.085] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [-4.44,0.00,0.00] t=2.1
+[2026-07-19 09:05:15.085] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.085] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:15.101] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.101] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.118] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.118] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.135] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.135] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.151] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.151] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.151] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:15.168] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.168] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.171] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=4.2
+[2026-07-19 09:05:15.185] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.185] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.201] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.201] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.218] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.218] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.235] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.235] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.251] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.251] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.268] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.268] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.285] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.285] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.301] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.301] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.318] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.318] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.335] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.335] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.351] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.351] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.368] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.368] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.385] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.385] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.401] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.401] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.418] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.418] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.435] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.435] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.451] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.451] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.468] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.468] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.485] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.485] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.501] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.501] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.518] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.518] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.535] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.535] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.551] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.551] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.568] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.568] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.585] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [-8.90,0.13,0.69] t=2.6
+[2026-07-19 09:05:15.585] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.585] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.601] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.601] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.618] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.618] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.635] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.635] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.651] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.651] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.651] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:15.668] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.668] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.672] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=4.7
+[2026-07-19 09:05:15.685] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.685] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.701] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.701] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.718] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.718] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.735] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.735] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.751] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.751] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.768] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.768] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.785] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.785] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.801] [ge] [info] [main.cpp:411] onEvent type=0x701
+[2026-07-19 09:05:15.801] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.801] [ge] [info] [main.cpp:443] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.801] [ge] [info] [ServerSession.mm:312] ServerSession: SP2A arm=0 → primary seat
+[2026-07-19 09:05:15.818] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.818] [ge] [info] [main.cpp:443] ACCEL accel=[+4.11,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.835] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.835] [ge] [info] [main.cpp:443] ACCEL accel=[+3.37,+0.00,+0.00] gravity=[-30.00,-0.00]
+[2026-07-19 09:05:15.851] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.851] [ge] [info] [main.cpp:443] ACCEL accel=[+2.76,+0.00,+0.00] gravity=[-27.59,-0.00]
+[2026-07-19 09:05:15.868] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.868] [ge] [info] [main.cpp:443] ACCEL accel=[+2.25,+0.00,+0.00] gravity=[-22.50,-0.00]
+[2026-07-19 09:05:15.885] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.885] [ge] [info] [main.cpp:443] ACCEL accel=[+1.83,+0.00,+0.00] gravity=[-18.33,-0.00]
+[2026-07-19 09:05:15.901] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.901] [ge] [info] [main.cpp:443] ACCEL accel=[+1.49,+0.00,+0.00] gravity=[-14.91,-0.00]
+[2026-07-19 09:05:15.918] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.918] [ge] [info] [main.cpp:443] ACCEL accel=[+1.21,+0.00,+0.00] gravity=[-12.12,-0.00]
+[2026-07-19 09:05:15.935] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.935] [ge] [info] [main.cpp:443] ACCEL accel=[+0.98,+0.00,+0.00] gravity=[-9.85,-0.00]
+[2026-07-19 09:05:15.951] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.951] [ge] [info] [main.cpp:443] ACCEL accel=[+0.80,+0.00,+0.00] gravity=[-8.00,-0.00]
+[2026-07-19 09:05:15.968] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.968] [ge] [info] [main.cpp:443] ACCEL accel=[+0.65,+0.00,+0.00] gravity=[-6.50,-0.00]
+[2026-07-19 09:05:15.985] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:15.985] [ge] [info] [main.cpp:443] ACCEL accel=[+0.53,+0.00,+0.00] gravity=[-5.28,-0.00]
+[2026-07-19 09:05:16.001] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.001] [ge] [info] [main.cpp:443] ACCEL accel=[+0.43,+0.00,+0.00] gravity=[-4.29,-0.00]
+[2026-07-19 09:05:16.018] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.018] [ge] [info] [main.cpp:443] ACCEL accel=[+0.35,+0.00,+0.00] gravity=[-3.48,-0.00]
+[2026-07-19 09:05:16.035] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[-3.48,-0.00] pose=[-5.50,4.64,1.43] grip=[0,75] pro=false
+[2026-07-19 09:05:16.035] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.035] [ge] [info] [main.cpp:443] ACCEL accel=[+0.28,+0.00,+0.00] gravity=[-2.83,-0.00]
+[2026-07-19 09:05:16.035] [ge] [info] [ServerSession.mm:820] ServerSession: SP2S frame#180 wire=5009B runs=6 full_blobs=3 refs=9 full_blob_bytes=4528
+[2026-07-19 09:05:16.051] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.051] [ge] [info] [main.cpp:443] ACCEL accel=[+0.23,+0.00,+0.00] gravity=[-2.29,-0.00]
+[2026-07-19 09:05:16.068] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.068] [ge] [info] [main.cpp:443] ACCEL accel=[+0.19,+0.00,+0.00] gravity=[-1.86,-0.00]
+[2026-07-19 09:05:16.085] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [-5.44,5.21,1.46] t=3.1
+[2026-07-19 09:05:16.085] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.085] [ge] [info] [main.cpp:443] ACCEL accel=[+0.15,+0.00,+0.00] gravity=[-1.51,-0.00]
+[2026-07-19 09:05:16.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:16.101] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.101] [ge] [info] [main.cpp:443] ACCEL accel=[+0.12,+0.00,+0.00] gravity=[-1.23,-0.00]
+[2026-07-19 09:05:16.118] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.118] [ge] [info] [main.cpp:443] ACCEL accel=[+0.10,+0.00,+0.00] gravity=[-1.00,-0.00]
+[2026-07-19 09:05:16.135] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.135] [ge] [info] [main.cpp:443] ACCEL accel=[+0.08,+0.00,+0.00] gravity=[-0.81,-0.00]
+[2026-07-19 09:05:16.151] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.151] [ge] [info] [main.cpp:443] ACCEL accel=[+0.07,+0.00,+0.00] gravity=[-0.66,-0.00]
+[2026-07-19 09:05:16.151] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:16.168] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.168] [ge] [info] [main.cpp:443] ACCEL accel=[+0.05,+0.00,+0.00] gravity=[-0.53,-0.00]
+[2026-07-19 09:05:16.172] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=5.2
+[2026-07-19 09:05:16.185] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.185] [ge] [info] [main.cpp:443] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.43,-0.00]
+[2026-07-19 09:05:16.201] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.201] [ge] [info] [main.cpp:443] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.35,-0.00]
+[2026-07-19 09:05:16.218] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.218] [ge] [info] [main.cpp:443] ACCEL accel=[+0.03,+0.00,+0.00] gravity=[-0.29,-0.00]
+[2026-07-19 09:05:16.235] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.235] [ge] [info] [main.cpp:443] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.23,-0.00]
+[2026-07-19 09:05:16.251] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.251] [ge] [info] [main.cpp:443] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.19,-0.00]
+[2026-07-19 09:05:16.268] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.268] [ge] [info] [main.cpp:443] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.15,-0.00]
+[2026-07-19 09:05:16.285] [ge] [info] [main.cpp:411] onEvent type=0x1200
+[2026-07-19 09:05:16.285] [ge] [info] [main.cpp:443] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:16.601] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [-5.60,7.75,1.25] t=3.6
+[2026-07-19 09:05:16.668] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:05:16.688] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=5.7
+[2026-07-19 09:05:16.701] [ge] [info] [ServerSession.mm:414] ServerSession: session s2 wire closed — child exiting
+[2026-07-19 09:05:16.701] [ge] [info] [ServerSession.mm:644] ServerSession: detach s2 — child owns teardown
+[2026-07-19 09:05:17.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:17.205] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=6.2
+[2026-07-19 09:05:17.705] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=6.7
+[2026-07-19 09:05:18.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:18.205] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=7.2
+[2026-07-19 09:05:18.722] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=7.7
+[2026-07-19 09:05:19.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:19.238] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=8.2
+[2026-07-19 09:05:19.755] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=8.8
+[2026-07-19 09:05:20.088] [ge] [info] [main.cpp:372] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:05:20.272] [ge] [info] [main.cpp:354] tiltbuggy: pose → db [0.00,0.00,0.00] t=9.3
+[2026-07-19 09:05:20.666] [ge] [info] [ServerSession.mm:661] ServerSession: sideband closed (replaced or relay gone) — exiting superseded server process

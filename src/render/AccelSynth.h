@@ -69,7 +69,12 @@ struct Tilt {
 // Relative mouse for desktop Shift-drag only. Never on iOS (device or
 // simulator) — see file header: relative mode drops UIKit absolute motion.
 inline void setRelativeMouseForShiftDrag(SDL_Window* window, bool armed) {
-#if defined(__APPLE__) && TARGET_OS_IOS
+    // On web (🎯T157) relative mode means requestPointerLock, which browsers
+    // may deny (no transient activation, headless) — and SDL then DISCARDS
+    // absolute motion while relative mode is on, so the synth would go dead.
+    // Plain absolute motion carries xrel on web anyway; the lost
+    // past-the-edge drag is a fair trade for input that always works.
+#if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__EMSCRIPTEN__)
     (void)window;
     (void)armed;
 #else

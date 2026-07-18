@@ -1,0 +1,43 @@
+[2026-07-19 09:05:18.053] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:05:18.053] [info] [main.cpp:198] iap: restore complete ok=true error=
+[2026-07-19 09:05:18.171] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:05:18.171] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-19 09:05:18.171] [ge] [info] [DirectRenderHost.mm:464] DirectRenderHost: GE_INPUT_SCRIPT loaded (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T230454Z/gesture-accel.txt)
+[2026-07-19 09:05:18.171] [ge] [info] [DirectRenderHost.mm:473] DirectRenderHost: GE_SENSOR_TRACE on (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T230454Z/accel-direct.trace)
+[2026-07-19 09:05:18.171] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:05:18.172] [ge] [info] [DirectRenderHost.mm:516] DirectRenderHost: persistent DB at /Users/marcelo/Library/Application Support/squz/tiltbuggy/game.db
+[2026-07-19 09:05:18.172] [ge] [info] [Context.cpp:64] Context: opening db path='/Users/marcelo/Library/Application Support/squz/tiltbuggy/game.db' schemaDdl=145B
+[2026-07-19 09:05:18.172] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:05:18.172] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:05:18.172] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:05:18.172] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:05:18.172] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:05:18.172] [ge] [info] [main.cpp:305] tiltbuggy: restored pose from db [-12.83,6.40,1.57]
+[2026-07-19 09:05:18.192] [ge] [info] [main.cpp:397] onEvent type=0x305
+[2026-07-19 09:05:18.192] [ge] [info] [main.cpp:397] onEvent type=0x404
+[2026-07-19 09:05:18.192] [ge] [info] [audio.cpp:146] ge::audio: foregrounded — resuming 0 device(s)
+[2026-07-19 09:05:18.192] [ge] [info] [main.cpp:397] onEvent type=0x214
+[2026-07-19 09:05:18.271] [ge] [info] [main.cpp:397] onEvent type=0x204
+[2026-07-19 09:05:18.271] [ge] [info] [audio.cpp:146] ge::audio: foregrounded — resuming 0 device(s)
+[2026-07-19 09:05:18.271] [ge] [info] [main.cpp:397] onEvent type=0x20c
+[2026-07-19 09:05:18.271] [ge] [info] [main.cpp:397] onEvent type=0x900
+[2026-07-19 09:05:18.677] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=0.6
+[2026-07-19 09:05:18.868] [ge] [info] [main.cpp:358] tick: dt=0.0075 g=[0.00,0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:19.178] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=1.1
+[2026-07-19 09:05:19.368] [ge] [info] [main.cpp:358] tick: dt=0.0082 g=[0.00,0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:19.677] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:19.677] [ge] [info] [main.cpp:423] ACCEL accel=[-3.00,+0.50,+0.00] gravity=[+30.00,-5.00]
+[2026-07-19 09:05:19.685] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=1.6
+[2026-07-19 09:05:19.777] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:19.777] [ge] [info] [main.cpp:423] ACCEL accel=[-3.00,+0.50,+0.00] gravity=[+30.00,-5.00]
+[2026-07-19 09:05:19.868] [ge] [info] [main.cpp:358] tick: dt=0.0083 g=[30.00,-5.00] pose=[-12.80,6.31,1.53] grip=[30,30] pro=false
+[2026-07-19 09:05:19.877] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:19.877] [ge] [info] [main.cpp:423] ACCEL accel=[-3.00,+0.50,+0.00] gravity=[+30.00,-5.00]
+[2026-07-19 09:05:19.977] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:19.977] [ge] [info] [main.cpp:423] ACCEL accel=[-1.00,+0.20,+0.00] gravity=[+10.00,-2.00]
+[2026-07-19 09:05:20.077] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:20.077] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:20.186] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.79,6.11,1.53] t=2.1
+[2026-07-19 09:05:20.385] [ge] [info] [main.cpp:358] tick: dt=0.0081 g=[-0.00,-0.00] pose=[-12.81,6.00,1.56] grip=[30,30] pro=false
+[2026-07-19 09:05:20.585] [ge] [info] [main.cpp:433] TiltBuggy shutdown
+[2026-07-19 09:05:20.590] [ge] [info] [SokolContext.mm:54] SokolContext destroyed

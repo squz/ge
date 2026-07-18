@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
     --debug) DEBUG=1; shift ;;
     -h|--help)
       echo "usage: $0 [--debug] <platform>" >&2
-      echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+      echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64 | web-wasm" >&2
       echo "  Always rebuilds every archive in the tree (no partial cooks)." >&2
       echo "  --debug:  write prebuilt/<platform>-debug/ with -g -O2 (symbols+opt)" >&2
       echo "            GE_PREBUILD_OPT=0|1|2|3|s|g|fast  (default 2)" >&2
@@ -70,7 +70,7 @@ done
 
 if [[ ${#ARGS[@]} -ne 1 ]]; then
   echo "usage: $0 [--debug] <platform>" >&2
-  echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+  echo "  platform: ios-arm64 | ios-arm64-simulator | android-arm64 | web-wasm" >&2
   exit 1
 fi
 PLATFORM="${ARGS[0]}"
@@ -142,6 +142,33 @@ OPT_LEVEL="${GE_PREBUILD_OPT:-2}"
 case "$OPT_LEVEL" in
   0|1|2|3|s|g) OPT_FLAG="-O${OPT_LEVEL}" ;;
   fast)        OPT_FLAG="-Ofast" ;;
+  web-wasm)
+    # 🎯T157 Emscripten/wasm (WebGL2 via SOKOL_GLES3). Single wasm32 arch;
+    # toolchain from PATH (brew install emscripten, or an activated emsdk).
+    if ! command -v em++ >/dev/null 2>&1; then
+      echo "error: em++ not found — install Emscripten (brew install emscripten" >&2
+      echo "  or https://emscripten.org/docs/getting_started/downloads.html)." >&2
+      exit 1
+    fi
+    CC=emcc
+    CXX=em++
+    AR=emar
+    AR_FLAGS=(rcs)
+    # emcc disables C++ exception catching by default; ge relies on
+    # exceptions (guardCallback, resolveFont, sqlpipe). JS-based exceptions
+    # (-fexceptions), NOT -fwasm-exceptions: the web run loop suspends via
+    # Asyncify (SessionHost.mm ge_web_await_frame), and Asyncify cannot
+    # instrument functions holding wasm-EH pads ("Aborted(invalid state)"
+    # at runtime). Must match the consumer's compile+link flags
+    # (cmake/web-wasm.cmake keeps them in sync).
+    # -msimd128 -msse2: box2d's __EMSCRIPTEN__ branch selects its SSE2 SIMD
+    # path (emmintrin.h over wasm SIMD — box2d's own CMake passes the same
+    # pair for Emscripten); wasm SIMD is likewise universal in 2026.
+    COMMON_FLAGS+=(-fexceptions -msimd128 -msse2)
+    GE_PLATFORM_DEFINE=-DGE_WEB
+    GE_MANIFEST_TARGET=print-direct-web
+    SDL_STUB_NEEDED=true
+    ;;
   *)
     echo "error: GE_PREBUILD_OPT must be 0|1|2|3|s|g|fast (got '$OPT_LEVEL')" >&2
     exit 1
@@ -243,7 +270,7 @@ case "$PLATFORM" in
     ;;
   *)
     echo "error: unsupported platform '$PLATFORM'" >&2
-    echo "  supported: ios-arm64 ios-arm64-simulator android-arm64" >&2
+    echo "  supported: ios-arm64 ios-arm64-simulator android-arm64 web-wasm" >&2
     exit 1
     ;;
 esac
@@ -276,6 +303,11 @@ EOF
 fi
 
 C_STD=(-std=c11)
+if [[ "$PLATFORM" == "web-wasm" ]]; then
+  # Strict c11 hides POSIX names (CLOCK_MONOTONIC in box2d's timer.c) in
+  # Emscripten's musl headers; bionic/Darwin expose them regardless.
+  C_STD=(-std=gnu11)
+fi
 CXX_STD=(-std=c++20)
 CXX17_STD=(-std=c++17)
 DEPFLAGS=(-MMD -MP)
@@ -411,8 +443,17 @@ archive "$OUT_DIR/libliteparser.a" "${LITEPARSER_OBJS[@]}"
 
 # ─── sqlite3 ────────────────────────────────────────────────────────────
 echo "── sqlite3 ──"
+# 🎯T157 web: no-op sqlite's xSync. fsync maps to the suspending
+# __wasi_fd_sync import under Asyncify, and sqlite fsyncs beneath C++
+# try scopes (invoke trampolines) — an unsuspendable position. Durability
+# on web comes from the explicit FS.syncfs in tools/web-template/pre.js.
+SQLITE_PLATFORM_DEFINES=()
+if [[ "$PLATFORM" == "web-wasm" ]]; then
+  SQLITE_PLATFORM_DEFINES=(-DSQLITE_NO_SYNC)
+fi
 SQLITE_OBJ="$OBJ_DIR/sqlite3/sqlite3.o"
 run_job compile_c "$SQLITE_OBJ" "vendor/src/sqlite3.c" \
+  "${SQLITE_PLATFORM_DEFINES[@]}" \
   -I vendor/include \
   -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
   -Wno-everything
@@ -487,10 +528,20 @@ compile_ge_source() {
   mkdir -p "$(dirname "$obj")"
   case "$ext" in
     cpp|mm)
-      # On Apple .mm is ObjC++; on Android (no ObjC) treat .mm as plain C++.
+      # On Apple .mm is ObjC++; on Android and web (no ObjC) treat .mm as
+      # plain C++.
       local lang_flag=()
-      if [[ "$ext" == "mm" && "$PLATFORM" == "android-arm64" ]]; then
+      if [[ "$ext" == "mm" && ( "$PLATFORM" == "android-arm64" || "$PLATFORM" == "web-wasm" ) ]]; then
         lang_flag=(-x c++)
+      fi
+      # 🎯T157 web: the run-loop TU must contain no JS-exception invoke
+      # trampolines — Asyncify cannot suspend beneath a JS frame, and the
+      # ge_web_await_frame suspend lives here. Last flag wins in clang;
+      # guardCallback / renderBatch degrade via __cpp_exceptions.
+      if [[ "$PLATFORM" == "web-wasm" && "$src" == "src/SessionHost.mm" ]]; then
+        # SPDLOG_NO_EXCEPTIONS: spdlog's inline headers otherwise contain
+        # throw/try, which -fno-exceptions rejects.
+        lang_flag+=(-fno-exceptions -DSPDLOG_NO_EXCEPTIONS)
       fi
       "$CXX" "${COMMON_FLAGS[@]}" "${CXX_STD[@]}" "${DEPFLAGS[@]}" -MF "$obj.d" \
         "${lang_flag[@]}" "${GE_INCLUDES[@]}" "${GE_DEFINES[@]}" \

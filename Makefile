@@ -124,7 +124,10 @@ prebuild-android-arm64-debug:
 
 prebuild-debug: prebuild-ios-arm64-debug prebuild-ios-arm64-simulator-debug prebuild-android-arm64-debug
 
-prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64
+prebuild-web-wasm:
+	tools/prebuild.sh web-wasm
+
+prebuild: prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 prebuild-web-wasm
 
 # Historical names: always full cook (partial libge-only cooks removed).
 prebuild-libge-ios-arm64: prebuild-ios-arm64

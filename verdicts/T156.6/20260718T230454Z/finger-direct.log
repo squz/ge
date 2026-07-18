@@ -1,0 +1,475 @@
+[2026-07-19 09:05:07.077] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:05:07.077] [info] [main.cpp:198] iap: restore complete ok=true error=
+[2026-07-19 09:05:07.198] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:05:07.198] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=true)
+[2026-07-19 09:05:07.198] [ge] [info] [DirectRenderHost.mm:464] DirectRenderHost: GE_INPUT_SCRIPT loaded (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T230454Z/gesture-finger.txt)
+[2026-07-19 09:05:07.198] [ge] [info] [DirectRenderHost.mm:473] DirectRenderHost: GE_SENSOR_TRACE on (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T230454Z/finger-direct.trace)
+[2026-07-19 09:05:07.198] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:05:07.199] [ge] [info] [DirectRenderHost.mm:516] DirectRenderHost: persistent DB at /Users/marcelo/Library/Application Support/squz/tiltbuggy/game.db
+[2026-07-19 09:05:07.199] [ge] [info] [Context.cpp:64] Context: opening db path='/Users/marcelo/Library/Application Support/squz/tiltbuggy/game.db' schemaDdl=145B
+[2026-07-19 09:05:07.199] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:05:07.199] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:05:07.199] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:05:07.199] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:05:07.199] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:05:07.199] [ge] [info] [main.cpp:305] tiltbuggy: restored pose from db [-12.83,6.40,1.57]
+[2026-07-19 09:05:07.223] [ge] [info] [main.cpp:397] onEvent type=0x305
+[2026-07-19 09:05:07.223] [ge] [info] [main.cpp:397] onEvent type=0x404
+[2026-07-19 09:05:07.223] [ge] [info] [audio.cpp:146] ge::audio: foregrounded — resuming 0 device(s)
+[2026-07-19 09:05:07.223] [ge] [info] [main.cpp:397] onEvent type=0x214
+[2026-07-19 09:05:07.296] [ge] [info] [main.cpp:397] onEvent type=0x204
+[2026-07-19 09:05:07.296] [ge] [info] [audio.cpp:146] ge::audio: foregrounded — resuming 0 device(s)
+[2026-07-19 09:05:07.296] [ge] [info] [main.cpp:397] onEvent type=0x20c
+[2026-07-19 09:05:07.296] [ge] [info] [main.cpp:397] onEvent type=0x900
+[2026-07-19 09:05:07.702] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=0.6
+[2026-07-19 09:05:07.885] [ge] [info] [main.cpp:358] tick: dt=0.0084 g=[0.00,0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:08.210] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=1.1
+[2026-07-19 09:05:08.385] [ge] [info] [main.cpp:358] tick: dt=0.0084 g=[0.00,0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:08.704] [ge] [info] [main.cpp:397] onEvent type=0x700
+[2026-07-19 09:05:08.705] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.705] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.711] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=1.6
+[2026-07-19 09:05:08.711] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.711] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.718] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.718] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.726] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.726] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.735] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.735] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.743] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.743] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:08.751] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.751] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.751] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.751] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.760] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.760] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.768] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.768] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.776] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.776] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.785] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.785] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.793] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.793] [ge] [info] [main.cpp:423] ACCEL accel=[+2.58,+0.00,+0.00] gravity=[-25.81,-0.00]
+[2026-07-19 09:05:08.801] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.801] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.801] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.801] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.810] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.810] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.818] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.818] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.826] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.826] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.834] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.834] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.843] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.843] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.851] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.851] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.860] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.860] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.868] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.868] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.876] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.876] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.885] [ge] [info] [main.cpp:358] tick: dt=0.0084 g=[-49.80,-0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:08.885] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.885] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.893] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.893] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.901] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.901] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.910] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.910] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.918] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.918] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.926] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.926] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.935] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.935] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.943] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.943] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.951] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.951] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.960] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.960] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.968] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.968] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.976] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.976] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.985] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.985] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:08.993] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:08.993] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.001] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.001] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.010] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.010] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.018] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.018] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.026] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.026] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.035] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.035] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.043] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.043] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.051] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.051] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.060] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.060] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.068] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.068] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.076] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.076] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.085] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.085] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.093] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.093] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.101] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.101] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.110] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.110] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.118] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.118] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.126] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.126] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.135] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.135] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.143] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.143] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.151] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.151] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.160] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.160] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.168] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.168] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.176] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.176] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.185] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.185] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.193] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.193] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.201] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.201] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.210] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.210] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.219] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=2.1
+[2026-07-19 09:05:09.219] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.219] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.226] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.226] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.235] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.235] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.243] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.243] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.251] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.251] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.260] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.260] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.268] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.268] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.276] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.276] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.285] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.285] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.293] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.293] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.301] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.301] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.310] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.310] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.318] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.318] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.326] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.326] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.335] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.335] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.343] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.343] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.351] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.351] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.360] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.360] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.368] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.368] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.376] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.376] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.385] [ge] [info] [main.cpp:358] tick: dt=0.0082 g=[-49.80,-0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:09.385] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.385] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.393] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.393] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.401] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.401] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.410] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.410] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.418] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.418] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.426] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.426] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.435] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.435] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.443] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.443] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.451] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.451] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.460] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.460] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.468] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.468] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.476] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.476] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.485] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.485] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.493] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.493] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.501] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.501] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.510] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.510] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.518] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.518] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.526] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.526] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.535] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.535] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.543] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.543] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.551] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.551] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.560] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.560] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.568] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.568] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.576] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.576] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.585] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.585] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.593] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.593] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.601] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.601] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.610] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.610] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.618] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.618] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.626] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.626] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.635] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.635] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.643] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.643] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.651] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.651] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.660] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.660] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.668] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.668] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.676] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.676] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.685] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.685] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.693] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.693] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.701] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.701] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.710] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.710] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.718] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.718] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.727] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=2.6
+[2026-07-19 09:05:09.727] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.727] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.735] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.735] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.743] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.743] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.751] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.751] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.760] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.760] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.768] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.768] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.776] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.776] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.785] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.785] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.793] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.793] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.801] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.801] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.810] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.810] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.818] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.818] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.826] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.826] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.835] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.835] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.843] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.843] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.851] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.851] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.860] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.860] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.868] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.868] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.876] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.876] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.885] [ge] [info] [main.cpp:358] tick: dt=0.0083 g=[-49.80,-0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:09.885] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.885] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.893] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.893] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.901] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.901] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.910] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.910] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.918] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.918] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.926] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.926] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.935] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.935] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.943] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.943] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.951] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.951] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.960] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.960] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.968] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.968] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.976] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.976] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.985] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.985] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:09.993] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:09.993] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:10.004] [ge] [info] [main.cpp:397] onEvent type=0x701
+[2026-07-19 09:05:10.005] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.005] [ge] [info] [main.cpp:423] ACCEL accel=[+4.98,+0.00,+0.00] gravity=[-49.80,-0.00]
+[2026-07-19 09:05:10.010] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.010] [ge] [info] [main.cpp:423] ACCEL accel=[+4.70,+0.00,+0.00] gravity=[-47.02,-0.00]
+[2026-07-19 09:05:10.026] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.026] [ge] [info] [main.cpp:423] ACCEL accel=[+3.88,+0.00,+0.00] gravity=[-38.82,-0.00]
+[2026-07-19 09:05:10.035] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.035] [ge] [info] [main.cpp:423] ACCEL accel=[+3.51,+0.00,+0.00] gravity=[-35.11,-0.00]
+[2026-07-19 09:05:10.043] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.043] [ge] [info] [main.cpp:423] ACCEL accel=[+3.18,+0.00,+0.00] gravity=[-31.80,-0.00]
+[2026-07-19 09:05:10.051] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.051] [ge] [info] [main.cpp:423] ACCEL accel=[+2.88,+0.00,+0.00] gravity=[-28.77,-0.00]
+[2026-07-19 09:05:10.060] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.060] [ge] [info] [main.cpp:423] ACCEL accel=[+2.60,+0.00,+0.00] gravity=[-26.00,-0.00]
+[2026-07-19 09:05:10.068] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.068] [ge] [info] [main.cpp:423] ACCEL accel=[+2.35,+0.00,+0.00] gravity=[-23.49,-0.00]
+[2026-07-19 09:05:10.076] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.076] [ge] [info] [main.cpp:423] ACCEL accel=[+2.12,+0.00,+0.00] gravity=[-21.21,-0.00]
+[2026-07-19 09:05:10.085] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.085] [ge] [info] [main.cpp:423] ACCEL accel=[+1.91,+0.00,+0.00] gravity=[-19.15,-0.00]
+[2026-07-19 09:05:10.093] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.093] [ge] [info] [main.cpp:423] ACCEL accel=[+1.73,+0.00,+0.00] gravity=[-17.27,-0.00]
+[2026-07-19 09:05:10.101] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.101] [ge] [info] [main.cpp:423] ACCEL accel=[+1.56,+0.00,+0.00] gravity=[-15.57,-0.00]
+[2026-07-19 09:05:10.110] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.110] [ge] [info] [main.cpp:423] ACCEL accel=[+1.40,+0.00,+0.00] gravity=[-14.04,-0.00]
+[2026-07-19 09:05:10.118] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.118] [ge] [info] [main.cpp:423] ACCEL accel=[+1.26,+0.00,+0.00] gravity=[-12.65,-0.00]
+[2026-07-19 09:05:10.126] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.126] [ge] [info] [main.cpp:423] ACCEL accel=[+1.14,+0.00,+0.00] gravity=[-11.41,-0.00]
+[2026-07-19 09:05:10.135] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.135] [ge] [info] [main.cpp:423] ACCEL accel=[+1.03,+0.00,+0.00] gravity=[-10.29,-0.00]
+[2026-07-19 09:05:10.143] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.143] [ge] [info] [main.cpp:423] ACCEL accel=[+0.93,+0.00,+0.00] gravity=[-9.27,-0.00]
+[2026-07-19 09:05:10.151] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.151] [ge] [info] [main.cpp:423] ACCEL accel=[+0.84,+0.00,+0.00] gravity=[-8.36,-0.00]
+[2026-07-19 09:05:10.160] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.160] [ge] [info] [main.cpp:423] ACCEL accel=[+0.75,+0.00,+0.00] gravity=[-7.53,-0.00]
+[2026-07-19 09:05:10.168] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.168] [ge] [info] [main.cpp:423] ACCEL accel=[+0.68,+0.00,+0.00] gravity=[-6.79,-0.00]
+[2026-07-19 09:05:10.176] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.176] [ge] [info] [main.cpp:423] ACCEL accel=[+0.61,+0.00,+0.00] gravity=[-6.12,-0.00]
+[2026-07-19 09:05:10.185] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.185] [ge] [info] [main.cpp:423] ACCEL accel=[+0.55,+0.00,+0.00] gravity=[-5.51,-0.00]
+[2026-07-19 09:05:10.193] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.193] [ge] [info] [main.cpp:423] ACCEL accel=[+0.50,+0.00,+0.00] gravity=[-4.97,-0.00]
+[2026-07-19 09:05:10.201] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.201] [ge] [info] [main.cpp:423] ACCEL accel=[+0.45,+0.00,+0.00] gravity=[-4.48,-0.00]
+[2026-07-19 09:05:10.210] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.210] [ge] [info] [main.cpp:423] ACCEL accel=[+0.40,+0.00,+0.00] gravity=[-4.03,-0.00]
+[2026-07-19 09:05:10.218] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.218] [ge] [info] [main.cpp:423] ACCEL accel=[+0.36,+0.00,+0.00] gravity=[-3.63,-0.00]
+[2026-07-19 09:05:10.227] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=3.1
+[2026-07-19 09:05:10.227] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.227] [ge] [info] [main.cpp:423] ACCEL accel=[+0.32,+0.00,+0.00] gravity=[-3.24,-0.00]
+[2026-07-19 09:05:10.235] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.235] [ge] [info] [main.cpp:423] ACCEL accel=[+0.29,+0.00,+0.00] gravity=[-2.95,-0.00]
+[2026-07-19 09:05:10.243] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.243] [ge] [info] [main.cpp:423] ACCEL accel=[+0.27,+0.00,+0.00] gravity=[-2.66,-0.00]
+[2026-07-19 09:05:10.251] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.251] [ge] [info] [main.cpp:423] ACCEL accel=[+0.24,+0.00,+0.00] gravity=[-2.40,-0.00]
+[2026-07-19 09:05:10.260] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.260] [ge] [info] [main.cpp:423] ACCEL accel=[+0.22,+0.00,+0.00] gravity=[-2.16,-0.00]
+[2026-07-19 09:05:10.268] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.268] [ge] [info] [main.cpp:423] ACCEL accel=[+0.19,+0.00,+0.00] gravity=[-1.94,-0.00]
+[2026-07-19 09:05:10.276] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.276] [ge] [info] [main.cpp:423] ACCEL accel=[+0.18,+0.00,+0.00] gravity=[-1.75,-0.00]
+[2026-07-19 09:05:10.285] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.285] [ge] [info] [main.cpp:423] ACCEL accel=[+0.16,+0.00,+0.00] gravity=[-1.58,-0.00]
+[2026-07-19 09:05:10.293] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.293] [ge] [info] [main.cpp:423] ACCEL accel=[+0.14,+0.00,+0.00] gravity=[-1.42,-0.00]
+[2026-07-19 09:05:10.301] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.301] [ge] [info] [main.cpp:423] ACCEL accel=[+0.13,+0.00,+0.00] gravity=[-1.28,-0.00]
+[2026-07-19 09:05:10.310] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.310] [ge] [info] [main.cpp:423] ACCEL accel=[+0.12,+0.00,+0.00] gravity=[-1.16,-0.00]
+[2026-07-19 09:05:10.318] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.318] [ge] [info] [main.cpp:423] ACCEL accel=[+0.10,+0.00,+0.00] gravity=[-1.04,-0.00]
+[2026-07-19 09:05:10.326] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.326] [ge] [info] [main.cpp:423] ACCEL accel=[+0.09,+0.00,+0.00] gravity=[-0.94,-0.00]
+[2026-07-19 09:05:10.335] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.335] [ge] [info] [main.cpp:423] ACCEL accel=[+0.08,+0.00,+0.00] gravity=[-0.85,-0.00]
+[2026-07-19 09:05:10.343] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.343] [ge] [info] [main.cpp:423] ACCEL accel=[+0.08,+0.00,+0.00] gravity=[-0.76,-0.00]
+[2026-07-19 09:05:10.351] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.351] [ge] [info] [main.cpp:423] ACCEL accel=[+0.07,+0.00,+0.00] gravity=[-0.69,-0.00]
+[2026-07-19 09:05:10.360] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.360] [ge] [info] [main.cpp:423] ACCEL accel=[+0.06,+0.00,+0.00] gravity=[-0.62,-0.00]
+[2026-07-19 09:05:10.368] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.368] [ge] [info] [main.cpp:423] ACCEL accel=[+0.06,+0.00,+0.00] gravity=[-0.56,-0.00]
+[2026-07-19 09:05:10.376] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.376] [ge] [info] [main.cpp:423] ACCEL accel=[+0.05,+0.00,+0.00] gravity=[-0.50,-0.00]
+[2026-07-19 09:05:10.385] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.385] [ge] [info] [main.cpp:423] ACCEL accel=[+0.05,+0.00,+0.00] gravity=[-0.45,-0.00]
+[2026-07-19 09:05:10.393] [ge] [info] [main.cpp:358] tick: dt=0.0083 g=[-0.45,-0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:10.393] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.393] [ge] [info] [main.cpp:423] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.41,-0.00]
+[2026-07-19 09:05:10.401] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.401] [ge] [info] [main.cpp:423] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.37,-0.00]
+[2026-07-19 09:05:10.410] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.410] [ge] [info] [main.cpp:423] ACCEL accel=[+0.03,+0.00,+0.00] gravity=[-0.33,-0.00]
+[2026-07-19 09:05:10.418] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.418] [ge] [info] [main.cpp:423] ACCEL accel=[+0.03,+0.00,+0.00] gravity=[-0.30,-0.00]
+[2026-07-19 09:05:10.426] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.426] [ge] [info] [main.cpp:423] ACCEL accel=[+0.03,+0.00,+0.00] gravity=[-0.27,-0.00]
+[2026-07-19 09:05:10.435] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.435] [ge] [info] [main.cpp:423] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.24,-0.00]
+[2026-07-19 09:05:10.443] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.443] [ge] [info] [main.cpp:423] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.22,-0.00]
+[2026-07-19 09:05:10.451] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.451] [ge] [info] [main.cpp:423] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.20,-0.00]
+[2026-07-19 09:05:10.460] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.460] [ge] [info] [main.cpp:423] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.18,-0.00]
+[2026-07-19 09:05:10.468] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.468] [ge] [info] [main.cpp:423] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.16,-0.00]
+[2026-07-19 09:05:10.476] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.476] [ge] [info] [main.cpp:423] ACCEL accel=[+0.01,+0.00,+0.00] gravity=[-0.14,-0.00]
+[2026-07-19 09:05:10.485] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.485] [ge] [info] [main.cpp:423] ACCEL accel=[+0.01,+0.00,+0.00] gravity=[-0.13,-0.00]
+[2026-07-19 09:05:10.493] [ge] [info] [main.cpp:397] onEvent type=0x1200
+[2026-07-19 09:05:10.493] [ge] [info] [main.cpp:423] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:05:10.735] [ge] [info] [main.cpp:347] tiltbuggy: pose → db [-12.83,6.40,1.57] t=3.7
+[2026-07-19 09:05:10.893] [ge] [info] [main.cpp:358] tick: dt=0.0086 g=[-0.00,-0.00] pose=[-12.83,6.40,1.57] grip=[30,30] pro=false
+[2026-07-19 09:05:10.910] [ge] [info] [main.cpp:433] TiltBuggy shutdown
+[2026-07-19 09:05:10.916] [ge] [info] [SokolContext.mm:54] SokolContext destroyed

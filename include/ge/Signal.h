@@ -51,8 +51,14 @@ void reportCallbackException(const char* callback, const char* what);
 // app-channel logger before re-throwing (so the OS crash report is unchanged).
 // When crash diagnostics are disabled it calls fn() raw — a tool that expects
 // exceptions to propagate untouched is unaffected.
+//
+// In a TU compiled without exceptions (🎯T157: SessionHost.mm on web is
+// -fno-exceptions so the Asyncify suspend chain contains no JS invoke
+// trampolines) the guard degrades to a raw call — an uncaught exception
+// aborts, which is web's crash behaviour anyway.
 template <class F>
 inline void guardCallback(const char* name, F&& fn) {
+#if defined(__cpp_exceptions)
     if (!crashDiagnosticsEnabled()) {
         std::forward<F>(fn)();
         return;
@@ -66,6 +72,10 @@ inline void guardCallback(const char* name, F&& fn) {
         reportCallbackException(name, "unknown (non-std::exception)");
         throw;
     }
+#else
+    (void)name;
+    std::forward<F>(fn)();
+#endif
 }
 
 } // namespace ge

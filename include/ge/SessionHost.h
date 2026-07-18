@@ -738,7 +738,16 @@ struct SessionHostConfig {
 using Factory = std::function<RunConfig(Context)>;
 
 // Blocks until SIGINT or all sessions end.
-void run(Factory factory, const SessionHostConfig& config = {});
+//
+// noexcept (🎯T157): an exception escaping the run loop already means process
+// death on every platform (🎯T136 logs + rethrows into nothing), so the
+// boundary terminates rather than propagates — same SIGABRT, same OS crash
+// report. Declared, not just implemented, because the web build's Asyncify
+// suspend requires the main → run → loop call chain to compile to plain
+// wasm calls (a potentially-throwing callee inside main's cleanup scope
+// would go through a JS invoke trampoline, which Asyncify cannot suspend
+// beneath).
+void run(Factory factory, const SessionHostConfig& config = {}) noexcept;
 
 // 🎯T124 Headless one-shot render. Builds a hidden-window direct host (no stream broker,
 // no run loop, nothing shown), runs `factory`, invokes `prepare` (restore your

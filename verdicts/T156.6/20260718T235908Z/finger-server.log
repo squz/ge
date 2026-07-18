@@ -1,0 +1,101 @@
+[2026-07-19 09:59:27.292] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:59:27.293] [info] [main.cpp:209] iap: restore complete ok=true error=
+[2026-07-19 09:59:27.338] [ge] [info] [SessionHost_server.mm:98] runServer: 'tiltbuggy' streaming to relay 127.0.0.1:3131
+[2026-07-19 09:59:27.338] [ge] [info] [SessionHost_server.mm:126] runServer: console stream host (not a desktop game window)
+[2026-07-19 09:59:27.339] [ge] [info] [ServerSession.mm:619] ServerSession: connected to relay 127.0.0.1:3131 as 'tiltbuggy'
+[2026-07-19 09:59:27.390] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:59:27.390] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:506] DirectRenderHost: stream server ephemeral db (:memory:)
+[2026-07-19 09:59:27.391] [ge] [info] [Context.cpp:64] Context: opening db path=':memory:' schemaDdl=145B
+[2026-07-19 09:59:27.391] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:59:27.391] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:59:27.391] [ge] [info] [ServerSession.mm:733] ServerSession: SP2T working db bound (ok, schema=145 bytes)
+[2026-07-19 09:59:27.409] [ge] [info] [main.cpp:415] onEvent type=0x305
+[2026-07-19 09:59:27.409] [ge] [info] [main.cpp:415] onEvent type=0x404
+[2026-07-19 09:59:27.409] [ge] [info] [main.cpp:415] onEvent type=0x214
+[2026-07-19 09:59:27.891] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=0.6
+[2026-07-19 09:59:28.374] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:28.408] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.1
+[2026-07-19 09:59:28.908] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=1.6
+[2026-07-19 09:59:29.299] [ge] [info] [ServerSession.mm:350] ServerSession: spawned child pid 83932 for session s2 (own world/state)
+[2026-07-19 09:59:29.305] [info] [iap.cpp:160] ge::iap: mode resolved to 'stub'
+[2026-07-19 09:59:29.306] [info] [main.cpp:209] iap: restore complete ok=true error=
+[2026-07-19 09:59:29.354] [ge] [info] [SessionHost_server.mm:98] runServer: 'tiltbuggy' streaming to relay 127.0.0.1:3131
+[2026-07-19 09:59:29.354] [ge] [info] [SessionHost_server.mm:126] runServer: console stream host (not a desktop game window)
+[2026-07-19 09:59:29.354] [ge] [info] [ServerSession.mm:247] ServerSession: SessionConfig sensors=0x1 orientation=254 transport=0 flags=0x3 (immersive=1 noSaver=1) session=s2
+[2026-07-19 09:59:29.354] [ge] [info] [ServerSession.mm:259] ServerSession: player attached (session s2), wires=1 primary=1
+[2026-07-19 09:59:29.354] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:59:29.354] [ge] [info] [ServerSession.mm:599] ServerSession: transport=cmdstream (player_cmdstream=true force_h264=false)
+[2026-07-19 09:59:29.354] [ge] [info] [ServerSession.mm:604] ServerSession: cmdstream LiveCapture armed (sprite runs)
+[2026-07-19 09:59:29.355] [ge] [warning] [ServerSession.mm:566] ServerSession: SP2T snapshot apply failed (db=0 n=24576)
+[2026-07-19 09:59:29.355] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:59:29.355] [ge] [info] [ServerSession.mm:497] ServerSession: player DeviceInfo 2048x1536 @1x class=1 ui=(0,0 2048x1536) draw=(0,0 2048x1536) caps=0x3
+[2026-07-19 09:59:29.374] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:29.408] [ge] [info] [SokolContext.mm:180] SokolContext: 2048x1536 Metal (Apple M4 Max)
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:456] DirectRenderHost: gesture accelerometer synthesis enabled (armOnPrimary=false)
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:473] DirectRenderHost: GE_SENSOR_TRACE on (/Users/marcelo/work/github.com/squz/ge/verdicts/T156.6/20260718T235908Z/s2.trace)
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:476] DirectRenderHost: 2048x1536
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:506] DirectRenderHost: stream server ephemeral db (:memory:)
+[2026-07-19 09:59:29.408] [ge] [info] [Context.cpp:64] Context: opening db path=':memory:' schemaDdl=145B
+[2026-07-19 09:59:29.408] [ge] [info] [Context.cpp:67] Context: db open ok
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:522] DirectRenderHost: Context ready — applying safe insets
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:524] DirectRenderHost: drawSafe insets applied
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:526] DirectRenderHost: uiSafe insets applied
+[2026-07-19 09:59:29.408] [ge] [info] [DirectRenderHost.mm:586] DirectRenderHost: constructor complete
+[2026-07-19 09:59:29.408] [ge] [info] [ServerSession.mm:733] ServerSession: SP2T working db bound (ok, schema=145 bytes)
+[2026-07-19 09:59:29.424] [ge] [info] [main.cpp:415] onEvent type=0x305
+... [truncated:      335 lines]
+[2026-07-19 09:59:32.442] [ge] [info] [main.cpp:447] ACCEL accel=[+0.15,+0.00,+0.00] gravity=[-1.51,-0.00]
+[2026-07-19 09:59:32.459] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [-5.43,5.39,1.47] t=3.1
+[2026-07-19 09:59:32.459] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.459] [ge] [info] [main.cpp:447] ACCEL accel=[+0.12,+0.00,+0.00] gravity=[-1.23,-0.00]
+[2026-07-19 09:59:32.475] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.475] [ge] [info] [main.cpp:447] ACCEL accel=[+0.10,+0.00,+0.00] gravity=[-1.00,-0.00]
+[2026-07-19 09:59:32.492] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.492] [ge] [info] [main.cpp:447] ACCEL accel=[+0.08,+0.00,+0.00] gravity=[-0.81,-0.00]
+[2026-07-19 09:59:32.508] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=5.2
+[2026-07-19 09:59:32.508] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.508] [ge] [info] [main.cpp:447] ACCEL accel=[+0.07,+0.00,+0.00] gravity=[-0.66,-0.00]
+[2026-07-19 09:59:32.525] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.525] [ge] [info] [main.cpp:447] ACCEL accel=[+0.05,+0.00,+0.00] gravity=[-0.53,-0.00]
+[2026-07-19 09:59:32.542] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.542] [ge] [info] [main.cpp:447] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.43,-0.00]
+[2026-07-19 09:59:32.542] [ge] [info] [ServerSession.mm:188] ServerSession: SP2T snapshot pushed (24576 bytes, stream)
+[2026-07-19 09:59:32.559] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.559] [ge] [info] [main.cpp:447] ACCEL accel=[+0.04,+0.00,+0.00] gravity=[-0.35,-0.00]
+[2026-07-19 09:59:32.575] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.575] [ge] [info] [main.cpp:447] ACCEL accel=[+0.03,+0.00,+0.00] gravity=[-0.29,-0.00]
+[2026-07-19 09:59:32.592] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.592] [ge] [info] [main.cpp:447] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.23,-0.00]
+[2026-07-19 09:59:32.608] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.609] [ge] [info] [main.cpp:447] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.19,-0.00]
+[2026-07-19 09:59:32.625] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.625] [ge] [info] [main.cpp:447] ACCEL accel=[+0.02,+0.00,+0.00] gravity=[-0.15,-0.00]
+[2026-07-19 09:59:32.642] [ge] [info] [main.cpp:415] onEvent type=0x1200
+[2026-07-19 09:59:32.642] [ge] [info] [main.cpp:447] ACCEL accel=[+0.00,+0.00,+0.00] gravity=[-0.00,-0.00]
+[2026-07-19 09:59:32.959] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [-5.58,7.74,1.27] t=3.6
+[2026-07-19 09:59:33.025] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=5.7
+[2026-07-19 09:59:33.055] [ge] [info] [ServerSession.mm:414] ServerSession: session s2 wire closed — child exiting
+[2026-07-19 09:59:33.055] [ge] [info] [ServerSession.mm:644] ServerSession: detach s2 — child owns teardown
+[2026-07-19 09:59:33.374] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:33.541] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=6.2
+[2026-07-19 09:59:34.041] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=6.7
+[2026-07-19 09:59:34.374] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:34.541] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=7.2
+[2026-07-19 09:59:35.058] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=7.7
+[2026-07-19 09:59:35.375] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:35.558] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=8.2
+[2026-07-19 09:59:36.075] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=8.7
+[2026-07-19 09:59:36.375] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:36.591] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=9.3
+[2026-07-19 09:59:37.108] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=9.8
+[2026-07-19 09:59:37.375] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:37.608] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=10.3
+[2026-07-19 09:59:38.125] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=10.8
+[2026-07-19 09:59:38.375] [ge] [info] [main.cpp:376] tick: dt=0.0167 g=[0.00,0.00] pose=[0.00,0.00,0.00] grip=[150,150] pro=false
+[2026-07-19 09:59:38.625] [ge] [info] [main.cpp:358] tiltbuggy: pose → db [0.00,0.00,0.00] t=11.3
+[2026-07-19 09:59:39.037] [ge] [info] [ServerSession.mm:661] ServerSession: sideband closed (replaced or relay gone) — exiting superseded server process
