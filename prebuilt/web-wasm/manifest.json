@@ -24,7 +24,7 @@
   },
   "prebuilts": {
     "prebuilt/web-wasm/libbox2d.a": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
-    "prebuilt/web-wasm/libge.a": "517ca81d15fbaa1b5b5ab0dd588f5cbea615ebd90cbec132588b75f7ff866839",
+    "prebuilt/web-wasm/libge.a": "a8d85055f5b6237d419431601fcb98bfc78a6f3e65950786468774e5e989d82a",
     "prebuilt/web-wasm/libliteparser.a": "8b995ab0f9bc2db4c6fae4f68586d1995083cc245baa3ca63db81538c664f9b7",
     "prebuilt/web-wasm/liblunasvg_ge.a": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
     "prebuilt/web-wasm/liblz4_ge.a": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
@@ -205,7 +205,7 @@
     "src/long_press.cpp": "a8d604cd733eb5cf70e5bc61cd4c3b0d89f92b7dc4c7156eb63e15a39e7a01d9",
     "src/manifest.cpp": "02620d490465b09d869e441c9bda26ff0403e999093e15399dc3072366408a04",
     "src/png.cpp": "bfb59447b420c0565d7a9102796ac8f79aa1608fbd73575cf0e0d8d7ef353c7f",
-    "src/render/AccelSynth.h": "d97673cd08ee4743538f12f5535d409184cf03e81ac29bcb1709300bb0c29dfe",
+    "src/render/AccelSynth.h": "84c8afcd743ab6e8fc8b5700fbe22614ce1a5317f5c39e4876e338915764f102",
     "src/render/DirectRenderHost.h": "64a4c2d0c94b3ce4e85435c446f658ca5d1f75811995abc003fe042eafbc74b8",
     "src/render/DirectRenderHost.mm": "dec0912bd634731d9cde1f37c7ae9bf1166c03e379fcd3caf8a606f0cf5bb871",
     "src/render/LifecycleInject.h": "e79e01571c02a7fa7b0893905a8b939db578521399d71e0fdc27c7325ea649ae",
