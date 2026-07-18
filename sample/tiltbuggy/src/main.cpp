@@ -156,6 +156,9 @@ int main(int argc, char* argv[]) {
     // monitor surface. No game window in this mode — the app-channel worker
     // threads service requests while main() idles. Dev-only (installFromEnv and
     // the whole channel compile out under NDEBUG).
+#if !defined(__ANDROID__)
+    // Desktop dev harness only: posix_spawn is API 28+ on bionic, and a
+    // phone game has no business forking instances of itself.
     if (std::getenv("GE_FACTORY")) {
         const std::string self = argv[0];
         ge::appchannel::registerMethod(
@@ -189,6 +192,7 @@ int main(int argc, char* argv[]) {
         SPDLOG_INFO("tiltbuggy GE_FACTORY: spawn_instance registered; idling");
         for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
     }
+#endif // !__ANDROID__
 
     State state;
 
