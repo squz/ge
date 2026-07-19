@@ -2169,17 +2169,17 @@ targets:
     achieved: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
-    - sample/tiltbuggy compiles to wasm via an Emscripten lane and is playable (input, audio, rendering) in current Chrome, Safari, and Firefox
+    - sample/tiltbuggy compiles to wasm via an Emscripten lane (make web) and is playable (input, rendering) in current Chrome, Safari/WebKit, and Firefox
     - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
-    - Web host lives behind ge::run (callback-driven frame loop, e.g. emscripten_set_main_loop or SDL3 callback mode); state-before-run capture pattern still works
+    - 'Web host lives behind ge::run: the native blocking loop runs verbatim, suspending between frames via a RAF-aligned Asyncify await; the state-before-run capture pattern works verbatim (main''s frame genuinely preserved)'
     - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
-    - Context::db()/sqlite persists across page reloads (OPFS or equivalent backing)
-    - Release web builds exclude app-channel/asio networking cleanly (no raw-TCP references in the wasm link)
-    context: Web is a new direct-mode platform for ge. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU is a follow-on. ge::run already abstracts the execution model per platform (direct hosts, server modality), so the browser's callback-driven loop is another host implementation, not an API change.
+    - Context::db()/sqlite persists across page reloads (IDBFS backing; verified game.db present in IndexedDB and restored on reload with a clean boot)
+    - Release web builds exclude app-channel/asio networking cleanly (GE_DIRECT_ONLY + NDEBUG; no raw-TCP references in the wasm link)
+    context: 'Web is ge''s fourth direct-mode platform. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU a follow-on (T157.1). Design pivot during implementation: the planned emscripten_set_main_loop callback inversion is unusable with C++ exceptions (its unwind is a JS exception that runs cleanup-pad destructors, destroying host/consumer state), so the web host keeps the native blocking loop and suspends via scoped Asyncify (IGNORE_INDIRECT; JS-EH mode; SessionHost.mm compiled -fno-exceptions; SQLITE_NO_SYNC; SDL asyncify hint off). Full contract: docs/web-platform.md.'
     tags:
     - web
     - wasm
@@ -2188,6 +2188,7 @@ targets:
     - sokol
     - direct-mode
     - platform
+    - asyncify
     origin: manual
     discovered: 2026-07-18
   T157.1:
@@ -2356,6 +2357,28 @@ targets:
     origin: user design re-statement, 2026-07-19
     discovered: 2026-07-19
     achieved: 2026-07-19
+  T164:
+    name: ge vendors SDL ≥ 3.4.12 with the prebuilt co-cook green across all platform lanes
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - vendor/github.com/libsdl-org/SDL submodule pinned at release-3.4.12 (or later stable 3.4.x)
+    - Full co-cook refreshes every prebuilt/ platform lane; tools/verify-cook.py passes on all of them
+    - Desktop build + unit tests green; tiltbuggy runs on macOS, iOS sim, and one Android device (GeActivity compatibility vs SDL's android-project Java confirmed)
+    - SDL_uikitappdelegate.m scene-lifecycle adoption (SDLUIKitSceneDelegate) still present in the bumped tree — guards the iOS 27 UIScene mandate
+    - No ge-side SDL patches to re-apply (confirmed none outstanding; note stays true after bump)
+    context: 'ge vendors SDL release-3.4.0 (Jan 2026); upstream stable line is at 3.4.12 (Jul 2026). Relevant fixes for ge: Android high audio latency (3.4.2), iOS/Android SDL_GlobDirectory + Android asset-subdirectory enumeration (3.4.2/3.4.6 — prophylactic; ge does not enumerate directories at runtime today, but any future "load every file in assets/X/" would silently break on-device without it), iOS text-input cancel + iPad pen-hover fixes (3.4.6), Android gamepad motion sensors + background controller release (3.4.10), Emscripten fixes serving the T157 web lane: mouse buttons, SDL_SetWindowIcon single-threaded, persistent storage via SDL_EMSCRIPTEN_PERSISTENT_PATH, gamepads (3.4.2/3.4.4/3.4.12). Nothing forcing (no security/crash exposure in ge paths); do as a dedicated small PR separate from orientation work so regressions bisect cleanly. Keep SDL pinned ≥ 3.4.0 permanently: 3.4.0 is where SDL adopted the UIScene lifecycle (issue libsdl-org/SDL#12680) that the iOS 27 SDK hard-mandates. See docs/orientation-report.md §8.7.'
+    tags:
+    - sdl
+    - vendor
+    - prebuilt
+    - maintenance
+    - android
+    - ios
+    - web
+    origin: orientation deep-dive session 2026-07-19 (SDL point-release audit)
+    discovered: 2026-07-19
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
@@ -5415,48 +5438,3 @@ targets:
     - design-discussion
     origin: manual
     discovered: 2026-06-03
-  T157:
-    name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
-    status: converging
-    value: 0.0
-    cost: 0.0
-    acceptance:
-    - sample/tiltbuggy compiles to wasm via an Emscripten lane (make web) and is playable (input, rendering) in current Chrome, Safari/WebKit, and Firefox
-    - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
-    - 'Web host lives behind ge::run: the native blocking loop runs verbatim, suspending between frames via a RAF-aligned Asyncify await; the state-before-run capture pattern works verbatim (main''s frame genuinely preserved)'
-    - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
-    - Context::db()/sqlite persists across page reloads (IDBFS backing; verified game.db present in IndexedDB and restored on reload with a clean boot)
-    - Release web builds exclude app-channel/asio networking cleanly (GE_DIRECT_ONLY + NDEBUG; no raw-TCP references in the wasm link)
-    context: 'Web is ge''s fourth direct-mode platform. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU a follow-on (T157.1). Design pivot during implementation: the planned emscripten_set_main_loop callback inversion is unusable with C++ exceptions (its unwind is a JS exception that runs cleanup-pad destructors, destroying host/consumer state), so the web host keeps the native blocking loop and suspends via scoped Asyncify (IGNORE_INDIRECT; JS-EH mode; SessionHost.mm compiled -fno-exceptions; SQLITE_NO_SYNC; SDL asyncify hint off). Full contract: docs/web-platform.md.'
-    tags:
-    - web
-    - wasm
-    - emscripten
-    - webgl2
-    - sokol
-    - direct-mode
-    - platform
-    - asyncify
-    origin: manual
-    discovered: 2026-07-18
-  T157.1:
-    name: Web builds additionally offer a WebGPU (SOKOL_WGPU) backend with JS feature-detect fallback to WebGL2
-    status: identified
-    value: 0.0
-    cost: 0.0
-    acceptance:
-    - wgsl added to the shader cross-compile output and a SOKOL_WGPU web build variant exists
-    - Loader feature-detects navigator.gpu and serves the WebGPU build, falling back to the WebGL2 build otherwise (dual-wasm or T107-style dispatch — decided at implementation time)
-    - tiltbuggy renders identically (imgdiff within tolerance) on both backends
-    - 'Activation condition documented: pursued only when WebGPU coverage crosses the bar or a concrete perf/feature need appears'
-    context: 'Follow-on to the WebGL2 plateau. WebGPU coverage (~70-85% mid-2026, gap in pre-26 Apple OSes and Linux/Android Firefox) does not justify making it the primary backend; ge''s rendering surface (textured quads, small meshes) needs no WebGPU features today. The Android T107 dispatch-shim precedent makes adding a second compile-time sokol backend a known pattern.'
-    depends_on:
-    - T157
-    tags:
-    - web
-    - wasm
-    - webgpu
-    - sokol
-    - follow-on
-    origin: manual
-    discovered: 2026-07-18
