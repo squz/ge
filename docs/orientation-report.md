@@ -492,3 +492,72 @@ screen_frame_sample = rotate(sample, live display rotation)   # never key on the
 5. **Keep accel remap keyed on live rotation** — validated as exactly right,
    including atomic 180° flips.
 
+## 8. Round-2 addenda (2026-07-19, follow-up questions)
+
+**8.1 Two-knob hard data (V7b).** All-four plist + *static* runtime
+`supportedInterfaceOrientations = .landscape`, no kick, no freeze: on **both**
+18.6 and 26.4 the scene launched **portrait** (26.4: ifaceOri=1 full-bleed
+portrait; 18.6: ifaceOri=2 — the mask was not even consulted at launch).
+Conclusion, now measured: **the plist (or an explicit
+`setNeedsUpdate…`/`requestGeometryUpdate` kick) governs the launch class; a
+static runtime mask alone governs nothing until UIKit re-evaluates.** So the
+knobs are really three: plist = launch class; mask + kick = post-launch class
+change; freeze = hold. Metadata-only, code-only, and mask-without-kick all
+fail in distinct ways. This also explains the historical "you can pin the
+current orientation but not choose one" era: pre-T36 ge froze without
+narrowing+kicking, which is exactly the pin-only behavior.
+
+**8.2 Safe areas under letterbox (new dimension).** In the 26.4
+compositor-letterboxed state the app reports the **same** safe insets as
+full-bleed (t≈32/b≈25 pt) — while the status bar and home indicator visibly
+sit in the black bands *outside* the scene. Under compositor letterbox the
+insets are scene-space fictions: nothing overlaps the content, and a game
+insetting its HUD by them double-margins. Same holds for Android's compat
+card (chrome outside the box). Consequence for ge: `drawSafe`/`uiSafe` rects
+are only meaningful when the scene owns the glass; under letterbox the honest
+values are zero (or "unknown"), and the engine should detect boxed state
+(iOS: chassis-vs-scene class mismatch in windowed mode; Android:
+`WindowMetrics current != maximum`) and adjust what it reports to games.
+
+**8.3 Launch-state dependence** is now fully modeled: launch class = plist ∩
+(device orientation if allowed, else OS pick); glass never rotates to match
+the scene on iPad-26-windowed / Android-compat — the *device* must move.
+Landscape-from-portrait is achievable for the scene (plist narrowing), but
+never for the glass. The old counter-rotation dead end is unnecessary on iOS;
+its only justified successor is content-rotation on Android-16 tablets where
+the OS hands the app a portrait surface outright.
+
+**8.4 "Prefer landscape, accept portrait" (new class).** No OS expresses
+soft preference natively (`userLandscape` etc. are still hard locks). It has
+to be an app/engine behavior: declare *all* orientations to the OS, render
+adaptively per current glass aspect. On Android-16 tablets this adaptive mode
+is effectively forced. Candidate contract: `OrientationClass::{Portrait,
+Landscape, PreferLandscape, FreeRotate}` where PreferLandscape = follow the
+glass, adapt content, hint to rotate when portrait.
+
+**8.5 Policy oracle idea.** The §7.2 pseudo-code is implementable as a pure
+`ge::orientation::Policy` module: inputs (platform, OS mode, declared class,
+plist/manifest set, device orientation, scene class, freeze state) → outputs
+(expected scene class, expected glass mapping incl. boxed-or-not, actions:
+kick / arm-freeze / release-freeze, safe-inset trust). One implementation
+drives iOS (`playerForceOrientation` becomes a thin actuator), Android
+(`setRequestedOrientation` policy), *and* tests: the probe apps (or the
+engine's own metrics) report observed state, the oracle predicts it,
+divergence = OS drift or bug. Single home for all orientation logic; the
+doctrine becomes executable.
+
+**8.6 Reconciling "iPad/Pixel honor orientation now, no letterbox".**
+Both letterboxes are *posture-gated*, so casual observation usually misses
+them: the box appears only while the chassis is actively held in the
+mismatched class (iPad 26 windowed portrait-held; Pixel Tablet held portrait
+with sensor vote). Flat-on-desk, held-landscape, or rotated-after-launch all
+present full-bleed. The July-11 "stuck with letterboxing" era additionally
+conflated three distinct boxes: (1) the OS compositor/compat box (posture-
+gated, cures on rotation — unless frozen, §7.1 V5b), (2) the stream player's
+content-fit box (aspect mismatch between server surface and glass — fixed by
+`b667bf8` + host aspect retarget), and (3) the SDL portrait-first window
+sizing squish (S24). Fixing (2)/(3) plus posture changes is why the fleet
+looks healthy today without any Pixel config change. OS updates likely also
+shifted the Pixel Tablet toward Android-16 resize-not-letterbox semantics
+for sdk-36 apps (ge apps target 35, still compat-boxed when held wrong).
+
