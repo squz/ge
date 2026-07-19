@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.squz.orientprobe">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
+  <application android:label="OrientProbe" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+    <activity android:name="com.squz.orientprobe.Probe$MainActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="com.squz.orientprobe.Probe$LandActivity" android:exported="true"
+        android:screenOrientation="landscape"/>
+    <activity android:name="com.squz.orientprobe.Probe$SensorLandActivity" android:exported="true"
+        android:screenOrientation="sensorLandscape"/>
+    <activity android:name="com.squz.orientprobe.Probe$PortActivity" android:exported="true"
+        android:screenOrientation="portrait"/>
+  </application>
+</manifest>
