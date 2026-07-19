@@ -992,6 +992,31 @@ targets:
     - t128
     origin: manual
     discovered: 2026-07-14
+  T128.2.3:
+    name: The SP2S replayer runs in the browser — compiled to wasm on the web SokolContext (WebGL2) and packaged as a protocol-shaped JS module for browser glasses
+    status: set_aside
+    value: 0.0
+    cost: 0.0
+    set_aside_reason: 'Rejected 2026-07-19: hard ge↔spyder decoupling takes priority. The browser stream glass is spyder''s player compiled to wasm (spyder 🎯T101/🎯T106), per the device-player precedent — spyder owns every glass, coupled protocol-only. ge does not ship a replay module. If replay-logic duplication ever becomes onerous, the remedy is a third repo of common elements both projects consume — not a ge-shipped module. Revisit only if a sokol-level stream vocabulary (🎯T128.2.2) makes an independent interpreter impractical.'
+    acceptance:
+    - The SP2S replay path (🎯T128.2.1's op replay) compiles for web-wasm and presents frames through SokolContext_web/WebGL2
+    - Packaged as a self-contained wasm+JS module with a protocol-shaped API (feed wire bytes in, get a presented canvas + input-event callbacks out) so a consumer embeds it without linking ge sources — the spyder-never-links-ge rule holds at the module boundary
+    - A minimal harness page replays a captured SP2S trace to a canvas identically to the native player's replay of the same trace (imgdiff within tolerance)
+    - Module builds via the web-wasm lane (prebuild/Module.mk integration, no hand-rolled build)
+    context: 'The browser arm of 🎯T128.2.1, enabling spyder 🎯T106 (browser stream glass). 🎯T157 shipped the substrate deliberately separable for this: SokolContext_web is a standalone TU the replayer can sit on without the DirectRenderHost loop. The Asyncify run-loop constraints documented in docs/web-platform.md apply only if the replay loop reuses ge::run; a RAF-callback-driven replayer with no consumer-state-on-stack contract can avoid Asyncify entirely (no blocking loop to preserve).'
+    tags:
+    - cmdstream
+    - sp2s
+    - replay
+    - web
+    - wasm
+    - webgl2
+    - sokol
+    - player
+    - T128
+    - T157-followon
+    origin: manual
+    discovered: 2026-07-19
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
     status: set_aside
@@ -2169,17 +2194,17 @@ targets:
     achieved: 2026-07-18
   T157:
     name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
-    - sample/tiltbuggy compiles to wasm via an Emscripten lane and is playable (input, audio, rendering) in current Chrome, Safari, and Firefox
+    - sample/tiltbuggy compiles to wasm via an Emscripten lane (make web) and is playable (input, rendering) in current Chrome, Safari/WebKit, and Firefox
     - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
-    - Web host lives behind ge::run (callback-driven frame loop, e.g. emscripten_set_main_loop or SDL3 callback mode); state-before-run capture pattern still works
+    - 'Web host lives behind ge::run: the native blocking loop runs verbatim, suspending between frames via a RAF-aligned Asyncify await; the state-before-run capture pattern works verbatim (main''s frame genuinely preserved)'
     - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
-    - Context::db()/sqlite persists across page reloads (OPFS or equivalent backing)
-    - Release web builds exclude app-channel/asio networking cleanly (no raw-TCP references in the wasm link)
-    context: Web is a new direct-mode platform for ge. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU is a follow-on. ge::run already abstracts the execution model per platform (direct hosts, server modality), so the browser's callback-driven loop is another host implementation, not an API change.
+    - Context::db()/sqlite persists across page reloads (IDBFS backing; verified game.db present in IndexedDB and restored on reload with a clean boot)
+    - Release web builds exclude app-channel/asio networking cleanly (GE_DIRECT_ONLY + NDEBUG; no raw-TCP references in the wasm link)
+    context: 'Web is ge''s fourth direct-mode platform. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU a follow-on (T157.1). Design pivot during implementation: the planned emscripten_set_main_loop callback inversion is unusable with C++ exceptions (its unwind is a JS exception that runs cleanup-pad destructors, destroying host/consumer state), so the web host keeps the native blocking loop and suspends via scoped Asyncify (IGNORE_INDIRECT; JS-EH mode; SessionHost.mm compiled -fno-exceptions; SQLITE_NO_SYNC; SDL asyncify hint off). Full contract: docs/web-platform.md.'
     tags:
     - web
     - wasm
@@ -2188,6 +2213,7 @@ targets:
     - sokol
     - direct-mode
     - platform
+    - asyncify
     origin: manual
     discovered: 2026-07-18
   T157.1:
@@ -2356,6 +2382,167 @@ targets:
     origin: user design re-statement, 2026-07-19
     discovered: 2026-07-19
     achieved: 2026-07-19
+  T164:
+    name: A ge game declares its orientation class once and every platform consequence is nailed down — packaging, runtime lock, flip policy, letterbox stance, safe rects
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - OrientationClass {Portrait, Landscape, FreeRotate} declared in SessionHostConfig; PreferLandscape enum slot reserved for v2
+    - A consumer game sets the class and ships correct behavior on iPhone, iPad 18/26 (both multitasking modes), and Android phone + tablet with no further orientation code
+    - tiltbuggy (Landscape) and a portrait consumer both pass the matrix with zero per-game orientation plumbing
+    - docs/orientation-report.md findings folded into AGENTS.md as the normative contract
+    context: 'Signed-off design from the 2026-07-19 orientation deep-dive (docs/orientation-report.md). Decisions: iPadOS 26 windowed letterbox = accept + engine rotate-hint hook (self-rotation stays dormant); flip policy explicit (default Free), NOT derived from accelerometer declaration (menu-parallax counterexample), with runtime scoped hold as the primary mechanism; PreferLandscape deferred to v2; single policy module with predict/observe oracle. Subsumes 🎯T120 (achieve together).'
+    tags:
+    - orientation
+    - device-api
+    - packaging
+    - contract
+    - T154
+    origin: orientation deep-dive sign-off 2026-07-19
+    discovered: 2026-07-19
+  T164.1:
+    name: All orientation logic lives in one pure policy module with a predict/observe oracle loop
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ge::orientation::Policy maps (platform, OS mode, declared class, packaging set, device orientation, scene class, freeze/hold state) to (expected scene class, expected glass mapping incl. boxed-or-not, actions, safe-inset trust)
+    - Platform actuators (playerForceOrientation, Android setRequestedOrientation, SDL hint) are thin executors of policy actions
+    - 'Divergence loop: observed effectiveGeometry / WindowMetrics diffed vs prediction; bounded re-actuate; reclassify world model (infer windowed-vs-fullscreen and Android resize regime at runtime); telemetry via SPDLOG_WARN + app-channel'
+    - Matrix cells / research/orientprobe assert prediction == observation so an OS behavior change fails a test
+    tags:
+    - orientation
+    - policy
+    - oracle
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.2:
+    name: iOS freeze is chassis-gated; flip policy is explicit with a runtime hold — no pinned letterbox, accept-current-landscape
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'TN3192 freeze armed only when device orientation matches the scene class; force-freeze-on-timeout removed (V5b: mismatched freeze pins the compositor letterbox)'
+    - Landscape games lock whichever landscape the chassis first settles in
+    - flipPolicy explicit in the declaration (default Free) — NOT derived from accelerometer declaration (menu-parallax counterexample)
+    - Runtime scoped hold (ctx.holdOrientation() RAII) locks the current landscape during gameplay while menus flip; Android mirrors via sensorLandscape <-> fixed-landscape setRequestedOrientation
+    - Hold requested while chassis mismatched is deferred until the chassis settles (policy-enforced)
+    tags:
+    - orientation
+    - ios
+    - android
+    - flip-policy
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.3:
+    name: Packaging is generated/verified from the orientation declaration on both platforms
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - iOS plist UISupportedInterfaceOrientations and Android screenOrientation derived from OrientationClass via idempotent patch + build-time drift refusal (wire-icons.py pattern)
+    - android:appCategory="game" emitted in the manifest template (permanent Android 16/17 orientation-discard exemption)
+    - SDL_HINT_ORIENTATIONS derived from the declaration even when unlocked — closes 🎯T120's window-size-inference footgun (achieve T120 with this)
+    - Declaration/packaging mismatch is a loud build failure (kills the multimaze2 silent-landscape class)
+    tags:
+    - orientation
+    - packaging
+    - plist
+    - android-manifest
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.4:
+    name: 'Letterboxed state is detected and the Context stays honest: true safe rects + rotate-hint hook'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Boxed state detected at runtime (iOS: chassis-vs-scene class mismatch under windowed mode via the policy oracle; Android: currentWindowMetrics != maximumWindowMetrics)'
+    - Under letterbox the Context reports zero/true chrome insets instead of scene-space fictions (the V1/8.2 double-margin) — incl. the iOS 26 stale-inset regression workaround (re-query on foreground, FB20281983)
+    - Engine rotate-hint hook fires while boxed (accept-platform-behavior stance); games can render their own prompt or use a default overlay
+    - Hint clears the frame the chassis rotates to match
+    tags:
+    - orientation
+    - letterbox
+    - safe-area
+    - context
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.5:
+    name: Dead orientation wire surfaces are removed at the next protocol bump
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - wire::AspectLock struct + kAspectLockMagic removed (never dispatched; letterbox is fit-inside rendering)
+    - wire::SafeAreaUpdate removed or adopted — today rotation re-sends full DeviceInfo and the struct is dead; pick one and make the code match
+    - kProtocolVersion bumped; spyder player updated in lockstep
+    - spyder player kOrientationLandscape hint mapping fixed to the correct SDL↔UIKit spelling (LandscapeRight) — the latent 180° skew vs ge's mask
+    tags:
+    - orientation
+    - wire
+    - protocol
+    - spyder
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.6:
+    name: Orientation doctrine docs match measured reality
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'AGENTS.md orientation section rewritten from docs/orientation-report.md: three-knob model (plist=launch, mask+kick=change, freeze=hold), windowed-mode letterbox clause, freeze-pinning warning, Android 16 resize regime + appCategory exemption'
+    - Stale UIRequiresFullScreen comments removed from tools/ios-template/Info.plist.in and sample plists
+    - Stale tools/ios three-player references corrected (players live in spyder)
+    - e0da016-era 'iPadOS 26 ignores plist' claim corrected to 'plist holds scene class; cannot control glass shape'
+    tags:
+    - orientation
+    - docs
+    - hygiene
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T164.7:
+    name: 'PreferLandscape: games render adaptively instead of letterboxing (v2)'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'OrientationClass::PreferLandscape implemented: all orientations declared to the OS, content adapts to current glass aspect, rotate-hint optional'
+    - A consumer game demonstrates landscape-preferred play with graceful portrait layout on an Android 16 tablet and iPad 26 windowed mode
+    depends_on:
+    - T164.1
+    - T164.2
+    - T164.3
+    - T164.4
+    tags:
+    - orientation
+    - adaptive
+    - v2
+    origin: subdivide(🎯T164)
+    discovered: 2026-07-19
+  T165:
+    name: ge vendors SDL ≥ 3.4.12 with the prebuilt co-cook green across all platform lanes
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - vendor/github.com/libsdl-org/SDL submodule pinned at release-3.4.12 (or later stable 3.4.x)
+    - Full co-cook refreshes every prebuilt/ platform lane; tools/verify-cook.py passes on all of them
+    - Desktop build + unit tests green; tiltbuggy runs on macOS, iOS sim, and one Android device (GeActivity compatibility vs SDL's android-project Java confirmed)
+    - SDL_uikitappdelegate.m scene-lifecycle adoption (SDLUIKitSceneDelegate) still present in the bumped tree — guards the iOS 27 UIScene mandate
+    - No ge-side SDL patches to re-apply (confirmed none outstanding; note stays true after bump)
+    context: 'ge vendors SDL release-3.4.0 (Jan 2026); upstream stable line is at 3.4.12 (Jul 2026). Relevant fixes for ge: Android high audio latency (3.4.2), iOS/Android SDL_GlobDirectory + Android asset-subdirectory enumeration (3.4.2/3.4.6 — prophylactic; ge does not enumerate directories at runtime today, but any future "load every file in assets/X/" would silently break on-device without it), iOS text-input cancel + iPad pen-hover fixes (3.4.6), Android gamepad motion sensors + background controller release (3.4.10), Emscripten fixes serving the T157 web lane: mouse buttons, SDL_SetWindowIcon single-threaded, persistent storage via SDL_EMSCRIPTEN_PERSISTENT_PATH, gamepads (3.4.2/3.4.4/3.4.12). Nothing forcing; do as a dedicated small PR separate from orientation work so regressions bisect cleanly. Keep SDL pinned ≥ 3.4.0 permanently: 3.4.0 is where SDL adopted the UIScene lifecycle (issue libsdl-org/SDL#12680) that the iOS 27 SDK hard-mandates. See docs/orientation-report.md §8.7. (Re-filed: original T164 filing was clobbered by a concurrent-ID reuse when the orientation umbrella was tracked.)'
+    tags:
+    - sdl
+    - vendor
+    - prebuilt
+    - maintenance
+    - android
+    - ios
+    - web
+    origin: orientation deep-dive session 2026-07-19 (SDL point-release audit)
+    discovered: 2026-07-19
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
@@ -5415,48 +5602,3 @@ targets:
     - design-discussion
     origin: manual
     discovered: 2026-06-03
-  T157:
-    name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
-    status: converging
-    value: 0.0
-    cost: 0.0
-    acceptance:
-    - sample/tiltbuggy compiles to wasm via an Emscripten lane (make web) and is playable (input, rendering) in current Chrome, Safari/WebKit, and Firefox
-    - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
-    - 'Web host lives behind ge::run: the native blocking loop runs verbatim, suspending between frames via a RAF-aligned Asyncify await; the state-before-run capture pattern works verbatim (main''s frame genuinely preserved)'
-    - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
-    - Context::db()/sqlite persists across page reloads (IDBFS backing; verified game.db present in IndexedDB and restored on reload with a clean boot)
-    - Release web builds exclude app-channel/asio networking cleanly (GE_DIRECT_ONLY + NDEBUG; no raw-TCP references in the wasm link)
-    context: 'Web is ge''s fourth direct-mode platform. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU a follow-on (T157.1). Design pivot during implementation: the planned emscripten_set_main_loop callback inversion is unusable with C++ exceptions (its unwind is a JS exception that runs cleanup-pad destructors, destroying host/consumer state), so the web host keeps the native blocking loop and suspends via scoped Asyncify (IGNORE_INDIRECT; JS-EH mode; SessionHost.mm compiled -fno-exceptions; SQLITE_NO_SYNC; SDL asyncify hint off). Full contract: docs/web-platform.md.'
-    tags:
-    - web
-    - wasm
-    - emscripten
-    - webgl2
-    - sokol
-    - direct-mode
-    - platform
-    - asyncify
-    origin: manual
-    discovered: 2026-07-18
-  T157.1:
-    name: Web builds additionally offer a WebGPU (SOKOL_WGPU) backend with JS feature-detect fallback to WebGL2
-    status: identified
-    value: 0.0
-    cost: 0.0
-    acceptance:
-    - wgsl added to the shader cross-compile output and a SOKOL_WGPU web build variant exists
-    - Loader feature-detects navigator.gpu and serves the WebGPU build, falling back to the WebGL2 build otherwise (dual-wasm or T107-style dispatch — decided at implementation time)
-    - tiltbuggy renders identically (imgdiff within tolerance) on both backends
-    - 'Activation condition documented: pursued only when WebGPU coverage crosses the bar or a concrete perf/feature need appears'
-    context: 'Follow-on to the WebGL2 plateau. WebGPU coverage (~70-85% mid-2026, gap in pre-26 Apple OSes and Linux/Android Firefox) does not justify making it the primary backend; ge''s rendering surface (textured quads, small meshes) needs no WebGPU features today. The Android T107 dispatch-shim precedent makes adding a second compile-time sokol backend a known pattern.'
-    depends_on:
-    - T157
-    tags:
-    - web
-    - wasm
-    - webgpu
-    - sokol
-    - follow-on
-    origin: manual
-    discovered: 2026-07-18
