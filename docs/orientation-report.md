@@ -546,6 +546,40 @@ engine's own metrics) report observed state, the oracle predicts it,
 divergence = OS drift or bug. Single home for all orientation logic; the
 doctrine becomes executable.
 
+**8.7 External verification (web sweep, 2026-07-19).** Official docs/forums
+confirm F1 (windowed-mode letterbox, no app opt-out; TN3192 + DevForums
+802210), F2 (TN3192 lock is a *preference* that freezes current orientation —
+consistent with the pinning we measured; it is not an imperative
+force-to-orientation), F3 (plist still constrains the scene, trending to
+"preference"), F4 (Android 16 fill-not-letterbox on sw≥600dp for sdk 36;
+generic opt-out `PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY` **sunsets at
+API 37**), F6 (sensorLandscape 180° flips; sensor frame never rotates —
+`remapCoordinateSystem` is the app's job), F7 (iPhone unaffected), F9 (SDL
+source: VC doesn't call super; hint-unset mask inferred from window w/h —
+T120's footgun is confirmed from source), F10 (iOS 27). Not externally
+sourced: F5's flat-device mechanism (documented concept is the accelerometer
+"Z-lockout" holding the *last* orientation) and F8's double-margin insets
+(novel measurement; possibly entangled with live iOS 26 safe-area regression
+FB20281983 — stale `safeAreaInsets` until backgrounding).
+
+New load-bearing facts the sweep surfaced:
+1. **`android:appCategory="game"` permanently exempts games** from the
+   Android 16/17 orientation-ignore (does not sunset at API 37). **ge sets it
+   nowhere** — adding it to the manifest template preserves tablet
+   orientation locks durably and demotes §7.3's "adaptive is forced" to
+   "adaptive is the quality path; the lock remains available".
+2. **iOS 27 SDK (~June 2026) hard-mandates UIScene adoption** (app won't
+   launch) **and a launch screen** (App Store rejects). SDL3's UIKit backend
+   does not adopt the scene lifecycle — an engine-level risk to track before
+   Xcode 27 adoption.
+3. iOS 27 partially rehabilitates `UIRequiresFullScreen` on iPhone as
+   "discrete resizing" (full-quality re-render per size step).
+4. `UIWindowScene.effectiveGeometry.isInterfaceOrientationLocked` +
+   `didUpdateEffectiveGeometry` are the modern lock-state read-back — cleaner
+   than notification inference for the policy oracle's observation side.
+5. iOS 26 safe-area regression (FB20281983): re-query insets on foreground as
+   a workaround; directly relevant to ge's `SafeAreaInsets` plumbing.
+
 **8.6 Reconciling "iPad/Pixel honor orientation now, no letterbox".**
 Both letterboxes are *posture-gated*, so casual observation usually misses
 them: the box appears only while the chassis is actively held in the
