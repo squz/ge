@@ -569,9 +569,19 @@ New load-bearing facts the sweep surfaced:
    orientation locks durably and demotes §7.3's "adaptive is forced" to
    "adaptive is the quality path; the lock remains available".
 2. **iOS 27 SDK (~June 2026) hard-mandates UIScene adoption** (app won't
-   launch) **and a launch screen** (App Store rejects). SDL3's UIKit backend
-   does not adopt the scene lifecycle — an engine-level risk to track before
-   Xcode 27 adoption.
+   launch) **and a launch screen** (App Store rejects). **Follow-up sweep:
+   already de-risked.** SDL fixed scene adoption for the 3.4.0 milestone
+   (issue libsdl-org/SDL#12680, closed): `SDL_uikitappdelegate.m` now
+   implements `application:configurationForConnectingSceneSession:` +
+   `SDLUIKitSceneDelegate` (programmatic adoption — satisfies the mandate
+   without an Info.plist `UIApplicationSceneManifest`). ge vendors exactly
+   SDL `release-3.4.0` and the code is present in the tree; `UILaunchScreen`
+   is already declared in `tools/ios-template/Info.plist.in` and all sample
+   plists (TN3208 satisfied). Residual action: one smoke test at first
+   Xcode-27 build; fallback if it ever asserts is a 10-line
+   `UIApplicationSceneManifest` block in the plist template. Keep SDL pinned
+   ≥ 3.4.0. (Stale SDL Discourse threads claiming SDL3 lacks UIScene predate
+   the 3.4.0 fix.)
 3. iOS 27 partially rehabilitates `UIRequiresFullScreen` on iPhone as
    "discrete resizing" (full-quality re-render per size step).
 4. `UIWindowScene.effectiveGeometry.isInterfaceOrientationLocked` +
