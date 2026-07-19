@@ -68,6 +68,8 @@ add_executable(${APP_NAME} ${APP_SOURCES})
 add_dependencies(${APP_NAME} app-shaders)
 target_include_directories(${APP_NAME} PRIVATE
     "${APP_ROOT}/src"
+    "${APP_ROOT}/include"
+    "${APP_ROOT}/vendor/include"
     "${SHADER_OUT_DIR}"
 )
 target_link_libraries(${APP_NAME} PRIVATE ge)
