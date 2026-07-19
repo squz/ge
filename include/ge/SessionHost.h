@@ -6,7 +6,14 @@
 // factory that creates session state and returns render loop callbacks.
 #pragma once
 
-#include <sqlpipe.h>
+// sqlpipe.h is deliberately NOT included: its inline definitions use
+// `throw`, and the web lane compiles SessionHost.mm -fno-exceptions
+// (Asyncify constraint — see tools/prebuild.sh). Context::db() only names
+// the type, so a forward declaration suffices; consumers that call into
+// the database include <sqlpipe.h> themselves.
+namespace sqlpipe {
+class Database;
+}
 
 #include <ge/Linalg.h>
 #include <ge/Pass.h>

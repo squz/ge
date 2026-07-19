@@ -15,7 +15,12 @@
 
 #include <ge/SessionHost.h>
 #include <ge/ViewerMetrics.h>
-#include <sqlpipe.h>
+// Forward-declared: sqlpipe.h's inline definitions throw, and the web lane
+// compiles SessionHost.mm -fno-exceptions (see tools/prebuild.sh). bindDb
+// only names the type.
+namespace sqlpipe {
+class Database;
+}
 
 #include <atomic>
 #include <cstdint>

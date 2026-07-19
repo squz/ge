@@ -142,33 +142,6 @@ OPT_LEVEL="${GE_PREBUILD_OPT:-2}"
 case "$OPT_LEVEL" in
   0|1|2|3|s|g) OPT_FLAG="-O${OPT_LEVEL}" ;;
   fast)        OPT_FLAG="-Ofast" ;;
-  web-wasm)
-    # 🎯T157 Emscripten/wasm (WebGL2 via SOKOL_GLES3). Single wasm32 arch;
-    # toolchain from PATH (brew install emscripten, or an activated emsdk).
-    if ! command -v em++ >/dev/null 2>&1; then
-      echo "error: em++ not found — install Emscripten (brew install emscripten" >&2
-      echo "  or https://emscripten.org/docs/getting_started/downloads.html)." >&2
-      exit 1
-    fi
-    CC=emcc
-    CXX=em++
-    AR=emar
-    AR_FLAGS=(rcs)
-    # emcc disables C++ exception catching by default; ge relies on
-    # exceptions (guardCallback, resolveFont, sqlpipe). JS-based exceptions
-    # (-fexceptions), NOT -fwasm-exceptions: the web run loop suspends via
-    # Asyncify (SessionHost.mm ge_web_await_frame), and Asyncify cannot
-    # instrument functions holding wasm-EH pads ("Aborted(invalid state)"
-    # at runtime). Must match the consumer's compile+link flags
-    # (cmake/web-wasm.cmake keeps them in sync).
-    # -msimd128 -msse2: box2d's __EMSCRIPTEN__ branch selects its SSE2 SIMD
-    # path (emmintrin.h over wasm SIMD — box2d's own CMake passes the same
-    # pair for Emscripten); wasm SIMD is likewise universal in 2026.
-    COMMON_FLAGS+=(-fexceptions -msimd128 -msse2)
-    GE_PLATFORM_DEFINE=-DGE_WEB
-    GE_MANIFEST_TARGET=print-direct-web
-    SDL_STUB_NEEDED=true
-    ;;
   *)
     echo "error: GE_PREBUILD_OPT must be 0|1|2|3|s|g|fast (got '$OPT_LEVEL')" >&2
     exit 1
@@ -266,6 +239,33 @@ case "$PLATFORM" in
     )
     GE_PLATFORM_DEFINE=-DGE_ANDROID
     GE_MANIFEST_TARGET=print-direct-android
+    SDL_STUB_NEEDED=true
+    ;;
+  web-wasm)
+    # 🎯T157 Emscripten/wasm (WebGL2 via SOKOL_GLES3). Single wasm32 arch;
+    # toolchain from PATH (brew install emscripten, or an activated emsdk).
+    if ! command -v em++ >/dev/null 2>&1; then
+      echo "error: em++ not found — install Emscripten (brew install emscripten" >&2
+      echo "  or https://emscripten.org/docs/getting_started/downloads.html)." >&2
+      exit 1
+    fi
+    CC=emcc
+    CXX=em++
+    AR=emar
+    AR_FLAGS=(rcs)
+    # emcc disables C++ exception catching by default; ge relies on
+    # exceptions (guardCallback, resolveFont, sqlpipe). JS-based exceptions
+    # (-fexceptions), NOT -fwasm-exceptions: the web run loop suspends via
+    # Asyncify (SessionHost.mm ge_web_await_frame), and Asyncify cannot
+    # instrument functions holding wasm-EH pads ("Aborted(invalid state)"
+    # at runtime). Must match the consumer's compile+link flags
+    # (cmake/web-wasm.cmake keeps them in sync).
+    # -msimd128 -msse2: box2d's __EMSCRIPTEN__ branch selects its SSE2 SIMD
+    # path (emmintrin.h over wasm SIMD — box2d's own CMake passes the same
+    # pair for Emscripten); wasm SIMD is likewise universal in 2026.
+    COMMON_FLAGS+=(-fexceptions -msimd128 -msse2)
+    GE_PLATFORM_DEFINE=-DGE_WEB
+    GE_MANIFEST_TARGET=print-direct-web
     SDL_STUB_NEEDED=true
     ;;
   *)

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "prebuilt_key": "web-wasm",
+  "config": "release",
+  "opt": "-O2",
+  "flags": "-O2 -fvisibility=hidden -fno-color-diagnostics -fexceptions -msimd128 -msse2",
+  "flags_sha256": "fbbb70420b4b9e6ba21ad8f4ed0c07b797d2b773be4dd96338e50d77c587f051",
+  "utc": "2026-07-19T00:07:24Z",
+  "archives": {
+    "box2d": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
+    "ge": "f708fa0a75e5cd9f4e0c077c7d4eaf8ea69d5e7491f0e65c5afae49782cab762",
+    "liteparser": "a498a3efab587f19c4c1a354c43ba2a8f2e044403b18b2799381d7eebe4d19c4",
+    "lunasvg_ge": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
+    "lz4_ge": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
+    "plutovg_ge": "73c82d449f9aed66dec12f45a9b8140e1b0faa4e7ed93478f330384d6a85ab04",
+    "sqlite3_ge": "356f3d66dff468f48ff2c7826dfb99e959b00c753e8fe1fae871fe26665f8a71"
+  }
+}

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/SessionHost.h>
+#include <sqlpipe.h>
 #include <spdlog/spdlog.h>
 
 #include <SDL3/SDL_events.h>
