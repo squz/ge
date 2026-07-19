@@ -36,3 +36,15 @@ asc-keys-page.png
 
 # Local reference captures (full-res, not for git)
 .local-ref/
+
+# Legacy player-android scaffold (dormant; not in tree) — local NDK/Gradle
+# residue must not dirty submodule status in consumers.
+tools/android/.gradle/
+tools/android/**/.cxx/
+tools/android/**/build/
+tools/android/local.properties
+tools/android/.idea/
+
+# Old ged dashboard SPA leftovers (ged removed Plateau P / T145)
+web/node_modules/
+web/
