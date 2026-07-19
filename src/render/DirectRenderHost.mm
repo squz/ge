@@ -11,6 +11,7 @@
 
 #include "DirectRenderHost.h"
 #include "AccelSynth.h"
+#include "SensorControl.h"
 #include <ge/WireSdlEvent.h>
 #include "LifecycleInject.h"
 #include "ScreenshotBridge.h"
@@ -995,24 +996,32 @@ void DirectRenderHost::pumpEvents() {
             }
         }
         if (i_->synth && i_->synth->handle(e)) continue;
-        // 🎯T156.2: no sensor arbitration here. Authority is constructional —
-        // the synth only exists for a virtual device that declared no real
-        // accelerometer, so a competing SENSOR_UPDATE source cannot exist
-        // (spectator input is dropped at the SeatPolicy boundary).
-        // Rotate real-sensor accel into screen frame using the live
-        // display orientation. AccelSynth events bypass — they arrive
-        // via setEmit() callback, already in screen frame
-        // (mouse-displacement physics).
-        // Server mode: player-side already screen-framed SENSOR_UPDATE
-        // (PlayerRender) before the wire; re-rotating with the Mac host's
-        // display orientation would swap/invert axes. Skip when streaming.
-        if (e.type == SDL_EVENT_SENSOR_UPDATE &&
-            !(i_->serverActive && i_->serverActive->load())) {
-            SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
-            if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
-                o = SDL_GetCurrentDisplayOrientation(disp);
+        // Fine-grained accel authority (app-channel sensor_control):
+        //   passthrough — real + synthetic both flow (default)
+        //   override    — drop real samples; synthetic / latch only
+        //   mute        — drop all SENSOR_UPDATE; neutral sample applied below
+        if (e.type == SDL_EVENT_SENSOR_UPDATE) {
+            using ge::detail::SensorStreamMode;
+            using ge::detail::kSyntheticAccelWhich;
+            const auto mode = ge::detail::accelStreamMode();
+            const bool synthetic =
+                static_cast<std::uint32_t>(e.sensor.which) == kSyntheticAccelWhich;
+            if (mode == SensorStreamMode::Mute) {
+                continue;
             }
-            ge::rotateAccelToScreen(o, e.sensor.data);
+            if (mode == SensorStreamMode::Override && !synthetic) {
+                continue;
+            }
+            // AccelSynth setEmit path arrives already screen-framed; those
+            // events are not SENSOR_UPDATE. Server mode: player already
+            // screen-framed wire samples — do not re-rotate with host display.
+            if (!(i_->serverActive && i_->serverActive->load())) {
+                SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
+                if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
+                    o = SDL_GetCurrentDisplayOrientation(disp);
+                }
+                ge::rotateAccelToScreen(o, e.sensor.data);
+            }
         }
         // 🎯T63 High-refresh-rate during press.
         // Track all pointer down/up events to maintain an accurate press
@@ -1040,6 +1049,48 @@ void DirectRenderHost::pumpEvents() {
             ge::guardCallback("onEvent", [&] { i_->eventHandler(e); });  // 🎯T136
         }
     }
+
+    // Fine-grained accel authority: while override/mute, re-assert one sample
+    // each pump so the game holds the scripted tilt without flood-inject.
+    // Device-frame values are rotated to screen frame like a real sample.
+    if (i_->eventHandler && i_->wantAccelInput) {
+        using ge::detail::SensorStreamMode;
+        using ge::detail::kSyntheticAccelWhich;
+        const auto mode = ge::detail::accelStreamMode();
+        float data[3] = {0.f, 0.f, 0.f};
+        bool emit = false;
+        if (mode == SensorStreamMode::Mute) {
+            emit = true; // neutral (0,0,0)
+        } else if (mode == SensorStreamMode::Override) {
+            float lx = 0.f, ly = 0.f, lz = 0.f;
+            if (ge::detail::accelLatch(lx, ly, lz)) {
+                data[0] = lx;
+                data[1] = ly;
+                data[2] = lz;
+                emit = true;
+            }
+            // Override without a latch yet: invent nothing; wait for sample.
+        }
+        if (emit) {
+            if (!(i_->serverActive && i_->serverActive->load())) {
+                SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
+                if (SDL_DisplayID disp =
+                        SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
+                    o = SDL_GetCurrentDisplayOrientation(disp);
+                }
+                ge::rotateAccelToScreen(o, data);
+            }
+            SDL_Event se{};
+            se.type = SDL_EVENT_SENSOR_UPDATE;
+            se.sensor.which = static_cast<SDL_SensorID>(kSyntheticAccelWhich);
+            se.sensor.data[0] = data[0];
+            se.sensor.data[1] = data[1];
+            se.sensor.data[2] = data[2];
+            ge::guardCallback("onEvent", [&] { i_->eventHandler(se); });
+            sawRealEvent = true;
+        }
+    }
+
     // 🎯T132 Any real event (input, resize, lifecycle) resumes rendering: mark a
     // redraw so the run loop's on-demand skip renders the next frame. No-op in
     // continuous mode (the loop never consumes the flag there).

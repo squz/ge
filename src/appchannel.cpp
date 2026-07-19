@@ -39,6 +39,7 @@
 
 #include "appchannel_internal.h"      // ge::appchannel::detail::buildSliceDescriptors
 #include "render/LifecycleInject.h"   // ge::detail::injectMemoryWarning
+#include "render/SensorControl.h"     // fine-grained accel stream authority
 #include "render/ScreenshotBridge.h"  // ge::detail::captureFrameRGBA
 
 #endif  // NDEBUG
@@ -605,15 +606,84 @@ void registerBuiltins() {
         } else if (type == "accel") {
             // Device-frame acceleration; the engine rotates it into screen
             // frame in pumpEvents just like a real SDL_SENSOR_ACCEL sample.
+            // Tagged synthetic so sensor_control mode=override can drop real
+            // CoreMotion/etc. samples without dropping scripted ones.
+            const float ax = jnum(p, "x", 0.0f);
+            const float ay = jnum(p, "y", 0.0f);
+            const float az = jnum(p, "z", 0.0f);
             e.type           = SDL_EVENT_SENSOR_UPDATE;
-            e.sensor.data[0] = jnum(p, "x", 0.0f);
-            e.sensor.data[1] = jnum(p, "y", 0.0f);
-            e.sensor.data[2] = jnum(p, "z", 0.0f);
+            e.sensor.which   = static_cast<SDL_SensorID>(ge::detail::kSyntheticAccelWhich);
+            e.sensor.data[0] = ax;
+            e.sensor.data[1] = ay;
+            e.sensor.data[2] = az;
+            // While override is active, latch so pumpEvents re-asserts without
+            // flood-inject. Passthrough/mute: one-shot push only (mute ignores
+            // real sensors; inject still updates latch for a later override).
+            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override ||
+                p.value("latch", false)) {
+                ge::detail::setAccelLatch(ax, ay, az);
+            }
         } else {
             throw Error{-32602, "input_inject: unknown type '" + type + "'"};
         }
         SDL_PushEvent(&e);
         return kAck;
+    });
+
+    // ── sensor stream authority (fine-grained; default passthrough) ──
+    // sensor: "accel" (only stream today). mode:
+    //   passthrough — real device sensors flow; inject is one-shot
+    //   override    — drop real samples; latch + inject own the stream
+    //   mute        — drop real samples; emit neutral (0,0,0) each frame
+    // Optional x,y,z when enabling override sets the latch immediately.
+    // Query: omit mode → returns {sensor, mode, latch?}.
+    reg("sensor_control", [](const nlohmann::json& p) -> nlohmann::json {
+        const std::string sensor = p.value("sensor", std::string{"accel"});
+        if (sensor != "accel")
+            throw Error{-32602, "sensor_control: unknown sensor '" + sensor +
+                                    "' (supported: accel)"};
+
+        auto modeName = [](ge::detail::SensorStreamMode m) -> const char* {
+            switch (m) {
+            case ge::detail::SensorStreamMode::Passthrough: return "passthrough";
+            case ge::detail::SensorStreamMode::Override:    return "override";
+            case ge::detail::SensorStreamMode::Mute:        return "mute";
+            }
+            return "passthrough";
+        };
+
+        if (!p.contains("mode")) {
+            nlohmann::json out{{"sensor", "accel"},
+                               {"mode", modeName(ge::detail::accelStreamMode())}};
+            float x, y, z;
+            if (ge::detail::accelLatch(x, y, z)) {
+                out["latch"] = nlohmann::json{{"x", x}, {"y", y}, {"z", z}};
+            }
+            return out;
+        }
+
+        const std::string mode = p.value("mode", std::string{});
+        if (mode == "passthrough") {
+            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
+        } else if (mode == "override") {
+            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
+            if (p.contains("x") || p.contains("y") || p.contains("z")) {
+                ge::detail::setAccelLatch(jnum(p, "x", 0.0f), jnum(p, "y", 0.0f),
+                                          jnum(p, "z", 0.0f));
+            }
+        } else if (mode == "mute") {
+            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Mute);
+        } else {
+            throw Error{-32602, "sensor_control: mode must be passthrough|override|mute"};
+        }
+
+        nlohmann::json out{{"sensor", "accel"},
+                           {"mode", modeName(ge::detail::accelStreamMode())}};
+        float x, y, z;
+        if (ge::detail::accelLatch(x, y, z)) {
+            out["latch"] = nlohmann::json{{"x", x}, {"y", y}, {"z", z}};
+        }
+        return out;
     });
 
     // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)

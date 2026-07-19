@@ -31,4 +31,6 @@ void injectAudioFocus(bool gained);
 void injectViewerBackgrounded(bool backgrounded);
 bool viewerBackgrounded();
 
+// Accelerometer stream control lives in SensorControl.h (setAccelStreamMode…).
+
 } // namespace ge::detail
