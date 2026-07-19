@@ -30,7 +30,7 @@
   "prebuilts": {
     "prebuilt/ios-arm64/libbox2d.a": "9c9d4edc5f07f1acf58a742f1827575b4a799131ba9ad41387a82925b57741ca",
     "prebuilt/ios-arm64/libge.a": "146efd7211ddfefc107a1f2ca8fb539cc46cfe7b704cac9e51801c6d59b88650",
-    "prebuilt/ios-arm64/libliteparser.a": "56be3212284256df85f775a87366de4b65f5f07c919616a29258d6e92737cca0",
+    "prebuilt/ios-arm64/libliteparser.a": "f44970cee15ef3bab481137728be10dc4ceea73eac699f5bd46426abd990c203",
     "prebuilt/ios-arm64/liblunasvg_ge.a": "4cbd0867c2d3811f63378ba44f82d4469dd5d9525c4b87ea1f3e8a3f360cd9f3",
     "prebuilt/ios-arm64/liblz4_ge.a": "72a95f6f6feafab3a1bf0d0b4b7e34d3f4edca525561a2ca24ff0540c314cb4f",
     "prebuilt/ios-arm64/libplutovg_ge.a": "d1b58c43bdb025786966df868553f73252566cab08ac28e9e2a50239d9085cac",
@@ -239,7 +239,7 @@
     "tools/player_orientation_ios.mm": "cbbbaa659f676c0fa44a302c5856995848573e033456de5a8cb9bb147005c3e2",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",

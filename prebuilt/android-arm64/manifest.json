@@ -28,7 +28,7 @@
   "prebuilts": {
     "prebuilt/android-arm64/libbox2d.a": "85a8ce40deb59b2974892fe760af787d4c21142e01387d4912a85e86486254e2",
     "prebuilt/android-arm64/libge.a": "f76e6d61723da7e722df2a4b9869a63832be10a9c41643566c5818941767696a",
-    "prebuilt/android-arm64/libliteparser.a": "e34dcb900550d23d4c5dd0919f6d1c0edf411e088670fd5b97c1a291ac2bb5b0",
+    "prebuilt/android-arm64/libliteparser.a": "9fd3a7afb805932f41430f1c77d1c0b93ba21c58c1ab99d2ae812d989d8027d0",
     "prebuilt/android-arm64/liblunasvg_ge.a": "cc63e5a0de8f7daab5259564e94d9538527f6a9716ac93e065c2bf4a7b95f585",
     "prebuilt/android-arm64/liblz4_ge.a": "7f2617fd20adbeaf156e9722f4986584e30fde605771113d10e7683703029a08",
     "prebuilt/android-arm64/libplutovg_ge.a": "443c764b969c908d01b338b92f1e2081109f40ae0fe57e9c6acb9841edb175ff",
@@ -242,7 +242,7 @@
     "tools/vkprobe/ge_vkprobe.h": "9d24950cd1c027b21b0f88c6d7b79d30568b780621537aeba76c0d95022a880b",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",
