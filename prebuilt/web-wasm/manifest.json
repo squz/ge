@@ -27,7 +27,7 @@
   "prebuilts": {
     "prebuilt/web-wasm/libbox2d.a": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
     "prebuilt/web-wasm/libge.a": "f708fa0a75e5cd9f4e0c077c7d4eaf8ea69d5e7491f0e65c5afae49782cab762",
-    "prebuilt/web-wasm/libliteparser.a": "a498a3efab587f19c4c1a354c43ba2a8f2e044403b18b2799381d7eebe4d19c4",
+    "prebuilt/web-wasm/libliteparser.a": "4c02ba01a7d6a1ae028f359bc3a43846791669449a85db52d783a3c459974e98",
     "prebuilt/web-wasm/liblunasvg_ge.a": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
     "prebuilt/web-wasm/liblz4_ge.a": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
     "prebuilt/web-wasm/libplutovg_ge.a": "73c82d449f9aed66dec12f45a9b8140e1b0faa4e7ed93478f330384d6a85ab04",
@@ -231,7 +231,7 @@
     "tools/player_orientation_stub.cpp": "4eac4a487df926f89a750aa9b0736c093906f97132fb979c5621b05c900fdf28",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",

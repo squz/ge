@@ -26,13 +26,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/android-arm64-debug/libbox2d.a": "6c12fc5fa21a922664b95adc94ce96d759562902cfb3e7ebd612e9bde273e008",
-    "prebuilt/android-arm64-debug/libge.a": "fcd38081a28ca2485c934abc639034e4bc239895fd617c94394813249d251324",
-    "prebuilt/android-arm64-debug/libliteparser.a": "a6971bf6585585792ed86ae015f7d25c418e03247b4b22c1f4f273abbcf8bb22",
-    "prebuilt/android-arm64-debug/liblunasvg_ge.a": "6a8087402213c0450894108c37ad9390e9e62d410a5ce2e6e5b0622ac2422d6f",
-    "prebuilt/android-arm64-debug/liblz4_ge.a": "d3ff35d3de5a88adeb9588eae0b01177436acf1724fd89fb93649427683d5444",
-    "prebuilt/android-arm64-debug/libplutovg_ge.a": "a7c871bfe174c20db619b6adcf9f51d3e4ab09f85821dd1d98e69bc8f66958a7",
-    "prebuilt/android-arm64-debug/libsqlite3_ge.a": "3bff8493128fe15c84eee8874ca21413bfc3f634a9dd1d34c5bd7d0d57ff99da"
+    "prebuilt/android-arm64-debug/libbox2d.a": "cf5783e952e1ffa91ef18fef2731ce54e8773b84ada1d7d17d619870a98e148d",
+    "prebuilt/android-arm64-debug/libge.a": "c9a5901be0e43b0499088c20eaed710c95a1a9e217c8450f2587a2e34beaddd2",
+    "prebuilt/android-arm64-debug/libliteparser.a": "0bd88afb65e9c48acd5817d8ef4085d381482d9a6cbd15a56ee7c7fdc8ddd6c8",
+    "prebuilt/android-arm64-debug/liblunasvg_ge.a": "49dde27a05f02e05b41d5e66b298714e7d95e50a841e862a84a41c14989ebd0b",
+    "prebuilt/android-arm64-debug/liblz4_ge.a": "9fcfe6061005c8038d916d257a948f1418d1dae9bc8eb0652e652a4379a0ee54",
+    "prebuilt/android-arm64-debug/libplutovg_ge.a": "bde8cb6a82c0eea2eab6af04bdea88d9685021a4b9a203dbf5a047f565bc6cf7",
+    "prebuilt/android-arm64-debug/libsqlite3_ge.a": "6835b92ed66f4ba66895dc3ab79823745a94f3f68735d6a16322c935bd972cf4"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -242,7 +242,7 @@
     "tools/vkprobe/ge_vkprobe.h": "9d24950cd1c027b21b0f88c6d7b79d30568b780621537aeba76c0d95022a880b",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",

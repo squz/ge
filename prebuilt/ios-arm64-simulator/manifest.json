@@ -30,7 +30,7 @@
   "prebuilts": {
     "prebuilt/ios-arm64-simulator/libbox2d.a": "16ef4262a3e3d142fd27b18d511adb2321ea9545504326e52f44f589d9c8efb4",
     "prebuilt/ios-arm64-simulator/libge.a": "13cf42c44d23d9d7b530306d00a72a62d43d7c271de398c698ed6c833a8ee603",
-    "prebuilt/ios-arm64-simulator/libliteparser.a": "32aa18e27c6452f13a0b6bf43c5bf0d289a14b7f4c9a8a1bc848416101bd1c12",
+    "prebuilt/ios-arm64-simulator/libliteparser.a": "ff70c6cffb188c27733620c1408529ba9e3edfc3a17cd0d2e4e814fd73d2545f",
     "prebuilt/ios-arm64-simulator/liblunasvg_ge.a": "4e110e9f0cc2c30b05d4c00a79888b595c931389248fe1daeb9aa3c9665789e9",
     "prebuilt/ios-arm64-simulator/liblz4_ge.a": "64f0af866cc2e7c7125816923805f40aae82ccd1a51838b3aa2eaf1ea4392d8e",
     "prebuilt/ios-arm64-simulator/libplutovg_ge.a": "ee0db6b08a6cb02008fbf3e098c9649feb2db943e5d9f14a9f2edc1040452f09",
@@ -239,7 +239,7 @@
     "tools/player_orientation_ios.mm": "cbbbaa659f676c0fa44a302c5856995848573e033456de5a8cb9bb147005c3e2",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",

@@ -13,7 +13,15 @@
 #include <assert.h>
 
 #ifndef ARENA_DEFAULT_ALIGN
-#define ARENA_DEFAULT_ALIGN (sizeof(max_align_t))
+// 🎯T157 ge patch: _Alignof, not sizeof. sizeof(max_align_t) is 24 on
+// wasm32/Emscripten (16-byte long double + 8-byte member, align 8) — not a
+// power of two — so arena_alloc_internal's is_pow2 assert aborted every ge
+// web app at startup. _Alignof is what arena.h's API comment promises
+// ("default align = alignof(max_align_t)"), and both are 8 on native ABIs,
+// so nothing changes off-web. Upstreamed to marcelocantos/deepparser;
+// re-apply on a vendor bump if the bump predates the merge (search
+// "🎯T157 ge patch").
+#define ARENA_DEFAULT_ALIGN (_Alignof(max_align_t))
 #endif
 
 typedef struct arena_block_t {

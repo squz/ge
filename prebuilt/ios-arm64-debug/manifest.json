@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-debug/libbox2d.a": "262cbdb30ce88d64ac3fb128318086eb70e95cb9c64f39279bcf0e9c84d41d6a",
-    "prebuilt/ios-arm64-debug/libge.a": "024ba8896e8fa41ee82afc0162bac470e1b5dc83df73f97dc762917774c659f2",
-    "prebuilt/ios-arm64-debug/libliteparser.a": "0d53f1b3e598bbc9b777794a2e84a9507f12f43f713493915459982dca6f6710",
-    "prebuilt/ios-arm64-debug/liblunasvg_ge.a": "02450d0222afe2cefc44f284ff678e6e516539212faded55eecf483e4f456f7c",
-    "prebuilt/ios-arm64-debug/liblz4_ge.a": "c7abb22d725030449310094e99bea48c3724dcd9cc82011a232a0715c59fcd1b",
-    "prebuilt/ios-arm64-debug/libplutovg_ge.a": "c4abdb89996c5020465b9dfa98fcfc6fdc7fc9c78a290b8a8bd0512b5028b960",
-    "prebuilt/ios-arm64-debug/libsqlite3_ge.a": "e872644b812d9ab3532500f2a4140d96a83af105553efdaa81489f2f30201737"
+    "prebuilt/ios-arm64-debug/libbox2d.a": "f67aa6a8d6af17ac8e8e1e810a49971bdb081c088e18c53f53ccd33e29cc0250",
+    "prebuilt/ios-arm64-debug/libge.a": "fb1bffb8c37dfcabe43a2096e0a96505ae1295300994622d52b065184e377666",
+    "prebuilt/ios-arm64-debug/libliteparser.a": "0c1300cb6bab52e803fdfd348bb95863b8c90924b80f94566acdd6ded308463c",
+    "prebuilt/ios-arm64-debug/liblunasvg_ge.a": "ee60d364b488636dc85ee7ed04d4cce77be1227d644e25750f8c6a97150d197e",
+    "prebuilt/ios-arm64-debug/liblz4_ge.a": "1e550b31f838eb75b89b8e4843a101bff96dcd0f00469a54a8c35cd2f4ee907f",
+    "prebuilt/ios-arm64-debug/libplutovg_ge.a": "6f4ff43ec6afd54552943531665fda7a4e24a397779433c171a593cdee467d11",
+    "prebuilt/ios-arm64-debug/libsqlite3_ge.a": "0d50fe23891ae9d53f97c1320c4ee69ada338b8eda423ed7a32a5b61a73f1e29"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -239,7 +239,7 @@
     "tools/player_orientation_ios.mm": "cbbbaa659f676c0fa44a302c5856995848573e033456de5a8cb9bb147005c3e2",
     "vendor/github.com/floooh/sokol/sokol_gfx.h": "1e7556b601af47ecaccaed13615010af1b2cfb8e4f27b0b1c3dfb42a5e7c7ce4",
     "vendor/github.com/floooh/sokol/sokol_log.h": "b1bf1403c738b8f18b09819d9190ac160298dd590440c9df57cb9d90b77eb29d",
-    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "52f17c3efbd20ce9870faa0cbd2159da71d7f1d7bb6a42da7b61efba8348b1ac",
+    "vendor/github.com/marcelocantos/deepparser/src/arena.c": "fb2e1c8bd60afbef6d24cea6af83972159f3a5d1f6f77588951abf5f45fb3440",
     "vendor/github.com/marcelocantos/deepparser/src/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.c": "62f914bebfcc06e474bdc5d391edc29e456fd3b3380e112219bc18c22be49d90",
     "vendor/github.com/marcelocantos/deepparser/src/liteparser.h": "cf3efd4369ad1ef4aff07bc75fb929ad1713f774f6da2736cc2bfda0cd4db2a3",
