@@ -28,13 +28,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/ios-arm64-simulator-debug/libbox2d.a": "1fafe8cc13e761fa12d35e8f66f7f4c832026999400251395808da0e2990dd13",
-    "prebuilt/ios-arm64-simulator-debug/libge.a": "babb16b3ebf3c6477ed8bbc098d8e3547a7de1375381a0ed11b36a9c91c6dc4a",
-    "prebuilt/ios-arm64-simulator-debug/libliteparser.a": "736e9336765ff1997b26c006fcb0ca1a15265c19a0d95bdca0ec3e3c4bda51c5",
-    "prebuilt/ios-arm64-simulator-debug/liblunasvg_ge.a": "4c9cc782568022553939cfffae6edff4419d0c0b92685d8ebbeb080ade3069de",
-    "prebuilt/ios-arm64-simulator-debug/liblz4_ge.a": "dd73f249df5044d313a4cd0d139911fd142fd6f2b52fb849799b2d2349276521",
-    "prebuilt/ios-arm64-simulator-debug/libplutovg_ge.a": "27980fecb5c1a0bb0bdefc8a49999081f87f3421c6362c9577702aad776d1f64",
-    "prebuilt/ios-arm64-simulator-debug/libsqlite3_ge.a": "ee2e8384fabb17bc0e56079f8cc5273e54a6b7fdcfd3b5e517a7ee8fc96a6121"
+    "prebuilt/ios-arm64-simulator-debug/libbox2d.a": "d36485d81725ed939fc6ca06c573890ae11d608a886a8798ef85cbb783c4a3f0",
+    "prebuilt/ios-arm64-simulator-debug/libge.a": "3dc150b354f0016fb1058217dd981a03b4b7e52ded110a88f67dc692a9ad1938",
+    "prebuilt/ios-arm64-simulator-debug/libliteparser.a": "2cf864ad4243c59c3bbb2c5df4cd3e14890d15b8a4a1a14b534f8f117d6c2681",
+    "prebuilt/ios-arm64-simulator-debug/liblunasvg_ge.a": "b4dc12cfec5b9defc41c66f76b351401aab9e7cb23c8e3a0df5208e45e2b639d",
+    "prebuilt/ios-arm64-simulator-debug/liblz4_ge.a": "fd7b29737a4b6876e5fb93702cfcc50b20429c99f0ed64cf0a8852789b7bc3e3",
+    "prebuilt/ios-arm64-simulator-debug/libplutovg_ge.a": "1b08f04df3ad21d2dc12c701714a0749a0a178d88cfa04d5a732a7ef473cd929",
+    "prebuilt/ios-arm64-simulator-debug/libsqlite3_ge.a": "134fdf2f23348482ddfaa43af18d10d5137b111e50dedcdf1a14054dbef798f8"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -167,7 +167,7 @@
     "include/ge/RefreshRateBoost.h": "0a5c96808be7e4c3782d878ed58913f40563a45107bdc844df633a6bf7b2d815",
     "include/ge/RenderHost.h": "36b5b3514fc3838bb66199bbf4e5fc4315f7d65bbc8416e487cff3ad8468444f",
     "include/ge/Resource.h": "c6665367d9271bee0c7e38b3a9ae206786069cf03fba472d3c15cae64b5070c3",
-    "include/ge/SessionHost.h": "2e61fb48dc6b21097c190ae993824e8f4be0a58da7cb2283ec29bd12ebe60e37",
+    "include/ge/SessionHost.h": "1c2740aea989b88ea6d8ca73d026622ecab914ce1654270e52ada4663effd573",
     "include/ge/Signal.h": "a9216e6b22038d5451310e682591b84a6e30cdb0e66be786589ac1fb4eaa59c2",
     "include/ge/SokolContext.h": "52ab16fc79486460b189a8c1eeda758c403d816e61ab8695d1235c0ccd44b6c7",
     "include/ge/StreamHostPolicy.h": "52348daabbd14a3da9203d517b8e867be4a6b32472810e9ec060c23eaaa1ae03",
@@ -224,7 +224,7 @@
     "src/png.cpp": "06b772371cdeb45a757490d19c922ae03db215a3a8cc6a5f49c317514be731c7",
     "src/render/AccelSynth.h": "6696b15ec94e7a5d483635a89b6ad5cf5c438aaf0d8b37f0a73d9fba7882cf4c",
     "src/render/DirectRenderHost.h": "a22f6ebd58bc92daa91e9280337da5d043861d9603c930a1cbcac3f99cb3b4cc",
-    "src/render/DirectRenderHost.mm": "ce9b5c1ce1e251fabad75723f2ae3bbb3d74f0af9c16fe812b3be8e979458e76",
+    "src/render/DirectRenderHost.mm": "5fadc0a098b686d2d9f0e8c1e0191f43cf7f8b8694dd4bca2432d93d3af36373",
     "src/render/LifecycleInject.h": "043d863ff022dcd30879aee85890f67ce512d32fc8d972f4d3498addd7f74476",
     "src/render/RefreshRateBoost_apple.mm": "bdbc1634be9c01048dfce47bfcead8bdf51fc12422a45e4cc2c4f2be69f82f2f",
     "src/render/RenderOnDemand.h": "66d403490137c52289466a61e43d1530aab322a6a981dc1727a776eeb1c829d2",

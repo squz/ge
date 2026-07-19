@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.75.0** (ge::drawSolid solid-color mesh fill).
+Snapshot as of: **v0.78.0** (parallax display-orientation remap; prebuilds recooked).
 
 ---
 

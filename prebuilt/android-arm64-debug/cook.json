@@ -5,14 +5,14 @@
   "opt": "-O2",
   "flags": "-g -O2 -fno-omit-frame-pointer -fvisibility=hidden -fno-color-diagnostics --target=aarch64-none-linux-android26 --sysroot=/Users/marcelo/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -fPIC -DANDROID -D__ANDROID__",
   "flags_sha256": "0e05533a21bdaead4e72f2f5d1beefc3f2876b44e47464a07697c434f0ac177a",
-  "utc": "2026-07-19T01:22:45Z",
+  "utc": "2026-07-19T08:59:38Z",
   "archives": {
-    "box2d": "cf5783e952e1ffa91ef18fef2731ce54e8773b84ada1d7d17d619870a98e148d",
-    "ge": "c9a5901be0e43b0499088c20eaed710c95a1a9e217c8450f2587a2e34beaddd2",
-    "liteparser": "0bd88afb65e9c48acd5817d8ef4085d381482d9a6cbd15a56ee7c7fdc8ddd6c8",
-    "lunasvg_ge": "49dde27a05f02e05b41d5e66b298714e7d95e50a841e862a84a41c14989ebd0b",
-    "lz4_ge": "9fcfe6061005c8038d916d257a948f1418d1dae9bc8eb0652e652a4379a0ee54",
-    "plutovg_ge": "bde8cb6a82c0eea2eab6af04bdea88d9685021a4b9a203dbf5a047f565bc6cf7",
-    "sqlite3_ge": "6835b92ed66f4ba66895dc3ab79823745a94f3f68735d6a16322c935bd972cf4"
+    "box2d": "571af627228720550c30053cf2280b0de3fae19f991dad6c4fe4faacc5c75cbb",
+    "ge": "d9e9dc75843792600dfdc01fe56c424b8a9607afcfe37b5046f3eccbe40e0480",
+    "liteparser": "23dce2d8367aa8f2430a45983073b1d44f69ce4f14dea3884931d5affc52efaf",
+    "lunasvg_ge": "05045ab038dd7516b9e26db9318fe8e8f52d86956b6e27393186a54d3d4cf853",
+    "lz4_ge": "d10a95c2f0a3efed5dd7f178cfb31b0ab2c04e20264ee6b12b394401ab875599",
+    "plutovg_ge": "295b65fdcb95fac0c9aebb49584b9f331a26af6442e32bb8e1c744d3d07a9448",
+    "sqlite3_ge": "37ac524824b5b6fb98ec8dbb45e56513691a0c3bd7d5f1e3fbc7f4595a0af190"
   }
 }

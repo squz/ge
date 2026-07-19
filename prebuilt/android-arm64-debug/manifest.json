@@ -26,13 +26,13 @@
     "vendor/github.com/sammycage/lunasvg": "83c58df8103dc7dca423dfd824992af94d49bed6"
   },
   "prebuilts": {
-    "prebuilt/android-arm64-debug/libbox2d.a": "cf5783e952e1ffa91ef18fef2731ce54e8773b84ada1d7d17d619870a98e148d",
-    "prebuilt/android-arm64-debug/libge.a": "c9a5901be0e43b0499088c20eaed710c95a1a9e217c8450f2587a2e34beaddd2",
-    "prebuilt/android-arm64-debug/libliteparser.a": "0bd88afb65e9c48acd5817d8ef4085d381482d9a6cbd15a56ee7c7fdc8ddd6c8",
-    "prebuilt/android-arm64-debug/liblunasvg_ge.a": "49dde27a05f02e05b41d5e66b298714e7d95e50a841e862a84a41c14989ebd0b",
-    "prebuilt/android-arm64-debug/liblz4_ge.a": "9fcfe6061005c8038d916d257a948f1418d1dae9bc8eb0652e652a4379a0ee54",
-    "prebuilt/android-arm64-debug/libplutovg_ge.a": "bde8cb6a82c0eea2eab6af04bdea88d9685021a4b9a203dbf5a047f565bc6cf7",
-    "prebuilt/android-arm64-debug/libsqlite3_ge.a": "6835b92ed66f4ba66895dc3ab79823745a94f3f68735d6a16322c935bd972cf4"
+    "prebuilt/android-arm64-debug/libbox2d.a": "571af627228720550c30053cf2280b0de3fae19f991dad6c4fe4faacc5c75cbb",
+    "prebuilt/android-arm64-debug/libge.a": "d9e9dc75843792600dfdc01fe56c424b8a9607afcfe37b5046f3eccbe40e0480",
+    "prebuilt/android-arm64-debug/libliteparser.a": "23dce2d8367aa8f2430a45983073b1d44f69ce4f14dea3884931d5affc52efaf",
+    "prebuilt/android-arm64-debug/liblunasvg_ge.a": "05045ab038dd7516b9e26db9318fe8e8f52d86956b6e27393186a54d3d4cf853",
+    "prebuilt/android-arm64-debug/liblz4_ge.a": "d10a95c2f0a3efed5dd7f178cfb31b0ab2c04e20264ee6b12b394401ab875599",
+    "prebuilt/android-arm64-debug/libplutovg_ge.a": "295b65fdcb95fac0c9aebb49584b9f331a26af6442e32bb8e1c744d3d07a9448",
+    "prebuilt/android-arm64-debug/libsqlite3_ge.a": "37ac524824b5b6fb98ec8dbb45e56513691a0c3bd7d5f1e3fbc7f4595a0af190"
   },
   "inputs": {
     "headers/liteparser/include/arena.h": "a0ce5bb8614c8dca2a15d0963274102ce6269fb74b0d7258f6a1779cc6fcb4b2",
@@ -167,7 +167,7 @@
     "include/ge/RenderHost.h": "36b5b3514fc3838bb66199bbf4e5fc4315f7d65bbc8416e487cff3ad8468444f",
     "include/ge/Resource.h": "c6665367d9271bee0c7e38b3a9ae206786069cf03fba472d3c15cae64b5070c3",
     "include/ge/SdlContext.h": "7abe43df416d1cd34e3846a43a32f0ca1209b9b3950ccba9906d81903697e60d",
-    "include/ge/SessionHost.h": "2e61fb48dc6b21097c190ae993824e8f4be0a58da7cb2283ec29bd12ebe60e37",
+    "include/ge/SessionHost.h": "1c2740aea989b88ea6d8ca73d026622ecab914ce1654270e52ada4663effd573",
     "include/ge/Signal.h": "a9216e6b22038d5451310e682591b84a6e30cdb0e66be786589ac1fb4eaa59c2",
     "include/ge/SokolContext.h": "52ab16fc79486460b189a8c1eeda758c403d816e61ab8695d1235c0ccd44b6c7",
     "include/ge/StreamHostPolicy.h": "52348daabbd14a3da9203d517b8e867be4a6b32472810e9ec060c23eaaa1ae03",
@@ -223,7 +223,7 @@
     "src/png.cpp": "06b772371cdeb45a757490d19c922ae03db215a3a8cc6a5f49c317514be731c7",
     "src/render/AccelSynth.h": "6696b15ec94e7a5d483635a89b6ad5cf5c438aaf0d8b37f0a73d9fba7882cf4c",
     "src/render/DirectRenderHost.h": "a22f6ebd58bc92daa91e9280337da5d043861d9603c930a1cbcac3f99cb3b4cc",
-    "src/render/DirectRenderHost.mm": "ce9b5c1ce1e251fabad75723f2ae3bbb3d74f0af9c16fe812b3be8e979458e76",
+    "src/render/DirectRenderHost.mm": "5fadc0a098b686d2d9f0e8c1e0191f43cf7f8b8694dd4bca2432d93d3af36373",
     "src/render/LifecycleInject.h": "043d863ff022dcd30879aee85890f67ce512d32fc8d972f4d3498addd7f74476",
     "src/render/RefreshRateBoost_android.cpp": "13e32e196be65c90f9cc9438f0d63d570560fa59f6d09b3d2e908fcf59ce029f",
     "src/render/RenderOnDemand.h": "66d403490137c52289466a61e43d1530aab322a6a981dc1727a776eeb1c829d2",
