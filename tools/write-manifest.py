@@ -49,7 +49,15 @@ SCRIPTS_TO_HASH_COMMON = [
     "tools/verify-prebuilds.py",
     "tools/prebuild.sh",
 ]
-SUPPORTED_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64", "web-wasm")
+SUPPORTED_BASE_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
+# Release trees: prebuilt/<base>/ (plus web-wasm, 🎯T157 — no debug flavor).
+# Debug trees: prebuilt/<base>-debug/ (same toolchain; -g archives for
+# native stepping).
+SUPPORTED_PLATFORMS = (
+    SUPPORTED_BASE_PLATFORMS
+    + ("web-wasm",)
+    + tuple(f"{p}-debug" for p in SUPPORTED_BASE_PLATFORMS)
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -271,9 +279,11 @@ def main() -> int:
     for a in sorted(prebuilt_dir.glob("*.a")):
         prebuilts[a.relative_to(REPO_ROOT).as_posix()] = sha256_file(a)
 
-    if platform.startswith("ios-"):
-        toolchain = get_toolchain_ios(platform)
-    elif platform == "web-wasm":
+    base_platform = platform.removesuffix("-debug")
+    is_debug = platform.endswith("-debug")
+    if base_platform.startswith("ios-"):
+        toolchain = get_toolchain_ios(base_platform)
+    elif base_platform == "web-wasm":
         toolchain = get_toolchain_web()
     else:
         toolchain = get_toolchain_android()
@@ -281,6 +291,8 @@ def main() -> int:
     manifest = {
         "version": 2,
         "platform": platform,
+        "base_platform": base_platform,
+        "config": "debug" if is_debug else "release",
         "toolchain": toolchain,
         "scripts": dict(sorted(scripts.items())),
         "submodule_shas": dict(sorted(submodule_shas.items())),

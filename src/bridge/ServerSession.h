@@ -15,15 +15,20 @@
 // onCapturedFrame() on the game thread, H.264-encoded, and sent as a
 // kVideoStreamMagic packet. Relayed SDL events arrive on the input thread and
 // are pushed into the SDL event queue (DirectRenderHost's pumpEvents dispatches
-// them). Single player. LAN/dev only.
+// them). Multi-session fan-out encode (🎯T100.2): multiple players may
+// attach; video is broadcast to every open wire. LAN/dev only.
 #pragma once
 
 #include <ge/Protocol.h>
+#include <ge/ViewerMetrics.h>
+#include <sqlpipe.h>
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ge {
 
@@ -57,8 +62,37 @@ public:
     // attached; a no-op otherwise. The encode dimensions are the CAPTURED
     // frame's actual w×h — NOT any DeviceInfo the player advertised — so the
     // player receives frames at the server's own render resolution and
-    // letterboxes/scales as it sees fit.
+    // letterboxes/scales as it sees fit. No-op under transport=cmdstream
+    // (sprite LiveCapture path instead).
     void onCapturedFrame(const std::uint8_t* px, int w, int h);
+
+    // 🎯T128 command-stream: arm/flush LiveCapture around onRender.
+    // contentW/H = server swapchain pixels (for player aspect-fit letterbox).
+    void onFrameBegin(int contentW, int contentH);
+    // 🎯T158: SP2A arm-state to the primary seat's glass (transitions only).
+    void sendArmState(bool armed);
+    void onFrameEnd();
+
+    // When false, DirectRenderHost skips GPU framebuffer readback.
+    std::atomic<bool>* capturePixelsFlag();
+
+    // Player DeviceInfo / SafeAreaUpdate snapshot for Context discovery.
+    // Owned by this session; outlives the host while start()..stop() is active.
+    ViewerMetricsStore* viewerMetrics();
+
+    // 🎯T154 SP2T: bind the host Context::db() (:memory: under stream) so
+    // player snapshots can seed it and continuous / detach pushes can write
+    // durable state back to the player. schemaDdl is re-applied after a
+    // player seed so empty or older dumps cannot leave the working set
+    // without the game's tables.
+    void setWorkingDb(std::shared_ptr<sqlpipe::Database> db,
+                      std::string schemaDdl = {});
+
+    // 🎯T154 SP2T: fire-and-forget push of the working set to the player
+    // durable store. Rate-limited (~0.5s). Safe to call every frame from
+    // the game thread; no-op when no player is attached. Does not block
+    // on player ack — dump + wire send only.
+    void maybePushSp2t();
 
 private:
     struct Impl;

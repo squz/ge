@@ -1,6 +1,10 @@
 #include <ge/Resource.h>
 #include <SDL3/SDL.h>
+// Slim brokered player (tools/android) does not link SOKOL_IMPL — define
+// GE_PLAYER_NO_SOKOL so we don't pull sokol_gfx just for shader-path suffixes.
+#if !defined(GE_PLAYER_NO_SOKOL)
 #include "sokol_gfx.h"
+#endif
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -46,7 +50,11 @@ std::string resource(const std::string& relativePath) {
 
 namespace {
 const char* shaderProfileSuffix() {
-#if defined(__ANDROID__)
+#if defined(GE_PLAYER_NO_SOKOL)
+    // Brokered SDL player: no local sokol backend. Shader-asset suffixes are
+    // unused on this path; keep a stable string if anything calls shaderDir().
+    return "-gles";
+#elif defined(__ANDROID__)
     switch (sg_query_backend()) {
     case SG_BACKEND_VULKAN: return "-spirv";
     case SG_BACKEND_GLES3:  return "-gles";

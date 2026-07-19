@@ -24,4 +24,11 @@ namespace ge::detail {
 // is simply overwritten before anything reads it).
 void injectMemoryWarning(MemoryPressureLevel level);
 
+// 🎯T154 viewer lifecycle over the wire (ServerSession → same atomics as OS).
+void injectBackPressed();
+void injectAudioFocus(bool gained);
+// Viewer foreground/background: when streaming, gates paused() like host OS.
+void injectViewerBackgrounded(bool backgrounded);
+bool viewerBackgrounded();
+
 } // namespace ge::detail

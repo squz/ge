@@ -1,0 +1,13 @@
+# Glass with a real accelerometer: sensor stream is the authority.
+SLEEP 1500
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -1.0 0.2
+SLEEP 100
+SENSOR 0.0 0.0
+SLEEP 500
+QUIT

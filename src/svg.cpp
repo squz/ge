@@ -5,7 +5,10 @@
 
 #include <ge/FontLoader.h>
 
+#ifndef GE_PLAYER_NO_SOKOL
+#include <ge/CmdStream.h>
 #include "sokol_gfx.h"
+#endif
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
@@ -89,6 +92,7 @@ SvgBounds boundsFromBox(const lunasvg::Box& box) {
     };
 }
 
+#ifndef GE_PLAYER_NO_SOKOL
 Sprite uploadPixels(const SvgPixels& pixels) {
     if (pixels.isNull()) return Sprite{};
     sg_image_desc desc{};
@@ -110,6 +114,18 @@ Sprite uploadPixels(const SvgPixels& pixels) {
     out.height = pixels.height;
     return out;
 }
+
+// Register recipe (preferred) + pixel flatten fallback for cmdstream.
+void registerSvgRecipe(const Sprite& out, std::string_view svg,
+                       int targetW, int targetH) {
+    if (out.tex.id == SG_INVALID_ID) return;
+    const int16_t tw = static_cast<int16_t>(targetW < 0 ? -1 : targetW);
+    const int16_t th = static_cast<int16_t>(targetH < 0 ? -1 : targetH);
+    cmdstream::registerImageSvg(
+        out.tex.id, svg, tw, th,
+        static_cast<uint16_t>(out.width), static_cast<uint16_t>(out.height));
+}
+#endif
 
 } // namespace
 
@@ -137,10 +153,21 @@ SvgPixels rasterizeSvgToPixels(std::string_view svg, int targetW, int targetH) {
 }
 
 Sprite rasterizeSvg(std::string_view svg, int targetW, int targetH) {
-    return uploadPixels(rasterizeSvgToPixels(svg, targetW, targetH));
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)svg; (void)targetW; (void)targetH;
+    return Sprite{};
+#else
+    Sprite out = uploadPixels(rasterizeSvgToPixels(svg, targetW, targetH));
+    registerSvgRecipe(out, svg, targetW, targetH);
+    return out;
+#endif
 }
 
 Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH) {
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)doc; (void)targetW; (void)targetH;
+    return Sprite{};
+#else
     // lunasvg::Document::renderToBitmap is non-const in some versions; the
     // const_cast is safe because renderToBitmap doesn't observably mutate
     // the document beyond updating an internal layout cache.
@@ -149,7 +176,19 @@ Sprite renderSvgDocument(const lunasvg::Document& doc, int targetW, int targetH)
         spdlog::error("ge::renderSvgDocument: renderToBitmap returned null ({}x{})", targetW, targetH);
         return Sprite{};
     }
-    return uploadPixels(bitmapToPixels(bm));
+    SvgPixels px = bitmapToPixels(bm);
+    Sprite out = uploadPixels(px);
+    // Interactive document: no retained SVG string — pixel flatten only.
+    // (Mutation-stream SVG verb is a later T128.7 extension.)
+    if (out.tex.id != SG_INVALID_ID && !px.isNull()) {
+        cmdstream::registerImagePixels(
+            out.tex.id,
+            static_cast<uint16_t>(px.width),
+            static_cast<uint16_t>(px.height),
+            px.rgba.data(), px.rgba.size());
+    }
+    return out;
+#endif
 }
 
 SvgBounds measureSvgBounds(std::string_view svg) {

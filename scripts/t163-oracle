@@ -1,0 +1,165 @@
+#!/bin/bash
+# Copyright 2026 Marcelo Cantos
+# SPDX-License-Identifier: Apache-2.0
+#
+# t163-oracle — per-session game instances (🎯T163).
+#
+# Two headless players attach concurrently with OPPOSITE scripted sensor
+# streams. Each must land in its own child game instance: their
+# game-boundary traces show mirrored gravity (independent worlds driven by
+# their own sensors), and the survivor keeps playing after the other
+# detaches. Evidence: child traces + summary.json.
+#
+# Usage: scripts/t163-oracle [evidence-dir]
+
+set -euo pipefail
+
+GE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SPYDER_ROOT=${SPYDER_ROOT:-$HOME/work/github.com/marcelocantos/spyder}
+APP_DIR="$GE_ROOT/sample/tiltbuggy"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+EVIDENCE=${1:-"$GE_ROOT/verdicts/T163/$STAMP"}
+RELAY_PORT=3133
+
+mkdir -p "$EVIDENCE"
+echo "t163-oracle: evidence → $EVIDENCE"
+
+for bin in "$APP_DIR/bin/tiltbuggy-server" "$SPYDER_ROOT/bin/spyder" \
+           "$SPYDER_ROOT/bin/player"; do
+    [ -x "$bin" ] || { echo "t163-oracle: missing $bin" >&2; exit 2; }
+done
+
+# Player A: left-tilt glass, runs ~11 s (outlives B by ~5 s).
+cat > "$EVIDENCE/gesture-a.txt" <<'EOF'
+SLEEP 2500
+SENSOR -3.0 0.0
+SLEEP 500
+SENSOR -3.0 0.0
+SLEEP 500
+SENSOR -3.0 0.0
+SLEEP 500
+SENSOR -3.0 0.0
+SLEEP 500
+SENSOR -3.0 0.0
+SLEEP 3000
+SENSOR -3.0 0.0
+SLEEP 3000
+QUIT
+EOF
+# Player B: right-tilt glass, exits early (detach-independence probe).
+cat > "$EVIDENCE/gesture-b.txt" <<'EOF'
+SLEEP 2500
+SENSOR 3.0 0.0
+SLEEP 500
+SENSOR 3.0 0.0
+SLEEP 500
+SENSOR 3.0 0.0
+SLEEP 500
+SENSOR 3.0 0.0
+SLEEP 1500
+QUIT
+EOF
+
+cleanup() {
+    [ -n "${MOTHER_PID:-}" ] && kill "$MOTHER_PID" 2>/dev/null || true
+    [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+}
+trap cleanup EXIT
+
+"$SPYDER_ROOT/bin/spyder" serve --addr ":$RELAY_PORT" \
+    > "$EVIDENCE/relay.log" 2>&1 &
+RELAY_PID=$!
+sleep 1
+
+(cd "$APP_DIR" &&
+ GE_SERVER="127.0.0.1:$RELAY_PORT" \
+ GE_CHILD_TRACE_DIR="$EVIDENCE" \
+ ./bin/tiltbuggy-server > "$EVIDENCE/mother.log" 2>&1) &
+MOTHER_PID=$!
+sleep 2
+
+"$SPYDER_ROOT/bin/player" --headless --host 127.0.0.1 --port "$RELAY_PORT" \
+    --name tiltbuggy --script "$EVIDENCE/gesture-a.txt" --exit-after-script \
+    --accel 1 --device-class tablet \
+    --trace "$EVIDENCE/player-a.trace" > "$EVIDENCE/player-a.log" 2>&1 &
+PA=$!
+sleep 1
+"$SPYDER_ROOT/bin/player" --headless --host 127.0.0.1 --port "$RELAY_PORT" \
+    --name tiltbuggy --script "$EVIDENCE/gesture-b.txt" --exit-after-script \
+    --accel 1 --device-class tablet \
+    --trace "$EVIDENCE/player-b.trace" > "$EVIDENCE/player-b.log" 2>&1 &
+PB=$!
+wait "$PB" 2>/dev/null || true
+B_EXIT_TS=$(date +%s)
+wait "$PA" 2>/dev/null || true
+sleep 3  # children notice wire close and exit
+
+rc=0
+python3 - "$EVIDENCE" <<'PYEOF' || rc=$?
+import glob, json, sys
+
+ev = sys.argv[1]
+
+def load(path):
+    sensors, tilts = [], []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if j["k"] == "sensor":
+                sensors.append(j)
+            elif j["k"] == "tilt":
+                tilts.append(j)
+    return sensors, tilts
+
+traces = sorted(glob.glob(f"{ev}/s[0-9]*.trace"))
+r = {"child_traces": [t.split("/")[-1] for t in traces]}
+ok = len(traces) == 2
+r["two_children"] = ok
+
+if ok:
+    worlds = []
+    for t in traces:
+        sensors, _ = load(t)
+        gxs = [s["gx"] for s in sensors if abs(s["gx"]) > 1.0]
+        worlds.append({
+            "trace": t.split("/")[-1],
+            "sensor_events": len(sensors),
+            "dominant_gx": (sorted(gxs)[len(gxs)//2] if gxs else 0.0),
+            "last_t_ms": sensors[-1]["t_ms"] if sensors else 0,
+        })
+    r["worlds"] = worlds
+    signs = sorted(w["dominant_gx"] for w in worlds)
+    # The trace records RAW sensor samples at the game boundary (±3.0);
+    # the gravity gain is applied inside the game. Opposite dominant signs
+    # prove two independent worlds fed by their own glasses.
+    r["opposite_worlds"] = bool(signs[0] < -2.0 and signs[1] > 2.0)
+    ok = ok and r["opposite_worlds"]
+    r["both_fed"] = all(w["sensor_events"] >= 3 for w in worlds)
+    ok = ok and r["both_fed"]
+    # Survivor independence: the long-lived world's trace extends well past
+    # the short one's end (B exits ~5 s before A).
+    ts = sorted(w["last_t_ms"] for w in worlds)
+    r["survivor_outlived_ms"] = ts[1] - ts[0]
+    r["survivor_independent"] = r["survivor_outlived_ms"] > 2000
+    ok = ok and r["survivor_independent"]
+
+with open(f"{ev}/mother.log") as f:
+    log = f.read()
+r["children_spawned"] = log.count("spawned child")
+ok = ok and r["children_spawned"] == 2
+r["ok"] = bool(ok)
+
+with open(f"{ev}/summary.json", "w") as f:
+    json.dump(r, f, indent=2)
+print(json.dumps(r, indent=2))
+sys.exit(0 if ok else 1)
+PYEOF
+echo "t163-oracle: $([ $rc -eq 0 ] && echo PASS || echo FAIL) — $EVIDENCE/summary.json"
+exit $rc

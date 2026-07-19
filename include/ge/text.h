@@ -7,6 +7,7 @@
 #include <ge/Linalg.h>
 #include <ge/sprite.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -40,7 +41,16 @@ TextPixels rasterizeTextToPixels(const std::string& text,
                                  float sizePt,
                                  la::float4 color);
 
+// Same as rasterizeTextToPixels but opens the face from an in-memory font
+// blob (cmdstream MakeText player path — FT_New_Memory_Face).
+TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,
+                                           const void* fontBytes, size_t fontN,
+                                           int faceIndex,
+                                           float sizePt,
+                                           la::float4 color);
+
 // Rasterize and upload to a `Sprite`. Null Sprite on failure.
+// Under cmdstream, registers a MakeText recipe (font bytes + string).
 Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
                      float sizePt,

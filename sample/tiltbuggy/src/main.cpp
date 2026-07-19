@@ -29,6 +29,7 @@
 #include <ge/Resource.h>
 #include <ge/sdl_input.h>
 #include <ge/SessionHost.h>
+#include <sqlpipe.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>  // required on iOS/Android; no-op on desktop
 #include <spdlog/spdlog.h>
@@ -37,6 +38,7 @@
 #include <TargetConditionals.h>  // TARGET_OS_IOS — guards the host-only render path
 #endif
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -63,6 +65,26 @@ constexpr float kWorldHalfExtent = 10.0f;
 // game drove gravity at ~100 per g for a snappy arcade feel; this gain is the
 // equivalent knob at this world scale (tuned in 🎯T16).
 constexpr float kGravityGain = 10.0f;
+// A device standing fully upright puts ~1 g on one axis → |gravity| ≈ 98
+// world units/s² against a ~20-unit world: the buggy tunnels through the
+// walls and escapes (seen live on the A9 tablet). Clamp tilt gravity to a
+// playable ceiling, and teleport an escaped buggy back to spawn — the
+// latter also self-heals stale SP2T poses seeded from a glass's old db.
+constexpr float kMaxTiltGravity = 30.0f;
+constexpr float kEscapeBound = kWorldHalfExtent * 8.0f;
+
+// 🎯T154 SP2T pose durability test: single-row pose table written every 0.5s.
+// Schema is applied by DirectRenderHost via SessionHostConfig.schemaDdl.
+constexpr const char* kPoseSchemaDdl =
+    "CREATE TABLE pose ("
+    "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+    "  x REAL NOT NULL,"
+    "  y REAL NOT NULL,"
+    "  angle REAL NOT NULL,"
+    "  updated_at REAL NOT NULL"
+    ");";
+
+constexpr float kPoseWriteIntervalSec = 0.5f;
 
 struct State {
     std::unique_ptr<tiltbuggy::Scene> scene;
@@ -70,6 +92,9 @@ struct State {
     b2Vec2 gravity{0, 0};
     bool rendererInited = false;
     bool renderOnDemand = false;        // 🎯T131.5 GE_RENDER_ON_DEMAND demo
+    float arenaAspect = 0.f;            // rebuild scene when content aspect changes
+    float poseWriteAccum = 0.f;         // 🎯T154 durable pose write cadence
+    std::shared_ptr<sqlpipe::Database> db;  // Context::db() for pose persistence
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -131,6 +156,9 @@ int main(int argc, char* argv[]) {
     // monitor surface. No game window in this mode — the app-channel worker
     // threads service requests while main() idles. Dev-only (installFromEnv and
     // the whole channel compile out under NDEBUG).
+#if !defined(__ANDROID__)
+    // Desktop dev harness only: posix_spawn is API 28+ on bionic, and a
+    // phone game has no business forking instances of itself.
     if (std::getenv("GE_FACTORY")) {
         const std::string self = argv[0];
         ge::appchannel::registerMethod(
@@ -164,6 +192,7 @@ int main(int argc, char* argv[]) {
         SPDLOG_INFO("tiltbuggy GE_FACTORY: spawn_instance registered; idling");
         for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
     }
+#endif // !__ANDROID__
 
     State state;
 
@@ -249,16 +278,47 @@ int main(int argc, char* argv[]) {
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
         // settled scene lets the loop idle (onEvent wakes it on a real tilt).
-        // 🎯T137.3 Aspect-scale the arena to the display (like the 2013 game),
-        // so a landscape screen is filled and the dirt reaches the left edge.
-        const auto surf0 = ctx.fullRectInPts();
-        const float arenaAspect = (surf0.h > 0)
-            ? static_cast<float>(surf0.w) / static_cast<float>(surf0.h) : 1.0f;
+        // 🎯T137.3 Aspect-scale the arena to drawSafe (the playfield edge). Under
+        // immersive that is the full surface; dirt/walls reach the short edge
+        // without a separate fullRect path. Rebuild if drawSafe aspect changes
+        // (stream content retarget, chrome, …).
+        const auto play0 = ctx.drawSafeRectInPts();
+        const auto full0 = ctx.fullRectInPts();
+        const ge::Rect aspectSrc = (play0.h > 0.f) ? play0 : full0;
+        state.arenaAspect = (aspectSrc.h > 0.f)
+            ? aspectSrc.w / aspectSrc.h : 1.0f;
         state.scene = std::make_unique<tiltbuggy::Scene>(kWorldHalfExtent,
-                                                         arenaAspect,
+                                                         state.arenaAspect,
                                                          state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
+        state.db = ctx.db();
+        state.poseWriteAccum = 0.f;
+
+        // 🎯T154: restore last durable pose if present (stream reconnect / direct relaunch).
+        if (state.db) {
+            try {
+                auto rows = state.db->query(
+                    "SELECT x, y, angle FROM pose WHERE id = 1");
+                if (!rows.rows.empty() && rows.rows[0].size() >= 3) {
+                    auto asF = [](const sqlpipe::Value& v) -> float {
+                        if (const auto* d = std::get_if<double>(&v))
+                            return static_cast<float>(*d);
+                        if (const auto* i = std::get_if<std::int64_t>(&v))
+                            return static_cast<float>(*i);
+                        return 0.f;
+                    };
+                    const float x = asF(rows.rows[0][0]);
+                    const float y = asF(rows.rows[0][1]);
+                    const float a = asF(rows.rows[0][2]);
+                    state.scene->applyPose({x, y, a});
+                    SPDLOG_INFO("tiltbuggy: restored pose from db "
+                                "[{:.2f},{:.2f},{:.2f}]", x, y, a);
+                }
+            } catch (const std::exception& e) {
+                SPDLOG_WARN("tiltbuggy: pose restore skipped: {}", e.what());
+            }
+        }
 
         // 🎯T131.5 Render-on-demand demo (opt-in via GE_RENDER_ON_DEMAND). The
         // buggy is a physics body: render every frame while it's moving (box2d
@@ -277,6 +337,37 @@ int main(int argc, char* argv[]) {
                 // proving-ground pattern for ge consumers. Surfaces in
                 // spyder's app_perf_get alongside the engine's frame_ms.
                 ge::appchannel::perfEmit("buggy_x", p.x);
+
+                // 🎯T154 SP2T test: durable pose every 0.5s. Under stream the
+                // server working set is :memory:; ServerSession pushes SP2T
+                // to the player PrefPath file (per-game) on the same cadence.
+                state.poseWriteAccum += dt;
+                if (state.db && state.poseWriteAccum >= kPoseWriteIntervalSec) {
+                    state.poseWriteAccum = 0.f;
+                    const double t = SDL_GetTicks() / 1000.0;
+                    char sql[256];
+                    std::snprintf(sql, sizeof(sql),
+                        "INSERT OR REPLACE INTO pose(id,x,y,angle,updated_at) "
+                        "VALUES(1,%.9g,%.9g,%.9g,%.9g)",
+                        static_cast<double>(p.x), static_cast<double>(p.y),
+                        static_cast<double>(p.angle), t);
+                    try {
+                        state.db->exec(sql);
+                        SPDLOG_INFO("tiltbuggy: pose → db "
+                                    "[{:.2f},{:.2f},{:.2f}] t={:.1f}",
+                                    p.x, p.y, p.angle, t);
+                    } catch (const std::exception& e) {
+                        SPDLOG_WARN("tiltbuggy: pose write failed: {}", e.what());
+                    }
+                }
+
+                if (std::fabs(p.x) > kEscapeBound ||
+                    std::fabs(p.y) > kEscapeBound) {
+                    SPDLOG_WARN("tiltbuggy: buggy escaped world at "
+                                "[{:.1f},{:.1f}] — respawning", p.x, p.y);
+                    state.scene->applyPose({0.0f, 0.0f, 0.0f});
+                }
+
                 static int frame = 0;
                 if (++frame % 60 == 0) {
                     const auto gr = state.scene->gripState();
@@ -286,6 +377,28 @@ int main(int argc, char* argv[]) {
                 }
             },
             .onRender = [&](const ge::Context& c) {
+                // Rebuild walls when drawSafe aspect changes (content retarget
+                // under stream, chrome settle, …). Same source as the camera.
+                {
+                    const auto play = c.drawSafeRectInPts();
+                    const auto full = c.fullRectInPts();
+                    const ge::Rect src = (play.h > 0.f) ? play : full;
+                    if (src.h > 0.f) {
+                        const float a = src.w / src.h;
+                        if (std::fabs(a - state.arenaAspect) >= 0.005f) {
+                            const auto pose = state.scene->buggyPose();
+                            state.arenaAspect = a;
+                            state.scene = std::make_unique<tiltbuggy::Scene>(
+                                kWorldHalfExtent, state.arenaAspect,
+                                state.renderOnDemand);
+                            state.scene->applyPose(pose);
+                            if (state.renderOnDemand)
+                                ge::box2d::renderWhileAwake(c, state.scene->worldId());
+                            SPDLOG_INFO("tiltbuggy: arena aspect → {:.3f} "
+                                        "(drawSafe {}x{})", a, src.w, src.h);
+                        }
+                    }
+                }
                 if (!state.rendererInited) {
                     state.renderer->init(ge::resource(ge::shaderDir()).c_str());
                     state.rendererInited = true;
@@ -308,6 +421,12 @@ int main(int argc, char* argv[]) {
                     const b2Vec2 oldG = state.gravity;
                     state.gravity.x = -e.sensor.data[0] * kGravityGain;
                     state.gravity.y = -e.sensor.data[1] * kGravityGain;
+                    const float gm = std::sqrt(state.gravity.x * state.gravity.x +
+                                               state.gravity.y * state.gravity.y);
+                    if (gm > kMaxTiltGravity) {
+                        state.gravity.x *= kMaxTiltGravity / gm;
+                        state.gravity.y *= kMaxTiltGravity / gm;
+                    }
                     // 🎯T131.5/T134 The continuous sensor stream doesn't wake the
                     // idle loop on its own, but a *meaningful tilt change* must:
                     // otherwise a tilt while the buggy is asleep would update
@@ -424,6 +543,7 @@ int main(int argc, char* argv[]) {
         .height = 768,
         .orgName = "squz",
         .appName = "tiltbuggy",
+        .schemaDdl = kPoseSchemaDdl,
         .sensors = wire::kSensorAccelerometer,
         .orientation = wire::kOrientationAnyLandscape,
         .disableScreenSaver = true,

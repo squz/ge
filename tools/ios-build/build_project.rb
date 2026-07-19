@@ -174,6 +174,7 @@ module GE
         add_app_target!
         add_build_configurations!
         add_shader_codegen_phase!
+        add_prebuilt_cook_verify_phase!
         add_sources!
         add_resources!
         add_frameworks!
@@ -602,7 +603,41 @@ module GE
         phase.shell_script = script
         phase.shell_path = '/bin/bash'
         # Move it to be the first phase so generated headers exist before
-        # Compile Sources runs.
+        # Compile Sources runs. (Verify-cook phase unshifts after this and
+        # ends up first — cook before shaders before compile.)
+        @app_target.build_phases.delete(phase)
+        @app_target.build_phases.unshift(phase)
+      end
+
+      # Hard co-cook gate for iOS (parity with cmake/android-arm64.cmake).
+      # Every prebuilt .a must match prebuilt/<platform>/cook.json from a
+      # single full tools/prebuild.sh cook. Runs every Xcode build, even if
+      # the user opened the .xcodeproj without going through make.
+      def add_prebuilt_cook_verify_phase!
+        ge_rel = relative_to_ios(@ge_root)
+        script = <<~SH
+          set -euo pipefail
+          GE_ROOT="${SRCROOT}/#{ge_rel}"
+          VERIFY="${GE_ROOT}/tools/verify-cook.py"
+          if [ ! -f "$VERIFY" ]; then
+            echo "error: missing $VERIFY" >&2
+            exit 1
+          fi
+          # PLATFORM_NAME is iphoneos | iphonesimulator (set by Xcode).
+          case "${PLATFORM_NAME:-}" in
+            iphonesimulator) KEY=ios-arm64-simulator ;;
+            iphoneos|*)      KEY=ios-arm64 ;;
+          esac
+          PREBUILT="${GE_ROOT}/prebuilt/${KEY}"
+          echo "ge: verifying prebuilt cook for ${KEY}…"
+          python3 "$VERIFY" "$PREBUILT"
+        SH
+
+        phase = @app_target.new_shell_script_build_phase('Verify prebuilt cook')
+        phase.shell_script = script
+        phase.shell_path = '/bin/bash'
+        # Always run (no dependency analysis) — a hand-copied .a must fail.
+        phase.always_out_of_date = '1' if phase.respond_to?(:always_out_of_date=)
         @app_target.build_phases.delete(phase)
         @app_target.build_phases.unshift(phase)
       end

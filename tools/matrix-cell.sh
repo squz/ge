@@ -108,9 +108,9 @@ CAPTURE_REFS=0
 RMS=0.08
 VERBOSE=0
 STREAM_PORT=3030
-PLAYER_BUNDLE_ID="com.squz.player"
-PLAYER_ANDROID_PKG="com.squz.player"
-PLAYER_ANDROID_ACTIVITY="com.squz.player/.GeActivity"
+PLAYER_BUNDLE_ID="com.spyder.player"
+PLAYER_ANDROID_PKG="com.spyder.player"
+PLAYER_ANDROID_ACTIVITY="com.spyder.player/.PlayerActivity"
 # Pinned device alias (set by self-wrap; can also be passed by caller).
 PINNED_DEVICE=""
 # Skip the spyder-run self-wrap (we're already inside one).

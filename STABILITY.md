@@ -98,7 +98,7 @@ All public API lives under `include/ge/*.h`.
 
 ### Protocol types and constants (`wire::`)
 
-- `wire::kProtocolVersion = 6` (`uint16_t`). **Fluid**. Bumped on breaking change.
+- `wire::kProtocolVersion = 7` (`uint16_t`). **Fluid**. Bumped on breaking change.
 - `wire::kMaxMessageSize = 512 * 1024 * 1024`. **Stable**.
 - All 11 message magic constants (`kDeviceInfoMagic` … `kSessionConfigMagic`) — listed under **Wire + stream-relay API surface** below. **Fluid** collectively; new message types added with features.
 - `wire::DeviceInfo`, `wire::SafeAreaUpdate`, `wire::AspectLock`, `wire::SessionConfig`, `wire::MessageHeader` — POD struct layouts documented under **Wire + stream-relay API surface**. **Stable** for layout; **Fluid** for field set.
@@ -265,27 +265,28 @@ desktop-{dist,player}
 
 ### Wire protocol version
 
-- `wire::kProtocolVersion = 6` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change.
+- `wire::kProtocolVersion = 7` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change. v7 adds `DeviceInfo.capabilities`, `SessionConfig.transport`, and `kCommandStreamMagic` (`SP2S`).
 - Little-endian byte order (static-asserted).
 - Max frame: `kMaxMessageSize = 512 MB` (ge `kMaxMessageSize` is the wire limit).
 
 ### Wire message magic constants
 
-All share the ASCII prefix `GE2` (`0x474532xx`).
+All share the ASCII prefix `SP2` (`0x535032xx`).
 
 | Constant | Value | ASCII | Direction | Purpose | Stability |
 |---|---|---|---|---|---|
-| `kDeviceInfoMagic` | 0x47453244 | `GE2D` | player → server | Device dims, class, pixel ratio, safe area, orientation | **Stable** |
-| `kSafeAreaMagic` | 0x47453245 | `GE2E` | player → server | Safe-area update on orientation change | **Stable** |
-| `kSdlEventMagic` | 0x47453249 | `GE2I` | player → server | Raw SDL input event | **Stable** |
-| `kSessionEndMagic` | 0x4745324D | `GE2M` | relay → player | Server disconnected | **Stable** |
-| `kServerAssignedMagic` | 0x4745324E | `GE2N` | relay → player | Server name for this session | **Stable** |
-| `kSqlpipeMsgMagic` | 0x47453254 | `GE2T` | bidirectional | sqlpipe channel messages | **Needs review** |
-| `kVideoStreamMagic` | 0x47453256 | `GE2V` | server → relay / player → relay | H.264 NAL frames | **Stable** |
-| `kStreamStartMagic` | 0x47453257 | `GE2W` | relay → player | Begin H.264 upload | **Stable** |
-| `kStreamStopMagic` | 0x47453258 | `GE2X` | relay → player | Stop H.264 upload | **Stable** |
-| `kAspectLockMagic` | 0x47453260 | `` GE2` `` | server → player | Lock aspect ratio | **Stable** |
-| `kSessionConfigMagic` | 0x47453243 | `GE2C` | server → player | Session requirements (sensors, orientation) | **Stable** |
+| `kDeviceInfoMagic` | 0x53503244 | `SP2D` | player → server | Device dims, class, pixel ratio, safe area, orientation | **Stable** |
+| `kSafeAreaMagic` | 0x53503245 | `SP2E` | player → server | Safe-area update on orientation change | **Stable** |
+| `kSdlEventMagic` | 0x53503249 | `SP2I` | player → server | Raw SDL input event | **Stable** |
+| `kSessionEndMagic` | 0x5350324D | `SP2M` | relay → player | Server disconnected | **Stable** |
+| `kServerAssignedMagic` | 0x5350324E | `SP2N` | relay → player | Server name for this session | **Stable** |
+| `kSqlpipeMsgMagic` | 0x53503254 | `SP2T` | bidirectional | sqlpipe channel messages | **Needs review** |
+| `kCommandStreamMagic` | 0x53503253 | `SP2S` | server → player | cmdstream ops (T128) | **Fluid** |
+| `kVideoStreamMagic` | 0x53503256 | `SP2V` | server → relay / player → relay | H.264 NAL frames | **Stable** |
+| `kStreamStartMagic` | 0x53503257 | `SP2W` | relay → player | Begin H.264 upload | **Stable** |
+| `kStreamStopMagic` | 0x53503258 | `SP2X` | relay → player | Stop H.264 upload | **Stable** |
+| `kAspectLockMagic` | 0x53503260 | `` SP2` `` | server → player | Lock aspect ratio | **Stable** |
+| `kSessionConfigMagic` | 0x53503243 | `SP2C` | server → player | Session requirements (sensors, orientation) | **Stable** |
 
 ### Wire payload structs
 

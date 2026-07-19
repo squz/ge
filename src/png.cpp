@@ -3,6 +3,7 @@
 
 #include <ge/png.h>
 
+#include <ge/CmdStream.h>
 #include <ge/Resource.h>
 
 #include "sokol_gfx.h"
@@ -13,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
+#include <vector>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -87,6 +89,14 @@ Sprite imageFromSurface(SDL_Surface* surface) {
     vd.label = "ge.image.sprite.view";
     out.view = sg_make_view(&vd);
 
+    // 🎯T128: RGBA flatten fallback when no encoded recipe is registered later.
+    if (out.tex.id != SG_INVALID_ID) {
+        cmdstream::registerImagePixels(out.tex.id,
+                                       static_cast<uint16_t>(w),
+                                       static_cast<uint16_t>(h),
+                                       rgba->pixels, dataSize);
+    }
+
     // sg_make_image consumes the initial-data bytes synchronously, so the
     // surface is safe to free now.
     if (ownedRgba) {
@@ -103,6 +113,21 @@ Sprite imageFromSurface(SDL_Surface* surface) {
 Sprite loadImage(const std::string& path) {
     std::string resolved = ge::resource(path);
 
+    // Read encoded bytes for cmdstream MakeEncodedImage (recipe << RGBA).
+    std::vector<uint8_t> encoded;
+    {
+        SDL_IOStream* rio = SDL_IOFromFile(resolved.c_str(), "rb");
+        if (rio) {
+            Sint64 sz = SDL_GetIOSize(rio);
+            if (sz > 0) {
+                encoded.resize(static_cast<size_t>(sz));
+                if (SDL_ReadIO(rio, encoded.data(), encoded.size()) != encoded.size())
+                    encoded.clear();
+            }
+            SDL_CloseIO(rio);
+        }
+    }
+
     SDL_IOStream* io = SDL_IOFromFile(resolved.c_str(), "rb");
     if (io == nullptr) {
         spdlog::error("ge::loadImage: cannot open \"{}\" ({})", path, SDL_GetError());
@@ -115,7 +140,16 @@ Sprite loadImage(const std::string& path) {
         return Sprite{};
     }
 
-    return imageFromSurface(raw);
+    Sprite out = imageFromSurface(raw);
+    // Prefer encoded PNG on the wire when streaming (overrides pixel flatten).
+    if (out.tex.id != SG_INVALID_ID && !encoded.empty()) {
+        cmdstream::registerImageEncoded(
+            out.tex.id, cmdstream::kEncodedPng,
+            encoded.data(), encoded.size(),
+            static_cast<uint16_t>(out.width),
+            static_cast<uint16_t>(out.height));
+    }
+    return out;
 }
 
 // 🎯T124 Write RGBA8 (top-down, tightly packed, w*h*4) to a PNG file.

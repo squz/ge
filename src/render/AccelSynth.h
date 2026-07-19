@@ -5,33 +5,44 @@
 // mouse motion when no real accelerometer is available (desktop, iOS
 // simulator, Android emulator).
 //
-// On iOS sim and Android emu, the mouse button must also be held — the
-// platforms only deliver motion via touch synthesis, which requires a
-// "finger down". On desktop, the button is irrelevant.
+// iOS Simulator notes:
+//  - Core Motion reports accelerometerAvailable=YES; we force
+//    realSensorAvailable()=false so synth still arms.
+//  - Do NOT enable SDL relative mouse mode on any iOS (device or sim).
+//    UIKit delivers absolute pointer motion (SDL_SendMouseMotion relative=
+//    false). With WINDOW_MOUSE_RELATIVE_MODE set, SDL drops those absolute
+//    events (SDL_mouse.c), while GCMouse relative deltas are rarely available
+//    for the host cursor — so arming relative mode silences all tilt motion.
+//    AccelSynth uses absolute x/y deltas (and any non-zero xrel) instead.
+//  - Hardware-keyboard Shift is unreliable on sim (Connect Hardware Keyboard
+//    must be on) — a touch-first virtual device arms on primary drag instead
+//    (see arm policy below).
 //
-// Belongs to the render subsystem. DirectRenderHost (in-process — desktop
-// app, hidden-window server, sim/emu) is the sole owner: synthesis is an
-// ENGINE concern, so it runs wherever the engine hosts the game. Players are
-// dumb peripherals that forward raw Shift+drag over the wire; the server-side
-// host's synth interprets it. Games only ever see SDL_EVENT_SENSOR_UPDATE
-// events; whether they originate from real hardware or this synthesis is
-// invisible to them.
+// Arm policy (🎯T156.2) derives from the VIRTUAL DEVICE's declared facts,
+// passed in by the construction site via setArmOnPrimary — never from
+// GE_SERVER_BUILD / TARGET_OS_SIMULATOR / stream-vs-direct conditionals:
+//  - Keyboard/desktop-class device: Shift + drag only, with relative mouse
+//    mode so the cursor doesn't leave the window. Button alone doesn't tilt.
+//  - Touch-first device (phone/tablet class) with no accelerometer: primary
+//    button / finger drag arms — click-drag alone tilts.
+// Existence is likewise capability-decided at the construction site: the
+// synth is only built for a virtual device that declares NO hardware
+// accelerometer; a real-accelerometer glass is its own sensor authority.
 //
-// Tilt model: mouse displacement from its initial press-point is the
-// tilt vector. Magnitude × a fixed radians-per-pixel scale gives the
-// tilt angle; the axis of rotation is perpendicular to the displacement
-// in the screen plane. One rotation about one axis — no gimballing.
-// No cap on displacement: let the user "flip the device upside down"
-// if they want, with the physics following sin(angle) naturally.
+// Stream: the player forwards device-local raw events (no content remap).
+// Finger denorm uses setSurfacePixels(player DeviceInfo) — never the
+// stream-host window.
 //
-// GE_ACCELSYNTH_AUTODRIVE (iOS Simulator only):
-// When this environment variable is set to "1", update() drives a
-// synthetic 100-pixel X-axis tilt for the first 2 seconds, then
-// releases into easing. This lets the matrix cell (ios-sim-tablet-dist)
-// assert the AccelSynth path produces non-zero sensor output without
-// requiring any mouse input — simctl cannot inject GCKeyboard Shift events.
-// This path is compiled and active ONLY on TARGET_OS_SIMULATOR; it is
-// unreachable on real devices.
+// Belongs to the render subsystem. DirectRenderHost owns synthesis.
+// Stream players forward raw Shift/drag; server-side synth interprets.
+// Games only see SDL_EVENT_SENSOR_UPDATE. Direct vs stream: same AccelSynth
+// math on the same device-local gesture units (transport is not meaning).
+//
+// Tilt model: mouse displacement from the arm point is the tilt vector.
+// Magnitude × kTiltRadPerPixel → angle; axis ⊥ displacement in screen plane.
+//
+// GE_ACCELSYNTH_AUTODRIVE=1 (env opt-in, any platform): fixed 100 px X tilt
+// for 2 s then ease — for matrix cells that cannot inject GCKeyboard Shift.
 #pragma once
 
 #include <SDL3/SDL.h>
@@ -47,86 +58,179 @@
 
 namespace ge {
 
-// Radians of tilt per pixel of mouse displacement. Chosen so that ~300 px
-// of displacement corresponds to ~45° tilt — a comfortable reach on a
-// laptop trackpad / mouse.
 constexpr float kTiltRadPerPixel = 0.0026f;  // ≈ π/4 / 300
 constexpr float kG = 9.81f;
 
 struct Tilt {
-    float x = 0.f;  // mouse displacement from press-point, pixels
+    float x = 0.f;
     float y = 0.f;
 };
+
+// Relative mouse for desktop Shift-drag only. Never on iOS (device or
+// simulator) — see file header: relative mode drops UIKit absolute motion.
+inline void setRelativeMouseForShiftDrag(SDL_Window* window, bool armed) {
+    // On web (🎯T157) relative mode means requestPointerLock, which browsers
+    // may deny (no transient activation, headless) — and SDL then DISCARDS
+    // absolute motion while relative mode is on, so the synth would go dead.
+    // Plain absolute motion carries xrel on web anyway; the lost
+    // past-the-edge drag is a fair trade for input that always works.
+#if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__EMSCRIPTEN__)
+    (void)window;
+    (void)armed;
+#else
+    SDL_Window* w = window ? window : SDL_GetMouseFocus();
+    if (w) SDL_SetWindowRelativeMouseMode(w, armed);
+#endif
+}
+
+// True for touch-generated synthetic mouse events (SDL_TOUCH_MOUSEID).
+// Direct game input and stream forward both drop these so one physical
+// touch is not processed twice (finger + mouse).
+inline bool isTouchSyntheticMouse(const SDL_Event& e) {
+    if (e.type == SDL_EVENT_MOUSE_MOTION)
+        return e.motion.which == SDL_TOUCH_MOUSEID;
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        e.type == SDL_EVENT_MOUSE_BUTTON_UP)
+        return e.button.which == SDL_TOUCH_MOUSEID;
+    return false;
+}
 
 class AccelSynth {
 public:
     AccelSynth() = default;
 
-    void setWindow(SDL_Window* w) { window_ = w; }
+    // Host window (relative-mouse on desktop; optional surface fallback).
+    void setWindow(SDL_Window* w) {
+        window_ = w;
+        if (w && !surfacePinned_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(w, &ww, &wh);
+            if (ww > 0 && wh > 0) {
+                surfaceW_ = ww;
+                surfaceH_ = wh;
+            }
+        }
+    }
+
+    // Device-local surface size for finger 0–1 → pixel denormalization.
+    // Direct: match the local window. Stream: player DeviceInfo (viewer)
+    // pixels — never the Mac host swapchain. Pinning stops setWindow from
+    // overwriting with host size.
+    void setSurfacePixels(int w, int h) {
+        if (w > 0 && h > 0) {
+            surfaceW_ = w;
+            surfaceH_ = h;
+            surfacePinned_ = true;
+        }
+    }
+
     void setEmit(std::function<void(const SDL_Event&)> fn) { emit_ = std::move(fn); }
 
-    // Current tilt vector (raw mouse displacement from the Shift-press
-    // point, in pixels). Zero when Shift isn't held.
+    // 🎯T156.2: arm-on-primary is a declared fact of the virtual device
+    // (touch-first, no accelerometer), supplied by the construction site.
+    // The synth itself never inspects build flags or transport.
+    void setArmOnPrimary(bool v) { armOnPrimary_ = v; }
+
     Tilt current() const { return tilt_; }
 
-    // Returns true if the event was consumed by the synthesis (caller
-    // should NOT forward it). Returns false if the event passes through.
+    // 🎯T156.2: while AccelSynth owns the gesture, it is the sole sensor
+    // authority for this virtual device. External SDL_EVENT_SENSOR_UPDATE
+    // (wire-forwarded real samples, etc.) must not reach the game.
+    bool ownsSensorStream() const {
+        if (armed()) return true;
+        if (easing_) return true;
+        const float m = std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y);
+        return m > kOwnershipDeadzonePx;
+    }
+
+    // Gravity sample derived from current tilt_ (same math as emit).
+    // Used by presentation/gravity parity oracles.
+    void gravitySample(float& gx, float& gy) const {
+        gravityFromTilt(tilt_, gx, gy);
+    }
+
+    // Armed when Shift is held (key event or current mod state), or on
+    // touch-first virtual devices (setArmOnPrimary) while the primary
+    // button/finger is down. Public: the stream host reports transitions
+    // to the glass (SP2A) so relative-mouse delivery follows the server's
+    // arm state instead of a glass-side approximation (🎯T158).
+    bool armed() const {
+        if (shiftKey_) return true;
+        if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) return true;
+        if (armOnPrimary_ && primaryDown_) return true;
+        return false;
+    }
+
+    // true = consumed (do not forward to the game as raw mouse/key).
     bool handle(const SDL_Event& e) {
-        if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP)
-            && (e.key.scancode == SDL_SCANCODE_LSHIFT ||
-                e.key.scancode == SDL_SCANCODE_RSHIFT)) {
-            const bool newShift = (e.type == SDL_EVENT_KEY_DOWN);
-            if (newShift != shiftDown_) {
-                shiftDown_ = newShift;
-                // Relative mouse mode pins the cursor so drag can continue
-                // past the window edge (desktop). On iOS simulator it causes
-                // a stuck-touch indicator when the mouse button is released,
-                // and motion is delivered via touch synthesis anyway — skip.
-                // On web (🎯T157) relative mode means requestPointerLock,
-                // which browsers may deny (no transient activation, headless)
-                // — and SDL then DISCARDS absolute motion while relative mode
-                // is on (SDL_HINT_MOUSE_RELATIVE_WARP_MOTION default), so the
-                // synth would go dead. Plain absolute motion carries xrel on
-                // web anyway; the lost past-the-edge drag is a fair trade for
-                // input that always works.
-#if !((defined(__APPLE__) && TARGET_OS_IOS) || defined(__EMSCRIPTEN__))
-                if (window_) {
-                    SDL_SetWindowRelativeMouseMode(window_, shiftDown_);
-                }
-#endif
-                if (shiftDown_) {
-                    // Fresh capture — start from zero, no easing.
-                    tilt_ = {};
-                    easing_ = false;
-                } else {
-                    // Released — start easing tilt back to zero.
-                    easing_ = true;
-                    lastTickNs_ = 0;  // first update() initialises clock
-                }
+        // ── Modifier / button arm ─────────────────────────────────
+        if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) &&
+            isShiftKey(e)) {
+            const bool down = (e.type == SDL_EVENT_KEY_DOWN);
+            if (down != shiftKey_) {
+                shiftKey_ = down;
+                onArmChanged();
             }
-            return true;  // consume Shift
+            return true;
         }
 
-        if (e.type == SDL_EVENT_MOUSE_MOTION && shiftDown_) {
-            tilt_.x += e.motion.xrel;
-            tilt_.y += e.motion.yrel;
-            emitSensorFromTilt();
-            return true;  // consume motion-while-tilting
+        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+            e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            // Caller should drop TOUCH_MOUSEID; still ignore if it arrives.
+            if (isTouchSyntheticMouse(e)) return false;
+            if (e.button.button == SDL_BUTTON_LEFT) {
+                const bool down = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                if (down != primaryDown_) {
+                    primaryDown_ = down;
+                    onArmChanged();
+                }
+            }
+            // Do not consume button events — games may still want them.
+            // On touch-first devices, button arms tilt but still reaches the
+            // game as a no-op.
+            return false;
+        }
+
+        // Finger drag — same arm policy as primary mouse button (touch-first
+        // devices). iOS Simulator host clicks often arrive as finger events;
+        // without this path, only GCMouse-shaped motion would tilt.
+        if (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_UP ||
+            e.type == SDL_EVENT_FINGER_CANCELED) {
+            const bool down = (e.type == SDL_EVENT_FINGER_DOWN);
+            if (down != primaryDown_) {
+                primaryDown_ = down;
+                onArmChanged();
+            }
+            // Do not consume — games may treat finger as UI input.
+            return false;
+        }
+
+        if (e.type == SDL_EVENT_MOUSE_MOTION && armed()) {
+            if (isTouchSyntheticMouse(e)) return false;
+            applyMotionDelta(e.motion.xrel, e.motion.yrel,
+                             e.motion.x, e.motion.y);
+            return true;
+        }
+
+        if (e.type == SDL_EVENT_FINGER_MOTION && armed()) {
+            // SDL finger x/y and dx/dy are normalized 0–1 on the *device*
+            // surface. Denormalize with setSurfacePixels (player DeviceInfo
+            // when streaming; local window when direct) — never the stream
+            // host Mac window alone.
+            const float sw = surfaceWidth();
+            const float sh = surfaceHeight();
+            const float dx = e.tfinger.dx * sw;
+            const float dy = e.tfinger.dy * sh;
+            const float ax = e.tfinger.x * sw;
+            const float ay = e.tfinger.y * sh;
+            applyMotionDelta(dx, dy, ax, ay);
+            return true;
         }
 
         return false;
     }
 
-    // Called once per frame by the host. Drives tilt easing back to
-    // zero after Shift is released. No-op while Shift is held or after the
-    // tilt has fully decayed.
-    //
-    // On TARGET_OS_SIMULATOR with GE_ACCELSYNTH_AUTODRIVE=1: drives a
-    // synthetic 100-pixel X tilt for 2 s then triggers easing. The autodrive
-    // state is initialized on the first update() call (checked once via
-    // autodriveChecked_).
     void update() {
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
         if (!autodriveChecked_) {
             autodriveChecked_ = true;
             const char* env = std::getenv("GE_ACCELSYNTH_AUTODRIVE");
@@ -138,73 +242,145 @@ public:
         }
         if (autodriveActive_) {
             const uint64_t freq = SDL_GetPerformanceFrequency();
-            const float elapsed = float(SDL_GetPerformanceCounter() - autodriveStartNs_) / float(freq);
+            const float elapsed =
+                float(SDL_GetPerformanceCounter() - autodriveStartNs_) /
+                float(freq);
             if (elapsed < 2.0f) {
-                // Hold a 100 px X-axis tilt while in the drive window.
                 tilt_.x = 100.f;
                 tilt_.y = 0.f;
-                shiftDown_ = true;
                 emitSensorFromTilt();
                 return;
             }
-            // Drive window expired — release shift and start easing.
             autodriveActive_ = false;
-            shiftDown_ = false;
             easing_ = true;
             lastTickNs_ = 0;
             SPDLOG_INFO("AccelSynth: GE_ACCELSYNTH_AUTODRIVE drive complete, easing");
         }
-#endif  // TARGET_OS_SIMULATOR
-        if (!easing_) return;
-        const uint64_t now = SDL_GetPerformanceCounter();
-        if (lastTickNs_ == 0) {
+        if (easing_) {
+            const uint64_t now = SDL_GetPerformanceCounter();
+            if (lastTickNs_ == 0) {
+                lastTickNs_ = now;
+                emitSensorFromTilt();
+                return;
+            }
+            const uint64_t freq = SDL_GetPerformanceFrequency();
+            const float dt = float(now - lastTickNs_) / float(freq);
             lastTickNs_ = now;
+
+            constexpr float kTau = 0.08f;
+            const float decay = std::exp(-dt / kTau);
+            tilt_.x *= decay;
+            tilt_.y *= decay;
+            if (std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y) < 0.5f) {
+                tilt_ = {};
+                easing_ = false;
+            }
+            emitSensorFromTilt();
             return;
         }
-        const uint64_t freq = SDL_GetPerformanceFrequency();
-        const float dt = float(now - lastTickNs_) / float(freq);
-        lastTickNs_ = now;
-
-        constexpr float kTau = 0.08f;  // 80 ms — quick ease
-        const float decay = std::exp(-dt / kTau);
-        tilt_.x *= decay;
-        tilt_.y *= decay;
-        if (std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y) < 0.5f) {
-            tilt_ = {};
-            easing_ = false;
-        }
-        emitSensorFromTilt();
+        // Hold: re-assert gravity from tilt_ every frame while we own the
+        // stream so presentation and physics stay one authority (🎯T156.2).
+        if (ownsSensorStream()) emitSensorFromTilt();
     }
 
-    // True if a real accelerometer is available (synthesis should NOT
-    // be active in that case). Caller should check this once at startup
-    // and decide whether to wire AccelSynth in at all.
+    // Usable real accelerometer? iOS Simulator always false.
     static bool realSensorAvailable() {
+#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+        return false;
+#else
         int count = 0;
         SDL_SensorID* ids = SDL_GetSensors(&count);
         if (ids) SDL_free(ids);
         return count > 0;
+#endif
     }
 
 private:
+    static bool isShiftKey(const SDL_Event& e) {
+        if (e.key.scancode == SDL_SCANCODE_LSHIFT ||
+            e.key.scancode == SDL_SCANCODE_RSHIFT)
+            return true;
+        // Keycode path (some hosts fill key, not only scancode).
+        if (e.key.key == SDLK_LSHIFT || e.key.key == SDLK_RSHIFT)
+            return true;
+        return false;
+    }
+
+    void onArmChanged() {
+        const bool now = armed();
+        setRelativeMouseForShiftDrag(window_, now);
+        if (now) {
+            // Fresh capture each time we re-arm.
+            if (!wasArmed_) {
+                tilt_ = {};
+                easing_ = false;
+                haveLastAbs_ = false;
+            }
+        } else {
+            easing_ = true;
+            lastTickNs_ = 0;
+            haveLastAbs_ = false;
+        }
+        wasArmed_ = now;
+    }
+
+    // Relative deltas if non-zero; else absolute position seed/delta.
+    void applyMotionDelta(float dx, float dy, float absX, float absY) {
+        if (dx == 0.f && dy == 0.f) {
+            if (haveLastAbs_) {
+                dx = absX - lastAbsX_;
+                dy = absY - lastAbsY_;
+            }
+            lastAbsX_ = absX;
+            lastAbsY_ = absY;
+            haveLastAbs_ = true;
+        } else {
+            haveLastAbs_ = false;
+        }
+        if (dx != 0.f || dy != 0.f) {
+            tilt_.x += dx;
+            tilt_.y += dy;
+            emitSensorFromTilt();
+        }
+    }
+
+    float surfaceWidth() const {
+        if (surfaceW_ > 0) return float(surfaceW_);
+        if (window_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(window_, &ww, &wh);
+            if (ww > 0) return float(ww);
+        }
+        return 1.f;
+    }
+    float surfaceHeight() const {
+        if (surfaceH_ > 0) return float(surfaceH_);
+        if (window_) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSizeInPixels(window_, &ww, &wh);
+            if (wh > 0) return float(wh);
+        }
+        return 1.f;
+    }
+
+    static constexpr float kOwnershipDeadzonePx = 0.5f;
+
+    static void gravityFromTilt(Tilt t, float& gx, float& gy) {
+        const float mag = std::sqrt(t.x * t.x + t.y * t.y);
+        gx = 0.f;
+        gy = 0.f;
+        if (mag > 0.f) {
+            const float angle = mag * kTiltRadPerPixel;
+            const float s = std::sin(angle);
+            gx = -kG * s * t.x / mag;
+            gy =  kG * s * t.y / mag;
+        }
+    }
+
     void emitSensorFromTilt() {
         if (!emit_) return;
-        // Emit in iOS SDL_SENSOR_ACCEL convention: values are the
-        // counter-gravity vector in device frame. When the device is
-        // tilted in some direction, gravity rotates that way in device
-        // frame, and the reported accel rotates the OPPOSITE way.
-        // Hence the sign-flip on tilt_.{x,y} below. tilt_.y is not
-        // further inverted: SDL mouse-y grows downward, matching
-        // iOS's +Y-points-toward-top convention (drag down → virtual
-        // device leans forward → counter-gravity +Y component).
-        float mag = std::sqrt(tilt_.x * tilt_.x + tilt_.y * tilt_.y);
         float gx = 0.f, gy = 0.f;
-        if (mag > 0.f) {
-            float angle = mag * kTiltRadPerPixel;
-            float s = std::sin(angle);
-            gx = -kG * s * tilt_.x / mag;
-            gy =  kG * s * tilt_.y / mag;
-        }
+        gravityFromTilt(tilt_, gx, gy);
         SDL_Event se{};
         se.type = SDL_EVENT_SENSOR_UPDATE;
         se.sensor.data[0] = gx;
@@ -213,16 +389,23 @@ private:
     }
 
     Tilt tilt_;
-    bool shiftDown_ = false;
-    bool easing_  = false;
+    bool shiftKey_ = false;
+    bool primaryDown_ = false;
+    bool wasArmed_ = false;
+    bool easing_ = false;
+    bool haveLastAbs_ = false;
+    float lastAbsX_ = 0.f;
+    float lastAbsY_ = 0.f;
     uint64_t lastTickNs_ = 0;
     SDL_Window* window_ = nullptr;
+    int surfaceW_ = 0;
+    int surfaceH_ = 0;
+    bool surfacePinned_ = false;
     std::function<void(const SDL_Event&)> emit_;
-#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+    bool armOnPrimary_ = false;
     bool autodriveChecked_ = false;
-    bool autodriveActive_  = false;
+    bool autodriveActive_ = false;
     uint64_t autodriveStartNs_ = 0;
-#endif
 };
 
 } // namespace ge

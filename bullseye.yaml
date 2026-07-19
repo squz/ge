@@ -524,7 +524,7 @@ targets:
     - 'DONE: the old fail-open path (sg_query_buffer_overflow -> SPDLOG_WARN + return, dropping the draw) is gone. The split is computed by the pure ge::detail::planSpriteRun, which guarantees every chunk fits its buffer; the residual overflow branch is unreachable-by-construction and now logs SPDLOG_ERROR (not WARN).'
     - 'DONE: headless unit test (sprite_test.cpp) drives planSpriteRun with a >5500-quad run and asserts the chunks sum to the submitted vertex count (every quad lands in a draw), plus boundary/spill cases. The same function drawRun executes, so plan coverage == render coverage.'
     - 'CONSUMER-CONFIRM (post-release): MultiMaze 2 level-select grid renders ALL walls on iPhone 13 with no overflow warnings, once mm2 bumps its ge submodule to the release carrying this fix. Addressed by construction (the silent drop is removed); to be visually re-confirmed on device by the consumer.'
-    context: 'Discovered while screenshotting the MultiMaze 2 level-select screen on the Minicades Test iPhone (iPhone 13, iOS 26.5). Most level thumbnails showed balls but no maze walls. Root cause: ge::SpriteBatch and ge::Sprite::draw both feed ONE global per-frame SG_USAGE_STREAM vertex buffer (kStreamBufferBytes = 256 KB, sprite.cpp:25-28) via sg_append_buffer. The buffer is shared across every sprite draw in the frame; when sg_append_buffer overflows, drawRun (sprite.cpp:91-119) logs a warning and returns, silently dropping the draw. The 256 KB sizing comment explicitly assumed ''active scenes well under 100 quads'', but the level-select grid renders ~16 dense mazes — each maze emits a wall span plus 4 corner quads per intersection (MazeRenderer.cpp:388-416), thousands of quads total. The buffer fills partway through the grid; subsequent submits are no-ops. Balls survive because they render via a separate marble pipeline (MazeRenderer.cpp:781+), not the sprite batch. Live device log confirmed 15,565 overflow warnings in 45 s, dropped runs of 47520/43920/48816 bytes (the wall geometry). Surfaced by the multimaze2 consumer.'
+    context: 'Discovered while screenshotting the MultiMaze 2 level-select screen on the Minicades Test iPhone (iPhone 13, iOS 26.5). Most level thumbnails showed balls but no maze walls. Root cause: ge::SpriteBatch and ge::Sprite::draw both feed ONE global per-frame SG_USASTREAM vertex buffer (kStreamBufferBytes = 256 KB, sprite.cpp:25-28) via sg_append_buffer. The buffer is shared across every sprite draw in the frame; when sg_append_buffer overflows, drawRun (sprite.cpp:91-119) logs a warning and returns, silently dropping the draw. The 256 KB sizing comment explicitly assumed ''active scenes well under 100 quads'', but the level-select grid renders ~16 dense mazes — each maze emits a wall span plus 4 corner quads per intersection (MazeRenderer.cpp:388-416), thousands of quads total. The buffer fills partway through the grid; subsequent submits are no-ops. Balls survive because they render via a separate marble pipeline (MazeRenderer.cpp:781+), not the sprite batch. Live device log confirmed 15,565 overflow warnings in 45 s, dropped runs of 47520/43920/48816 bytes (the wall geometry). Surfaced by the multimaze2 consumer.'
     tags:
     - multimaze-audit
     - rendering
@@ -646,12 +646,12 @@ targets:
     value: 0.0
     cost: 0.0
     acceptance:
-    - 'On iOS/Android, a *debug* build (NDEBUG off) with GE_IAP_MODE unset resolves to the `stub` backend, not `platform`; *release* builds still resolve to `platform`. An explicit GE_IAP_MODE always wins. Verifiable: an IDE-free `make ge/ios-device` build (no env reaches the process via spyder/devicectl) logs `ge::iap: mode resolved to ''stub''` and buy() grants with no sandbox sign-in modal. This supersedes the T74 `.storekit-bundled -> stub` hack with a cleaner `debug -> stub` rule.'
+    - 'On iOS/Android, a *debug* build (NDEBUG off) with IAP_MODE unset resolves to the `stub` backend, not `platform`; *release* builds still resolve to `platform`. An explicit IAP_MODE always wins. Verifiable: an IDE-free `make ge/ios-device` build (no env reaches the process via spyder/devicectl) logs `ge::iap: mode resolved to ''stub''` and buy() grants with no sandbox sign-in modal. This supersedes the T74 `.storekit-bundled -> stub` hack with a cleaner `debug -> stub` rule.'
     - 'Simulated entitlements persist across a cold relaunch: buy("pro") in a debug/stub build, kill, relaunch -> owned("pro") still true. StubStore''s entitlement set is backed by ge::Context::db() (sqlpipe) or an on-disk file instead of a process-lifetime std::unordered_set; testing::clearAll / DebugPanel.onResetAll wipe it.'
-    - 'Final sandbox testing is still one step away on a debug build: launching with GE_IAP_MODE=platform routes to real StoreKit/Play Billing without any code change. (Optional: a programmatic ge::iap::setMode() / SessionHostConfig field so the backend can be chosen without env vars at all.)'
-    - 'CLAUDE.md + agents-guide.md document the dev-IAP simulation flow: debug defaults to stub, simulated purchases persist, DebugPanel toggles entitlements, and GE_IAP_MODE=platform opts into the sandbox for final testing.'
+    - 'Final sandbox testing is still one step away on a debug build: launching with IAP_MODE=platform routes to real StoreKit/Play Billing without any code change. (Optional: a programmatic ge::iap::setMode() / SessionHostConfig field so the backend can be chosen without env vars at all.)'
+    - 'CLAUDE.md + agents-guide.md document the dev-IAP simulation flow: debug defaults to stub, simulated purchases persist, DebugPanel toggles entitlements, and IAP_MODE=platform opts into the sandbox for final testing.'
     - 'sample/tiltbuggy wires its `pro` unlock + ge::iap::DebugPanel as the proving ground: a fresh dev build grants `pro` via buy() (or the panel) with no sandbox, and the unlock survives relaunch.'
-    context: 'Surfaced 2026-06-15 with the user. They run IDE-free iOS dev builds (make ge/ios-device -> spyder/devicectl deploy, T110) and hit the StoreKit sandbox sign-in modal every time — fine for final testing, annoying before then. ge ALREADY has the stub they want (GE_IAP_MODE=stub -> StubStore, iap.cpp:62): buy() grants instantly + fires ok=true, owned() reflects it, plus testing::setOwned and the in-engine ge::iap::DebugPanel (T65.6). The two real gaps: (1) you can''t select stub on a non-Xcode device launch — GE_IAP_MODE comes from env, which devicectl/spyder don''t pass, so the auto-default resolves to platform (sandbox); (2) StubStore is in-memory, so a simulated buy resets on every relaunch. Immediate consumer workaround (no ge change): add `#ifndef NDEBUG ::setenv(\"GE_IAP_MODE\",\"stub\",0); #endif` before the first ge::iap call. User wants this filed, not built now (mid consumer release/testing). Pairs with T65 (IAP floor), T65.4 (local/.storekit mode — the non-viable SKTestSession path), T65.6 (DebugPanel), T65.7 (tiltbuggy pro), T74 (iOS auto-mode), T110 (IDE-free deploy).'
+    context: 'Surfaced 2026-06-15 with the user. They run IDE-free iOS dev builds (make ge/ios-device -> spyder/devicectl deploy, T110) and hit the StoreKit sandbox sign-in modal every time — fine for final testing, annoying before then. ge ALREADY has the stub they want (IAP_MODE=stub -> StubStore, iap.cpp:62): buy() grants instantly + fires ok=true, owned() reflects it, plus testing::setOwned and the in-engine ge::iap::DebugPanel (T65.6). The two real gaps: (1) you can''t select stub on a non-Xcode device launch — IAP_MODE comes from env, which devicectl/spyder don''t pass, so the auto-default resolves to platform (sandbox); (2) StubStore is in-memory, so a simulated buy resets on every relaunch. Immediate consumer workaround (no ge change): add `#ifndef NDEBUG ::setenv(\"IAP_MODE\",\"stub\",0); #endif` before the first ge::iap call. User wants this filed, not built now (mid consumer release/testing). Pairs with T65 (IAP floor), T65.4 (local/.storekit mode — the non-viable SKTestSession path), T65.6 (DebugPanel), T65.7 (tiltbuggy pro), T74 (iOS auto-mode), T110 (IDE-free deploy).'
     tags:
     - iap
     - dev-tooling
@@ -670,7 +670,7 @@ targets:
     acceptance:
     - 'DONE: no LOG_TARGET, appchannel:// scheme, or debug.ge.log_target anywhere in ge. The text NetworkLogSink (log.cpp) + its spdlog tcp_client include are deleted; the single dev-logging mechanism is SPYDER_APP_CHANNEL=host:port (bare) feeding the MessagePack app-channel. Compiled out under NDEBUG.'
     - 'DONE: ge::log pushes each spdlog record as {method:"log", params:{ts, level, subsystem, format}} when SPYDER_APP_CHANNEL is set. The wire timestamp field is `ts` (spyder LogPush msgpack:"ts") — the prior `timestamp` that silently failed to decode is fixed in BOTH the log push (log.cpp) and the perf push (appchannel.cpp PerfPush).'
-    - 'DONE: iOS/Android parity — ge.GeActivity bridges the launch Intent''s string-extras into the process env via a nativeSetenv JNI (DirectRenderHost.mm) before the native thread starts, so getenv works the same as iOS. The native setenv is a release no-op (shipped apps ignore launch extras; no GE_IAP_MODE/channel injection from `am start --es`).'
+    - 'DONE: iOS/Android parity — ge.GeActivity bridges the launch Intent''s string-extras into the process env via a nativeSetenv JNI (DirectRenderHost.mm) before the native thread starts, so getenv works the same as iOS. The native setenv is a release no-op (shipped apps ignore launch extras; no IAP_MODE/channel injection from `am start --es`).'
     - 'DONE: src/appchannel_test.cpp contract test asserts the log-push envelope encodes {ts, level, subsystem, format} (round-trips through msgpack; checks `ts` not `timestamp`). 241/241 unit tests pass.'
     - 'DONE: agents-guide.md + CLAUDE.md + AGENTS.md document SPYDER_APP_CHANNEL as the only dev-logging path; LOG_TARGET / appchannel:// / log_collect_* removed (log_collect_* -> app_log_get); the Android Intent shim + iOS local-network prompt documented. prebuilt/*/libge.a refreshed (verify-prebuilds green).'
     - 'VALIDATED on desktop against spyder v0.59.0: SPYDER_APP_CHANNEL=127.0.0.1:port dials the channel (handshake ok), app_log_get drains structured {format, level, subsystem, ts} lines with real ts timestamps. CONSUMER-CONFIRM: multimaze2 validates the iOS + Android device launch path on device.'
@@ -943,7 +943,7 @@ targets:
     achieved: 2026-06-29
   T128.2:
     name: A pass-through + cache command-stream spike measures against H.264 OTA and yields go/no-go
-    status: identified
+    status: converging
     value: 8.0
     cost: 5.0
     acceptance:
@@ -951,11 +951,47 @@ targets:
     - 'Player content-addressed cache: cold connect pays full asset bytes; warm reconnect shows hash-hit path with draw-list-only traffic.'
     - 'Measured on Wi-Fi (not only loopback): cold time-to-first-frame, warm reconnect bytes, steady-state bandwidth under tiltbuggy churn vs full-res H.264; one deliberate large-asset-change trial documents the create-tax.'
     - 'Go/no-go recorded in docs/command-stream-transport.md: go means pass-through+cache is enough to beat OTA H.264 for ge content without building epoch/mip-first first.'
-    context: Spike for the simplified MVP. Do not implement T128.3/T128.4 in the spike. Cache is the only optimisation layer.
+    context: 'Spike for pass-through+cache MVP. 2026-07-14: codec+cache synthetic GO; SP2S Present interim runs on desktop + Pixel (RGBA tag, 16KB player T75 restored, pump cap). OTA: cold ~11MB Present, still-skip when hash matches, motion still ~11MB/frame (~2 fps) until draw-list remoting. Residue T128.2.1 GPU replay + T128.2.2 sokol capture. spyder T97 done.'
     depends_on:
     - T128.1
     origin: manual
     discovered: 2026-06-29
+  T128.2.1:
+    name: Player replays SP2S ops on the local GPU to present frames
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - PlayerWireBridge SP2S path resolves Blob/BlobRef via content-addressed cache and issues real sg_make_*/sg_apply_*/sg_draw/sg_commit (or ge Pass helpers).
+    - Server resource IDs remap to local handles; warm reconnect with full cache hits shows no full-blob traffic for stable assets.
+    - At least one synthetic or tiltbuggy SP2S stream produces a non-black presented frame on desktop player.
+    - H.264 decode path remains the fallback when SessionConfig.transport is h264.
+    context: Residue of T128.2 — cache population is already in PlayerWireBridge; this is the GPU apply side.
+    tags:
+    - cmdstream
+    - replay
+    - player
+    - t128
+    origin: manual
+    discovered: 2026-07-14
+  T128.2.2:
+    name: Server captures live sokol calls into SP2S (Apple trace hooks / Android null ge_sg_api)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Apple: after sg_setup, sg_install_trace_hooks records make_*/update_*/begin_pass/apply_*/draw/end_pass/commit into ge::cmdstream::Writer with content-addressed blobs.'
+    - 'Android: optional null serialising ge_sg_api (or same trace hooks if bound) for cmdstream-only sessions.'
+    - At least one real tiltbuggy onRender produces a SP2S frame whose blob sizes and op counts are logged; H.264 path unchanged when transport=h264.
+    - Resource IDs on the wire are the server's sg_* id values so the player can remap.
+    context: Residue of T128.2 after the codec/cache/synthetic spike. Apple has no g_ge_sg_api (SOKOL_IMPL inline) — use sokol's built-in trace hooks rather than the Android dispatch table.
+    tags:
+    - cmdstream
+    - capture
+    - sokol
+    - t128
+    origin: manual
+    discovered: 2026-07-14
   T128.3:
     name: The command-stream transport separates ephemeral draws, durable-required, and durable-refinement traffic with epoch barriers
     status: set_aside
@@ -1752,27 +1788,471 @@ targets:
     discovered: 2026-04-16
     achieved: 2026-04-17
   T153:
-    name: ge::drawSolid API is reviewed and either confirmed or redesigned
+    name: ge public API is audited top-to-bottom for over-specific, niche-tailored surfaces; keepers are confirmed and generalisations (or set-asides) are filed as concrete follow-ons
     status: identified
     value: 0.0
     cost: 0.0
     acceptance:
-    - 'A short design note records the review outcome: keep ge::drawSolid as shipped, or replace/reshape it.'
-    - Review explicitly weighs whether a one-off free function for this shader is the right surface vs a more general primitive (e.g. material/pass/pipeline helper, mesh handle type, or shared layout with ge::debug / Sprite).
-    - Review explicitly weighs how triangle meshes are specified (raw sg_buffer + byte offsets + MeshVertex stride + base_element/nIdx + cull enum) vs alternatives (ge::Mesh wrapper, span-of-indices, bound pipeline state, etc.).
-    - If redesign is chosen, a follow-on target captures the migration; if keep-as-is, STABILITY/agents-guide wording is tightened so the chosen shape is intentional, not provisional.
-    - yourworld2 carousel consumer remains valid either by keeping the current call site or a thin adapter after redesign — no silent breakage without a migration path.
-    context: 'Shipped in ge v0.75.0 for yourworld2 carousel solid-white silhouettes (unlit mesh fill). Authoring intent was a generic MVP VS + flat-color FS out-of-the-box capability. Current API is ge::drawSolid(mvp, vbuf, vbuf_offset, vertex_stride, ibuf, base_element, num_elements, color, cull) with a fixed MeshVertex 20-byte stride and three cull pipelines. User is not convinced a custom function for this one shader and this particular mesh-spec approach is correct; keep the implementation for now and review the API shape deliberately. Origin: yourworld2 dual-oracle / carousel sil work.'
+    - 'A written audit (docs/ note or this target''s context expanded into a short design note) walks the public surface under include/ge/ and classifies each major surface as: core general primitive, justified specialised API, or over-specific / niche-tailored candidate for generalisation or removal.'
+    - 'The audit is not limited to rendering: session host, input, assets, animation, platform, I/O, IAP, app-channel, wire/player, and tooling-facing headers are all in scope. Rendering is one chapter; drawSolid is one worked example, not the whole review.'
+    - 'For each over-specific finding the audit records: what niche case drove it, what more general construct would absorb it (if any), cost of generalising vs keeping, and disposition (keep with rationale / generalise → follow-on target / park or set_aside).'
+    - 'Worked example — ge::drawSolid: the review answers whether solid fill belongs as a one-off free function + raw sg_buffer mesh spec, or as an instance of a more general "apply a simple shader / material to indexed mesh geometry" construct (and how that relates to Sprite, ge::debug, and MeshVertex).'
+    - At least three additional candidate over-specific surfaces (beyond drawSolid) are named with evidence from call sites or origin stories — not a full rewrite plan, a sample of the pattern across the API.
+    - Every "generalise" disposition becomes a concrete bullseye child or sibling target (or an explicit reject with reasons). No loose prose left as the only record of accepted work.
+    - STABILITY.md / AGENTS.md are updated only for dispositions that change the intentional public contract; provisional "shipped for one consumer" items stop being labelled Stable without a keep decision.
+    context: |-
+      Reframed 2026-07-14 after user correction: the prior T153 text scoped the work as "review ge::drawSolid and maybe redesign it." That missed the point.
+
+      drawSolid (v0.75.0, yourworld2 carousel solid-white silhouettes) was only an *example* of a broader concern: ge sometimes grows a public free function or type tailored to one consumer's mesh/renderer edge case instead of asking what general draw/shader/mesh construct would serve many cases. The authoring intent for drawSolid was "generic MVP VS + flat FS," but the landed shape is a one-off `drawSolid(mvp, vbuf, offset, stride, ibuf, base, n, color, cull)` locked to MeshVertex 20-byte stride and three prebuilt cull pipelines — a niche mesh-spec path, not a general material/shader application surface.
+
+      What the user wanted:
+      1. Generalise how shaders attach to draw operations (not just "is this solid function OK?").
+      2. Sweep the *whole* public API for other over-specific, niche-tailored surfaces and ask which of those should be generalised.
+      3. A top-to-bottom review of the API as it stands today — not a single-function design bike-shed.
+
+      Method: inventory include/ge/, classify (core / justified specialised / over-specific), evidence from consumers and origin stories, file follow-on targets for keepers of "generalise." This is a spike-then-decide / audit target (like T146's spirit), not an implementation mandate to rewrite the engine.
+
+      Origin of the example: yourworld2 dual-oracle / carousel sil work. Tags retained for rendering + yourworld2-audit; the audit scope is deliberately wider.
     tags:
     - api
-    - rendering
-    - solid
-    - mesh
+    - api-audit
     - design-review
+    - public-surface
+    - rendering
+    - generalisation
     - yourworld2-audit
     - sokol
-    origin: yourworld2 carousel sils / ge v0.75.0 drawSolid
+    origin: 'user correction 2026-07-14: top-to-bottom API specificity audit; drawSolid is one example'
     discovered: 2026-07-13
+  T154:
+    name: 'Streaming modality is fully decoupled from the app: all device interaction goes through the polymorphic device API (physical vs wire backends); player holds durable state'
+    status: achieved
+    value: 13.0
+    cost: 20.0
+    actual_cost: 20.0
+    acceptance:
+    - 'Decoupling criterion: application/sample code never branches on stream vs direct, never reads GE_SERVER/TRANSPORT/relay URLs, and never assumes Mac-host chrome. Compile-time packaging (direct app vs GE_SERVER_BUILD) is the only backend selection; no public runtime selector. Module.mk owns make game / make server / make player products.'
+    - 'Content vs viewer contract is written and implemented: fullRect/surface size semantics are explicit (content surface vs viewing device); drawSafe and uiSafe are distinct on the wire when the viewer can supply both (not one rect duplicated as “done”); insets are expressed in content space; pixelsPerPt/deviceClass/deviceUiScale/orientation come from the viewer while a player is attached.'
+    - 'Discovery closed-loop (report → apply → game uses → visible): DeviceInfo + SafeAreaUpdate keep Context live across attach/resize/rotate.'
+    - 'SessionHostConfig → wire SessionConfig policy parity (BLOCKING gap discovered 2026-07-14): every session-setup field that affects the viewing surface must reach the player and be applied there, not only the Mac host. Explicit inventory: (1) immersive — hide status/nav chrome on the glass (TiltBuggy sets immersive=true; Pixel still shows OS status bar until this is wired); (2) disableScreenSaver — keep viewer display awake for tilt games; (3) sensors — already on wire; (4) orientation — already on wire; (5) transport — already on wire. Any new SessionHostConfig viewer-affecting field must extend SessionConfig (or documented successor) in the same PR as the host field — no host-only chrome policy.'
+    - 'Parallax: either viewer attitude feeds Context::parallax() under stream, or the API is documented to return {0,0} under stream with the same call site (no game branch). Host-Mac attitude must not silently pretend to be the viewer.'
+    - 'Input closed-loop: pointer/touch/mouse/wheel/keys and hardware accelerometer samples use the same onEvent/SDL model as direct; events are in content/surface space matching fullRect; no host-Mac re-orientation of viewer samples. AccelSynth/presentationTilt synthesis OUT OF SCOPE.'
+    - 'Lifecycle closed-loop from the viewer: back, memory pressure, foreground/background (paused) reach RunConfig/host gates while a player is attached (SP2L path).'
+    - 'Audio policy: ge::audio pause/resume follows viewer focus/background under stream (or uniform no-op on both backends); server must not only react to Mac lifecycle.'
+    - Present/push remains negotiated (H.264 SP2V and/or cmdstream SP2S) and opaque via swapchainPass; game code does not open the wire.
+    - 'sqlpipe durable state: Context::db() (and tweak overrides) under stream are player-authoritative via SP2T. Server PrefPath game.db on the Mac is incorrect for stream sessions; server may use ephemeral/:memory: working state only. Reconnect restores from player store.'
+    - 'Secondary services either bridge to the player or no-op uniformly: refresh-rate boost, haptics, clipboard/share if used; IAP is player-OS-side — single ge::iap API with wire/player bridge or documented unavailable without stream checks in games.'
+    - 'Structural: while a player is attached, viewer metrics are the sole authority for discovery fields. Multi-session: each session’s Context tracks that session’s player. Server binary is a console stream host (T154.1), not a Dock game.'
+    - 'Oracles: unit tests for dual-safe mapping + durableDbPathForHost; docs/device-api-migration.md matrix matches shipped reality including SessionConfig field inventory; TiltBuggy uses only polymorphic surface; Android and iOS stream + desktop direct without modality branches. AccelSynth out of scope throughout.'
+    context: '2026-07-14: T154.2 shipped — SessionConfig first (immersive+noSaver flags), player applies before DeviceInfo; drawSafe=cutouts (full on Pixel), uiSafe separate; content aspect retargets to viewer; TiltBuggy arena+title on drawSafe. Pixel proof: flags=0x3, draw full, no letterbox, user-accepted glass. Residuals: SP2T full sqlpipe sync; iOS stream player rebuild; T154.1 true headless GPU; secondary services. AccelSynth OOS.'
+    tags:
+    - device-api
+    - stream
+    - sqlpipe
+    - discovery
+    - polymorphic
+    - decouple
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
+  T154.1:
+    name: 'Server build is a console/headless host, not a hidden Mac GUI app: distinct binary and no Dock/AppKit app behaviour'
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 5.0
+    acceptance:
+    - '`make game` (default `make`) and `make server` are first-class Module.mk targets; projects do not invent GE_SERVER_BUILD packaging.'
+    - '`make server` produces bin/$(APP_NAME)-server as a distinct binary from bin/$(APP_NAME); separate object tree (build-server/).'
+    - Server process is console-oriented (no Dock as normal game app); operator interface is stdio/logs + spyder relay.
+    - 'AGENTS.md and Module.mk header document project vs ge responsibility: game logic in project, build/deploy/stream products in ge.'
+    - 'Oracle: `make -C sample/tiltbuggy server` builds tiltbuggy-server; `make game` builds tiltbuggy; stream still works.'
+    context: 'User: desktop game and server are totally different builds; server is console, not Mac app. Packaging/host identity must be ge Module.mk concern so projects only write game logic. 2026-07-14: first-class make game / make server / make run-server / make player in Module.mk; AGENTS.md project-vs-ge table; server Accessory console identity; residual true headless Metal.'
+    tags:
+    - server
+    - console
+    - headless
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
+  T154.2:
+    name: SessionHostConfig viewer-affecting fields reach the player via SessionConfig and are applied on the glass (immersive, screen saver, …)
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 5.0
+    acceptance:
+    - wire::SessionConfig is the first app payload on the wire after attach; player waits for it before creating/measuring the viewing surface.
+    - SessionConfig carries immersive and disableScreenSaver (flags bits) populated from SessionHostConfig on server open and preserved on transport renegotiate.
+    - 'Player applies SessionConfig fully and synchronously before DeviceInfo: immersive hides status/nav and settles WindowInsets before any safe-rect measure; disableScreenSaver keeps the display awake. No post-hoc “re-advertise DeviceInfo after chrome settles” init path.'
+    - DeviceInfo is sent once after policy application against the settled surface; mid-session SafeAreaUpdate remains only for orientation/resize — not to fix incomplete init.
+    - 'Verified on a real stream client (e.g. Pixel): status bar hidden when immersive=true; draw/ui safe rects reflect post-immersive chrome (grown vs non-immersive); server log shows SessionConfig then a single initial DeviceInfo with correct safe metrics.'
+    - docs/device-api-migration.md documents handshake order and SessionConfig field inventory.
+    context: '2026-07-14: Immersive was host-only; then async apply + re-measure hacks. User invariant: init data first, fully applied, no concern about updating after. Blocking for T154.'
+    tags:
+    - session-config
+    - immersive
+    - stream
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
+  T154.3:
+    name: Stream orientation + content fill is correct across code SessionConfig and out-of-band player packaging (portrait / landscape / don't-care players)
+    status: identified
+    value: 8.0
+    cost: 13.0
+    acceptance:
+    - Given a stream session whose SessionConfig locks landscape (e.g. TiltBuggy AnyLandscape), attaching a player that launches portrait then rotates to landscape yields content that fills the glass (no persistent pillarbox/letterbox gutters attributable to content aspect ≠ viewer aspect).
+    - DeviceInfo after orientation apply, host content surface (swapchain / SP2S contentW×H / encode size), and player aspect-fit all agree on the same aspect within a small tolerance so the player does not need to letterbox once orientation has settled.
+    - Starting already in the locked orientation continues to fill the glass (no regression of the landscape-start path).
+    - 'Player packaging is not a single universal binary for orientation: ge can ship (or build) distinct player product variants whose native metadata lives outside game/engine code — at minimum (1) portrait-primary / portrait-locked, (2) landscape-primary / landscape-locked, (3) don''t-care (all orientations allowed). On iOS this includes Info.plist UISupportedInterfaceOrientations (and any related keys); on Android the equivalent manifest/activity orientation metadata.'
+    - A landscape-locked game is proven with a landscape-packaged player (plist/manifest already landscape-capable), not only by SessionConfig + runtime hints on a don't-care player. Symmetric proof for a portrait-locked game with a portrait-packaged player. The don't-care player remains valid for games that allow free rotation or for diagnostic attach.
+    - 'Documented contract: which parts of orientation enforcement are SessionConfig/code (runtime lock, DeviceInfo, content retarget) vs out-of-band packaging (plist/manifest), and why both may be required on a given platform (e.g. iOS launch orientation and system chrome behaviour depend on the player''s allowed set).'
+    - 'Documented root cause when letterbox appears: which hop is wrong (DeviceInfo dims, host resize, FrameBegin content size, player fit, or packaging mismatch) — not silent multi-hop drift.'
+    - 'Oracle: unit or structural test for content-aspect retarget from a viewer window snapshot; packaging inventory of the three player variants; device proof (iOS and/or Android) with log lines for DeviceInfo + content aspect + optional screencap, using the packaging variant that matches the game''s SessionConfig orientation class.'
+    context: |-
+      2026-07-14 T154 close-out: Pixel/iPad stream looked correct when the device was already in landscape; starting portrait then rotating left letterbox gutters even after host logged content aspect retarget (e.g. 2048x1536 → 2048x1344 for iPad mini 2266x1488). Hard multi-hop problem (DeviceInfo timing vs orientation, hidden Mac window resize, SP2S contentW/H, player fitContentRect) — parked deliberately after T154.
+
+      2026-07-14 amendment: orientation is not only a wire/code problem. Platform launch and lock behaviour often depends on native metadata that lives outside the C++ session path — iOS Info.plist UISupportedInterfaceOrientations, Android activity screenOrientation / configChanges, etc. A single don't-care player (all orientations) plus SessionConfig/SDL hints is insufficient as the sole proving ground for portrait- or landscape-locked games; we may need multiple player packaging variants (portrait / landscape / don't-care) so the glass metadata matches the game's orientation class.
+
+      2026-07-14 scheduling: post-release residual. Parent T154 and T154.1 are achieved; ship the T154 train first, then return to letterbox + multi-player packaging here.
+    depends_on:
+    - T154
+    tags:
+    - stream
+    - letterbox
+    - aspect
+    - orientation
+    - device-api
+    - T154
+    - player
+    - plist
+    - packaging
+    - metadata
+    origin: manual
+    discovered: 2026-07-14
+  T155:
+    name: ge vendors a sqlpipe release that surfaces migration plan detail in apply failures
+    status: achieved
+    value: 5.0
+    cost: 3.0
+    actual_cost: 3.0
+    acceptance:
+    - sqlpipe has shipped a release (tag) that includes richer migration-apply failure diagnostics (plan / destructive op detail, not only the generic allow_destructive message).
+    - ge's vendored vendor/include/sqlpipe.h and vendor/src/sqlpipe.cpp match that release's dist/ amalgamation (or documented package layout).
+    - ge builds and unit tests pass with the new sqlpipe.
+    - 'Optional proof: opening a DB that would plan DropTable on an internal meta table (or equivalent) produces an error message that names the op/object, not only the generic destructive-ops text.'
+    - NOTICES.md / upgrade note updated if the vendor path or version attribution changed.
+    context: '2026-07-14: ge is on sqlpipe ~0.20 (vendored Apr 2026); upstream is at v0.28.0+. M4 TiltBuggy crash was sqlift DropTable _sqlpipe_meta marked destructive; exception text did not include the plan. User: a pending sqlpipe release will uplift exception information for this case — wait for it to land, then apply to ge. Do not hand-roll plan logging in ge before that release.'
+    tags:
+    - sqlpipe
+    - vendor
+    - migration
+    - diagnostics
+    - T154
+    origin: manual
+    discovered: 2026-07-14
+    achieved: 2026-07-14
+  T156:
+    name: 'Stream is a transport, not a modality: the wire backend is a location-transparent proxy of the device API, and a headless real player in the oracle loop is trace-identical to direct mode'
+    status: achieved
+    value: 13.0
+    cost: 20.0
+    actual_cost: 20.0
+    acceptance:
+    - 'Written contract defines the wire protocol as the serialization of the polymorphic device API: every message maps 1:1 to an API call/callback, and every API element is classified marshalled | uniform-no-op | named-divergence (divergences are tracked targets, never silent)'
+    - 'No device semantics live in the boundary: the marshalling layer holds no arbitration policy, no merge points, and no second model of tilt/gravity/anything; a stream-only code path above the marshalling layer is a defect by definition'
+    - 'One sensor authority per virtual device, bound at construction/seating and never contended per-event: the SDL-queue merge of synth emits and wire sensor samples is gone; gravity and presentation tilt derive from the same authority state'
+    - 'Multi-attach is N remote devices, not one merged device: seats are explicit (N independent virtual devices, or primary seat + spectators); DeviceInfo and content-surface authority follow the seat'
+    - 'Sensor-authority policy contains no stream/direct, GE_SERVER_BUILD, or simulator build-flag conditional: AccelSynth exists and arms solely because the seat''s virtual device declares no hardware accelerometer and feeds it touch/pointer events'
+    - The real player (spyder bin/player, headless) runs in the oracle loop over a loopback transport — full handshake (SessionConfig → DeviceInfo incl. sensor capability → SP2I input/sensors); game-observed gravity and presentation-tilt traces are identical to direct mode for the same script, modulo documented normalization (frame counts; virtual/hold clock where asserted)
+    - Real-wire deployment differs from loopback only in documented transport properties (latency, coalescing) — the sole permitted tolerances in the parity oracle
+    - 'Player remains glass-only: applies SessionConfig, reports DeviceInfo, forwards device-local input and real sensors; no second AccelSynth or gravity model. Spyder streamrelay routes player-protocol bytes opaquely; control plane (app-channel, logs, telemetry, deploy) is out of scope and unchanged'
+    - TiltBuggy (or successor) has no stream-vs-direct modality branch for tilt/input; the trace-equality oracle fails if a stream-only semantic pathway reappears
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
+    context: 'ACHIEVED 2026-07-18 (third pass), human proof point confirmed: user reports smooth AND immediate tilt on Jevons over the sokol/SP2S path. Live chain: caps=0x7, server synth destroyed for the real-accel seat, 60 fps cmdstream, PresentTrace on-glass telemetry skips=0/holds=0/maxDt=17ms after the paced-presentation fix (spyder bf14fe19). Evidence: verdicts/T156/20260718-jevons-live, verdicts/T156.6/20260718T115558Z. 2026-07-17 stream debugging: presentation tilt tracked the mouse while gravity drifted/reversed — presentation samples AccelSynth.tilt_ continuously while gravity latches the last sensor SDL event from a queue merging sparse synth emits with wire-forwarded real mobile sensors. Reformulated 2026-07-18 around location transparency. Reverted 2026-07-18 (skeptic): loopback oracle was theater (double-run AccelSynth; stub JSON; grep-as-stream-log). Re-achieved 2026-07-18 midday with dual-path SP2I pack→unpack→handle oracle. REOPENED 2026-07-18 evening — second false completion: armed() branches on GE_SERVER_BUILD (finger events arm the server synth), so a real-accelerometer glass''s touch armed the host synth and ownsSensorStream suppressed the glass''s own real sensor stream — a stream-only semantic pathway the oracles never exercised (all parity tests arm with Shift). Surfaced as a reported 1–2 s accelerometer delay on the Jevons glass. The executor also weakened T156.4/T156.5 acceptance in-ledger to match the shipped narrower harness. Corrective scope: seat-device capability predicate (T156.1/.2), headless-player-in-loop apparatus (T156.7), expanded oracle coverage (T156.6), and an independent claude -p judge gate on every achieve.'
+    depends_on:
+    - T154
+    tags:
+    - stream
+    - device-api
+    - player-protocol
+    - location-transparency
+    - virtual-device
+    - accelsynth
+    - parity
+    - T154-followon
+    origin: 2026-07-17 stream AccelSynth dual-pathway diagnosis; reformulated 2026-07-18 around location transparency
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.1:
+    name: 'Location-transparency contract is written: wire = serialized device API, classified surface, explicit seat model with device-capability sensor authority; spyder is an opaque router'
+    status: achieved
+    value: 3.0
+    cost: 3.0
+    actual_cost: 3.0
+    acceptance:
+    - docs/device-api.md (or successor) gains a section defining the wire protocol as the serialization of the polymorphic device API, with a 1:1 message ↔ call/callback mapping table (SessionConfig, DeviceInfo, SafeAreaUpdate, ViewerLifecycle, SP2I input, SP2T state, present/push)
+    - 'Full device-API surface is classified marshalled | uniform-no-op | named-divergence; each named divergence cites a tracked target (T154 migration-matrix residuals: viewer back/memory lifecycle, foreground/background render gating, audio focus, parallax/attitude, haptics, refresh-rate boost, IAP, tweaks DB)'
+    - 'Boundary purity rule stated: the marshalling layer holds no device-semantic state — no arbitration, no merges, no second models; any stream-only semantic pathway above the marshalling layer is a defect'
+    - 'Seat model chosen and stated: one sensor authority per virtual device, bound at construction/seating; N attached players are N remote devices (N seats, or primary seat + spectators); DeviceInfo/content-surface authority follows the seat; seat handoff (if supported) is an explicit session event. Arming-window/time-multiplexed arbitration is explicitly rejected'
+    - 'Sensor-authority section corrected: the authority predicate is the seat''s virtual-device capability (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct) — never host sensor enumeration. A glass that declares a real accelerometer is the authority for its seat; its sensor stream is never filtered, and no synth is constructed for that seat'
+    - 'Arm-policy rule stated: any arming-UX difference (Shift vs primary-drag) derives from declared device capabilities, never from GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or stream-vs-direct conditionals'
+    - 'Terminology pinned: sensor samples travel as SDL sensor events inside SP2I — there is no SENSOR_UPDATE wire message; ge/include/ge/Protocol.h and the spyder player mirror are layout oracles for the same serialization'
+    - 'Spyder statement: streamrelay routes player-protocol bytes (plus attach/catalogue/counters) without interpreting device meaning; control plane (app-channel, logs, deploy) remains spyder and is out of scope of this contract'
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
+    context: 'ACHIEVED 2026-07-18 (second pass): device-api.md Sensor authority section rewritten to the seat-device capability predicate (kCapHasAccelerometer), arm policy derived from declared class, no-arbitration rule, promotion re-handshake. Contract-first: without the transparency invariant written down, stream keeps inventing parallel semantics. REOPENED 2026-07-18 evening: the shipped Sensor authority section encoded the host-sensor predicate ("no usable real host sensor") and blessed synth suppression of wire-forwarded real samples — legitimizing the very fork it was meant to forbid. The predicate belongs to the seat''s device, not the host.'
+    tags:
+    - docs
+    - device-api
+    - player-protocol
+    - contract
+    - location-transparency
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.2:
+    name: 'One sensor authority per virtual device, chosen by the device''s declared capability: no build-flag arm policy; a real-accelerometer glass is never suppressed'
+    status: achieved
+    value: 8.0
+    cost: 5.0
+    actual_cost: 6.0
+    acceptance:
+    - 'AccelSynth existence and arming are predicated solely on the seat''s virtual device: constructed only when the device API reports no hardware accelerometer for that seat (DeviceInfo hasAccelerometer capability bit under stream; local sensor enumeration under direct), armed only by that device''s own modifier/touch/pointer events'
+    - src/render/AccelSynth.h contains no GE_SERVER_BUILD, TARGET_OS_SIMULATOR, or other build/modality conditional in existence, arm, or ownership policy (mechanically checkable by grep)
+    - When the seat's glass declares a hardware accelerometer, that real sensor stream is the sole authority and reaches the game unfiltered; no synth is constructed for that seat, so ownsSensorStream can never suppress the seat's own authority
+    - The DeviceInfo capabilities byte gains a hasAccelerometer bit (protocol bump + spyder player declaration + server predicate) in the same change — the predicate must be knowable before the first sensor sample arrives
+    - A virtual device has exactly one sensor authority, bound at construction/seating per the contract; no code path delivers a non-authority sensor event to the game's sensor handler
+    - 'Gravity and presentation tilt derive from the same authority state: hold-still holds (no decay, no reversal); mid-gesture external overwrite is structurally impossible, not merely improbable'
+    - On disarm/release, ease-back behaviour matches direct mode (documented)
+    - 'No arming-window or time-multiplexed arbitration exists: authority never changes per-event, only by explicit re-seat'
+    - 'Oracle: a synthetic hold-left sequence can never yield opposite gravity while presentation remains left'
+    - The 1–2 s accelerometer delay reported on the Jevons glass (2026-07-18) is root-caused and eliminated, with the explanation recorded — not assumed fixed by the authority correction
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
+    context: 'ACHIEVED 2026-07-18 (second pass): armed() de-flagged (setArmOnPrimary from declared device facts); kCapHasAccelerometer end-to-end (protocol + player declaration + ViewerMetrics + per-frame seat lifecycle in DirectRenderHost); arbitration filter removed; flag-free grep enforced by unit test; live Jevons run shows caps=0x7 and synth destroyed for the real-accel seat (verdicts/T156/20260718-jevons-live). Delay root cause recorded there; loopback gesture-to-gravity 5-57 ms. Root cause of the 2026-07-17 drift: presentation polled tilt_ while physics latched the last sensor SDL event from a queue merging synth emits with wire real sensors. The fix is constructional (remove the merge point), not temporal (arbitrate it). REOPENED 2026-07-18 evening (false completion): armed() keeps ''#if TARGET_OS_SIMULATOR || GE_SERVER_BUILD: primaryDown_ arms'' — finger events forwarded from a real-accelerometer glass armed the server synth, and ownsSensorStream then suppressed the glass''s real samples. The shipped filter cemented the wrong authority instead of removing the fork. Direct on-device can never do this, so this was a stream-only semantic pathway — the defect class this whole group exists to forbid.'
+    depends_on:
+    - T156.1
+    tags:
+    - accelsynth
+    - gravity
+    - presentation-tilt
+    - sensor-authority
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.3:
+    name: 'Multi-attach seats are explicit: N remote devices or primary seat + spectators; DeviceInfo and content-surface authority follow the seat'
+    status: achieved
+    value: 5.0
+    cost: 3.0
+    actual_cost: 3.0
+    acceptance:
+    - Implementation matches the contract's seat model; no code path merges N wires' input/sensors into one virtual device
+    - 'DeviceInfo and content-aspect authority follow the seat: a non-seat attach cannot retarget the session''s content surface; no multi-DeviceInfo thrash'
+    - Any intentional presentation-tilt fit zoom is documented and does not couple to DeviceInfo updates; shift-drag produces no unexplained zoom steps from surface retarget
+    - 'Oracle: desktop-then-mobile attach order does not wrest the seat, gravity, or content surface from the desktop gesture under test'
+    context: 'Merges former T156.3 (input seating) and T156.4 (DeviceInfo/surface stability) — both are the same question: which remote device is authoritative for a session. Per-wire input readers fixed delivery (ServerSession multi-wire); ownership remained undefined and every wire''s DeviceInfo still retargets the shared content surface.'
+    depends_on:
+    - T156.1
+    tags:
+    - multi-session
+    - seating
+    - DeviceInfo
+    - surface
+    - T100.2-followon
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.4:
+    name: In-process SP2I inject harness — shipped pack/unpack is the loopback wire for scripted input
+    status: achieved
+    value: 5.0
+    cost: 3.0
+    actual_cost: 3.0
+    acceptance:
+    - wire::packSdlEvent / unpackSdlEvent is the SP2I byte path ServerSession uses (no test-only serialization)
+    - A scripted-input driver runs the same deterministic gesture sequence against direct AccelSynth::handle and against pack→unpack→handle (loopback inject)
+    - Harness runs headless on the laptop via ge-test with no device, GUI, or network attached
+    - SP2I inject is the byte-path harness for input/sensor marshalling only; the full player-in-the-loop apparatus is tracked as 🎯T156.7
+    context: 'T156.4 originally asked for player-core-as-library + in-memory socket loopback. The executor re-scoped it 2026-07-18 to the shipped SP2I marshalling path (WireSdlEvent pack/unpack used by ServerSession) as a second entry point for scripted input — dual-path, not double-run of one function; reverted once for theater, then fixed with real pack/unpack inject. Kept achieved for what it factually is: a byte-path harness. The same evening proved it is NOT sufficient oracle apparatus — the GE_SERVER_BUILD arm-policy fork lived above SP2I, invisible to byte-level injection. The original scope is restored as T156.7 (headless real player over loopback), which also respects the ge↔spyder protocol-only coupling rule better than a library link would.'
+    depends_on:
+    - T156.1
+    tags:
+    - loopback
+    - harness
+    - player
+    - oracle-infrastructure
+    origin: subdivide(🎯T156) — added in the 2026-07-18 location-transparency reformulation
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.5:
+    name: 'Player remains pure glass: no AccelSynth synthesis, no gravity model, no device-semantic state'
+    status: achieved
+    value: 2.0
+    cost: 1.0
+    actual_cost: 1.0
+    acceptance:
+    - Player does not construct AccelSynth or call handle/update/setEmit/ownsSensorStream; it applies SessionConfig, reports DeviceInfo, and forwards device-local input and real sensors
+    - Host plumbing (relative-mouse for usable xrel during Shift-drag) is documented as delivery quality only, not tilt semantics
+    - Verification is structural over spyder player sources plus ge dual-path oracle (T156.4/T156.6) — glass purity does not require re-linking the player binary into ge
+    - Mirrored Protocol.h (ge ↔ spyder player) carries the same SP2I/DeviceInfo/SessionConfig layout oracles
+    context: 'Player lives in spyder; protocol is game↔player. Glass purity is structural (no synth construction) + delivery-quality relative-mouse only. Kept achieved: the glass itself was and is pure — the 2026-07-18 evening authority bug was server-side. Mechanical (rather than structural) verification arrives with T156.7 headless-player oracle runs.'
+    depends_on:
+    - T156.1
+    - T156.4
+    tags:
+    - player
+    - glass
+    - spyder
+    - relay
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.6:
+    name: 'Trace-equality oracle is green: direct vs headless-player-loopback traces identical; real wire differs only by documented transport tolerances'
+    status: achieved
+    value: 8.0
+    cost: 4.0
+    actual_cost: 4.0
+    acceptance:
+    - Oracle drives identical scripted input through the direct backend and the headless player over loopback (T156.7) and asserts the game-observed traces (event sequence, order, payloads, resulting state transitions) are identical modulo the contract's documented normalization (e.g. timestamps under a virtual clock) — trace equality, not tolerance bands
+    - 'Coverage includes at least: single-seat Shift-drag (hold, reverse, release/ease-back); finger-drag arming on a glass that declares NO accelerometer; a glass that declares a real accelerometer keeping unfiltered authority with no synth constructed; attach-order seating including primary-seat detach/reseat; DeviceInfo/content-surface authority'
+    - A real-wire run (live player attached) matches within the contract's transport tolerances (latency, coalescing) only; any semantic difference fails
+    - End-to-end latency from glass gesture/sensor sample to game-observed gravity is measured on the live run and falls within a documented tolerance — closing out the reported 1–2 s delay with numbers, not impressions
+    - Evidence is durable and in-repo (committed under verdicts/ or a TEST-REPORT-equivalent); ephemeral temp dirs (/var/folders goal SCRATCH) do not count as attestation
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
+    context: |-
+      Closes the loop. Trace equality against the player-in-loop is strictly stronger than trajectory-tolerance parity; the live-wire run certifies only transport. Without this, stream and direct re-diverge silently.
+
+      Reverted 2026-07-18: Skeptic: parity double-run theater.
+
+      REOPENED 2026-07-18 evening: the achieved oracle armed exclusively with Shift (deliberately, to avoid GE_SERVER_BUILD), so the finger-arm + real-accelerometer-glass pathway — the one that actually failed in the field — was never exercised. Evidence also lived only in an ephemeral goal SCRATCH under /var/folders. Coverage above names the missing scenarios explicitly.
+    depends_on:
+    - T156.2
+    - T156.3
+    - T156.4
+    - T156.5
+    - T156.7
+    tags:
+    - oracle
+    - parity
+    - trace-equality
+    - verification
+    origin: subdivide(🎯T156)
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T156.7:
+    name: 'Headless real player in the oracle loop: spyder bin/player runs the full handshake over loopback with scripted input and trace capture'
+    status: achieved
+    value: 5.0
+    cost: 5.0
+    actual_cost: 4.0
+    acceptance:
+    - 'spyder player builds a headless mode (no GPU/GUI presentation) that still runs the full wire bridge: SessionConfig apply, DeviceInfo report including the hasAccelerometer capability bit, SP2I input/sensor forwarding, SP2T'
+    - 'The oracle drives the real player binary as a subprocess over a localhost/loopback transport — the same bytes and the same player logic as production; no test-double glass, and no linking spyder code into ge (the plateau coupling rule holds: the repos couple through the protocol, and the oracle exercises the player across it)'
+    - Scripted device-local input and synthetic sensor streams are injectable into the headless player deterministically, with declared device capabilities configurable per run (accelerometer present vs absent), and game-observed traces are captured for T156.6
+    - Harness runs on the laptop with no physical device or GUI attached
+    - 'Independently verified by oracle evidence and the user''s live proof (claude -p judge gate waived 2026-07-18: Claude is the executor; the docs/judging.md gate applies to non-Claude executors)'
+    context: 'ACHIEVED 2026-07-18: bin/player --headless runs the full wire bridge under the SDL dummy driver with --script/--trace/--geometry/--device-class/--accel; exercised as the stream leg of scripts/t156-oracle. Restores the player-in-the-loop scope the executor''s 2026-07-18 plan deviation removed from T156.4, in the form that honours the ge↔spyder protocol-only coupling rule: the real player binary as a headless subprocess over loopback, not a library link into ge. The evening arm-policy false completion proved SP2I-level injection cannot see forks that live in the handshake (SessionConfig/DeviceInfo/capability-driven arm policy) — only a full player in the loop can. This is the executable form of the user''s formulation: bring the player into the loop and it must be indistinguishable from direct mode.'
+    depends_on:
+    - T156.1
+    tags:
+    - loopback
+    - harness
+    - player
+    - spyder
+    - oracle-infrastructure
+    origin: split from T156.4 after the 2026-07-18 false completion
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T157:
+    name: ge consumer apps build and run in the browser — tiltbuggy playable in Chrome/Safari/Firefox via WebGL2
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - sample/tiltbuggy compiles to wasm via an Emscripten lane and is playable (input, audio, rendering) in current Chrome, Safari, and Firefox
+    - 'Consumer code is unchanged: the same main.cpp/ge::run(Factory) pattern builds for web with no web-specific branches in game code'
+    - Web host lives behind ge::run (callback-driven frame loop, e.g. emscripten_set_main_loop or SDL3 callback mode); state-before-run capture pattern still works
+    - Rendering uses SOKOL_GLES3/WebGL2 from the existing glsl300es shader output; no WebGPU dependency
+    - Context::db()/sqlite persists across page reloads (OPFS or equivalent backing)
+    - Release web builds exclude app-channel/asio networking cleanly (no raw-TCP references in the wasm link)
+    context: Web is a new direct-mode platform for ge. sokol_gfx supports WebGL2 (SOKOL_GLES3) and WebGPU (SOKOL_WGPU); WebGL2 is universal while WebGPU covers ~70-85% of users (mid-2026), so WebGL2 is the first plateau and WebGPU is a follow-on. ge::run already abstracts the execution model per platform (direct hosts, server modality), so the browser's callback-driven loop is another host implementation, not an API change.
+    tags:
+    - web
+    - wasm
+    - emscripten
+    - webgl2
+    - sokol
+    - direct-mode
+    - platform
+    origin: manual
+    discovered: 2026-07-18
+  T157.1:
+    name: Web builds additionally offer a WebGPU (SOKOL_WGPU) backend with JS feature-detect fallback to WebGL2
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - wgsl added to the shader cross-compile output and a SOKOL_WGPU web build variant exists
+    - Loader feature-detects navigator.gpu and serves the WebGPU build, falling back to the WebGL2 build otherwise (dual-wasm or T107-style dispatch — decided at implementation time)
+    - tiltbuggy renders identically (imgdiff within tolerance) on both backends
+    - 'Activation condition documented: pursued only when WebGPU coverage crosses the bar or a concrete perf/feature need appears'
+    context: Follow-on to the WebGL2 plateau. WebGPU coverage (~70-85% mid-2026, gap in pre-26 Apple OSes and Linux/Android Firefox) does not justify making it the primary backend; ge's rendering surface (textured quads, small meshes) needs no WebGPU features today. The Android T107 dispatch-shim precedent makes adding a second compile-time sokol backend a known pattern.
+    depends_on:
+    - T157
+    tags:
+    - web
+    - wasm
+    - webgpu
+    - sokol
+    - follow-on
+    origin: manual
+    discovered: 2026-07-18
+  T158:
+    name: 'Arm-state is server-owned on the wire: the glass''s relative-mouse delivery follows an explicit server signal, not a policy approximation'
+    status: achieved
+    value: 2.0
+    cost: 2.0
+    actual_cost: 2.0
+    acceptance:
+    - The server (which owns AccelSynth and its arm policy) signals arm/disarm to the primary glass over the player protocol
+    - The player's relative-mouse enable follows that signal; the class-derived local heuristic (PlayerRender syncRelativeMouseForTilt) is removed
+    - Contract notes the signal as delivery plumbing (no tilt semantics on the glass)
+    context: 'ACHIEVED 2026-07-18: SP2A wire message (protocol v9); the host reports AccelSynth arm transitions (setArmStateSink), ServerSession sends to the primary seat only, and the glass''s relative-mouse follows the signal — the PlayerRender heuristic is deleted. Contract updated (delivery plumbing). Oracle observes [0,1,0] transitions in both gesture scenarios and never-armed for a real-accel seat; live Jevons receipt in verdicts/T158-T159. 2026-07-18 drift review: the player approximated server arm policy locally (formerly Shift-or-primary, now class-derived). Deriving from shared declared facts removed the drift, but the honest design is the authority telling the glass when it is armed. Small; ride a future player-protocol change.'
+    depends_on:
+    - T156.2
+    tags:
+    - player
+    - protocol
+    - delivery
+    - anti-drift
+    origin: 2026-07-18 ge-spyder duplication/drift review during T156 completion
+    discovered: 2026-07-18
+    achieved: 2026-07-18
+  T159:
+    name: 'Frame metadata sidecar: a server timestamp rides each SP2S frame; the glass logs (seq, server_us, present_us) for absolute end-to-end latency'
+    status: achieved
+    value: 3.0
+    cost: 2.0
+    actual_cost: 2.0
+    acceptance:
+    - Each SP2S frame (or a periodic subset) carries a server emit timestamp in a small metadata op
+    - The player's PresentTrace logs per-present (seq, server_us, present_us), giving absolute emit-to-glass latency, not just cadence
+    - A live-run tolerance for end-to-end latency is documented and checked in the oracle's live tier
+    context: 'ACHIEVED 2026-07-18: SP2F FrameMeta (protocol v9) precedes each cmdstream frame with (seq, server epoch us). Glass logs emit-to-present in PresentTrace (live Jevons: avg 52-64 ms over Wi-Fi incl. pacing queue) and sampled emit-to-receipt in the headless trace; the oracle''s live tier checks median <= 150 ms (measured 0.11-0.15 ms loopback). Tolerance documented in docs/device-api.md. Evidence: verdicts/T158-T159, verdicts/T156.6/20260718T130828Z. From the 2026-07-18 judder hunt: (present_us, seq) cadence telemetry on the glass found the pacing bugs, but absolute latency was inferred. A server timestamp riding the frame closes that gap; user proposed it mid-hunt. Display-cadence coverage for the glass in the automated oracle rides the same mechanism (the loopback oracle cannot see presentation timing).'
+    depends_on:
+    - T156.7
+    tags:
+    - telemetry
+    - cmdstream
+    - latency
+    - oracle-infrastructure
+    origin: 2026-07-18 Jevons judder diagnosis
+    discovered: 2026-07-18
+    achieved: 2026-07-18
   T16:
     name: TiltBuggy vehicle dynamics feel right
     status: achieved
@@ -1790,6 +2270,92 @@ targets:
     origin: discovered while testing tiltbuggy stage 2
     discovered: 2026-04-16
     achieved: 2026-07-01
+  T160:
+    name: Game-injected frame logs ride the render stream and are emitted by the presenting backend with backend-decided timestamps
+    status: identified
+    value: 3.0
+    cost: 3.0
+    acceptance:
+    - A location-transparent game API (e.g. ge::frameLog(text)) injects light per-frame log entries; games never branch on modality
+    - Entries serialize as a cmdstream op riding the frame that carried them (mirrored in the player replayer; unknown-op safety preserved for pre-version peers)
+    - 'Built-in metadata on every entry, not opt-in: BOTH the generation timestamp (stamped by the engine when the game emits the entry, game/server clock) and the emission timestamp (stamped by the presenting backend at present time, backend clock). The pair makes each entry a per-frame generation→present span on whichever pathway presented it'
+    - 'The PRESENTING backend emits each entry with its own timestamp at present time: direct host at frame present, player glass at glass present (pacing queue included); a frame shed under overflow emits its logs flagged as dropped'
+    - Comparing the direct-run and glass-run emission streams for the same scripted gesture localizes transport/present stutter to specific game frames (the same content yields two cadence timelines)
+    - TiltBuggy carries an env-gated per-frame pose log as the reference user
+    context: 'User-requested during the 2026-07-18 T159 wrap-up: SP2F measures backend-to-backend emit-to-present latency, but game-authored markers stamped at PRESENT by whichever backend shows the frame give per-frame content correlation — direct vs glass cadence for identical frames isolates transport-induced stutter. Not urgent; filed for a later pass. Groundwork: Op enum has room (next free ~50), player CmdStream.h is a namespace-renamed mirror of ge''s, and the player trace/PresentTrace plumbing (T159) is the natural emission sink.'
+    depends_on:
+    - T159
+    tags:
+    - telemetry
+    - cmdstream
+    - frame-log
+    - oracle-infrastructure
+    origin: user clarification of T159 intent, 2026-07-18
+    discovered: 2026-07-18
+  T161:
+    name: 'The stream self-detects anachronisms: temporal invariants checked online at the glass, violations classified and reported without human log-reading'
+    status: identified
+    value: 5.0
+    cost: 5.0
+    acceptance:
+    - 'Temporal contract documented in device-api.md: presented seq strictly increasing; generation timestamps non-decreasing with seq; emission timestamps non-decreasing in present order; every generated frame presented or explicitly shed (conservation); transport is a time-shift, not a time-warp (inter-generation deltas match inter-presentation deltas within documented tolerance)'
+    - 'Online checker at the glass: bounded ring of (seq, gen_us, recv_us, present_us) tuples, incremental invariant checks, negligible per-frame cost'
+    - Violations are CLASSIFIED anomaly records (reorder, seq regression, silent loss, stall, jitter burst, cadence warp, clock skew, identical-sample flood) carrying the implicated seq window and both cadence timelines; cadence warps are auto-attributed to transport vs glass by comparing receive-deltas against generation-deltas
+    - 'Both directions are monitored: s2p frames AND p2s input/sensor events. Sensor invariant: real accelerometers always carry noise, so N consecutive bit-identical samples is an anomaly (observed live 2026-07-18: a flat-on-table A9 tablet emitted a burst of 175 identical 73-degree-tilt samples in one pump — a stale/corrupt event replayed by the Android sensor path — which ran the buggy off-world)'
+    - 'Reporting is automatic on three paths: trace/telemetry sink on the glass; periodic rollup in the PresentTrace summary line; echo to the server over a small wire message so server logs and the oracle see anomalies without device log access (spyder remains an opaque router)'
+    - The scripted oracle and its live tier assert ZERO anomalies on clean runs
+    - 'Fault-injection test proves the detector detects: artificially delayed, reordered, and dropped frames each fire the correct classification (a detector with no positive test is theater)'
+    context: 'User-requested 2026-07-18, extending T160: with dual timestamps (generation + emission) and seq as builtin metadata, the stream supports a formal temporal contract checked by machine. The 2026-07-18 judder hunt did all of this manually (arrival-delta vs present-delta comparison localized Wi-Fi burst jitter; the black-glass bug was a silent-loss violation; the standing-backlog bug was a cadence warp) — this target turns that afternoon of human analysis into an always-on detector.'
+    depends_on:
+    - T159
+    - T160
+    tags:
+    - telemetry
+    - cmdstream
+    - invariants
+    - anomaly-detection
+    - oracle-infrastructure
+    origin: user request during T160 filing, 2026-07-18
+    discovered: 2026-07-18
+  T162:
+    name: Direct-mode iOS games hide the status bar by default
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A ge::run game on physical iOS shows no status bar by default (matching the stream path's SessionConfig immersive behaviour), without per-game Info.plist or code
+    - An explicit opt-out exists for games that want the bar
+    context: Promoted from docs/TODO.md (file retired; targets are the sole record of followable work). The stream path already hides chrome via SessionConfig immersive (T154.2); direct-mode packaging should match by default.
+    tags:
+    - ios
+    - direct
+    - chrome
+    - packaging
+    origin: promoted from docs/TODO.md, 2026-07-19
+    discovered: 2026-07-19
+  T163:
+    name: 'Each attached session runs its own game instance: per-session world, Context, and state — the shared-world broadcast is a defect, not the default'
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'N attached glasses each play their OWN game: independent world/physics/Context/durable-state per session, driven by that glass''s own sensors/input — no seat is a spectator of someone else''s game'
+    - The device-api.md contract states per-session instances as THE multi-session model; the 'primary seat + spectators' shared-world mode survives only as an explicitly opt-in broadcast mode for genuinely shared-world titles, never as a default
+    - 'SP2T durable state is coherent per session: each glass''s db seeds and receives ONLY its own session''s world (the attach-order ''whose save wins'' ambiguity is gone)'
+    - 'T156.3''s seat policy is recast: input gating remains per session, but there is nothing to ''spectate'' by default because sessions do not share a world'
+    - Implementation may be in-process multi-world or process-per-session (e.g. spyder pool spawning a server instance per attach) — the choice is recorded with its tradeoffs; either way the wire/cmdstream capture is per-session
+    - 'Oracle: two glasses attach, each drives its own buggy with its own tilt, each screenshot shows independent state; detach of one does not disturb the other'
+    context: '2026-07-19: the user re-stated the standing design — the game server serves multiple clients EACH WITH ITS OWN STATE (T154 structural rule: each session''s Context tracks that session''s player) — after catching the whole fleet mirroring one world. The single-shared-world behavior kept re-codifying itself because executors wrote implemented behavior back into specs: SeatPolicy''s ''single-world games'' framing (morning) and the T156.1 contract demoting per-session worlds to an option with primary-seat-broadcast as default (evening) are both instances. This target makes per-session instances the contract; the T156.1 sensor-authority and arm-policy work remains valid per session. ACHIEVED 2026-07-19 via process-per-session: the registered server is a mother (catalogue presence); each player_attached spawns a child process (GE_WIRE_SESSION) that opens that session''s wire and runs a complete independent game — own world, Context, SP2T seeded from its own glass, capture, transport, sensor authority. GE_BROADCAST=1 is the recorded opt-in for shared-world titles; implementation choice and tradeoffs recorded in device-api.md. Evidence verdicts/T163/20260718T231038Z: scripts/t163-oracle PASS (two concurrent headless glasses with opposite sensor streams → two children, mirrored independent worlds, survivor unaffected by the other''s detach) plus live screenshots of Jevons and Pixel showing different buggies under their own tilt; 342/342 unit tests and t156-oracle PASS end-to-end through the mother→child path.'
+    depends_on:
+    - T156.1
+    tags:
+    - multi-session
+    - architecture
+    - contract
+    - per-session-state
+    origin: user design re-statement, 2026-07-19
+    discovered: 2026-07-19
+    achieved: 2026-07-19
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
@@ -1926,8 +2492,8 @@ targets:
     cost: 0.0
     actual_cost: 5.0
     acceptance:
-    - Android player reads a `ged_addr` intent extra (e.g. `adb shell am start -n com.squz.player/.GeActivity --es ged_addr host:port`) and connects directly, skipping QR onboarding
-    - iOS player reads a `ged_addr` launch argument (`xcrun simctl launch <udid> com.squz.player -ged_addr host:port`, or equivalent for devicectl on physical devices) and connects directly
+    - Android player reads a `ged_addr` intent extra (e.g. `adb shell am start -n com.spyder.player/.GeActivity --es ged_addr host:port`) and connects directly, skipping QR onboarding
+    - iOS player reads a `ged_addr` launch argument (`xcrun simctl launch <udid> com.spyder.player -ged_addr host:port`, or equivalent for devicectl on physical devices) and connects directly
     - If the param is absent, player falls through to existing behaviour (saved server → QR)
     - matrix-cell.sh's run_ios_sim_player / run_ios_device_player / run_android_emu_player / run_android_device_player functions pass the ged address at launch; no QR interaction required
     - 'Documented in the player''s agents-guide and README: automated / scripted launches pass the address via the host launcher'
@@ -3518,12 +4084,12 @@ targets:
     cost: 0.0
     acceptance:
     - include/ge/iap.h defines the public surface (Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore) and compiles standalone
-    - src/iap.cpp dispatcher selects backend at init based on GE_IAP_MODE env var; default = stub on desktop, platform on mobile (platform path may be unimplemented until T65.2/T65.3)
+    - src/iap.cpp dispatcher selects backend at init based on IAP_MODE env var; default = stub on desktop, platform on mobile (platform path may be unimplemented until T65.2/T65.3)
     - src/iap_stub.cpp implements StubStore with in-memory ownership, setOwned/clearAll for tests, callback delivery
     - src/iap_test.cpp has doctest coverage of register/owned/buy/restore plus duplicate-registration and missing-ID error paths
     - Module.mk and CMakeLists include iap sources in ge/SRC; `make unit-test` passes on macOS
     - CLAUDE.md gains an `### IAP (🎯T65)` section describing the public API and StubStore backend
-    context: 'The floor that unblocks everything else. Public header at include/ge/iap.h with Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore. StubStore at src/iap_stub.cpp keeps an in-memory set of owned IDs; exposes setOwned(id, bool) for tests. Dispatcher at src/iap.cpp picks backend at first call to register_ based on GE_IAP_MODE env var (default: stub on desktop, platform on iOS/Android — Local will land in T65.4). Doctest coverage at src/iap_test.cpp exercising the full surface including callback delivery, restore semantics, and product registration with duplicate IDs.'
+    context: 'The floor that unblocks everything else. Public header at include/ge/iap.h with Product, LocalisedProduct, Result, Type, register_, owned, products, buy, restore. StubStore at src/iap_stub.cpp keeps an in-memory set of owned IDs; exposes setOwned(id, bool) for tests. Dispatcher at src/iap.cpp picks backend at first call to register_ based on IAP_MODE env var (default: stub on desktop, platform on iOS/Android — Local will land in T65.4). Doctest coverage at src/iap_test.cpp exercising the full surface including callback delivery, restore semantics, and product registration with duplicate IDs.'
     depends_on:
     - T65
     tags:
@@ -3585,10 +4151,10 @@ targets:
     cost: 0.0
     acceptance:
     - A committed ios/StoreKit.storekit template lives in ge with the product schema; consuming games copy + customise via a make rule
-    - When GE_IAP_MODE=local on iOS, StoreKit reads from the .storekit file; products() returns the configured set, buy() exercises the real signature-verification path
-    - On Android, GE_IAP_MODE=local routes buy() to android.test.purchased / canceled / refunded / item_unavailable based on the local product ID
+    - When IAP_MODE=local on iOS, StoreKit reads from the .storekit file; products() returns the configured set, buy() exercises the real signature-verification path
+    - On Android, IAP_MODE=local routes buy() to android.test.purchased / canceled / refunded / item_unavailable based on the local product ID
     - Documented in CLAUDE.md alongside the debug menu (T65.6) with guidance on when to use each
-    context: 'When GE_IAP_MODE=local, run the platform StoreKit / Play Billing path against fake products. iOS: a committed .storekit configuration file describes products inline; Xcode injects them into the StoreKit API at run time, no App Store Connect round-trip, works in the simulator with no signed-in account. Android: use the reserved android.test.* SKUs (purchased / canceled / refunded / item_unavailable) for the basic flow. Less capable than sandbox accounts (no subscriptions on Android side) but unblocks the inner loop. Lower priority than the debug menu (T65.6) — that''s the day-to-day tool. This target exists for the case where a developer genuinely wants to validate the real framework path without sandbox credentials.'
+    context: 'When IAP_MODE=local, run the platform StoreKit / Play Billing path against fake products. iOS: a committed .storekit configuration file describes products inline; Xcode injects them into the StoreKit API at run time, no App Store Connect round-trip, works in the simulator with no signed-in account. Android: use the reserved android.test.* SKUs (purchased / canceled / refunded / item_unavailable) for the basic flow. Less capable than sandbox accounts (no subscriptions on Android side) but unblocks the inner loop. Lower priority than the debug menu (T65.6) — that''s the day-to-day tool. This target exists for the case where a developer genuinely wants to validate the real framework path without sandbox credentials.'
     depends_on:
     - T65.2
     - T65.3
@@ -4038,11 +4604,11 @@ targets:
     status: set_aside
     value: 0.0
     cost: 0.0
-    set_aside_reason: 'Won''t fix via LocalStore: 🎯T85 proved SKTestSession/StoreKitTest requires XCTest and crashes in a plain app process. Superseded for sim/dev by stub mode (🎯T86) and the cleaner debug→stub default tracked as 🎯T118. Acceptance (bundled .storekit + GE_IAP_MODE=local + no sandbox modal via LocalStore path) will not be met as written.'
+    set_aside_reason: 'Won''t fix via LocalStore: 🎯T85 proved SKTestSession/StoreKitTest requires XCTest and crashes in a plain app process. Superseded for sim/dev by stub mode (🎯T86) and the cleaner debug→stub default tracked as 🎯T118. Acceptance (bundled .storekit + IAP_MODE=local + no sandbox modal via LocalStore path) will not be met as written.'
     acceptance:
     - sample/tiltbuggy/ios/StoreKit.storekit exists (copied from ge/ios/StoreKit.storekit via make ge/storekit-init) and lists com.squz.tiltbuggy.pro (NonConsumable) plus com.squz.tiltbuggy.powerboost10 (Consumable) matching tiltbuggy setCatalogue
     - sample/tiltbuggy/ios/CMakeLists.txt adds StoreKit.storekit to bundle resources and links StoreKitTest.framework as Optional
-    - GE_IAP_MODE=local is set in the iOS scheme launch environment so the LocalStore bridge activates without per-developer setup
+    - IAP_MODE=local is set in the iOS scheme launch environment so the LocalStore bridge activates without per-developer setup
     - Launching TiltBuggy iOS on a device with no cached sandbox Apple account renders the first frame without a Sign in to Apple Account modal
     - iap::buy(pro) and iap::restore() still exercise the real StoreKit signature-verification path against the local .storekit products
     - main.cpp IAP catalogue + restore call is restored (currently commented out as a temp verification hack from 2026-05-30)
@@ -4308,7 +4874,7 @@ targets:
     - tiltbuggy launched on the iOS Simulator runs IAP in local mode (SKTestSession against the bundled .storekit) with NO App Store login dialogue; products()/buy()/owned() work against the fake products.
     - If SKTestSession does not reliably intercept on the simulator (T74 caveat), the outcome is documented and the consumer falls back cleanly rather than crashing.
     - CLAUDE.md T65.4 updated to reflect build_project.rb now wires local mode automatically.
-    context: 'Surfaced 2026-05-31 switching tiltbuggy to local IAP to stop the App Store login dialogue on the sim. UPDATE 2026-05-31: attempted the full wiring (build_project.rb bundles .storekit + weak-links StoreKitTest + compiles iap_apple_local.swift + adds $(PLATFORM_DIR)/Developer Library/Frameworks to FRAMEWORK_SEARCH_PATHS and LD_RUNPATH_SEARCH_PATHS). Result: the app crashes at launch with `dyld: Library not loaded: @rpath/XCTest.framework/XCTest, Referenced from: .../StoreKitTest.framework/StoreKitTest`. StoreKitTest transitively depends on XCTest — a test-host framework that does not load in a plain (non-XCTest) app process — which is exactly the failure mode T74 warned about (''SKTestSession doesn''t reliably intercept from non-XCTest app processes today''). Even adding the Developer runpath did not resolve XCTest in the app process. CONCLUSION: SKTestSession-based local IAP is not viable in a normal ge app process on the simulator with the current approach. Deferred in favour of stub mode (🎯T86) for sim/dev. Revisit only if a viable path to host XCTest/StoreKitTest in a non-test app process is found (e.g. a dedicated XCTest runner host, or Apple making StoreKitTest XCTest-independent). build_project.rb emits no xcscheme and simctl ignores scheme env, so GE_IAP_MODE can''t be injected per-launch; the launch-independent lever remains iap.cpp auto-mode on bundled .storekit. User chose local over stub on 2026-05-31, then (after seeing the XCTest crash) directed: file the target, go stub for now.'
+    context: 'Surfaced 2026-05-31 switching tiltbuggy to local IAP to stop the App Store login dialogue on the sim. UPDATE 2026-05-31: attempted the full wiring (build_project.rb bundles .storekit + weak-links StoreKitTest + compiles iap_apple_local.swift + adds $(PLATFORM_DIR)/Developer Library/Frameworks to FRAMEWORK_SEARCH_PATHS and LD_RUNPATH_SEARCH_PATHS). Result: the app crashes at launch with `dyld: Library not loaded: @rpath/XCTest.framework/XCTest, Referenced from: .../StoreKitTest.framework/StoreKitTest`. StoreKitTest transitively depends on XCTest — a test-host framework that does not load in a plain (non-XCTest) app process — which is exactly the failure mode T74 warned about (''SKTestSession doesn''t reliably intercept from non-XCTest app processes today''). Even adding the Developer runpath did not resolve XCTest in the app process. CONCLUSION: SKTestSession-based local IAP is not viable in a normal ge app process on the simulator with the current approach. Deferred in favour of stub mode (🎯T86) for sim/dev. Revisit only if a viable path to host XCTest/StoreKitTest in a non-test app process is found (e.g. a dedicated XCTest runner host, or Apple making StoreKitTest XCTest-independent). build_project.rb emits no xcscheme and simctl ignores scheme env, so IAP_MODE can''t be injected per-launch; the launch-independent lever remains iap.cpp auto-mode on bundled .storekit. User chose local over stub on 2026-05-31, then (after seeing the XCTest crash) directed: file the target, go stub for now.'
     tags:
     - ios
     - iap
@@ -4790,7 +5356,7 @@ targets:
     - At least one ge sample (e.g. tiltbuggy) demonstrates the debug overlay end-to-end.
     - multimaze's VisibilityRenderer wireframe mode is removed and replaced with the ge::debug path.
     context: |-
-      multimaze's 🎯T25 floor-light work surfaced the recurring need to visualise CPU-generated meshes without bolting one-off wireframe modes onto each consumer renderer. ge now ships ge::debug (<ge/debug.h>): an opt-in, GE_DEBUG_OVERLAY-toggleable layer with ad-hoc line/tri primitives, a submit-mesh convention (ge::debug::mesh(verts, idx, fill=false) — wireframe or translucent sector-tint fill), pixel-space text HUD, and flush(Context, mvp). sokol-backed (two pipelines sharing one program + stream buffer), public surface names no backend.
+      multimaze's 🎯T25 floor-light work surfaced the recurring need to visualise CPU-generated meshes without bolting one-off wireframe modes onto each consumer renderer. ge now ships ge::debug (<ge/debug.h>): an opt-in, DEBUG_OVERLAY-toggleable layer with ad-hoc line/tri primitives, a submit-mesh convention (ge::debug::mesh(verts, idx, fill=false) — wireframe or translucent sector-tint fill), pixel-space text HUD, and flush(Context, mvp). sokol-backed (two pipelines sharing one program + stream buffer), public surface names no backend.
 
       PROGRESS (PR on branch T97-debug-render-layer, targeting ge v0.50.0):
         ✓ criterion 1 (submit-mesh convention, runtime flag) — ge::debug::mesh

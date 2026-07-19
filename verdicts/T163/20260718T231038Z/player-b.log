@@ -1,0 +1,55 @@
+[2026-07-19 09:10:43.036] [info] [player_core.cpp:45] spyder player starting (H.264 + SP2S cmdstream)
+[2026-07-19 09:10:43.037] [info] [PlayerWireBridge.cpp:143] PlayerWireBridge: connected to stream relay
+[2026-07-19 09:10:43.116] [info] [player_core.cpp:71] SessionConfig: sensors=0x1 orientation=254 transport=0 flags=0x3
+[2026-07-19 09:10:43.116] [info] [PlayerRender.cpp:147] PlayerRender: window 1180x820 for orientation=254
+[2026-07-19 09:10:43.116] [info] [PlayerRender.cpp:155] PlayerRender: headless — no renderer/decoder
+[2026-07-19 09:10:43.116] [info] [PlayerRender.cpp:229] PlayerRender: no local accelerometer — tilt gestures (Shift+drag) forward to the server's synthesizer
+[2026-07-19 09:10:43.116] [info] [player_core.cpp:150] orientation settle: window 1180x820 after 0ms
+[2026-07-19 09:10:43.116] [info] [player_core.cpp:183] DeviceInfo 1180x820 @1x class=2 safe=(0,0 1180x820) draw=(0,0 1180x820)
+[2026-07-19 09:10:43.118] [info] [player_core.cpp:211] SP2T: opened durable db /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db
+[2026-07-19 09:10:43.118] [info] [PlayerWireBridge.cpp:225] PlayerWireBridge: SP2T snapshot sent (24576 bytes)
+[2026-07-19 09:10:43.118] [info] [player_core.cpp:235] SP2T: seeded server from player durable db /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:43.118] [info] [player_core.cpp:245] player: entering main loop (wire open=true)
+[2026-07-19 09:10:43.118] [info] [player_core.cpp:312] player: input script loaded (/Users/marcelo/work/github.com/squz/ge/verdicts/T163/20260718T231038Z/gesture-b.txt)
+[2026-07-19 09:10:43.125] [info] [PlayerWireBridge.cpp:689] PlayerWireBridge: SessionConfig update transport=cmdstream
+[2026-07-19 09:10:43.125] [info] [player_core.cpp:258] player: SessionConfig mid-session — re-sending DeviceInfo
+[2026-07-19 09:10:43.189] [info] [PlayerWireBridge.cpp:676] PlayerWireBridge: SP2A arm=0
+[2026-07-19 09:10:43.252] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=0 wire=2925961B runs=6 qdepth=1 cache=15 full=15 refs=4
+[2026-07-19 09:10:43.252] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:43.252] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=1 wire=469B runs=6 qdepth=2 cache=15 full=0 refs=12
+[2026-07-19 09:10:43.252] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=2 wire=469B runs=6 qdepth=3 cache=15 full=0 refs=12
+[2026-07-19 09:10:43.252] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:43.739] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:43.740] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:44.125] [info] [player_core.cpp:553] PlayerFPS: 58.0 fps over 1.00s (58 frames) cmdstream=0 last_wire=0B last_seq=0
+[2026-07-19 09:10:44.173] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=60 wire=469B runs=6 qdepth=1 cache=15 full=0 refs=12
+[2026-07-19 09:10:44.256] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:44.256] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:44.756] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:44.756] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:45.141] [info] [player_core.cpp:553] PlayerFPS: 58.1 fps over 1.02s (59 frames) cmdstream=0 last_wire=0B last_seq=0
+[2026-07-19 09:10:45.173] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=120 wire=469B runs=6 qdepth=1 cache=15 full=0 refs=12
+[2026-07-19 09:10:45.273] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:45.273] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:45.789] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:45.790] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:46.141] [info] [player_core.cpp:553] PlayerFPS: 62.0 fps over 1.00s (62 frames) cmdstream=0 last_wire=0B last_seq=0
+[2026-07-19 09:10:46.173] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=180 wire=617B runs=6 qdepth=1 cache=48 full=1 refs=11
+[2026-07-19 09:10:46.290] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:46.290] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:46.806] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:46.806] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:47.141] [info] [player_core.cpp:553] PlayerFPS: 60.0 fps over 1.00s (60 frames) cmdstream=0 last_wire=0B last_seq=0
+[2026-07-19 09:10:47.162] [info] [player_core.cpp:300] PlayerLog: 4234894 ticks, 117 decoded (4194191 empty), seq 3-116 (0 gaps), maxDrain=0.0ms maxRender=0.0ms maxGap=25.8ms pump avg=0.0/max=25.8ms ev avg=0.0/max=2.8ms upload avg=0.0/max=0.1ms
+[2026-07-19 09:10:47.173] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=240 wire=617B runs=6 qdepth=1 cache=108 full=1 refs=11
+[2026-07-19 09:10:47.323] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:47.323] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:47.839] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:47.840] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:48.141] [info] [player_core.cpp:553] PlayerFPS: 60.0 fps over 1.00s (60 frames) cmdstream=0 last_wire=0B last_seq=0
+[2026-07-19 09:10:48.173] [info] [PlayerWireBridge.cpp:655] PlayerWireBridge: SP2S SpriteRun seq=300 wire=617B runs=6 qdepth=1 cache=168 full=1 refs=11
+[2026-07-19 09:10:48.340] [info] [PlayerWireBridge.cpp:704] PlayerWireBridge: SP2T snapshot received (24576 bytes)
+[2026-07-19 09:10:48.340] [info] [player_core.cpp:367] SP2T: wrote durable snapshot /Users/marcelo/Library/Application Support/squz/spyder-player/games/tiltbuggy.db (24576 bytes, game=tiltbuggy)
+[2026-07-19 09:10:48.624] [info] [player_core.cpp:417] player: script complete — exiting
+[2026-07-19 09:10:48.625] [info] [player_core.cpp:572] Player exited (328 frames decoded)
+[2026-07-19 09:10:49.186] [info] [player_core.cpp:300] PlayerLog: 4283069 ticks, 122 decoded (4282949 empty), seq 118-238 (1 gaps), maxDrain=0.0ms maxRender=0.0ms maxGap=30.4ms pump avg=0.0/max=0.1ms ev avg=0.0/max=0.1ms upload avg=0.0/max=0.0ms

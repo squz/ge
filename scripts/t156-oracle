@@ -1,0 +1,318 @@
+#!/bin/bash
+# Copyright 2026 Marcelo Cantos
+# SPDX-License-Identifier: Apache-2.0
+#
+# t156-oracle — direct vs stream trace-equality oracle (🎯T156.6).
+#
+# Runs the same InputScript gesture against:
+#   direct:  tiltbuggy windowed on this host (GE_INPUT_SCRIPT), and
+#   stream:  tiltbuggy-server + spyder streamrelay + the REAL spyder player
+#            in --headless mode over loopback (T156.7 apparatus).
+# Both hosts write a game-boundary sensor/tilt trace (GE_SENSOR_TRACE);
+# the traces must match under the documented normalization, and the stream
+# run's gesture→gravity latency must be within tolerance.
+#
+# Usage: scripts/t156-oracle [evidence-dir]
+#   SPYDER_ROOT   spyder checkout (default: ~/work/github.com/marcelocantos/spyder)
+#   Requires: bin/tiltbuggy, bin/tiltbuggy-server (built here),
+#             $SPYDER_ROOT/bin/{spyder,player}.
+
+set -euo pipefail
+
+GE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SPYDER_ROOT=${SPYDER_ROOT:-$HOME/work/github.com/marcelocantos/spyder}
+APP_DIR="$GE_ROOT/sample/tiltbuggy"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+EVIDENCE=${1:-"$GE_ROOT/verdicts/T156.6/$STAMP"}
+RELAY_PORT=3131
+
+mkdir -p "$EVIDENCE"
+echo "t156-oracle: evidence → $EVIDENCE"
+
+for bin in "$APP_DIR/bin/tiltbuggy" "$APP_DIR/bin/tiltbuggy-server" \
+           "$SPYDER_ROOT/bin/spyder" "$SPYDER_ROOT/bin/player"; do
+    [ -x "$bin" ] || { echo "t156-oracle: missing $bin — build first" >&2; exit 2; }
+done
+
+# ── Gesture scripts (identical for direct and stream) ────────────────────
+cat > "$EVIDENCE/gesture-shift.txt" <<'EOF'
+# Desktop-class glass, no accelerometer: Shift-drag hold-left, release.
+SLEEP 1500
+SHIFT down
+SLEEP 50
+MOTION -50 0
+SLEEP 50
+MOTION -50 0
+SLEEP 1200      # hold: gravity must stay left, no decay/reversal
+SHIFT up
+SLEEP 900       # ease-back
+QUIT
+EOF
+cat > "$EVIDENCE/gesture-finger.txt" <<'EOF'
+# Phone-class glass, no accelerometer: finger-drag arms (the field-failure
+# pathway) — no Shift anywhere.
+SLEEP 1500
+FINGER_DOWN 0.5 0.5
+SLEEP 50
+FINGER_MOTION 0.45 0.5 -0.05 0
+SLEEP 50
+FINGER_MOTION 0.40 0.5 -0.05 0
+SLEEP 1200
+FINGER_UP
+SLEEP 900
+QUIT
+EOF
+cat > "$EVIDENCE/gesture-accel.txt" <<'EOF'
+# Glass with a real accelerometer: sensor stream is the authority.
+SLEEP 1500
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -3.0 0.5
+SLEEP 100
+SENSOR -1.0 0.2
+SLEEP 100
+SENSOR 0.0 0.0
+SLEEP 500
+QUIT
+EOF
+
+cleanup() {
+    [ -n "${PLAYER_PID:-}" ] && kill "$PLAYER_PID" 2>/dev/null || true
+    [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null || true
+    [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# ── Relay (spyder streamrelay), one instance for all stream runs ─────────
+"$SPYDER_ROOT/bin/spyder" serve --addr ":$RELAY_PORT" \
+    > "$EVIDENCE/relay.log" 2>&1 &
+RELAY_PID=$!
+sleep 1
+
+run_direct() { # name script
+    local name=$1 script=$2
+    echo "t156-oracle: direct run [$name]"
+    (cd "$APP_DIR" &&
+     GE_INPUT_SCRIPT="$script" \
+     GE_SENSOR_TRACE="$EVIDENCE/$name-direct.trace" \
+     ./bin/tiltbuggy > "$EVIDENCE/$name-direct.log" 2>&1) || true
+}
+
+run_stream() { # name script extra-player-flags...
+    local name=$1 script=$2; shift 2
+    echo "t156-oracle: stream run [$name]"
+    # 🎯T163: the session's game runs in a spawned CHILD process; its
+    # game-boundary trace lands in GE_CHILD_TRACE_DIR/<session>.trace and
+    # is renamed to $name-stream.trace below. The mother's world idles.
+    (cd "$APP_DIR" &&
+     GE_SERVER="127.0.0.1:$RELAY_PORT" \
+     GE_CHILD_TRACE_DIR="$EVIDENCE" \
+     ./bin/tiltbuggy-server > "$EVIDENCE/$name-server.log" 2>&1) &
+    SERVER_PID=$!
+    sleep 2
+    "$SPYDER_ROOT/bin/player" --headless --host 127.0.0.1 --port "$RELAY_PORT" \
+        --name tiltbuggy --script "$script" --exit-after-script \
+        --trace "$EVIDENCE/$name-player.trace" "$@" \
+        > "$EVIDENCE/$name-player.log" 2>&1 || true
+    PLAYER_PID=
+    sleep 3   # child sees its wire close and exits on its own
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=
+    local latest
+    latest=$(ls -t "$EVIDENCE"/s[0-9]*.trace 2>/dev/null | head -1)
+    [ -n "$latest" ] && mv "$latest" "$EVIDENCE/$name-stream.trace"
+}
+
+run_direct shift "$EVIDENCE/gesture-shift.txt"
+run_stream shift "$EVIDENCE/gesture-shift.txt" --device-class desktop --accel 0 --geometry 2048x1536
+GE_DEVICE_TOUCH_FIRST=1 run_direct finger "$EVIDENCE/gesture-finger.txt"
+run_stream finger "$EVIDENCE/gesture-finger.txt" --device-class phone --accel 0 --geometry 2048x1536
+run_direct accel "$EVIDENCE/gesture-accel.txt"
+run_stream accel "$EVIDENCE/gesture-accel.txt" --device-class phone --accel 1 --geometry 2048x1536
+
+# ── Compare ──────────────────────────────────────────────────────────────
+rc=0
+python3 - "$EVIDENCE" <<'PYEOF' || rc=$?
+import json, sys, glob, os
+
+ev = sys.argv[1]
+TOL = 1e-3          # value tolerance (float formatting in traces)
+PEAK_TOL = 0.02     # 2% on peak magnitudes
+LATENCY_MS_MAX = 250
+
+def load(path):
+    # The stream server is SIGTERM'd after the player exits, which can tear
+    # the final trace line mid-write — that is process teardown, not
+    # semantics. Skip unparseable lines but count them (must stay tiny).
+    sensors, tilts, torn = [], [], 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+            except json.JSONDecodeError:
+                torn += 1
+                continue
+            if j["k"] == "sensor":
+                sensors.append(j)
+            elif j["k"] == "tilt":
+                tilts.append(j)
+    assert torn <= 2, f"{path}: {torn} unparseable lines"
+    return sensors, tilts
+
+def plateaus(sensors, min_run=3):
+    """Runs of >=min_run identical (gx,gy) — the armed/hold re-emit values.
+    Normalization documented in the T156 contract: frame counts and ease
+    decay are wall-clock dependent; plateau VALUES and their order are not."""
+    out, run, prev = [], 0, None
+    for s in sensors:
+        v = (round(s["gx"], 3), round(s["gy"], 3))
+        if prev is not None and abs(v[0]-prev[0]) < TOL and abs(v[1]-prev[1]) < TOL:
+            run += 1
+        else:
+            if prev is not None and run >= min_run:
+                if not out or abs(out[-1][0]-prev[0]) > TOL or abs(out[-1][1]-prev[1]) > TOL:
+                    out.append(prev)
+            prev, run = v, 1
+    if prev is not None and run >= min_run:
+        if not out or abs(out[-1][0]-prev[0]) > TOL or abs(out[-1][1]-prev[1]) > TOL:
+            out.append(prev)
+    return out
+
+def peak(vals):
+    return max((abs(v) for v in vals), default=0.0)
+
+results, ok_all = {}, True
+for name in ("shift", "finger", "accel"):
+    r = {}
+    ds, dt = load(f"{ev}/{name}-direct.trace")
+    ss, st = load(f"{ev}/{name}-stream.trace")
+    r["direct_sensor_events"] = len(ds)
+    r["stream_sensor_events"] = len(ss)
+
+    if name == "accel":
+        # Sensor-authority scenario: the game must see exactly the scripted
+        # values, in order, both modes (dedup consecutive repeats).
+        def seq(sensors):
+            out = []
+            for s in sensors:
+                v = (round(s["gx"], 3), round(s["gy"], 3))
+                if not out or out[-1] != v:
+                    out.append(v)
+            return out
+        a, b = seq(ds), seq(ss)
+        r["direct_seq"], r["stream_seq"] = a, b
+        r["sequence_equal"] = a == b
+        ok = r["sequence_equal"] and len(a) > 0
+        # No synth interference: stream tilt must stay zero (no synth
+        # constructed for a real-accel seat).
+        r["stream_peak_tilt"] = peak([t["x"] for t in st])
+        ok = ok and r["stream_peak_tilt"] < 1e-6
+    else:
+        a, b = plateaus(ds), plateaus(ss)
+        r["direct_plateaus"], r["stream_plateaus"] = a, b
+        r["plateaus_equal"] = a == b
+        gd, gs = [s["gx"] for s in ds], [s["gx"] for s in ss]
+        r["direct_peak_gx"], r["stream_peak_gx"] = peak(gd), peak(gs)
+        peaks_ok = (abs(r["direct_peak_gx"] - r["stream_peak_gx"])
+                    <= PEAK_TOL * max(r["direct_peak_gx"], 1e-9))
+        r["peaks_within_2pct"] = peaks_ok
+        # Left-hold must never reverse in either mode (gx stays >= 0:
+        # left drag → positive gx under the emit convention).
+        r["direct_no_reversal"] = all(v >= -TOL for v in gd)
+        r["stream_no_reversal"] = all(v >= -TOL for v in gs)
+        # Ease-back returns to ~0 in both.
+        r["direct_final_gx"] = gd[-1] if gd else None
+        r["stream_final_gx"] = gs[-1] if gs else None
+        ease_ok = (gd and gs and abs(gd[-1]) < 0.15 and abs(gs[-1]) < 0.15)
+        r["ease_returns_to_zero"] = bool(ease_ok)
+        # Presentation-tilt peaks match (rad).
+        r["direct_peak_tilt"] = peak([t["x"] for t in dt])
+        r["stream_peak_tilt"] = peak([t["x"] for t in st])
+        tilt_ok = (abs(r["direct_peak_tilt"] - r["stream_peak_tilt"])
+                   <= PEAK_TOL * max(r["direct_peak_tilt"], 1e-9))
+        r["tilt_peaks_within_2pct"] = tilt_ok
+        ok = (r["plateaus_equal"] and peaks_ok and ease_ok and tilt_ok
+              and r["direct_no_reversal"] and r["stream_no_reversal"]
+              and len(a) > 0)
+
+    # 🎯T158: server-owned arm state observed on the glass. Gesture
+    # scenarios must see armed=1 then armed=0 (Shift/finger press+release);
+    # the real-accel scenario has no synth, so no SP2A traffic at all.
+    arms = []
+    try:
+        with open(f"{ev}/{name}-player.trace") as f:
+            arms = [json.loads(l)["armed"] for l in f if '"armstate"' in l]
+    except FileNotFoundError:
+        pass
+    if name == "accel":
+        # A synth-less seat may receive one authoritative initial disarm
+        # (sent per attach); the invariant is that it is NEVER armed.
+        r["armstate_events"] = arms
+        r["armstate_ok"] = 1 not in arms
+    else:
+        r["armstate_events"] = arms
+        r["armstate_ok"] = (1 in arms) and arms[-1] == 0 if arms else False
+    ok = ok and r["armstate_ok"]
+
+    # 🎯T159: absolute emit→receipt latency (same host ⇒ same clock).
+    # Documented tolerance: median <= 150 ms (docs/device-api.md).
+    lats = []
+    try:
+        with open(f"{ev}/{name}-player.trace") as f:
+            for l in f:
+                if '"frame_meta"' in l:
+                    j = json.loads(l)
+                    lats.append((j["recv_us"] - j["server_us"]) / 1000.0)
+    except FileNotFoundError:
+        pass
+    if lats:
+        lats.sort()
+        r["emit_to_receipt_median_ms"] = lats[len(lats)//2]
+        r["emit_latency_ok"] = r["emit_to_receipt_median_ms"] <= 150.0
+    else:
+        r["emit_to_receipt_median_ms"] = None
+        r["emit_latency_ok"] = False
+    ok = ok and r["emit_latency_ok"]
+
+    # Latency: first player inject epoch → first game-boundary sensor with
+    # a non-baseline value on the server.
+    lat = None
+    try:
+        with open(f"{ev}/{name}-player.trace") as f:
+            injects = [json.loads(l) for l in f if '"inject"' in l]
+        first_inject = next(j["e_us"] for j in injects)
+        first_sense = next(s["e_us"] for s in ss
+                           if abs(s["gx"]) > TOL or abs(s["gy"]) > TOL)
+        lat = (first_sense - first_inject) / 1000.0
+    except (StopIteration, FileNotFoundError, KeyError):
+        pass
+    r["gesture_to_gravity_ms"] = lat
+    r["latency_ok"] = lat is not None and 0 <= lat <= LATENCY_MS_MAX
+    ok = ok and r["latency_ok"]
+
+    r["ok"] = bool(ok)
+    ok_all = ok_all and ok
+    results[name] = r
+
+summary = {
+    "oracle": "T156.6 direct vs headless-player-loopback trace equality",
+    "normalization": (f"plateau values (hold re-emit runs >=3) exact; peaks "
+                      f"within 2 pct; ease endpoint <0.15; accel scenario "
+                      f"exact dedup sequence; latency <= {LATENCY_MS_MAX} ms"),
+    "scenarios": results,
+    "ok": ok_all,
+}
+with open(f"{ev}/summary.json", "w") as f:
+    json.dump(summary, f, indent=2)
+print(json.dumps(summary, indent=2))
+sys.exit(0 if ok_all else 1)
+PYEOF
+echo "t156-oracle: $([ $rc -eq 0 ] && echo PASS || echo FAIL) — $EVIDENCE/summary.json"
+exit $rc

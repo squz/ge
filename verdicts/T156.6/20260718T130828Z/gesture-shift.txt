@@ -1,0 +1,11 @@
+# Desktop-class glass, no accelerometer: Shift-drag hold-left, release.
+SLEEP 1500
+SHIFT down
+SLEEP 50
+MOTION -50 0
+SLEEP 50
+MOTION -50 0
+SLEEP 1200      # hold: gravity must stay left, no decay/reversal
+SHIFT up
+SLEEP 900       # ease-back
+QUIT

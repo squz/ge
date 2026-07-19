@@ -3,7 +3,11 @@
 
 #include <ge/text.h>
 
+#ifndef GE_PLAYER_NO_SOKOL
+#include <ge/CmdStream.h>
 #include "sokol_gfx.h"
+#include <fstream>
+#endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <spdlog/spdlog.h>
@@ -12,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace ge {
 
@@ -31,35 +36,19 @@ FT_Library& ftLibrary() {
 
 } // namespace
 
-TextPixels rasterizeTextToPixels(const std::string& text,
-                                 const FontRef& font,
-                                 float sizePt,
-                                 la::float4 color) {
+namespace {
+
+TextPixels rasterizeTextFace(const std::string& text,
+                             FT_Face face,
+                             float sizePt,
+                             la::float4 color) {
     TextPixels out;
-
-    if (text.empty()) return out;
-    if (font.path.empty()) {
-        spdlog::error("ge::rasterizeText: FontRef has empty path");
-        return out;
-    }
-
-    FT_Library lib = ftLibrary();
-    if (lib == nullptr) return out;
-
-    FT_Face face = nullptr;
-    FT_Error err = FT_New_Face(lib, font.path.c_str(),
-                               static_cast<FT_Long>(font.faceIndex), &face);
-    if (err != 0) {
-        spdlog::error("ge::rasterizeText: FT_New_Face failed for '{}' face {} (error {})",
-                      font.path, font.faceIndex, err);
-        return out;
-    }
+    if (!face || text.empty()) return out;
 
     const FT_F26Dot6 sizeFixed = static_cast<FT_F26Dot6>(sizePt * 64.0f + 0.5f);
-    err = FT_Set_Char_Size(face, 0, sizeFixed, 72, 72);
+    FT_Error err = FT_Set_Char_Size(face, 0, sizeFixed, 72, 72);
     if (err != 0) {
         spdlog::error("ge::rasterizeText: FT_Set_Char_Size failed (error {})", err);
-        FT_Done_Face(face);
         return out;
     }
 
@@ -82,7 +71,6 @@ TextPixels rasterizeTextToPixels(const std::string& text,
 
     if (totalAdvance <= 0 || maxAscent + maxDescent <= 0) {
         spdlog::error("ge::rasterizeText: measured empty glyph metrics for '{}'", text);
-        FT_Done_Face(face);
         return out;
     }
 
@@ -139,7 +127,72 @@ TextPixels rasterizeTextToPixels(const std::string& text,
 
         penX += static_cast<int>(slot->advance.x >> 6);
     }
+    return out;
+}
 
+#ifndef GE_PLAYER_NO_SOKOL
+std::vector<uint8_t> readFileBytes(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return {};
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>());
+}
+#endif
+
+} // namespace
+
+TextPixels rasterizeTextToPixels(const std::string& text,
+                                 const FontRef& font,
+                                 float sizePt,
+                                 la::float4 color) {
+    TextPixels out;
+
+    if (text.empty()) return out;
+    if (font.path.empty()) {
+        spdlog::error("ge::rasterizeText: FontRef has empty path");
+        return out;
+    }
+
+    FT_Library lib = ftLibrary();
+    if (lib == nullptr) return out;
+
+    FT_Face face = nullptr;
+    FT_Error err = FT_New_Face(lib, font.path.c_str(),
+                               static_cast<FT_Long>(font.faceIndex), &face);
+    if (err != 0) {
+        spdlog::error("ge::rasterizeText: FT_New_Face failed for '{}' face {} (error {})",
+                      font.path, font.faceIndex, err);
+        return out;
+    }
+
+    out = rasterizeTextFace(text, face, sizePt, color);
+    FT_Done_Face(face);
+    return out;
+}
+
+TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,
+                                           const void* fontBytes, size_t fontN,
+                                           int faceIndex,
+                                           float sizePt,
+                                           la::float4 color) {
+    TextPixels out;
+    if (text.empty() || !fontBytes || fontN == 0) return out;
+
+    FT_Library lib = ftLibrary();
+    if (lib == nullptr) return out;
+
+    FT_Face face = nullptr;
+    FT_Error err = FT_New_Memory_Face(
+        lib,
+        static_cast<const FT_Byte*>(fontBytes),
+        static_cast<FT_Long>(fontN),
+        static_cast<FT_Long>(faceIndex),
+        &face);
+    if (err != 0) {
+        spdlog::error("ge::rasterizeText: FT_New_Memory_Face failed (error {})", err);
+        return out;
+    }
+    out = rasterizeTextFace(text, face, sizePt, color);
     FT_Done_Face(face);
     return out;
 }
@@ -148,6 +201,10 @@ Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
                      float sizePt,
                      la::float4 color) {
+#ifdef GE_PLAYER_NO_SOKOL
+    (void)text; (void)font; (void)sizePt; (void)color;
+    return Sprite{};
+#else
     auto pixels = rasterizeTextToPixels(text, font, sizePt, color);
     if (pixels.isNull()) return Sprite{};
 
@@ -171,7 +228,27 @@ Sprite rasterizeText(const std::string& text,
 
     out.width  = pixels.width;
     out.height = pixels.height;
+
+    // 🎯T128.7: ship font + string recipe (not RGBA) when streaming.
+    if (out.tex.id != SG_INVALID_ID) {
+        auto fontBytes = readFileBytes(font.path);
+        if (!fontBytes.empty()) {
+            cmdstream::registerImageText(
+                out.tex.id, text,
+                fontBytes.data(), fontBytes.size(), font.faceIndex,
+                sizePt, color.x, color.y, color.z, color.w,
+                static_cast<uint16_t>(out.width),
+                static_cast<uint16_t>(out.height));
+        } else {
+            cmdstream::registerImagePixels(
+                out.tex.id,
+                static_cast<uint16_t>(out.width),
+                static_cast<uint16_t>(out.height),
+                pixels.rgba.data(), pixels.rgba.size());
+        }
+    }
     return out;
+#endif
 }
 
 } // namespace ge

@@ -636,7 +636,7 @@ After building and deploying, use `tools/smoke-test.sh` before asking a human fo
 
 ```bash
 ge/tools/smoke-test.sh --platform ios-sim --device tablet
-ge/tools/smoke-test.sh --platform android-emu --package com.squz.player
+ge/tools/smoke-test.sh --platform android-emu --package com.spyder.player
 ge/tools/smoke-test.sh --platform desktop
 ```
 

@@ -11,12 +11,14 @@
 
 #include "DirectRenderHost.h"
 #include "AccelSynth.h"
+#include <ge/WireSdlEvent.h>
 #include "LifecycleInject.h"
 #include "ScreenshotBridge.h"
 
 #include "../Attitude.h"
 #include "../CutoutInsets.h"
 
+#include <ge/AccelScreen.h>
 #include <ge/audio.h>
 #include <ge/FileIO.h>
 #include <ge/Protocol.h>
@@ -24,7 +26,13 @@
 #include <ge/Resource.h>
 #include <ge/Signal.h>
 #include <ge/SokolContext.h>
+#include <ge/StreamHostPolicy.h>
 #include <ge/Tweak.h>
+#include <ge/ViewerMetrics.h>
+#include <ge/InputScript.h>
+
+#include <chrono>
+#include <fstream>
 
 #include "RenderOnDemand.h"
 
@@ -47,6 +55,8 @@
 #include <TargetConditionals.h>
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <AppKit/AppKit.h>
 #endif
 #endif
 
@@ -68,8 +78,6 @@ void removeAppleAudioObservers();
 #include <optional>
 
 namespace ge {
-
-namespace {
 
 // Reference short-side mm for deviceUiScale: iPhone Pro Max class.
 // sqrt(thisDevice / reference) is the form-factor multiplier.
@@ -109,15 +117,9 @@ std::atomic<bool> g_backHandlerActive{false};
 std::atomic<bool> g_pendingBackPressed{false};
 // -1 = no event; 0/1/2 = MemoryPressureLevel::{Low, Moderate, Critical}.
 std::atomic<int>  g_pendingMemoryWarning{-1};
-
-#if defined(__ANDROID__)
-// 🎯T43 Android audio focus. Java's OnAudioFocusChangeListener fires on
-// the UI thread and stores a signed delta here:
-//   +1 = focus gained (resume)
-//   -1 = focus lost (pause: LOSS, LOSS_TRANSIENT, LOSS_TRANSIENT_CAN_DUCK)
-// pumpEvents drains this on the game thread.
+// 🎯T43 / 🎯T154 audio focus (Android host or stream viewer SP2L).
+// +1 gained, -1 lost; pumpEvents drains on game thread.
 std::atomic<int> g_pendingAudioFocusChange{0};
-#endif
 
 #if defined(__ANDROID__)
 // Android's TRIM_MEMORY_* constants. Mirror SDK values rather than
@@ -149,57 +151,27 @@ int mapAndroidTrimLevel(int level) {
 }
 #endif
 
-// Rotate a 3-axis accelerometer sample from the device-hardware frame
-// (SDL3's reported convention: +X = physical right edge up, +Y = physical
-// top edge up, +Z = screen up) into the game's screen frame.
-//
-// The rotation is keyed on the LIVE display orientation reported by SDL
-// (SDL_GetCurrentDisplayOrientation) — not on SessionConfig.orientation,
-// which only records what the app *requested*. The live value reflects
-// what the OS actually rotated to (post-lock-if-honored, or the live
-// rotation when no lock was requested), so this stays correct in both
-// locked and free-orientation modes and across the brief window between
-// a lock request and the OS settling.
-//
-// Touch and mouse coordinates are NOT rotated — both iOS and Android
-// already deliver those in the rotated UI frame. Accelerometer is the
-// outlier because the sensor chip is fixed to the chassis and has no
-// notion of UI orientation. Z (out of screen) is invariant under any
-// in-plane UI rotation, so it passes through.
-void rotateAccelToScreen(SDL_DisplayOrientation orient, float d[/*≥3*/]) {
-    const float x = d[0];
-    const float y = d[1];
-    switch (orient) {
-    case SDL_ORIENTATION_LANDSCAPE:
-        d[0] = -y; d[1] =  x; break;
-    case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
-        d[0] =  y; d[1] = -x; break;
-    case SDL_ORIENTATION_PORTRAIT_FLIPPED:
-        d[0] = -x; d[1] = -y; break;
-    case SDL_ORIENTATION_PORTRAIT:
-    case SDL_ORIENTATION_UNKNOWN:
-    default:
-        break;  // identity — fall back to device frame on unknown
-    }
+// 🎯T156.2 Local virtual-device description: touch-first platforms arm
+// AccelSynth on primary drag (no reliable modifier keys). This describes
+// the DEVICE the direct build runs on — it is not a stream/direct branch.
+#if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__ANDROID__)
+constexpr bool kLocalDeviceTouchFirstDefault = true;
+#else
+constexpr bool kLocalDeviceTouchFirstDefault = false;
+#endif
+// GE_DEVICE_TOUCH_FIRST overrides the local virtual-device description for
+// the parity oracle (declared device facts, like the player's
+// --device-class) — it does not select a modality.
+inline bool localDeviceTouchFirst() {
+    if (const char* v = std::getenv("GE_DEVICE_TOUCH_FIRST"))
+        return v[0] == '1';
+    return kLocalDeviceTouchFirstDefault;
 }
 
-} // namespace
+// 🎯T154 viewer-background atomic (wire SP2L); also used by paused().
+std::atomic<bool> g_viewerBackgrounded{false};
 
-// 🎯T92.2 App-channel memory-warning injection. appchannel's
-// low_memory_warning handler calls this from the channel worker thread; it
-// stores into the same pending atomic the iOS observer / Android onTrimMemory
-// path uses, so pumpEvents drains it on the game thread and the consumer's
-// onMemoryWarning fires identically to a real OS warning.
-namespace detail {
-void injectMemoryWarning(MemoryPressureLevel level) {
-    g_pendingMemoryWarning.store(int(level));
-}
-
-// 🎯T92.6 Screenshot bridge. captureFrameRGBA (worker thread) arms a request
-// and blocks; DirectRenderHost::endFrame (game thread) sees screenshotArmed(),
-// hands SokolContext a sink that routes back to deliverScreenshot, which fills
-// the request and wakes the worker.
-namespace {
+// 🎯T92.6 Screenshot bridge state.
 struct ScreenshotRequest {
     std::vector<std::uint8_t>* rgba = nullptr;
     int* w = nullptr;
@@ -207,15 +179,30 @@ struct ScreenshotRequest {
     std::promise<bool> done;
 };
 std::mutex        g_ssMu;
-ScreenshotRequest* g_ssReq = nullptr;   // non-null while a capture is in flight
+ScreenshotRequest* g_ssReq = nullptr;
 std::atomic<bool>  g_ssArmed{false};
-} // namespace
+
+// 🎯T92.2 / 🎯T154 injection — same atomics OS paths use; pumpEvents drains.
+namespace detail {
+void injectMemoryWarning(MemoryPressureLevel level) {
+    g_pendingMemoryWarning.store(int(level));
+}
+void injectBackPressed() { g_pendingBackPressed.store(true); }
+void injectAudioFocus(bool gained) {
+    g_pendingAudioFocusChange.store(gained ? 1 : -1);
+}
+void injectViewerBackgrounded(bool backgrounded) {
+    g_viewerBackgrounded.store(backgrounded, std::memory_order_release);
+}
+bool viewerBackgrounded() {
+    return g_viewerBackgrounded.load(std::memory_order_acquire);
+}
 
 bool screenshotArmed() { return g_ssArmed.load(); }
 
 void deliverScreenshot(const std::uint8_t* rgba, int w, int h) {
     std::lock_guard<std::mutex> lk(g_ssMu);
-    if (!g_ssReq) return;  // already timed out / cancelled
+    if (!g_ssReq) return;
     if (rgba && w > 0 && h > 0) {
         g_ssReq->rgba->assign(rgba, rgba + static_cast<std::size_t>(w) * h * 4);
         *g_ssReq->w = w;
@@ -236,23 +223,19 @@ bool captureFrameRGBA(std::vector<std::uint8_t>& rgba, int& w, int& h) {
     auto fut = req.done.get_future();
     {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        if (g_ssReq) return false;       // another capture already in flight
+        if (g_ssReq) return false;
         g_ssReq = &req;
     }
     g_ssArmed.store(true);
     if (fut.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        g_ssReq = nullptr;               // abandon: endFrame never serviced it
+        g_ssReq = nullptr;
         g_ssArmed.store(false);
         return false;
     }
     return fut.get();
 }
 
-// 🎯T124 Synchronous one-shot capture for the headless render-state path. Arms
-// a request, runs `renderOneFrame` inline (it must render exactly one frame on
-// this thread, opening a swapchain pass so endFrame services the arm), and
-// returns the delivered pixels — no cross-thread wait. False if no pass opened.
 bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
                           std::vector<std::uint8_t>& rgba, int& w, int& h) {
     ScreenshotRequest req;
@@ -262,18 +245,17 @@ bool captureFrameRGBASync(const std::function<void()>& renderOneFrame,
     auto fut = req.done.get_future();
     {
         std::lock_guard<std::mutex> lk(g_ssMu);
-        if (g_ssReq) return false;       // another capture in flight
+        if (g_ssReq) return false;
         g_ssReq = &req;
     }
     g_ssArmed.store(true);
-    renderOneFrame();                    // renders + delivers inline
+    renderOneFrame();
     if (fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         return fut.get();
     std::lock_guard<std::mutex> lk(g_ssMu);
     if (g_ssReq == &req) { g_ssReq = nullptr; g_ssArmed.store(false); }
     return false;
 }
-
 } // namespace detail
 
 #if defined(__ANDROID__)
@@ -340,6 +322,29 @@ struct DirectRenderHost::Impl {
 
     std::optional<AccelSynth> synth;
     SDL_Sensor* accelSensor = nullptr;
+    // 🎯T156.2 session wants accelerometer input; seat authority decides the
+    // source per frame (local device when direct/unattached, primary seat's
+    // declared capability while streaming).
+    bool wantAccelInput = false;
+    bool seatAuthorityLogged = false;
+
+    // 🎯T156.6 parity-oracle instrumentation (env-gated, mode-agnostic:
+    // identical in direct and stream hosts).
+    //  GE_INPUT_SCRIPT — scripted device-local input injected into the SDL
+    //  queue each pump (direct-mode counterpart of the headless player's
+    //  --script injection).
+    //  GE_SENSOR_TRACE — JSONL trace at the game boundary: every sensor
+    //  event the game sees, and per-frame presentation tilt, with wall-time.
+    std::optional<InputScriptPlayer> inputScript;
+    std::ofstream sensorTrace;
+    bool sensorTraceOn = false;
+
+    // 🎯T158 server-owned arm state: report synth arm transitions upstream
+    // while a seat is attached; state resets on detach so a re-attaching
+    // glass receives the current state.
+    std::function<void(bool)> armStateSink;
+    bool armSent = false;
+    bool armSentValid = false;
 
     // Parallax pipeline (SessionHostConfig.parallaxFactor > 0).
     // attitude provider polled per frame; baseline is the EMA-tracked
@@ -358,8 +363,12 @@ struct DirectRenderHost::Impl {
     // presented frame is routed to serverSink on the game thread (the
     // ServerSession encodes + streams it). Both null in the normal windowed
     // path. serverActive is owned by the ServerSession, which outlives the host.
+    // serverCapturePixels: optional; when false, skip GPU readback (cmdstream).
     std::atomic<bool>* serverActive = nullptr;
+    std::atomic<bool>* serverCapturePixels = nullptr;
     std::function<void(const std::uint8_t*, int, int)> serverSink;
+    // Player DeviceInfo / SafeAreaUpdate → Context discovery (stream only).
+    ViewerMetricsStore* viewerMetrics = nullptr;
 
     // 🎯T63 High-refresh-rate during press.
     // Incremented on every pointer Down, decremented on every Up/Cancel.
@@ -395,6 +404,17 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     i_->sokolCtx = std::make_unique<SokolContext>(
         SokolConfig{i_->width, i_->height, config.appName, config.hidden});
 
+#if defined(GE_SERVER_BUILD) && defined(__APPLE__) && TARGET_OS_OSX
+    // 🎯T154.1 Server binary is a console stream host, not a Dock game.
+    // SDL_Init creates NSApp; reassert Accessory after window creation.
+    if (config.hidden) {
+        @autoreleasepool {
+            if (NSApp == nil) [NSApplication sharedApplication];
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        }
+    }
+#endif
+
     // On platforms where the actual surface size differs from the
     // caller's hint (notably Android fullscreen, and Retina on macOS),
     // SokolContext picks up the true native dimensions — adopt them so
@@ -403,27 +423,54 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
     if (i_->sokolCtx->height() > 0) i_->height = i_->sokolCtx->height();
 
     if (config.sensors & wire::kSensorAccelerometer) {
-        // Try a real sensor first (real device, Android emulator virtual sensors).
-        int count = 0;
-        SDL_SensorID* sensors = SDL_GetSensors(&count);
-        if (sensors) {
-            for (int k = 0; k < count; k++) {
-                if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
-                    i_->accelSensor = SDL_OpenSensor(sensors[k]);
-                    if (i_->accelSensor) {
-                        SPDLOG_INFO("DirectRenderHost: opened real accelerometer");
-                        break;
+        i_->wantAccelInput = true;
+        // Prefer real sensors when usable. iOS Simulator and Android emulator
+        // report sensors but AccelSynth::realSensorAvailable() is false there —
+        // host mouse / click-drag is the practical tilt path.
+        if (AccelSynth::realSensorAvailable()) {
+            int count = 0;
+            SDL_SensorID* sensors = SDL_GetSensors(&count);
+            if (sensors) {
+                for (int k = 0; k < count; k++) {
+                    if (SDL_GetSensorTypeForID(sensors[k]) == SDL_SENSOR_ACCEL) {
+                        i_->accelSensor = SDL_OpenSensor(sensors[k]);
+                        if (i_->accelSensor) {
+                            SPDLOG_INFO("DirectRenderHost: opened real accelerometer");
+                            break;
+                        }
                     }
                 }
+                SDL_free(sensors);
             }
-            SDL_free(sensors);
         }
-        // Fall back to Shift-mouse synthesis.
+        // Fall back to gesture synthesis for the LOCAL virtual device
+        // (🎯T156.2): arm policy derives from this device's declared facts
+        // (touch-first platform → primary-drag arms; keyboard-class → Shift).
+        // While a stream seat is attached, the per-frame seat-authority check
+        // in refreshFrame supersedes this with the seat's capability.
         if (!i_->accelSensor) {
             i_->synth.emplace();
             i_->synth->setWindow(i_->sokolCtx->window());
-            SPDLOG_INFO("DirectRenderHost: Shift-mouse accelerometer synthesis enabled");
+            i_->synth->setArmOnPrimary(localDeviceTouchFirst());
+            SPDLOG_INFO("DirectRenderHost: gesture accelerometer synthesis "
+                        "enabled (armOnPrimary={})", localDeviceTouchFirst());
         }
+    }
+
+    if (const char* sp = std::getenv("GE_INPUT_SCRIPT")) {
+        std::vector<ScriptedEvent> evs;
+        if (loadInputScript(sp, evs)) {
+            i_->inputScript.emplace(std::move(evs));
+            SPDLOG_INFO("DirectRenderHost: GE_INPUT_SCRIPT loaded ({})", sp);
+        } else {
+            SPDLOG_ERROR("DirectRenderHost: GE_INPUT_SCRIPT open failed ({})", sp);
+        }
+    }
+    if (const char* tp = std::getenv("GE_SENSOR_TRACE")) {
+        i_->sensorTrace.open(tp, std::ios::trunc);
+        i_->sensorTraceOn = i_->sensorTrace.good();
+        SPDLOG_INFO("DirectRenderHost: GE_SENSOR_TRACE {} ({})",
+                    i_->sensorTraceOn ? "on" : "OPEN FAILED", tp);
     }
 
     SPDLOG_INFO("DirectRenderHost: {}x{}", i_->width, i_->height);
@@ -450,26 +497,33 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         }
     }
 
-    // Build the session Context. Direct mode uses a persistent on-disk
-    // db rooted at SDL_GetPrefPath(orgName, appName); fall back to an
-    // in-memory db if either is missing.
+    // Durable db ownership (🎯T154) — see StreamHostPolicy.h.
+    // Server build: always :memory:. Direct: PrefPath when available.
     std::string dbPath = ":memory:";
+#if defined(GE_SERVER_BUILD)
+    dbPath = durableDbPathForHost(/*serverBuild=*/true, config.orgName,
+                                  config.appName, nullptr);
+    SPDLOG_INFO("DirectRenderHost: stream server ephemeral db ({})", dbPath);
+#else
     if (config.orgName && config.appName) {
         if (char* pref = SDL_GetPrefPath(config.orgName, config.appName)) {
-            dbPath = std::string(pref) + "game.db";
-            // 🎯T91.2: persist tweak overrides alongside the game db so a
-            // tweak set from spyder over the app-channel survives a restart.
-            // loadOverrides opens the db (which also enables tweak::save on
-            // later tweak_set/reset) and applies any stored values.
-            tweak::loadOverrides((std::string(pref) + "tweaks.db").c_str());
+            dbPath = durableDbPathForHost(/*serverBuild=*/false, config.orgName,
+                                          config.appName, pref);
+            // 🎯T91.2: persist tweak overrides alongside the game db.
+            if (dbPath != ":memory:")
+                tweak::loadOverrides((std::string(pref) + "tweaks.db").c_str());
             SDL_free(pref);
             SPDLOG_INFO("DirectRenderHost: persistent DB at {}", dbPath);
         }
     }
+#endif
     i_->ctx.emplace(i_->width, i_->height, deviceClass(),
                     dbPath, config.schemaDdl);
+    SPDLOG_INFO("DirectRenderHost: Context ready — applying safe insets");
     i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+    SPDLOG_INFO("DirectRenderHost: drawSafe insets applied");
     i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
+    SPDLOG_INFO("DirectRenderHost: uiSafe insets applied");
     // 🎯T101 Install the swapchain-pass factory. The game opens it once at the
     // top of onRender via ctx.swapchainPass(); the ctor opens the sokol swap-
     // chain pass and the returned ge::Pass's teardown arms any pending
@@ -484,13 +538,17 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                         ge::detail::deliverScreenshot(rgba, w, h);
                     });
             } else if (i_->serverActive && i_->serverActive->load()) {
-                // 🎯T92.2.2 server mode: capture every presented frame for the
-                // attached player. The ServerSession encodes + sends off the
-                // game thread; this only pumps the pixels out via serverSink.
-                i_->sokolCtx->captureNextFrame(
-                    [this](const std::uint8_t* px, int w, int h) {
-                        if (i_->serverSink) i_->serverSink(px, w, h);
-                    });
+                // 🎯T92.2.2 server mode: GPU readback for H.264 / Present.
+                // Command-stream (sprite SP2S) sets capturePixels=false and
+                // serialises via LiveCapture around onRender instead.
+                const bool wantPx = !i_->serverCapturePixels ||
+                                    i_->serverCapturePixels->load();
+                if (wantPx) {
+                    i_->sokolCtx->captureNextFrame(
+                        [this](const std::uint8_t* px, int w, int h) {
+                            if (i_->serverSink) i_->serverSink(px, w, h);
+                        });
+                }
             }
             i_->sokolCtx->endFrame();
             i_->ctx->recordPresent();  // 🎯T131.5 advance framesPresented()
@@ -525,6 +583,7 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
         SPDLOG_INFO("DirectRenderHost: launched into background — render gated until foreground");
     }
 #endif
+    SPDLOG_INFO("DirectRenderHost: constructor complete");
 }
 
 DirectRenderHost::~DirectRenderHost() {
@@ -554,6 +613,9 @@ DeviceClass DirectRenderHost::deviceClass() const {
 #endif
 }
 bool DirectRenderHost::paused() const {
+    // 🎯T154: viewer background over the wire (stream server) uses the same
+    // paused() gate so the game does not branch on modality.
+    if (detail::viewerBackgrounded()) return true;
 #if defined(__APPLE__) && TARGET_OS_IPHONE
     // 🎯T88 On iOS (device + simulator) a backgrounded scene cannot get a
     // Metal command buffer — SokolContext::beginFrame would block forever
@@ -563,10 +625,8 @@ bool DirectRenderHost::paused() const {
     // CAMetalLayer live across app hide/space switches.
     return i_->backgrounded;
 #else
-    // macOS desktop: the CAMetalLayer survives backgrounding and
-    // reactivates on its own — no gate needed. Android tears its swap
-    // chain down via SDL blocking the loop (SessionHost.mm) rather than
-    // through this accessor.
+    // macOS desktop direct: CAMetalLayer survives hide. Android direct tears
+    // swap chain via SDL blocking the loop (SessionHost.mm).
     return false;
 #endif
 }
@@ -670,6 +730,23 @@ void DirectRenderHost::send(const wire::SessionConfig& cfg) {
 }
 
 void DirectRenderHost::setEventHandler(std::function<void(const SDL_Event&)> h) {
+    if (i_->sensorTraceOn) {
+        auto* impl = i_.get();
+        h = [impl, inner = std::move(h)](const SDL_Event& e) {
+            if (e.type == SDL_EVENT_SENSOR_UPDATE && impl->sensorTraceOn) {
+                using namespace std::chrono;
+                const auto eus = duration_cast<microseconds>(
+                    system_clock::now().time_since_epoch()).count();
+                impl->sensorTrace << "{\"k\":\"sensor\",\"t_ms\":"
+                                  << SDL_GetTicks() << ",\"e_us\":" << eus
+                                  << ",\"gx\":"
+                                  << e.sensor.data[0] << ",\"gy\":"
+                                  << e.sensor.data[1] << "}\n";
+                impl->sensorTrace.flush();
+            }
+            inner(e);
+        };
+    }
     i_->eventHandler = h;
     if (i_->synth) i_->synth->setEmit(h);
 }
@@ -701,12 +778,50 @@ void DirectRenderHost::setMemoryWarningHandler(
 
 void DirectRenderHost::setServerFrameSink(
         std::function<void(const std::uint8_t*, int, int)> fn,
-        std::atomic<bool>* active) {
+        std::atomic<bool>* active,
+        std::atomic<bool>* capturePixels) {
     i_->serverSink = std::move(fn);
     i_->serverActive = active;
+    i_->serverCapturePixels = capturePixels;
+}
+
+void DirectRenderHost::setViewerMetricsStore(ViewerMetricsStore* store) {
+    i_->viewerMetrics = store;
+}
+
+void DirectRenderHost::setArmStateSink(std::function<void(bool)> sink) {
+    i_->armStateSink = std::move(sink);
 }
 
 void DirectRenderHost::pumpEvents() {
+    // 🎯T156.6: scripted input (parity oracle) enters the same SDL queue
+    // as OS input — no separate delivery path.
+    if (i_->inputScript && !i_->inputScript->done()) {
+        i_->inputScript->poll(static_cast<uint32_t>(SDL_GetTicks()),
+                              [this](const SDL_Event& e) {
+                                  if (e.type == SDL_EVENT_SENSOR_UPDATE) {
+                                      // Script SENSOR speaks screen frame —
+                                      // the same boundary the player forwards
+                                      // real samples at. Bypass the raw
+                                      // device-frame rotation below.
+                                      if (i_->eventHandler) i_->eventHandler(e);
+                                      return;
+                                  }
+                                  if (e.type == SDL_EVENT_QUIT) {
+                                      SDL_Event ev = e;
+                                      SDL_PushEvent(&ev);
+                                      return;
+                                  }
+                                  // Scripted device input: deliver through
+                                  // the synth/handler directly. Real host
+                                  // input is dropped below while a script
+                                  // is active, so oracle runs are
+                                  // deterministic even on a busy desktop.
+                                  if (i_->synth && i_->synth->handle(e))
+                                      return;
+                                  if (i_->eventHandler) i_->eventHandler(e);
+                              });
+    }
     // Drain off-thread OS events first so back / memory-warning
     // callbacks see a coherent game state without racing the SDL
     // event drain below.
@@ -854,17 +969,46 @@ void DirectRenderHost::pumpEvents() {
             }
             continue;
         }
+        // Oracle determinism: while a script drives this host, real device
+        // input (keys/mouse/finger/sensor) is dropped — the script is the
+        // sole input source. Window/lifecycle events still flow.
+        if (i_->inputScript) {
+            switch (e.type) {
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+            case SDL_EVENT_MOUSE_MOTION:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_WHEEL:
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP:
+            case SDL_EVENT_FINGER_MOTION:
+            case SDL_EVENT_FINGER_CANCELED:
+            case SDL_EVENT_SENSOR_UPDATE:
+                continue;
+            default:
+                break;
+            }
+        }
         if (i_->synth && i_->synth->handle(e)) continue;
+        // 🎯T156.2: no sensor arbitration here. Authority is constructional —
+        // the synth only exists for a virtual device that declared no real
+        // accelerometer, so a competing SENSOR_UPDATE source cannot exist
+        // (spectator input is dropped at the SeatPolicy boundary).
         // Rotate real-sensor accel into screen frame using the live
         // display orientation. AccelSynth events bypass — they arrive
         // via setEmit() callback, already in screen frame
         // (mouse-displacement physics).
-        if (e.type == SDL_EVENT_SENSOR_UPDATE) {
+        // Server mode: player-side already screen-framed SENSOR_UPDATE
+        // (PlayerRender) before the wire; re-rotating with the Mac host's
+        // display orientation would swap/invert axes. Skip when streaming.
+        if (e.type == SDL_EVENT_SENSOR_UPDATE &&
+            !(i_->serverActive && i_->serverActive->load())) {
             SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
             if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
                 o = SDL_GetCurrentDisplayOrientation(disp);
             }
-            rotateAccelToScreen(o, e.sensor.data);
+            ge::rotateAccelToScreen(o, e.sensor.data);
         }
         // 🎯T63 High-refresh-rate during press.
         // Track all pointer down/up events to maintain an accurate press
@@ -926,8 +1070,77 @@ void DirectRenderHost::refreshFrame(float dt) {
     // accelerometer was found, so this is {0,0} on real-accel platforms — the
     // view tilts only where there's no physical tilt to double up on. Small
     // deadzone (0.7 px) mirrors the player composite's threshold.
+    // 🎯T156.2 Seat sensor authority: while a primary seat is attached, its
+    // DeviceInfo capability decides this virtual device's sensor story.
+    // Glass declares an accelerometer → its real stream is the authority and
+    // no synth exists. Glass declares none → synth, with arm policy from the
+    // seat's device class. Detach reverts to the local device's facts.
+    if (i_->wantAccelInput) {
+        const bool seatAttached =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (seatAttached) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            if (v.hasAccelerometer) {
+                if (i_->synth) {
+                    i_->synth.reset();
+                    SPDLOG_INFO("DirectRenderHost: seat declares a real "
+                                "accelerometer — synth destroyed; the glass "
+                                "is the sensor authority");
+                }
+            } else {
+                if (!i_->synth) {
+                    i_->synth.emplace();
+                    i_->synth->setWindow(i_->sokolCtx->window());
+                    if (i_->eventHandler) i_->synth->setEmit(i_->eventHandler);
+                    SPDLOG_INFO("DirectRenderHost: seat declares no "
+                                "accelerometer — gesture synthesis enabled");
+                }
+                i_->synth->setArmOnPrimary(
+                    v.deviceClass == DeviceClass::Phone ||
+                    v.deviceClass == DeviceClass::Tablet);
+            }
+            if (!i_->seatAuthorityLogged) {
+                i_->seatAuthorityLogged = true;
+                SPDLOG_INFO("DirectRenderHost: seat sensor authority = {}",
+                            v.hasAccelerometer ? "glass accelerometer"
+                                               : "host AccelSynth");
+            }
+        } else {
+            // Seat authority departed: neutralize gravity so the game does
+            // not keep integrating the seat's last sensor sample forever
+            // (observed: a detached glass left |g|≈94 latched and the buggy
+            // ran off-world indefinitely). Lifecycle plumbing, not sensor
+            // semantics — equivalent to the device being laid flat.
+            if (i_->seatAuthorityLogged && i_->eventHandler) {
+                SDL_Event ze{};
+                ze.type = SDL_EVENT_SENSOR_UPDATE;
+                i_->eventHandler(ze);
+                SPDLOG_INFO("DirectRenderHost: seat detached — gravity "
+                            "neutralized");
+            }
+            i_->seatAuthorityLogged = false;
+            // Unattached (or direct): local device facts.
+            if (!i_->accelSensor && !i_->synth) {
+                i_->synth.emplace();
+                i_->synth->setWindow(i_->sokolCtx->window());
+                if (i_->eventHandler) i_->synth->setEmit(i_->eventHandler);
+                i_->synth->setArmOnPrimary(localDeviceTouchFirst());
+            }
+        }
+    }
+
     la::float2 presentationTilt{0.0f, 0.0f};
     if (i_->synth) {
+        // Stream: denormalize finger 0–1 against the *player* surface
+        // (DeviceInfo), not the host Mac window — same units as direct on
+        // that device. Direct: setWindow already tracks local pixels.
+        if (i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load()) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            if (v.w >= 2 && v.h >= 2)
+                i_->synth->setSurfacePixels(v.w, v.h);
+        }
         i_->synth->update();
         const Tilt t = i_->synth->current();
         if (std::sqrt(t.x * t.x + t.y * t.y) > 0.7f) {
@@ -938,27 +1151,111 @@ void DirectRenderHost::refreshFrame(float dt) {
             presentationTilt = la::float2{t.x, -t.y} * kTiltRadPerPixel;
         }
     }
+    if (i_->sensorTraceOn) {
+        i_->sensorTrace << "{\"k\":\"tilt\",\"t_ms\":" << SDL_GetTicks()
+                        << ",\"x\":" << presentationTilt.x
+                        << ",\"y\":" << presentationTilt.y << "}\n";
+    }
+
+    // 🎯T158: signal AccelSynth arm transitions to the primary glass while
+    // a seat is attached (initial state included per attach).
+    if (i_->armStateSink) {
+        const bool seatAttached =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (seatAttached) {
+            const bool armedNow = i_->synth && i_->synth->armed();
+            if (!i_->armSentValid || armedNow != i_->armSent) {
+                i_->armStateSink(armedNow);
+                i_->armSent = armedNow;
+                i_->armSentValid = true;
+            }
+        } else {
+            i_->armSentValid = false;
+        }
+    }
 
     // 🎯T101 The swap-chain pass is no longer opened here — the game opens it
     // via Context::swapchainPass() at the top of onRender (see the factory
     // installed in initialize()). This method only refreshes per-frame Context
     // state (post-resize + current insets) so onUpdate / onRender accessors
     // observe live values.
+    //
+    // Stream path: when a player has advertised DeviceInfo, publish that
+    // surface into Context (draw/ui safe, device class, ui scale). Physical
+    // path keeps the local OS. Compile-time backend is still
+    // app vs server; this is discovery *source*, not a public switch.
     if (i_->ctx) {
-        i_->ctx->setSurfaceDimensions(i_->width, i_->height);
-        i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
-        i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
         SDL_Window* win = i_->sokolCtx->window();
-        // SDL_GetWindowDisplayScale = pixelDensity × displayContentScale.
-        // On iOS the second factor is always 1.0, so this matches
-        // SDL_GetWindowPixelDensity (== UIKit nativeScale). On Android
-        // SDL exposes the surface in raw pixels (pixelDensity=1.0) and
-        // the density bucket lives in displayContentScale, so this is
-        // what folds Android density into pixelsPerPt.
-        const float ppt = win ? SDL_GetWindowDisplayScale(win) : 1.0f;
-        i_->ctx->setPixelsPerPt(ppt > 0.0f ? ppt : 1.0f);
-        i_->ctx->setDeviceUiScale(computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
-        i_->ctx->setParallax(updateParallax());
+        const float hostPpt = win ? SDL_GetWindowDisplayScale(win) : 1.0f;
+        const float ppt = hostPpt > 0.0f ? hostPpt : 1.0f;
+
+        const bool streaming =
+            i_->serverActive && i_->serverActive->load() &&
+            i_->viewerMetrics && i_->viewerMetrics->valid.load();
+        if (streaming) {
+            const ViewerWindow v = i_->viewerMetrics->snapshot();
+            // Match content aspect to the viewer so the stream fills the glass.
+            // Fixed host 4:3 into a 16:10 tablet leaves ~1" pillarboxes — the
+            // car stops short of the short edges and dirt never reaches them.
+            // Pixel budget keeps the longer edge of the current surface.
+            if (v.w >= 2 && v.h >= 2 && win) {
+                const float targetA = float(v.w) / float(v.h);
+                const float curA = float(i_->width) / float(std::max(i_->height, 1));
+                if (std::fabs(targetA - curA) > 0.005f) {
+                    const int budget = std::max(i_->width, i_->height);
+                    int nw = 0, nh = 0;
+                    if (targetA >= 1.f) {
+                        nw = budget;
+                        nh = std::max(2, int(std::lround(float(budget) / targetA)));
+                    } else {
+                        nh = budget;
+                        nw = std::max(2, int(std::lround(float(budget) * targetA)));
+                    }
+                    nw &= ~1;
+                    nh &= ~1;
+                    if (nw != i_->width || nh != i_->height) {
+                        float dens = SDL_GetWindowPixelDensity(win);
+                        if (dens <= 0.f) dens = 1.f;
+                        const int ptW = std::max(1, int(std::lround(float(nw) / dens)));
+                        const int ptH = std::max(1, int(std::lround(float(nh) / dens)));
+                        SDL_SetWindowSize(win, ptW, ptH);
+                        SPDLOG_INFO("DirectRenderHost: content aspect → viewer "
+                                    "{:.3f} ({}x{} → {}x{})",
+                                    targetA, i_->width, i_->height, nw, nh);
+                        i_->width = nw;
+                        i_->height = nh;
+                    }
+                }
+            }
+
+            i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+            // Map viewer chrome into content space. Dual draw/ui when the
+            // player sends distinct rects (v8); else equal.
+            const DualSafeInsets dual =
+                mapViewerDualSafeInsets(v, i_->width, i_->height, ppt);
+            i_->ctx->setDrawSafeInsets(dual.draw);
+            i_->ctx->setUiSafeInsets(dual.ui);
+            i_->ctx->setDeviceClass(v.deviceClass);
+            // pixelsPerPt: content-surface conversion (stable fullRect).
+            // deviceUiScale: viewer form-factor (glass).
+            i_->ctx->setPixelsPerPt(ppt);
+            const float viewerPpt = v.pixelRatio > 0.f ? v.pixelRatio : 1.f;
+            i_->ctx->setDeviceUiScale(
+                computeDeviceUiScale(v.deviceClass, v.w, v.h, viewerPpt));
+            // Parallax from host attitude would lie about the viewer — zero it
+            // under stream (🎯T154: same call site, documented zero).
+            i_->ctx->setParallax({0, 0});
+        } else {
+            i_->ctx->setSurfaceDimensions(i_->width, i_->height);
+            i_->ctx->setDrawSafeInsets(drawSafeInsetsInPts());
+            i_->ctx->setUiSafeInsets(uiSafeInsetsInPts());
+            i_->ctx->setDeviceClass(deviceClass());
+            i_->ctx->setPixelsPerPt(ppt);
+            i_->ctx->setDeviceUiScale(
+                computeDeviceUiScale(deviceClass(), i_->width, i_->height, ppt));
+            i_->ctx->setParallax(updateParallax());
+        }
         i_->ctx->setPresentationTilt(presentationTilt);
         i_->ctx->recordFrameTime(dt);  // 🎯T111 frame-time EMA → fps()/onMetrics
     }

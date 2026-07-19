@@ -475,21 +475,72 @@ removal `76bd346`→`0b65688`→`bf97631` (2026-03-23..04-12). Peak: `5852849`.
 
 ## The spike (🎯T128.2)
 
-Bind `g_ge_sg_api` to a serialising null backend on the server; write a minimal
-replay loop on the player; both behind a session-negotiated capability, so the
-shipping video path is untouched (the dispatch shim isolates it, and the relay is
-already agnostic — no spyder change needed). Prove a tiltbuggy frame round-trips,
-then measure the things only measurement can settle:
+### Capture seam note (Apple)
 
-- **Headline metric: time-to-first-coarse-frame.**
-- **Bandwidth vs the current H.264 stream** on tiltbuggy (diagnostic spin +
-  parallax + button churn) and esfera — find where on the crossover real content
-  lands.
-- **Reconnect cost, warm vs cold asset cache.**
-- **Flow control under a janky/slow player** — does the B/C split hold, or does
-  head-of-line blocking on an asset upload stall the draw stream?
+Apple builds keep `SOKOL_IMPL` inline — there is **no** `g_ge_sg_api` on the
+Metal path. The spike therefore:
 
-Go/no-go on the implementation fan-out (T128.3–T128.6, T128.9) is recorded here.
+1. Ships a **codec + content-addressed cache** (`ge::cmdstream`) with a
+   synthetic tiltbuggy-like scene for cold/warm/create-tax measurement
+   (class-1 oracle: `CmdStream_test.cpp`).
+2. Uses **wire negotiation** (`DeviceInfo.capabilities` ∩ server rungs →
+   best common `SessionConfig.transport`; cmdstream preferred over H.264;
+   `TRANSPORT=h264` forces baseline) and a **SP2S spike frame** on negotiate so the
+   player/relay path is live without a full GPU capture backend yet.
+3. Leaves **live sokol capture** to `sg_install_trace_hooks` (Apple) / a null
+   serialising `ge_sg_api` (Android dispatch, T128.6). Full GPU replay is the
+   remaining residue of this spike.
+
+spyder needs **no broker code change** for the rung; 🎯T97 is the class-1
+proof that non-`SP2V` magics pipe and counter correctly.
+
+### Synthetic go/no-go (2026-07-14, class-1)
+
+Measured by `CmdStream_test` (tiltbuggy-like: 2×512² RGBA + mesh; vs H.264
+estimate at 2048×1536):
+
+| Path | Bytes |
+|------|------:|
+| Cold connect (full assets) | ~2.1 MB once |
+| Steady warm frame (avg) | **~396 B** |
+| Warm reconnect (refs) | **~456 B** |
+| Create-tax (one texture rewrite) | ~1.0 MB once |
+| 60 warm cmdstream frames | **~24 KB** |
+| 60 H.264 full-res estimate | ~1.2 MB |
+| One H.264 keyframe estimate | ~121 KB |
+
+**Provisional GO** for pass-through + cache economics: steady-state and warm
+reconnect crush full-res H.264; create-tax and cold dump are one-time costs in
+the accepted class.
+
+### Runnable interim on device (2026-07-14) — SP2S Present
+
+Until full sokol capture/replay (T128.2.1 / T128.2.2), the multi-session server
+ships a **framebuffer Present** over SP2S when cmdstream is selected
+(player `kCapCommandStream`, unless `TRANSPORT=h264`):
+
+- Capture sink is RGBA; Present tagged RGBA (wrong BGRA tag → blue dirt).
+- LZ4 + content-addressed blobs; **identical frames are not sent** (player holds
+  last texture).
+- Player is still the SDL blit path (no local sokol).
+
+**OTA (Pixel Tablet Wi‑Fi, 2048×1536 Present, LAN to Mac server):**
+
+| Observation | Value |
+|-------------|------:|
+| Cold first Present | ~11 MB wire (LZ4 of full RGBA barely shrinks photographic frames) |
+| Still scene (hash match) | **0 B** (server skip) / was ~55 B BlobRef before skip |
+| Changing frames | ~11 MB each → ~2 fps if every frame differs |
+| Colours | Correct after RGBA tag (brown dirt) |
+| 16 KB page dialog | Fixed by restoring player T75 linker flag + `c++_static` |
+
+**Implication:** Present is enough to prove negotiation, SP2S, cache, and device
+playback. It is **not** the bandwidth win for motion — that still needs draw-list
+remoting. Synthetic codec GO stands; OTA Present GO is only for still/dev
+preview until T128.2.1/2.2 land.
+
+Fan-out (T128.5 durable cache, T128.6 null GPU/encode, T128.9 finished
+negotiation UX) proceeds on the synthetic GO; T128.3/T128.4 stay parked.
 
 ## Scope & non-goals
 

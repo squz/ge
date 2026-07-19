@@ -10,6 +10,7 @@
 
 #include <ge/RenderHost.h>
 #include <ge/SokolContext.h>
+#include <ge/ViewerMetrics.h>
 
 #include <atomic>
 #include <functional>
@@ -51,8 +52,18 @@ public:
     // + streams it). `active` is owned by the ServerSession and must outlive the
     // host; pass a null fn / active to clear. runServer installs this after the
     // ServerSession is built.
+    // `capturePixels`: when non-null and false, skip GPU readback (cmdstream
+    // sprite path). Null means always capture while active.
     void setServerFrameSink(std::function<void(const std::uint8_t*, int, int)> fn,
-                            std::atomic<bool>* active);
+                            std::atomic<bool>* active,
+                            std::atomic<bool>* capturePixels = nullptr);
+
+    // Wire-mode viewer discovery (DeviceInfo / SafeAreaUpdate). Null = physical
+    // host only. Server path installs the ServerSession store.
+    void setViewerMetricsStore(ViewerMetricsStore* store);
+    // 🎯T158: called with AccelSynth arm transitions while a seat is
+    // attached (server mode); the session forwards SP2A to the primary glass.
+    void setArmStateSink(std::function<void(bool)> sink);
 
 private:
     la::float2 updateParallax();

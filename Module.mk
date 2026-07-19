@@ -54,7 +54,7 @@ ge/INCLUDES = \
 	-I$(ge)/vendor/sdl3/include \
 	-I$(ge)/vendor/github.com/erincatto/box2d/include \
 	-I$(ge)/vendor/github.com/chriskohlhoff/asio/include \
-	-I$(ge)/vendor/github.com/sqliteai/liteparser/src \
+	-I$(ge)/vendor/github.com/marcelocantos/deepparser/src \
 	-I$(ge)/vendor/github.com/sammycage/lunasvg/include \
 	-I/opt/homebrew/opt/freetype/include/freetype2 \
 	-DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_DESERIALIZE \
@@ -113,8 +113,8 @@ ge/OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(filter $(ge)/src/%
 ge/LIB = $(BUILD_DIR)/libge.a
 
 # Desktop player (H.264 receiver). Built on demand via `make player`.
-ge/PLAYER_SRC = $(ge)/tools/player.cpp $(ge)/tools/player_core.cpp $(ge)/tools/player_orientation_stub.cpp
-ge/PLAYER = bin/player
+# Stream player is owned by spyder (protocol-only coupling); ge builds no
+# player binary. tools/player_orientation_* stay for DirectRenderHost.
 
 # Small helper CLIs, built on demand.
 ge/IMGDIFF = bin/imgdiff
@@ -222,13 +222,14 @@ ge/PLUTOVG_CFLAGS = -O2 -std=c11 -fvisibility=hidden \
     -DPLUTOVG_BUILD -DPLUTOVG_BUILD_STATIC \
     -I$(ge/PLUTOVG_DIR)/include -I$(ge/PLUTOVG_DIR)/source
 
-# liteparser (C code, used by sqlpipe for query analysis)
-ge/LITEPARSER_DIR = $(ge)/vendor/github.com/sqliteai/liteparser/src
+# deepparser / liteparser (C code, used by sqlpipe for query analysis).
+# sqlpipe >=0.29 needs deepparser's sqldeep AST extensions (not sqliteai liteparser).
+ge/LITEPARSER_DIR = $(ge)/vendor/github.com/marcelocantos/deepparser/src
 ge/LITEPARSER_SRC = $(addprefix $(ge/LITEPARSER_DIR)/,arena.c liteparser.c lp_tokenize.c lp_unparse.c parse.c)
 ge/LITEPARSER_OBJ = $(patsubst $(ge/LITEPARSER_DIR)/%.c,$(BUILD_DIR)/ge/vendor/liteparser/%.o,$(ge/LITEPARSER_SRC))
 
 # Vendor C++ libraries (compiled into libge.a)
-ge/VENDOR_CPP_SRC = $(ge)/vendor/src/sqlift.cpp $(ge)/vendor/src/sqlpipe.cpp
+ge/VENDOR_CPP_SRC = $(ge)/vendor/src/sqlpipe.cpp
 ge/VENDOR_CPP_OBJ = $(patsubst $(ge)/vendor/src/%.cpp,$(BUILD_DIR)/ge/vendor/%.o,$(ge/VENDOR_CPP_SRC))
 
 # Test sources
@@ -262,7 +263,13 @@ ge/TEST_SRC = \
 	$(ge)/src/Signal_test.cpp \
 	$(ge)/src/render/RefreshRateBoost_test.cpp \
 	$(ge)/src/wire_input_test.cpp \
-	$(ge)/src/VideoRoundtrip_test.cpp
+	$(ge)/src/VideoRoundtrip_test.cpp \
+	$(ge)/src/CmdStream_test.cpp \
+	$(ge)/src/AccelScreen_test.cpp \
+	$(ge)/src/AccelSynth_test.cpp \
+	$(ge)/src/SeatPolicy_test.cpp \
+	$(ge)/src/ViewerMetrics_test.cpp \
+	$(ge)/src/StreamDbPolicy_test.cpp
 ge/TEST_OBJ = $(patsubst $(ge)/src/%.cpp,$(BUILD_DIR)/ge/src/%.o,$(ge/TEST_SRC))
 
 # Shared variables (parent can += to extend)
@@ -314,11 +321,24 @@ APP_LIBS    ?= $(ge/BOX2D_OBJ)
 # Rules
 # ────────────────────────────────────────────────
 
-# Default target — `make` with no args builds the app. Parent can declare its
-# own `all:` BEFORE the include to win (the first target make sees is the
-# default).
-.PHONY: all run
-all: $(APP)
+# Default target — `make` with no args builds the windowed game.
+# Parent can declare its own `all:` BEFORE the include to win.
+#
+# Products are **ge-owned** names. Projects should not invent GE_SERVER=1
+# packaging; use `make server` / `make run-server`.
+# Player glass: spyder repo (`make player`), not here.
+.PHONY: all game server run run-server
+all: game
+game: $(APP)
+
+# Console stream host — totally different build (build-server/, -DGE_SERVER_BUILD,
+# bin/$(APP_NAME)-server). Recursive make isolates variables cleanly.
+server:
+	$(MAKE) GE_SERVER=1 APP_NAME=$(APP_NAME) ge=$(ge) bin/$(APP_NAME)-server
+
+# Relay address is *runtime* env (spyder), not a build mode. Default local daemon.
+run-server: server
+	GE_SERVER=$${GE_SERVER:-127.0.0.1:3030} ./bin/$(APP_NAME)-server
 
 # Default link rule. Parent can override by declaring its own $(APP) rule.
 $(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
@@ -428,13 +448,12 @@ $(BUILD_DIR)/ge/shaders/%.h: $(ge/RENDER_SHADER_DIR)/%.glsl $(ge/SOKOL_SHDC)
 	@mkdir -p $(dir $@)
 	$(ge/SOKOL_SHDC) -i $< -o $@ -l $(ge/SOKOL_SHDC_LANGS) -f sokol
 
-# Desktop player binary (symmetry with ge/ios and ge/android).
-.PHONY: ge/player
-ge/player: $(ge/PLAYER)
-
-$(ge/PLAYER): $(ge/PLAYER_SRC) $(ge/LIB)
-	@mkdir -p $(@D)
-	$(CXX) -std=c++20 -DGE_DESKTOP $(ge/INCLUDES) $(ge/PLAYER_SRC) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+# Player binary is owned by spyder (no path coupling from ge → spyder).
+.PHONY: player
+player ge/player:
+	@echo "error: stream player lives in the spyder repo."
+	@echo "  cd <spyder-checkout> && make player"
+	@exit 1
 
 # imgdiff helper — used by matrix-test.sh for reference-image checks.
 .PHONY: ge/imgdiff

@@ -19,6 +19,7 @@
 #include "Immersive.h"
 #include "RunDirect.h"
 #include "render/DirectRenderHost.h"
+#include "../tools/player_orientation.h"
 
 #include <SDL3/SDL.h>
 #include <ge/appchannel.h>
@@ -223,11 +224,16 @@ void DirectLoop::step() {
             }
         }
 
+        // 🎯T128 cmdstream: arm LiveCapture around onRender so SpriteBatch
+        // serialises SP2S for the wire (server modality only).
+        if (server && server->beforeRender)
+            server->beforeRender(host.width(), host.height());
         if (rc.onRender) {
             ge::guardCallback("onRender", [&] {  // 🎯T136
                 rc.onRender(host.context());
             });
         }
+        if (server && server->afterRender) server->afterRender();
     }
 }
 
@@ -235,11 +241,34 @@ void DirectLoop::step() {
 
 void runDirectHosted(Factory factory, SessionHostConfig config,
                      const ServerHook* server) noexcept {
+    // iPadOS 26: arm supported-orientation mask *before* SDL_CreateWindow so
+    // the glass measures landscape (not a transient portrait letterbox). The
+    // freeze (TN3192) is applied later inside playerForceOrientation after
+    // geometry settles — freezing too early blocks the rotate (see
+    // tools/player_orientation_ios.mm). DirectRenderHost::send re-applies
+    // after the window/scene exist.
+    if (config.orientation != 0) {
+        const char* hint = nullptr;
+        switch (config.orientation) {
+        case wire::kOrientationLandscape:        hint = "LandscapeLeft"; break;
+        case wire::kOrientationLandscapeFlipped: hint = "LandscapeRight"; break;
+        case wire::kOrientationPortrait:         hint = "Portrait"; break;
+        case wire::kOrientationPortraitFlipped:  hint = "PortraitUpsideDown"; break;
+        case wire::kOrientationAnyLandscape:     hint = "LandscapeLeft LandscapeRight"; break;
+        }
+        if (hint) SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
+        playerForceOrientation(config.orientation);
+    }
+
     DirectRenderHost host(config);
     applyImmersive(config.immersive);
 
     if (server && server->active) {
-        host.setServerFrameSink(server->sink, server->active);
+        host.setServerFrameSink(server->sink, server->active,
+                                server->capturePixels);
+        host.setViewerMetricsStore(server->viewer);
+        if (server->armSink) host.setArmStateSink(server->armSink);
+        if (server->bindDb) server->bindDb(host.context().db());
     }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same
@@ -256,6 +285,8 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     wire::SessionConfig sc{};
     sc.sensors = config.sensors;
     sc.orientation = config.orientation;
+    if (config.immersive) sc.flags |= wire::kSessionFlagImmersive;
+    if (config.disableScreenSaver) sc.flags |= wire::kSessionFlagNoScreenSaver;
     host.send(sc);
 
     DirectLoop loop{host, rc, config, server};

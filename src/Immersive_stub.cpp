@@ -1,10 +1,8 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Non-Android impl of ge::applyImmersive — no-op. iOS handles status-
-// bar autohide in landscape and reads UIRequiresFullScreen from the
-// app's Info.plist at launch (cannot be toggled at runtime). macOS /
-// Linux / Windows have no equivalent runtime concept.
+// Desktop (and non-iOS Apple) impl of ge::applyImmersive — no-op.
+// iOS uses Immersive_apple.mm; Android uses Immersive_android.cpp.
 
 #include "Immersive.h"
 

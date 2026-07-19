@@ -1,3 +1,21 @@
+# Binary artefacts — always Git LFS (never plain git blobs).
+# Covers release and debug prebuilt trees:
+#   prebuilt/<platform>/*.a
+#   prebuilt/<platform>-debug/*.a
 *.a filter=lfs diff=lfs merge=lfs -text
+prebuilt/**/*.a filter=lfs diff=lfs merge=lfs -text
+
 *.jar filter=lfs diff=lfs merge=lfs -text
+*.so filter=lfs diff=lfs merge=lfs -text
+*.dylib filter=lfs diff=lfs merge=lfs -text
+*.o filter=lfs diff=lfs merge=lfs -text
+*.lib filter=lfs diff=lfs merge=lfs -text
+*.dll filter=lfs diff=lfs merge=lfs -text
+*.exe filter=lfs diff=lfs merge=lfs -text
+
 bin/*/shaderc filter=lfs diff=lfs merge=lfs -text
+
+# Text next to prebuilts (NOT LFS) — cook identity + staleness manifests.
+# Explicit so a future blanket prebuilt/** rule cannot swallow them.
+prebuilt/**/cook.json -filter -diff -merge text
+prebuilt/**/manifest.json -filter -diff -merge text

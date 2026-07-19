@@ -205,13 +205,13 @@ public class GeActivity extends SDLActivity implements SensorEventListener {
     }
 
     // 🎯T119: lift spyder's launch-Intent string-extras (SPYDER_APP_CHANNEL,
-    // GE_IAP_MODE, …) into the process environment, so native getenv() sees them
+    // IAP_MODE, …) into the process environment, so native getenv() sees them
     // on Android the same way iOS receives the process env. spyder switches from
     // `monkey` to `am start --es KEY VALUE` when env is supplied; Intent extras
     // aren't environment variables, so the app bridges them before the native
     // thread reads getenv(). Uses SDL's own nativeSetenv (public, exported from
     // libSDL3.so). Debug-only: a release build ignores launch extras, so a
-    // shipped app can't be coerced via `am start --es GE_IAP_MODE …`.
+    // shipped app can't be coerced via `am start --es IAP_MODE …`.
     private void passLaunchEnv() {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
         if (getIntent() == null) return;

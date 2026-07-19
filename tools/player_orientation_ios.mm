@@ -1,38 +1,31 @@
 // Copyright 2026 Marcelo Cantos
 // SPDX-License-Identifier: Apache-2.0
 //
-// iOS orientation lock (🎯T36). Two swizzles on UIViewController:
+// iOS orientation force + lock (🎯T36 / iPadOS 26 letterbox fix).
 //
-//   1. `prefersInterfaceOrientationLocked` (Apple TN3192, iPadOS 26+)
-//      returns YES once a lock has been requested. This freezes the
-//      post-launch orientation against the iPadOS multitasking
-//      swivel gesture.
-//   2. `supportedInterfaceOrientations` is narrowed to the consumer's
-//      requested orientation when a lock is active. iOS rotates the
-//      UI at launch to a supported orientation, so the swizzle here
-//      effectively forces the specific orientation regardless of how
-//      the device was held when launching.
+// Two distinct knobs (must not collapse into one flag):
 //
-// The plist's `UISupportedInterfaceOrientations` becomes the fallback
-// (consulted when no runtime lock is set) rather than the gate.
-// Consumers can leave the plist permissive (all four orientations)
-// and let `SessionConfig.orientation` decide at runtime.
+//   A. Supported mask — `supportedInterfaceOrientations` narrowed to the
+//      requested class (landscape / portrait / …). This is what allows
+//      UIKit to *rotate into* that class when the chassis is the other way.
 //
-// Things that DON'T work and should not be re-tried:
-//   * UIRequiresFullScreen                         — deprecated, ignored on iPad.
-//   * SDL_HINT_ORIENTATIONS                        — limits the supported set
-//                                                    only; no runtime force.
-//   * UIWindowScene requestGeometryUpdate alone    — silently no-ops on iPad.
-//   * setNeedsUpdateOfSupportedInterfaceOrientations alone — only flips
-//                                                    UIKit's view of the
-//                                                    supported set; doesn't
-//                                                    create a lock.
+//   B. Freeze lock — `prefersInterfaceOrientationLocked` (TN3192, iPadOS 26+)
+//      returns YES only *after* the interface has adopted the requested
+//      class. Freezing too early freezes *portrait* and blocks geometry
+//      updates — the iPadOS 26 letterbox failure mode (M5 @ 26.4 vs M4 @ 18.6).
 //
-// History:
-//   * e0da016 reverted the "plist alone" experiment.
-//   * 5c2f2a5 added the prefersInterfaceOrientationLocked swizzle (boolean-mode lock).
-//   * v0.31.0 (🎯T36) added the supportedInterfaceOrientations swizzle so
-//     the specific constant is honored.
+// Order of operations in playerForceOrientation:
+//   1. Set supported mask, freeze = NO
+//   2. setNeedsUpdate* + requestGeometryUpdate (rotate while unlocked)
+//   3. After settle (interface matches / timeout), freeze = YES
+//
+// Critical: SDL's `SDL_uikitviewcontroller` *overrides*
+// `supportedInterfaceOrientations` and does not call super. Swizzle
+// UIViewController *and* SDL's class (by name).
+//
+// Also arm BEFORE SDL_CreateWindow when possible (runDirectHosted calls
+// playerForceOrientation prior to DirectRenderHost) so CreateWindow measures
+// a landscape glass, not a transient portrait one.
 
 #include "player_orientation.h"
 
@@ -42,26 +35,111 @@
 #include <spdlog/spdlog.h>
 
 // Sentinel matching ge::wire::kOrientationAnyLandscape (Protocol.h).
-// Kept in sync by inspection — Protocol.h's constant is exported as
-// uint8_t; both files have a comment pointing at the other.
 static constexpr uint8_t kLockAnyLandscape = 0xFE;
 
-// 0 = unlocked. Non-zero = the SDL_ORIENTATION_* (or sentinel) value
-// the consumer requested. Read by both swizzles.
-static uint8_t g_lockedOrientation = 0;
+// Supported-class request (0 = no engine override). Drives supportedInterfaceOrientations.
+static uint8_t g_supportedOrientation = 0;
+// TN3192 freeze. Only true after we believe the interface adopted the mask.
+static bool g_freezeOrientation = false;
+static bool g_deviceOrientationActive = false;
 
-// Map a requested lock value to the iOS interface-orientation mask.
 static UIInterfaceOrientationMask geLockMask(uint8_t lock) {
     switch (lock) {
         case SDL_ORIENTATION_PORTRAIT:          return UIInterfaceOrientationMaskPortrait;
         case SDL_ORIENTATION_PORTRAIT_FLIPPED:  return UIInterfaceOrientationMaskPortraitUpsideDown;
-        // SDL's "Landscape" is the device tilted left (UIDeviceOrientationLandscapeLeft),
-        // which iOS surfaces to UIKit as UIInterfaceOrientationLandscapeRight.
         case SDL_ORIENTATION_LANDSCAPE:         return UIInterfaceOrientationMaskLandscapeRight;
         case SDL_ORIENTATION_LANDSCAPE_FLIPPED: return UIInterfaceOrientationMaskLandscapeLeft;
         case kLockAnyLandscape:                 return UIInterfaceOrientationMaskLandscape;
         default:                                return UIInterfaceOrientationMaskAll;
     }
+}
+
+static bool geInterfaceMatchesMask(UIInterfaceOrientationMask mask) {
+    UIInterfaceOrientation io = UIInterfaceOrientationUnknown;
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        UIWindowScene *scene = (UIWindowScene *)s;
+        io = scene.effectiveGeometry.interfaceOrientation;
+        if (io != UIInterfaceOrientationUnknown) break;
+    }
+    if (io == UIInterfaceOrientationUnknown) {
+        // Fallback (deprecated path) if no scene yet.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        io = UIApplication.sharedApplication.statusBarOrientation;
+#pragma clang diagnostic pop
+    }
+    switch (io) {
+    case UIInterfaceOrientationPortrait:
+        return (mask & UIInterfaceOrientationMaskPortrait) != 0;
+    case UIInterfaceOrientationPortraitUpsideDown:
+        return (mask & UIInterfaceOrientationMaskPortraitUpsideDown) != 0;
+    case UIInterfaceOrientationLandscapeLeft:
+        return (mask & UIInterfaceOrientationMaskLandscapeLeft) != 0;
+    case UIInterfaceOrientationLandscapeRight:
+        return (mask & UIInterfaceOrientationMaskLandscapeRight) != 0;
+    default:
+        return false;
+    }
+}
+
+static void geSwizzleOrientationMethods(Class cls) {
+    if (!cls) return;
+
+    static char kSwizzledKey;
+    if (objc_getAssociatedObject((id)cls, &kSwizzledKey)) return;
+
+    {
+        SEL sel = @selector(prefersInterfaceOrientationLocked);
+        Method orig = class_getInstanceMethod(cls, sel);
+        const char *types = orig ? method_getTypeEncoding(orig) : "B@:";
+        IMP blockImp = imp_implementationWithBlock(^BOOL(id self) {
+            (void)self;
+            // Freeze only after rotate — not merely because a mask is set.
+            return g_freezeOrientation ? YES : NO;
+        });
+        if (orig) {
+            class_replaceMethod(cls, sel, blockImp, types);
+        } else {
+            class_addMethod(cls, sel, blockImp, types);
+        }
+    }
+
+    {
+        SEL sel = @selector(supportedInterfaceOrientations);
+        Method orig = class_getInstanceMethod(cls, sel);
+        if (!orig) {
+            class_addMethod(
+                cls, sel,
+                imp_implementationWithBlock(^UIInterfaceOrientationMask(id self) {
+                    (void)self;
+                    if (g_supportedOrientation != 0)
+                        return geLockMask(g_supportedOrientation);
+                    return UIInterfaceOrientationMaskAll;
+                }),
+                "I@:");
+        } else {
+            IMP originalImp = method_getImplementation(orig);
+            IMP blockImp = imp_implementationWithBlock(
+                ^UIInterfaceOrientationMask(id self) {
+                    if (g_supportedOrientation != 0)
+                        return geLockMask(g_supportedOrientation);
+                    using OrigFn = UIInterfaceOrientationMask (*)(id, SEL);
+                    return ((OrigFn)originalImp)(self, sel);
+                });
+            class_replaceMethod(cls, sel, blockImp, method_getTypeEncoding(orig));
+        }
+    }
+
+    objc_setAssociatedObject((id)cls, &kSwizzledKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    SPDLOG_INFO("playerForceOrientation: swizzled orientation hooks on {}",
+                class_getName(cls));
+}
+
+static void geEnsureOrientationSwizzles() {
+    geSwizzleOrientationMethods([UIViewController class]);
+    geSwizzleOrientationMethods(NSClassFromString(@"SDL_uikitviewcontroller"));
 }
 
 @interface UIViewController (GeOrientationLock)
@@ -70,49 +148,16 @@ static UIInterfaceOrientationMask geLockMask(uint8_t lock) {
 @implementation UIViewController (GeOrientationLock)
 
 + (void)load {
-    // Swizzle 1 — prefersInterfaceOrientationLocked (iPadOS 26+).
-    {
-        SEL sel = @selector(prefersInterfaceOrientationLocked);
-        Method orig = class_getInstanceMethod([UIViewController class], sel);
-        if (orig) {
-            IMP newImp = imp_implementationWithBlock(^BOOL(id self) {
-                return g_lockedOrientation != 0;
-            });
-            method_setImplementation(orig, newImp);
-        }
-    }
-
-    // Swizzle 2 — supportedInterfaceOrientations. When locked, narrow
-    // to the requested mask so iOS rotates the UI to it at launch.
-    // When unlocked, fall through to the original (plist-derived) mask.
-    {
-        SEL sel = @selector(supportedInterfaceOrientations);
-        Method orig = class_getInstanceMethod([UIViewController class], sel);
-        if (orig) {
-            IMP originalImp = method_getImplementation(orig);
-            IMP newImp = imp_implementationWithBlock(^UIInterfaceOrientationMask(id self) {
-                if (g_lockedOrientation == 0) {
-                    using OrigFn = UIInterfaceOrientationMask (*)(id, SEL);
-                    return ((OrigFn)originalImp)(self, sel);
-                }
-                return geLockMask(g_lockedOrientation);
-            });
-            method_setImplementation(orig, newImp);
-        }
-    }
+    geEnsureOrientationSwizzles();
 }
 
 @end
-
-static bool g_deviceOrientationActive = false;
 
 int playerGetPhysicalOrientation() {
     if (!g_deviceOrientationActive) {
         [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
         g_deviceOrientationActive = true;
     }
-    // Real devices report physical orientation. Simulator returns Unknown
-    // (no accelerometer), which falls through to portrait default.
     UIDeviceOrientation dev = [UIDevice currentDevice].orientation;
     switch (dev) {
     case UIDeviceOrientationPortrait:           return SDL_ORIENTATION_PORTRAIT;
@@ -123,7 +168,6 @@ int playerGetPhysicalOrientation() {
     }
 }
 
-// Best-effort name for the diagnostic log.
 static const char* geLockName(uint8_t lock) {
     switch (lock) {
         case SDL_ORIENTATION_PORTRAIT:          return "Portrait";
@@ -135,49 +179,14 @@ static const char* geLockName(uint8_t lock) {
     }
 }
 
-void playerForceOrientation(uint8_t orientation) {
-    if (orientation == 0) return;
-
-    if (!g_deviceOrientationActive) {
-        [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
-        g_deviceOrientationActive = true;
-    }
-
-    g_lockedOrientation = orientation;
-
-    UIInterfaceOrientationMask requested = geLockMask(orientation);
-    SPDLOG_INFO("playerForceOrientation: lock {} (mask=0x{:x})", geLockName(orientation), (unsigned)requested);
-
-    // Cross-check against the plist's UISupportedInterfaceOrientations. If
-    // none of the requested orientations are in the plist's allowed set,
-    // iOS won't be able to honor the lock during launch — a loud log
-    // saves the multimaze2-style debugging session.
-    NSArray<NSString*>* plistOrientations =
-        [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
-    if (plistOrientations) {
-        UIInterfaceOrientationMask plistMask = 0;
-        for (NSString* o in plistOrientations) {
-            if ([o isEqualToString:@"UIInterfaceOrientationPortrait"])           plistMask |= UIInterfaceOrientationMaskPortrait;
-            else if ([o isEqualToString:@"UIInterfaceOrientationPortraitUpsideDown"]) plistMask |= UIInterfaceOrientationMaskPortraitUpsideDown;
-            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeLeft"]) plistMask |= UIInterfaceOrientationMaskLandscapeLeft;
-            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeRight"]) plistMask |= UIInterfaceOrientationMaskLandscapeRight;
-        }
-        if ((plistMask & requested) == 0) {
-            SPDLOG_WARN(
-                "Info.plist UISupportedInterfaceOrientations (0x{:x}) does not include "
-                "requested orientation {} (0x{:x}). The swizzle overrides this at runtime, "
-                "but narrowing the plist matches engine intent and avoids brief launch flicker.",
-                (unsigned)plistMask, geLockName(orientation), (unsigned)requested);
-        }
-    }
-
+static void geRefreshViewControllers() {
     for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
         if (![s isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *scene = (UIWindowScene *)s;
         for (UIWindow *w in scene.windows) {
             UIViewController *vc = w.rootViewController;
-            // Refresh both the lock state and the supported-orientations
-            // set so iOS re-evaluates and rotates the UI if needed.
+            if (!vc) continue;
+            geSwizzleOrientationMethods([vc class]);
             [vc setNeedsUpdateOfSupportedInterfaceOrientations];
             SEL updateSel = @selector(setNeedsUpdateOfPrefersInterfaceOrientationLocked);
             if ([vc respondsToSelector:updateSel]) {
@@ -186,6 +195,229 @@ void playerForceOrientation(uint8_t orientation) {
                 [vc performSelector:updateSel];
 #pragma clang diagnostic pop
             }
+            for (UIViewController *child in vc.childViewControllers) {
+                geSwizzleOrientationMethods([child class]);
+                [child setNeedsUpdateOfSupportedInterfaceOrientations];
+                if ([child respondsToSelector:updateSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    [child performSelector:updateSel];
+#pragma clang diagnostic pop
+                }
+            }
         }
+    }
+}
+
+// Geometry rotate while freeze is off. Safe to call repeatedly.
+// Log presented glass vs screen. On iPadOS 26.4 sim with portrait chassis,
+// landscape interface can letterbox (scale-to-fit) instead of rotating to
+// full-bleed the way iOS 18.6 does — metrics reveal which case we are in.
+static void geLogSurfaceMetrics(const char* tag) {
+    CGRect sb = UIScreen.mainScreen.bounds;
+    CGRect nb = UIScreen.mainScreen.nativeBounds;
+    SPDLOG_INFO("orient-metrics[{}]: UIScreen.bounds={:.0f}x{:.0f} (pts) "
+                "nativeBounds={:.0f}x{:.0f} scale={:.2f}",
+                tag, sb.size.width, sb.size.height,
+                nb.size.width, nb.size.height,
+                UIScreen.mainScreen.scale);
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        UIWindowScene *scene = (UIWindowScene *)s;
+        UIInterfaceOrientation io = UIInterfaceOrientationUnknown;
+        if (@available(iOS 16.0, *)) {
+            io = scene.effectiveGeometry.interfaceOrientation;
+        }
+        SPDLOG_INFO("orient-metrics[{}]: scene.interfaceOrientation={}",
+                    tag, (int)io);
+        for (UIWindow *w in scene.windows) {
+            SPDLOG_INFO(
+                "orient-metrics[{}]: window.bounds={:.0f}x{:.0f} frame={:.0f}x{:.0f} "
+                "transform=[{:.2f} {:.2f}; {:.2f} {:.2f}]",
+                tag,
+                w.bounds.size.width, w.bounds.size.height,
+                w.frame.size.width, w.frame.size.height,
+                w.transform.a, w.transform.b, w.transform.c, w.transform.d);
+            UIView *v = w.rootViewController.view;
+            if (v) {
+                SPDLOG_INFO(
+                    "orient-metrics[{}]: rootView.bounds={:.0f}x{:.0f} "
+                    "frame={:.0f},{:.0f} {:.0f}x{:.0f}",
+                    tag,
+                    v.bounds.size.width, v.bounds.size.height,
+                    v.frame.origin.x, v.frame.origin.y,
+                    v.frame.size.width, v.frame.size.height);
+            }
+        }
+    }
+}
+
+// Push UIDevice.orientation toward a landscape value so the host presentation
+// (Simulator glass / simctl composite) applies the same 90° full-bleed mapping
+// iOS 18.6 used. UIKit already reports landscape interface + landscape
+// UIScreen.bounds while the *physical* chassis stays portrait; without this
+// kick, iPadOS 26.4 scale-to-fits the landscape framebuffer into the portrait
+// device frame (black bars). KVC on UIDevice.orientation is the long-standing
+// game-engine path to request that presentation; it does not rotate the
+// Simulator chrome via Cmd+Arrow (chassis stays portrait).
+static void gePushDeviceOrientationForMask(UIInterfaceOrientationMask requested) {
+    const bool wantLandscape =
+        (requested & UIInterfaceOrientationMaskLandscape) != 0 &&
+        (requested & (UIInterfaceOrientationMaskPortrait |
+                      UIInterfaceOrientationMaskPortraitUpsideDown)) == 0;
+    if (!wantLandscape) return;
+
+    UIDeviceOrientation target = UIDeviceOrientationLandscapeLeft;
+    if ((requested & UIInterfaceOrientationMaskLandscapeRight) != 0 &&
+        (requested & UIInterfaceOrientationMaskLandscapeLeft) == 0) {
+        // LandscapeRight interface ↔ device LandscapeLeft (Apple's classic swap).
+        target = UIDeviceOrientationLandscapeLeft;
+    } else if ((requested & UIInterfaceOrientationMaskLandscapeLeft) != 0 &&
+               (requested & UIInterfaceOrientationMaskLandscapeRight) == 0) {
+        target = UIDeviceOrientationLandscapeRight;
+    }
+
+    UIDevice *dev = [UIDevice currentDevice];
+    if (!g_deviceOrientationActive) {
+        [dev beginGeneratingDeviceOrientationNotifications];
+        g_deviceOrientationActive = true;
+    }
+    @try {
+        [dev setValue:@(target) forKey:@"orientation"];
+        SPDLOG_INFO("playerForceOrientation: UIDevice.orientation KVC → {}",
+                    (int)target);
+    } @catch (NSException *ex) {
+        SPDLOG_WARN("playerForceOrientation: UIDevice.orientation KVC failed: {}",
+                    ex.reason.UTF8String ?: "?");
+    }
+#if !TARGET_OS_TV
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [UIViewController attemptRotationToDeviceOrientation];
+#pragma clang diagnostic pop
+#endif
+}
+
+static void geCounterLetterboxIfNeeded(UIInterfaceOrientationMask requested) {
+    gePushDeviceOrientationForMask(requested);
+}
+
+static void geRequestGeometry(UIInterfaceOrientationMask requested) {
+    geEnsureOrientationSwizzles();
+    geRefreshViewControllers();
+
+    NSInteger scenes = 0;
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        UIWindowScene *scene = (UIWindowScene *)s;
+        ++scenes;
+        if (@available(iOS 16.0, *)) {
+            UIWindowSceneGeometryPreferencesIOS *prefs =
+                [[UIWindowSceneGeometryPreferencesIOS alloc]
+                    initWithInterfaceOrientations:requested];
+            [scene requestGeometryUpdateWithPreferences:prefs
+                errorHandler:^(NSError *error) {
+                    if (error) {
+                        SPDLOG_WARN("playerForceOrientation: geometry update: {}",
+                                    error.localizedDescription.UTF8String);
+                    }
+                }];
+        }
+    }
+    if (scenes == 0) {
+        SPDLOG_INFO("playerForceOrientation: no UIWindowScene yet — supported mask "
+                    "armed; will re-apply when scenes exist");
+    }
+    geLogSurfaceMetrics("post-geometry");
+    geCounterLetterboxIfNeeded(requested);
+}
+
+static void geTryFreezeIfMatched(UIInterfaceOrientationMask requested) {
+    if (g_supportedOrientation == 0) return;
+    if (g_freezeOrientation) return;
+    if (!geInterfaceMatchesMask(requested)) {
+        SPDLOG_INFO("playerForceOrientation: interface not yet in mask 0x{:x} — "
+                    "keeping freeze off",
+                    (unsigned)requested);
+        return;
+    }
+    g_freezeOrientation = true;
+    geRefreshViewControllers();
+    SPDLOG_INFO("playerForceOrientation: freeze ON (interface matches mask 0x{:x})",
+                (unsigned)requested);
+}
+
+void playerForceOrientation(uint8_t orientation) {
+    if (orientation == 0) return;
+
+    if (!g_deviceOrientationActive) {
+        [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+        g_deviceOrientationActive = true;
+    }
+
+    // Narrow support first; do NOT freeze yet — freezing portrait blocks rotate.
+    g_supportedOrientation = orientation;
+    g_freezeOrientation = false;
+    geEnsureOrientationSwizzles();
+
+    UIInterfaceOrientationMask requested = geLockMask(orientation);
+    SPDLOG_INFO("playerForceOrientation: request {} (mask=0x{:x}) freeze=off",
+                geLockName(orientation), (unsigned)requested);
+
+    NSArray<NSString*>* plistOrientations =
+        [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
+    if (plistOrientations) {
+        UIInterfaceOrientationMask plistMask = 0;
+        for (NSString* o in plistOrientations) {
+            if ([o isEqualToString:@"UIInterfaceOrientationPortrait"])
+                plistMask |= UIInterfaceOrientationMaskPortrait;
+            else if ([o isEqualToString:@"UIInterfaceOrientationPortraitUpsideDown"])
+                plistMask |= UIInterfaceOrientationMaskPortraitUpsideDown;
+            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeLeft"])
+                plistMask |= UIInterfaceOrientationMaskLandscapeLeft;
+            else if ([o isEqualToString:@"UIInterfaceOrientationLandscapeRight"])
+                plistMask |= UIInterfaceOrientationMaskLandscapeRight;
+        }
+        if ((plistMask & requested) == 0) {
+            SPDLOG_WARN(
+                "Info.plist UISupportedInterfaceOrientations (0x{:x}) does not include "
+                "requested orientation {} (0x{:x}).",
+                (unsigned)plistMask, geLockName(orientation), (unsigned)requested);
+        }
+    }
+
+    void (^applyRotate)(void) = ^{
+        geRequestGeometry(requested);
+        geTryFreezeIfMatched(requested);
+    };
+
+    void (^armFreezeLater)(void) = ^{
+        // Several kicks: geometry animation can take >1 frame on iPadOS 26.
+        geRequestGeometry(requested);
+        geTryFreezeIfMatched(requested);
+        if (!g_freezeOrientation) {
+            // Last resort after retries: freeze anyway so swivel cannot undo
+            // a partial rotate — but only after we have re-requested geometry.
+            g_freezeOrientation = true;
+            geRefreshViewControllers();
+            SPDLOG_INFO("playerForceOrientation: freeze ON (timeout settle)");
+        }
+    };
+
+    if ([NSThread isMainThread]) {
+        applyRotate();
+        dispatch_async(dispatch_get_main_queue(), applyRotate);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), applyRotate);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), applyRotate);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), armFreezeLater);
+    } else {
+        dispatch_async(dispatch_get_main_queue(), applyRotate);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), applyRotate);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), armFreezeLater);
     }
 }

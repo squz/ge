@@ -1,0 +1,12 @@
+# Phone-class glass, no accelerometer: finger-drag arms (the field-failure
+# pathway) — no Shift anywhere.
+SLEEP 1500
+FINGER_DOWN 0.5 0.5
+SLEEP 50
+FINGER_MOTION 0.45 0.5 -0.05 0
+SLEEP 50
+FINGER_MOTION 0.40 0.5 -0.05 0
+SLEEP 1200
+FINGER_UP
+SLEEP 900
+QUIT

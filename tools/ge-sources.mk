@@ -45,6 +45,7 @@ GE_SRC_COMMON := \
 	src/long_press.cpp \
 	src/sdl_input.cpp \
 	src/manifest.cpp \
+	src/CmdStream.cpp \
 	src/SessionHost.mm \
 	src/render/DirectRenderHost.mm \
 	vendor/src/sqlpipe.cpp
@@ -99,11 +100,16 @@ GE_SRC_WEB := \
 # only vkGetInstanceProcAddr (resolved at the consumer's libmain link).
 
 # ── desktop / no-mobile stubs ──────────────────────────────────────
-# Linux/macOS desktop and Apple platforms that don't have an Immersive
-# or CutoutInsets concept get the stub. (Android has real
-# Immersive_android.cpp + CutoutInsets_android.cpp.)
+# Linux/macOS desktop has no Immersive/CutoutInsets concept (stub).
+# iOS has real Immersive_apple.mm (status-bar hide for stream/direct
+# pixel parity); CutoutInsets stay stub on Apple. Android has real
+# Immersive_android.cpp + CutoutInsets_android.cpp.
 GE_SRC_STUB_IMMERSIVE := \
 	src/Immersive_stub.cpp \
+	src/CutoutInsets_stub.cpp
+
+GE_SRC_IOS_IMMERSIVE := \
+	src/Immersive_apple.mm \
 	src/CutoutInsets_stub.cpp
 
 # Attitude has three: apple (CoreMotion), android (sensors), stub
@@ -117,18 +123,17 @@ GE_SRC_STUB_ATTITUDE := \
 GE_SRC_ORIENTATION_IOS  := tools/player_orientation_ios.mm
 GE_SRC_ORIENTATION_STUB := tools/player_orientation_stub.cpp
 
-# ── wire (server + player) mode ────────────────────────────────────
+# ── wire (server) mode ─────────────────────────────────────────────
 # 🎯T92.2.2 Included only when GE_DIRECT_ONLY is NOT set — i.e., when ge is
 # built in wire mode. Server mode (SessionHost_server.mm + ServerSession.mm) is
 # a hidden-window DirectRenderHost streaming ge's canonical H.264 wire to a
-# player attached via spyder's relay; the player side (PlayerWireBridge /
-# PlayerRender / decoder) receives it. The prebuilt .a's always omit these; only
-# desktop builds in non-direct mode pick them up.
+# player attached via spyder's relay. The player client (decode/render/input)
+# lives in the spyder repo — protocol-only coupling; do not link player
+# sources back into libge. Prebuilt .a's always omit these; only desktop
+# builds in non-direct mode pick them up.
 GE_SRC_BROKERED := \
 	src/bridge/SessionHost_server.mm \
 	src/bridge/ServerSession.mm \
-	src/render/PlayerRender.cpp \
-	src/bridge/PlayerWireBridge.cpp \
 	src/bridge/WebSocketClient.cpp \
 	src/bridge/VideoEncoder_apple.mm \
 	src/bridge/VideoDecoder_apple.mm
@@ -138,9 +143,9 @@ GE_SRC_BROKERED := \
 # subset of the groups above.
 
 # Apple direct-mode (macOS desktop, iOS device, iOS sim):
-#   core + apple glue + immersive stubs + iOS-or-stub orientation
+#   core + apple glue + immersive (real on iOS, stub on desktop) + orientation
 GE_SRC_DIRECT_APPLE_DESKTOP    := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_ORIENTATION_STUB)
-GE_SRC_DIRECT_IOS              := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_ORIENTATION_IOS)
+GE_SRC_DIRECT_IOS              := $(GE_SRC_COMMON) $(GE_SRC_APPLE) $(GE_SRC_IOS_IMMERSIVE) $(GE_SRC_ORIENTATION_IOS)
 
 # Android direct-mode: core + android glue + stub orientation.
 GE_SRC_DIRECT_ANDROID          := $(GE_SRC_COMMON) $(GE_SRC_ANDROID) $(GE_SRC_ORIENTATION_STUB)

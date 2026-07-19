@@ -1,0 +1,31 @@
+2026/07/19 09:59:48 INFO daemon: starting addr=:3133 version=dev
+2026/07/19 09:59:48 INFO iostunnel: using development build path=/Users/marcelo/work/github.com/marcelocantos/spyder/bin/ios
+2026/07/19 09:59:48 INFO iostunnel: started binary=/Users/marcelo/work/github.com/marcelocantos/spyder/bin/ios pid=84340
+2026/07/19 09:59:48 INFO spyder listening addr=:3133 mcp=/mcp rest=/api/v1/
+2026/07/19 09:59:48 INFO iostunnel: stopped cleanly
+2026/07/19 09:59:48 ERROR iostunnel: subprocess exited error="signal: terminated"
+2026/07/19 09:59:48 INFO ios: usbmux tunnel listener started
+2026/07/19 09:59:48 INFO iostunnel: started binary=/Users/marcelo/work/github.com/marcelocantos/spyder/bin/ios pid=84341
+2026/07/19 09:59:48 INFO wedge: log-tail started pid=84343
+{"level":"info","msg":"no udid specified using first device in list","time":"2026-07-19T09:59:48+10:00","udid":"00008110-0014182E0AC2801E"}
+{"level":"info","msg":"Using userspace networking","time":"2026-07-19T09:59:48+10:00"}
+{"level":"info","msg":"Tunnel server started","time":"2026-07-19T09:59:48+10:00"}
+{"err":"ServeTunnelInfo: failed to start http server: listen tcp 127.0.0.1:60105: bind: address already in use","level":"fatal","msg":"failed to start tunnel server","time":"2026-07-19T09:59:48+10:00"}
+2026/07/19 09:59:48 ERROR iostunnel: subprocess exited error="exit status 1"
+2026/07/19 09:59:49 INFO streamrelay: server connected name=tiltbuggy remote=127.0.0.1:61116 path_class=loopback
+2026/07/19 09:59:51 INFO streamrelay: player attached server=tiltbuggy session=s1 player_remote=127.0.0.1:61122 player_path_class=loopback server_remote=127.0.0.1:61116 server_path_class=loopback
+2026/07/19 09:59:51 INFO streamrelay: wire open session=s1 remote=127.0.0.1:61123 path_class=loopback
+2026/07/19 09:59:52 INFO streamrelay: player attached server=tiltbuggy session=s2 player_remote=127.0.0.1:61124 player_path_class=loopback server_remote=127.0.0.1:61116 server_path_class=loopback
+2026/07/19 09:59:52 INFO streamrelay: wire open session=s2 remote=127.0.0.1:61126 path_class=loopback
+2026/07/19 09:59:57 INFO streamrelay: player detached server=tiltbuggy session=s2 player_remote=127.0.0.1:61124 player_path_class=loopback frames_s2p=670 bytes_s2p=3386932 frames_p2s=9 bytes_p2s=25396 max_frame_bytes_s2p=2925969 fps_avg_s2p=120.63635586973939 bytes_per_sec_avg_s2p=609831.543371057 age_ms=5553
+2026/07/19 09:59:58 INFO iostunnel: started binary=/Users/marcelo/work/github.com/marcelocantos/spyder/bin/ios pid=84404
+{"level":"info","msg":"no udid specified using first device in list","time":"2026-07-19T09:59:58+10:00","udid":"00008110-0014182E0AC2801E"}
+{"level":"info","msg":"Using userspace networking","time":"2026-07-19T09:59:58+10:00"}
+{"level":"info","msg":"Tunnel server started","time":"2026-07-19T09:59:58+10:00"}
+{"err":"ServeTunnelInfo: failed to start http server: listen tcp 127.0.0.1:60105: bind: address already in use","level":"fatal","msg":"failed to start tunnel server","time":"2026-07-19T09:59:58+10:00"}
+2026/07/19 09:59:58 ERROR iostunnel: subprocess exited error="exit status 1"
+2026/07/19 10:00:01 INFO streamrelay: player detached server=tiltbuggy session=s1 player_remote=127.0.0.1:61122 player_path_class=loopback frames_s2p=1280 bytes_s2p=3815632 frames_p2s=11 bytes_p2s=25668 max_frame_bytes_s2p=2925969 fps_avg_s2p=121.22236418047153 bytes_per_sec_avg_s2p=361359.3217833289 age_ms=10559
+2026/07/19 10:00:06 INFO daemon: shutting down (signal or context cancel)
+2026/07/19 10:00:06 INFO daemon: draining http server
+2026/07/19 10:00:06 INFO goios listener: stopped reason="context cancelled"
+2026/07/19 10:00:06 INFO daemon: shutdown complete

@@ -1,0 +1,27 @@
+{
+  "child_traces": [
+    "s1.trace",
+    "s2.trace"
+  ],
+  "two_children": true,
+  "worlds": [
+    {
+      "trace": "s1.trace",
+      "sensor_events": 6,
+      "dominant_gx": -3,
+      "last_t_ms": 7515
+    },
+    {
+      "trace": "s2.trace",
+      "sensor_events": 4,
+      "dominant_gx": 3,
+      "last_t_ms": 4014
+    }
+  ],
+  "opposite_worlds": true,
+  "both_fed": true,
+  "survivor_outlived_ms": 3501,
+  "survivor_independent": true,
+  "children_spawned": 2,
+  "ok": true
+}

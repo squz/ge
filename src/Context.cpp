@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/SessionHost.h>
+#include <sqlpipe.h>
+#include <spdlog/spdlog.h>
 
 #include <SDL3/SDL_events.h>
 
@@ -60,7 +62,14 @@ Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
     m->surfacePxW = surfaceWidth;
     m->surfacePxH = surfaceHeight;
     m->deviceClass = deviceClass;
-    m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
+    SPDLOG_INFO("Context: opening db path='{}' schemaDdl={}B", dbPath, schemaDdl.size());
+    try {
+        m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
+        SPDLOG_INFO("Context: db open ok");
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Context: db open threw: {}", e.what());
+        throw;
+    }
 }
 
 Rect Context::drawSafeRectInPts() const {
@@ -99,6 +108,7 @@ void Context::setSurfaceDimensions(int surfacePxW, int surfacePxH) {
 // (divide by pixelsPerPt) before calling these setters.
 void Context::setDrawSafeInsets(SafeAreaInsets saPt) { m->drawInsetsPt = saPt; }
 void Context::setUiSafeInsets(SafeAreaInsets saPt)   { m->uiInsetsPt   = saPt; }
+void Context::setDeviceClass(DeviceClass dc)         { m->deviceClass = dc; }
 void Context::setPixelsPerPt(float v)                { m->pixelsPerPt = v; }
 void Context::setDeviceUiScale(float v)              { m->deviceUiScale = v; }
 void Context::setParallax(la::float2 p)              { m->parallax = p; }

@@ -325,6 +325,19 @@ class BuildProjectTest < Minitest::Test
     refute_includes paths, '../ge/src/debug.cpp'
   end
 
+  def test_prebuilt_cook_verify_phase_is_first_and_checks_cook_json
+    project = build(resources: [], engine_mode: :prebuilt)
+    target = project.targets.first
+    first = target.build_phases.first
+    assert_equal 'PBXShellScriptBuildPhase', first.isa
+    assert_equal 'Verify prebuilt cook', first.name
+    script = first.shell_script
+    assert_match(/verify-cook\.py/, script)
+    assert_match(/ios-arm64-simulator/, script)
+    assert_match(/ios-arm64/, script)
+    assert_match(/PLATFORM_NAME/, script)
+  end
+
   def test_source_engine_mode_compiles_ge_sources_and_drops_libge_link
     project = build(resources: [], engine_mode: :source)
     target = project.targets.first

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#define SQLPIPE_VERSION       "0.20.0"
+#define SQLPIPE_VERSION       "0.30.0"
 #define SQLPIPE_VERSION_MAJOR 0
-#define SQLPIPE_VERSION_MINOR 20
+#define SQLPIPE_VERSION_MINOR 30
 #define SQLPIPE_VERSION_PATCH 0
 
 // ── Bundled: sqldeep (query transpiler) ─────────────────────────
 // Converts sqldeep extended SQL syntax to standard SQL.
 // Integrated into Database::exec/query/subscribe automatically.
 
-#define SQLDEEP_VERSION       "0.13.0"
+#define SQLDEEP_VERSION       "0.23.0"
 #define SQLDEEP_VERSION_MAJOR 0
-#define SQLDEEP_VERSION_MINOR 13
+#define SQLDEEP_VERSION_MINOR 23
 #define SQLDEEP_VERSION_PATCH 0
 
 typedef struct sqlite3 sqlite3;
@@ -34,7 +34,11 @@ typedef struct {
     int column_count;
 } sqldeep_foreign_key;
 
-typedef enum { SQLDEEP_SQLITE = 0, SQLDEEP_POSTGRES = 1 } sqldeep_backend;
+typedef enum {
+    SQLDEEP_SQLITE = 0,
+    SQLDEEP_POSTGRES = 1,
+    SQLDEEP_SQLITE_VANILLA = 2,
+} sqldeep_backend;
 
 /// Transpile sqldeep syntax to standard SQL (SQLite backend).
 /// Returns malloc'd string (caller frees with sqldeep_free).
@@ -59,9 +63,10 @@ char* sqldeep_transpile_fk_backend(const char* input, sqldeep_backend backend,
 const char* sqldeep_version(void);
 void sqldeep_free(void* ptr);
 
-/// Register xml_element, xml_attrs, and xml_agg on a SQLite connection.
+/// Register sqldeep SQLite runtime functions (xml_element, xml_attrs, xml_agg,
+/// sqldeep_json, sqldeep_json_object, sqldeep_json_array, sqldeep_json_group_array).
 /// Called automatically by Database constructor. Returns SQLITE_OK on success.
-int sqldeep_register_sqlite_xml(sqlite3* db);
+int sqldeep_register_sqlite(sqlite3* db);
 
 #ifdef __cplusplus
 }
@@ -69,10 +74,12 @@ int sqldeep_register_sqlite_xml(sqlite3* db);
 
 // ── Bundled: sqlift (schema migration) ──────────────────────────
 // Declarative SQLite schema diffing and migration.
+// Auto-synced from vendor/include/sqlift.h by scripts/bundle-deps.sh —
+// do not edit this block by hand.
 
-#define SQLIFT_VERSION       "0.12.0"
+#define SQLIFT_VERSION "0.18.0"
 #define SQLIFT_VERSION_MAJOR 0
-#define SQLIFT_VERSION_MINOR 12
+#define SQLIFT_VERSION_MINOR 18
 #define SQLIFT_VERSION_PATCH 0
 
 #include <stdint.h>
@@ -92,20 +99,34 @@ enum sqlift_error_type {
     SQLIFT_DESTRUCTIVE_ERROR = 7,
     SQLIFT_BREAKING_CHANGE_ERROR = 8,
     SQLIFT_JSON_ERROR       = 9,
+    SQLIFT_REBUILD_ERROR    = 10,
 };
+
+// Atomic permission bits for sqlift_apply_options.allow.
+#define SQLIFT_ALLOW_REBUILD     (1u << 0)
+#define SQLIFT_ALLOW_DESTRUCTIVE (1u << 1)
+#define SQLIFT_ALLOW_LOOSEN      (1u << 2)
+#define SQLIFT_ALLOW_DATA_DEPENDENT (1u << 3)
+#define SQLIFT_ALLOW_NONE        0u
+#define SQLIFT_ALLOW_ALL            (SQLIFT_ALLOW_REBUILD | SQLIFT_ALLOW_DESTRUCTIVE | SQLIFT_ALLOW_LOOSEN | SQLIFT_ALLOW_DATA_DEPENDENT)
+
+typedef struct sqlift_apply_options {
+    // Bitmask of SQLIFT_ALLOW_* flags. 0 = deny everything (strictest).
+    unsigned int allow;
+} sqlift_apply_options;
 
 typedef struct sqlift_db sqlift_db;
 
 sqlift_db* sqlift_db_open(const char* path, int flags,
                           int* err_type, char** err_msg);
-sqlift_db* sqlift_db_wrap(sqlite3* handle);
 void sqlift_db_close(sqlift_db* db);
 int sqlift_db_exec(sqlift_db* db, const char* sql, char** err_msg);
 char* sqlift_parse(const char* ddl, int* err_type, char** err_msg);
 char* sqlift_extract(sqlift_db* db, int* err_type, char** err_msg);
 char* sqlift_diff(const char* current_json, const char* desired_json,
                   int* err_type, char** err_msg);
-int sqlift_apply(sqlift_db* db, const char* plan_json, int allow_destructive,
+int sqlift_apply(sqlift_db* db, const char* plan_json,
+                 const sqlift_apply_options opts,
                  int* err_type, char** err_msg);
 int64_t sqlift_migration_version(sqlift_db* db, int* err_type, char** err_msg);
 char* sqlift_detect_redundant_indexes(const char* schema_json,
@@ -116,6 +137,9 @@ int sqlift_db_query_int64(sqlift_db* db, const char* sql,
                           int64_t* result, char** err_msg);
 char* sqlift_db_query_text(sqlift_db* db, const char* sql, char** err_msg);
 void sqlift_free(void* ptr);
+// sqlpipe shim: wrap an existing sqlite3* (not owned). Implemented in the
+// bundled sqlift section of dist/sqlpipe.cpp by scripts/bundle-deps.sh.
+sqlift_db* sqlift_db_wrap(sqlite3* handle);
 
 #ifdef __cplusplus
 }
@@ -124,8 +148,10 @@ void sqlift_free(void* ptr);
 // ── sqlpipe ────────────────────────────────────────────────────
 
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <memory>
+#include <new>
 #include <optional>
 #include <set>
 #include <span>
@@ -138,11 +164,36 @@ void sqlift_free(void* ptr);
 // ── types.h ─────────────────────────────────────────────────────
 namespace sqlpipe {
 
+namespace detail {
+/// std::malloc that throws std::bad_alloc on failure. FFI shims allocate the
+/// buffers they hand back to managed runtimes through this so an allocation
+/// failure surfaces as a clean error via their try/catch, instead of
+/// dereferencing a null pointer in a subsequent memcpy (F9). Header-inline so
+/// the C-API and Wasm shims (separate translation units) share one definition.
+inline void* checked_malloc(std::size_t n) {
+    void* p = std::malloc(n);
+    if (!p) throw std::bad_alloc{};
+    return p;
+}
+}  // namespace detail
+
 /// Monotonically increasing sequence number for changesets.
 using Seq = std::int64_t;
 
-/// Schema version tracked by PRAGMA schema_version.
-using SchemaVersion = std::int32_t;
+/// Structural schema fingerprint used to gate replication compatibility.
+///
+/// Opaque, variable-length bytes: a leading algorithm-id byte followed by the
+/// raw digest — `[algo_id][digest...]`. Comparison is byte-wise equality. The
+/// representation is deliberately algorithm-agnostic: changing the hash
+/// algorithm or digest width later changes only the algo id and digest bytes
+/// and needs no further wire or protocol change (mismatched fingerprints simply
+/// compare unequal, which fails the compatibility gate cleanly).
+using SchemaVersion = std::vector<std::uint8_t>;
+
+/// Algorithm ids for the leading byte of a SchemaVersion fingerprint.
+enum class SchemaFingerprintAlgo : std::uint8_t {
+    SqliftSha256 = 0x01,  ///< sqlift structural hash, SHA-256 digest (32 bytes).
+};
 
 /// A byte buffer holding a raw SQLite changeset blob.
 using Changeset = std::vector<std::uint8_t>;
@@ -201,6 +252,20 @@ inline constexpr std::size_t kMaxMessageSize = 64 * 1024 * 1024;
 /// Maximum number of elements in a deserialized array (10 M).
 inline constexpr std::uint32_t kMaxArrayCount = 10'000'000;
 
+// ── Delivery hint ──────────────────────────────────────────────────
+
+// ── Delivery hint ──────────────────────────────────────────────────
+
+/// Transport delivery hint for outgoing messages.
+/// Reliable messages should be sent via an ordered, guaranteed channel
+/// (e.g. QUIC stream). BestEffort messages may be sent via an
+/// unreliable channel (e.g. QUIC datagram); if lost, the convergence
+/// loop will regenerate them.
+enum class Delivery : std::uint8_t {
+    Reliable,    ///< Must arrive (changesets, errors, acks, hellos, patchsets).
+    BestEffort,  ///< Regenerable by convergence (bucket/row hashes, need-buckets).
+};
+
 /// Opaque handle for a query subscription.
 using SubscriptionId = std::uint64_t;
 
@@ -251,7 +316,7 @@ using LogCallback = std::function<void(LogLevel level, std::string_view message)
 /// Return true to recompute fingerprints and retry; false to proceed
 /// with the default behaviour (ErrorMsg on master, Error state on replica).
 using SchemaMismatchCallback = std::function<bool(
-    SchemaVersion remote_sv, SchemaVersion local_sv,
+    const SchemaVersion& remote_sv, const SchemaVersion& local_sv,
     const std::string& remote_schema_sql)>;
 
 /// Execute a one-shot SQL query and return the result set.
@@ -431,7 +496,7 @@ private:
 // ── protocol.h ──────────────────────────────────────────────────
 namespace sqlpipe {
 
-inline constexpr std::uint32_t kProtocolVersion = 6;
+inline constexpr std::uint32_t kProtocolVersion = 7;
 
 // ── Message types ───────────────────────────────────────────────────
 
@@ -460,12 +525,12 @@ struct AckMsg {
 struct ErrorMsg {
     ErrorCode     code{};                      ///< Machine-readable error category.
     std::string   detail;                      ///< Human-readable description.
-    SchemaVersion remote_schema_version = 0;   ///< Remote fingerprint (SchemaMismatch only).
+    SchemaVersion remote_schema_version;       ///< Remote fingerprint (SchemaMismatch only; empty otherwise).
     std::string   remote_schema_sql;           ///< Remote CREATE TABLE SQL (SchemaMismatch only).
 
     ErrorMsg() = default;
     ErrorMsg(ErrorCode c, std::string d,
-             SchemaVersion rsv = 0, std::string rsql = {})
+             SchemaVersion rsv = {}, std::string rsql = {})
         : code(c), detail(std::move(d)),
           remote_schema_version(rsv), remote_schema_sql(std::move(rsql)) {}
 };
@@ -487,7 +552,7 @@ struct BucketHashesMsg {
     std::vector<BucketHashEntry> buckets;
     Seq                last_seq = -1;           ///< Sender's last applied seq (-1 = unknown).
     std::uint32_t      protocol_version = 0;    ///< Sender's protocol version (0 = legacy).
-    SchemaVersion      schema_version = 0;      ///< Sender's schema fingerprint (0 = legacy).
+    SchemaVersion      schema_version;          ///< Sender's schema fingerprint (empty = legacy).
 };
 
 /// One bucket range the master needs row-level detail for.
@@ -548,6 +613,45 @@ using Message = std::variant<
     DiffReadyMsg
 >;
 
+// ── OutMessage ──────────────────────────────────────────────────────
+
+/// A message paired with a transport delivery hint.
+struct OutMessage {
+    Message  msg;
+    Delivery delivery;
+};
+
+/// Determine the delivery mode for a message based on its type.
+/// BucketHashesMsg, NeedBucketsMsg, RowHashesMsg → BestEffort;
+/// everything else → Reliable.
+inline Delivery delivery_for(const Message& msg) {
+    return std::visit([](const auto& m) -> Delivery {
+        using T = std::decay_t<decltype(m)>;
+        if constexpr (std::is_same_v<T, BucketHashesMsg> ||
+                      std::is_same_v<T, NeedBucketsMsg> ||
+                      std::is_same_v<T, RowHashesMsg>) {
+            return Delivery::BestEffort;
+        }
+        return Delivery::Reliable;
+    }, msg);
+}
+
+/// Wrap a Message with its default delivery hint.
+inline OutMessage tagged(Message msg) {
+    auto d = delivery_for(msg);
+    return {std::move(msg), d};
+}
+
+/// Wrap a vector of Messages with their default delivery hints.
+inline std::vector<OutMessage> tagged(std::vector<Message> msgs) {
+    std::vector<OutMessage> result;
+    result.reserve(msgs.size());
+    for (auto& m : msgs) {
+        result.push_back(tagged(std::move(m)));
+    }
+    return result;
+}
+
 // ── Wire format tags ────────────────────────────────────────────────
 
 enum class MessageTag : std::uint8_t {
@@ -574,7 +678,7 @@ Message deserialize(std::span<const std::uint8_t> buf);
 /// Master's database. Receives the tagged changeset messages ready to send.
 /// When set, the Master hooks into SQLite's commit notification so that
 /// callers never need to call flush() explicitly.
-using FlushCallback = std::function<void(const std::vector<Message>&)>;
+using FlushCallback = std::function<void(const std::vector<OutMessage>&)>;
 
 } // namespace sqlpipe
 
@@ -639,10 +743,10 @@ public:
     /// Call after committing a write transaction. Extracts the changeset,
     /// assigns a sequence number, and returns the tagged messages to send
     /// to connected replicas. Returns empty if nothing changed.
-    std::vector<Message> flush();
+    std::vector<OutMessage> flush();
 
     /// Process an incoming message from a replica.
-    std::vector<Message> handle_message(const Message& msg);
+    std::vector<OutMessage> handle_message(const Message& msg);
 
     Seq current_seq() const;
     SchemaVersion schema_version() const;
@@ -688,7 +792,7 @@ struct ReplicaConfig {
 
 /// Return type for Replica::handle_message.
 struct HandleResult {
-    std::vector<Message>      messages;       ///< Protocol responses to send back.
+    std::vector<OutMessage>   messages;       ///< Tagged protocol responses to send back.
     std::vector<ChangeEvent>  changes;        ///< Row-level changes applied this call.
     std::vector<QueryResult>  subscriptions;  ///< Invalidated subscription results.
 };
@@ -708,7 +812,7 @@ public:
     Replica& operator=(Replica&&) noexcept;
 
     /// Generate the initial HelloMsg to send to the master.
-    Message hello() const;
+    OutMessage hello() const;
 
     /// Initiate a convergence round. Computes and returns bucket hashes
     /// for the current local state. The master compares these against its
@@ -722,7 +826,7 @@ public:
     /// - Periodic convergence checks (are we still in sync?)
     /// - Reconnection without full handshake
     /// - Loss-tolerant sync over unreliable channels
-    std::vector<Message> converge();
+    std::vector<OutMessage> converge();
 
     /// Process an incoming message from the master.
     HandleResult handle_message(const Message& msg);
@@ -847,9 +951,31 @@ struct PeerMessage {
     Message    payload;
 };
 
+/// A peer message paired with a transport delivery hint.
+struct PeerOutMessage {
+    PeerMessage msg;
+    Delivery    delivery;
+};
+
+/// Wrap a PeerMessage with its default delivery hint.
+inline PeerOutMessage tagged(PeerMessage msg) {
+    auto d = delivery_for(msg.payload);
+    return {std::move(msg), d};
+}
+
+/// Wrap a vector of PeerMessages with their default delivery hints.
+inline std::vector<PeerOutMessage> tagged(std::vector<PeerMessage> msgs) {
+    std::vector<PeerOutMessage> result;
+    result.reserve(msgs.size());
+    for (auto& m : msgs) {
+        result.push_back(tagged(std::move(m)));
+    }
+    return result;
+}
+
 /// Return type for Peer::handle_message.
 struct PeerHandleResult {
-    std::vector<PeerMessage>    messages;       ///< Protocol responses.
+    std::vector<PeerOutMessage> messages;       ///< Tagged protocol responses.
     std::vector<ChangeEvent>    changes;        ///< Row-level changes applied.
     std::vector<QueryResult>    subscriptions;  ///< Invalidated subscription results.
 };
@@ -872,11 +998,11 @@ public:
 
     /// Initiate the handshake (client only).
     /// Returns tagged PeerMessages to send to the remote peer.
-    std::vector<PeerMessage> start();
+    std::vector<PeerOutMessage> start();
 
     /// Flush local changes on owned tables.
-    /// Returns PeerMessages to send to the remote peer.
-    std::vector<PeerMessage> flush();
+    /// Returns tagged PeerMessages to send to the remote peer.
+    std::vector<PeerOutMessage> flush();
 
     /// Process an incoming PeerMessage from the remote peer.
     PeerHandleResult handle_message(const PeerMessage& msg);
@@ -924,7 +1050,7 @@ PeerMessage deserialize_peer(std::span<const std::uint8_t> buf);
 // ── relay.h ─────────────────────────────────────────────────────
 
 /// Callback to deliver a tagged message to a downstream sink.
-using SinkCallback = std::function<void(const Message&)>;
+using SinkCallback = std::function<void(const OutMessage&)>;
 
 /// Configuration for a Relay node.
 struct RelayConfig {
@@ -967,17 +1093,17 @@ public:
     void remove_sink(std::size_t id);
 
     /// Generate the HelloMsg to send to the upstream master.
-    Message hello();
+    OutMessage hello();
 
     /// Handle an incoming message from the upstream master.
     /// Applies the changeset locally, flushes to the internal Master,
     /// and broadcasts to all registered sinks.
-    /// Returns response messages to send back to the upstream master.
-    std::vector<Message> handle_upstream(const Message& msg);
+    /// Returns tagged response messages to send back to the upstream master.
+    std::vector<OutMessage> handle_upstream(const Message& msg);
 
     /// Handle an incoming message from a downstream sink (handshake).
-    /// Returns response messages to send back to that sink.
-    std::vector<Message> handle_downstream(const Message& msg);
+    /// Returns tagged response messages to send back to that sink.
+    std::vector<OutMessage> handle_downstream(const Message& msg);
 
     /// Subscribe to a query (on the replica side).
     SubscriptionId subscribe(const std::string& sql);
