@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.78.0** (parallax display-orientation remap; prebuilds recooked).
+Snapshot as of: **v0.79.0** (gitignore legacy tools/android + web residue for clean consumer submodules).
 
 ---
 
