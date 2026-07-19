@@ -59,3 +59,13 @@ TEST_CASE("rotateAccelToScreen landscape then inverse-like round trip via flippe
     CHECK(near(d[0], 4.f));
     CHECK(near(d[1], 3.f));
 }
+
+// Parallax uses the same 2D remap on the small-angle (rx, ry) pair extracted
+// from the attitude delta quaternion (see DirectRenderHost::updateParallax).
+TEST_CASE("parallax angle pair remaps with rotateAccelToScreen in landscape") {
+    // Device-frame pitch (about device-X) should become screen-Y in landscape.
+    float d[3] = {1.f, 0.f, 0.f};  // rx=1, ry=0
+    rotateAccelToScreen(SDL_ORIENTATION_LANDSCAPE, d);
+    CHECK(near(d[0], 0.f));
+    CHECK(near(d[1], 1.f));
+}

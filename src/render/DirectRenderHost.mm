@@ -350,10 +350,14 @@ struct DirectRenderHost::Impl {
     // attitude provider polled per frame; baseline is the EMA-tracked
     // neutral, delta is computed inverse(baseline) * current and
     // projected to screen-XY radians, scaled by parallaxFactor.
+    // lastParallaxOrient: when the UI rotates (portrait↔landscape), the
+    // device-frame quaternion axes no longer map to screen axes — reset the
+    // EMA baseline so we don't get a one-shot jump until τ settles.
     float parallaxFactor = 0.0f;
     std::unique_ptr<AttitudeProvider> attitude;
     bool   baselineSet = false;
     la::float4 baseline{0, 0, 0, 1};
+    SDL_DisplayOrientation lastParallaxOrient = SDL_ORIENTATION_UNKNOWN;
 
     // 🎯T44 / 🎯T45 callbacks — set by runDirect after factory.
     std::function<void()> onBackPressed;
@@ -1266,6 +1270,21 @@ la::float2 DirectRenderHost::updateParallax() {
     if (i_->parallaxFactor <= 0.0f || !i_->attitude || !i_->attitude->valid()) {
         return {0, 0};
     }
+
+    // Live UI orientation — same source as SENSOR_UPDATE screen-framing.
+    // CMAttitude / Android GAME_ROTATION_VECTOR are device-hardware framed;
+    // without this remap, landscape swaps pitch/yaw relative to the pixels.
+    SDL_DisplayOrientation orient = SDL_ORIENTATION_UNKNOWN;
+    if (i_->sokolCtx) {
+        if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
+            orient = SDL_GetCurrentDisplayOrientation(disp);
+        }
+    }
+    if (orient != i_->lastParallaxOrient) {
+        i_->lastParallaxOrient = orient;
+        i_->baselineSet = false;  // re-seed baseline in the new frame
+    }
+
     // Quaternion EMA: with α small the result stays close to a unit
     // quaternion, so plain componentwise lerp is fine — no slerp, no
     // renormalization needed (drift is self-correcting under
@@ -1293,10 +1312,13 @@ la::float2 DirectRenderHost::updateParallax() {
         binv.w * cur.z + binv.x * cur.y - binv.y * cur.x + binv.z * cur.w,
         binv.w * cur.w - binv.x * cur.x - binv.y * cur.y - binv.z * cur.z,
     };
-    // Small-angle approximation: rotation around the screen-X axis is
-    // 2 * d.x radians, around screen-Y is 2 * d.y. Sign matches "tilt
-    // toward +axis = positive value".
-    return la::float2{2.0f * d.x, 2.0f * d.y} * i_->parallaxFactor;
+    // Small-angle approx in *device* frame: rx≈2dx about device-X, ry≈2dy
+    // about device-Y. Remap to screen-local axes (same table as accel).
+    float screen[3] = {2.0f * d.x, 2.0f * d.y, 0.0f};
+    rotateAccelToScreen(orient, screen);
+    // Sign: "tilt toward +screen-axis = positive" — consumers (e.g. esfera)
+    // may invert for natural peek polarity.
+    return la::float2{screen[0], screen[1]} * i_->parallaxFactor;
 }
 
 bool DirectRenderHost::shouldQuit() const {
