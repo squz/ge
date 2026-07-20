@@ -97,10 +97,11 @@ struct State {
     float poseWriteAccum = 0.f;         // 🎯T154 durable pose write cadence
     std::shared_ptr<sqlpipe::Database> db;  // Context::db() for pose persistence
     // T109: title heading as hit target — tap resets buggy to origin.
+    // Metadata + hitBounds feed ge's built-in hit_targets slice.
     ge::Button titleResetBtn;
-    ge::Rect   titleBannerPts{};  // last layout (pts, y-down); for hit_targets
-    ge::Rect   playfieldPts{};    // drawSafe / arena (region kind, same schema)
-    float      fullW = 0.f, fullH = 0.f;  // for bbox_norm in hit_targets
+    ge::Rect   titleBannerPts{};
+    ge::Rect   playfieldPts{};
+    float      fullW = 0.f, fullH = 0.f;
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -235,75 +236,8 @@ int main(int argc, char* argv[]) {
     ge::appchannel::registerStateSlice("iap", [] {
         return nlohmann::json{{"pro", ge::iap::owned("pro")}};
     });
-    // T109 v1: hit_targets slice — button (title reset) + same-shape region.
-    // bbox in full-surface points (y-down); center_norm/bbox_norm for app_input 0–1.
-    ge::appchannel::registerStateSlice("hit_targets", [&state] {
-        nlohmann::json targets = nlohmann::json::array();
-        if (state.fullW > 0.f && state.fullH > 0.f) {
-            const ge::Rect b = state.titleBannerPts;
-            if (!b.empty()) {
-                targets.push_back({
-                    {"id", "reset"},
-                    {"kind", "button"},
-                    {"role", "reset"},
-                    {"label", "TiltBuggy"},
-                    {"enabled", true},
-                    {"space", "pts"},
-                    {"bbox", {b.x, b.y, b.w, b.h}},
-                    {"bbox_norm",
-                     {b.x / state.fullW, b.y / state.fullH,
-                      b.w / state.fullW, b.h / state.fullH}},
-                    {"center_norm",
-                     {(b.x + 0.5f * b.w) / state.fullW,
-                      (b.y + 0.5f * b.h) / state.fullH}},
-                });
-            }
-            // Same descriptor shape for a non-button interactable region
-            // (playfield). Geometry only — not wired as a Button; proves the
-            // schema is not Button-only (🎯T109.3).
-            const ge::Rect play = state.playfieldPts;
-            if (!play.empty()) {
-                targets.push_back({
-                    {"id", "playfield"},
-                    {"kind", "region"},
-                    {"role", "playfield"},
-                    {"label", "Arena"},
-                    {"enabled", true},
-                    {"space", "pts"},
-                    {"bbox", {play.x, play.y, play.w, play.h}},
-                    {"bbox_norm",
-                     {play.x / state.fullW, play.y / state.fullH,
-                      play.w / state.fullW, play.h / state.fullH}},
-                    {"center_norm",
-                     {(play.x + 0.5f * play.w) / state.fullW,
-                      (play.y + 0.5f * play.h) / state.fullH}},
-                });
-            }
-        }
-        return nlohmann::json{{"targets", targets}};
-    },
-    nlohmann::json{
-        {"targets", nlohmann::json::array({
-            {{"id", "reset"},
-             {"kind", "button"},
-             {"role", "reset"},
-             {"label", "TiltBuggy"},
-             {"enabled", true},
-             {"space", "pts"},
-             {"bbox", {100.0, 8.0, 300.0, 67.5}},
-             {"bbox_norm", {0.2, 0.01, 0.6, 0.08}},
-             {"center_norm", {0.5, 0.05}}},
-            {{"id", "playfield"},
-             {"kind", "region"},
-             {"role", "playfield"},
-             {"label", "Arena"},
-             {"enabled", true},
-             {"space", "pts"},
-             {"bbox", {0.0, 0.0, 800.0, 600.0}},
-             {"bbox_norm", {0.0, 0.0, 1.0, 1.0}},
-             {"center_norm", {0.5, 0.5}}},
-        })},
-    });
+    // 🎯T109 hit_targets is built-in (installFromEnv): published Buttons +
+    // setExtraHitTargets. Title button publishes in the session factory.
     // 🎯T115 "geometry" slice — the recommended geometry/physics schema: bodies
     // in world units carrying position + velocity, so spyder renders/compares
     // physics state uniformly across ge games (and an agent can diff it across
@@ -371,12 +305,11 @@ int main(int argc, char* argv[]) {
         state.poseWriteAccum = 0.f;
 
         // T109: title banner button — tap "TiltBuggy" heading to respawn.
+        // id/role metadata on the Button; setHitRect each frame from banner layout.
         state.titleResetBtn = {};
-        state.titleResetBtn.hitTest = [&state](ge::la::float2 p) {
-            const ge::Rect& r = state.titleBannerPts;
-            if (r.empty()) return false;
-            return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
-        };
+        state.titleResetBtn.id    = "reset";
+        state.titleResetBtn.role  = "reset";
+        state.titleResetBtn.label = "TiltBuggy";
         state.titleResetBtn.onFire = [&state] {
             if (!state.scene) return;
             state.scene->applyPose({0.f, 0.f, 0.f});
@@ -392,6 +325,7 @@ int main(int argc, char* argv[]) {
             SPDLOG_INFO("tiltbuggy: title tap — reset buggy to spawn");
         };
         state.titleResetBtn.onRedraw = [ctx] { ctx.requestRedraw(); };
+        ge::publishHitTarget(&state.titleResetBtn);
 
         // 🎯T154: restore last durable pose if present (stream reconnect / direct relaunch).
         if (state.db) {
@@ -501,16 +435,31 @@ int main(int argc, char* argv[]) {
                     state.renderer->init(ge::resource(ge::shaderDir()).c_str());
                     state.rendererInited = true;
                 }
-                // Keep hit target layout in sync with title chrome + playfield.
+                // Keep Button hitBounds + optional region export in sync.
                 {
                     const auto full = c.fullRectInPts();
                     state.fullW = full.w;
                     state.fullH = full.h;
                     state.titleBannerPts =
                         tiltbuggy::Renderer::titleBannerRectInPts(c);
+                    if (!state.titleBannerPts.empty()) {
+                        state.titleResetBtn.setHitRect(state.titleBannerPts);
+                    }
                     state.playfieldPts = c.drawSafeRectInPts();
                     if (state.playfieldPts.empty()) {
                         state.playfieldPts = full;
+                    }
+                    // Non-button region (same schema; not a ge::Button).
+                    const ge::Rect& play = state.playfieldPts;
+                    if (!play.empty()) {
+                        ge::appchannel::setExtraHitTargets(nlohmann::json::array({
+                            {{"id", "playfield"},
+                             {"kind", "region"},
+                             {"role", "playfield"},
+                             {"label", "Arena"},
+                             {"enabled", true},
+                             {"bbox", {play.x, play.y, play.w, play.h}}},
+                        }));
                     }
                 }
                 state.renderer->drawFrame(*state.scene, c);

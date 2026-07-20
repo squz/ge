@@ -65,6 +65,46 @@ TEST_CASE("buildSliceDescriptors: a volunteered example encodes as {name, exampl
     CHECK((bytes[0] & 0xf0) == 0x80);        // 0x8_ = fixmap
 }
 
+TEST_CASE("buildHitTargetsPayload: buttons get center_norm from surface") {
+    using ge::appchannel::detail::HitTargetExport;
+    using ge::appchannel::detail::buildHitTargetsPayload;
+    const std::vector<HitTargetExport> items = {
+        {.id = "reset", .kind = "button", .role = "reset", .label = "TiltBuggy",
+         .x = 100, .y = 0, .w = 200, .h = 40, .enabled = true},
+    };
+    const auto j = buildHitTargetsPayload(400, 800, items);
+    REQUIRE(j["targets"].size() == 1);
+    CHECK(j["targets"][0]["id"] == "reset");
+    CHECK(j["targets"][0]["center_norm"][0] == doctest::Approx(0.5));
+    CHECK(j["targets"][0]["center_norm"][1] == doctest::Approx(0.025));
+    CHECK(j["targets"][0]["space"] == "pts");
+}
+
+TEST_CASE("buildHitTargetsPayload: empty id or zero size is omitted") {
+    using ge::appchannel::detail::HitTargetExport;
+    using ge::appchannel::detail::buildHitTargetsPayload;
+    const std::vector<HitTargetExport> items = {
+        {.id = "", .x = 0, .y = 0, .w = 10, .h = 10},
+        {.id = "x", .x = 0, .y = 0, .w = 0, .h = 10},
+    };
+    const auto j = buildHitTargetsPayload(100, 100, items);
+    CHECK(j["targets"].empty());
+}
+
+TEST_CASE("buildHitTargetsPayload: extras merge as regions") {
+    using ge::appchannel::detail::HitTargetExport;
+    using ge::appchannel::detail::buildHitTargetsPayload;
+    const auto extras = nlohmann::json::array({
+        {{"id", "playfield"}, {"kind", "region"}, {"role", "playfield"},
+         {"bbox", {0, 0, 100, 200}}, {"enabled", true}},
+    });
+    const auto j = buildHitTargetsPayload(100, 200, {}, extras);
+    REQUIRE(j["targets"].size() == 1);
+    CHECK(j["targets"][0]["kind"] == "region");
+    CHECK(j["targets"][0]["center_norm"][0] == doctest::Approx(0.5));
+    CHECK(j["targets"][0]["center_norm"][1] == doctest::Approx(0.5));
+}
+
 TEST_CASE("buildSliceDescriptors: mixed bare + example slices in one array") {
     // spyder TestSliceDescriptor_DecodeMixed — apps upgrade slice-by-slice.
     const auto arr = buildSliceDescriptors({

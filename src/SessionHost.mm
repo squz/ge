@@ -139,6 +139,11 @@ void DirectLoop::step() {
         // so they see a consistent snapshot. No-op when no channel is
         // active.
         ge::appchannel::pumpMainThreadTasks();
+        // 🎯T109 Full-surface pts for hit_targets center_norm / bbox_norm.
+        {
+            const ge::Rect full = host.context().fullRectInPts();
+            ge::appchannel::setHitTargetSurfacePts(full.w, full.h);
+        }
 
         uint64_t now = SDL_GetPerformanceCounter();
         float dt = float(now - last) / float(freq);

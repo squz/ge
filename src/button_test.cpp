@@ -4,6 +4,7 @@
 #include <doctest.h>
 #include <ge/button.h>
 
+#include <algorithm>
 #include <vector>
 
 using ge::Button;
@@ -169,6 +170,36 @@ TEST_CASE("Button: no hitTest set means no events are consumed") {
     Button btn;
     CHECK_FALSE(btn.handleEvent(down(50, 50)));
     CHECK_FALSE(btn.tracking());
+}
+
+TEST_CASE("Button: setHitRect wires hitTest and hitBounds for T109 export") {
+    Button btn;
+    btn.setHitRect({10, 20, 30, 40});
+    CHECK(btn.hitBounds.x == 10);
+    CHECK(btn.hitBounds.y == 20);
+    CHECK(btn.hitBounds.w == 30);
+    CHECK(btn.hitBounds.h == 40);
+    CHECK(btn.hitTest);
+    CHECK(btn.hitTest({25, 40}));
+    CHECK_FALSE(btn.hitTest({0, 0}));
+}
+
+TEST_CASE("publishHitTarget: registry tracks buttons by pointer") {
+    Button a, b;
+    a.id = "a";
+    b.id = "b";
+    ge::publishHitTarget(&a);
+    ge::publishHitTarget(&b);
+    ge::publishHitTarget(&a);  // idempotent
+    auto list = ge::publishedHitTargets();
+    REQUIRE(list.size() >= 2);
+    CHECK(std::find(list.begin(), list.end(), &a) != list.end());
+    CHECK(std::find(list.begin(), list.end(), &b) != list.end());
+    ge::unpublishHitTarget(&a);
+    ge::unpublishHitTarget(&b);
+    list = ge::publishedHitTargets();
+    CHECK(std::find(list.begin(), list.end(), &a) == list.end());
+    CHECK(std::find(list.begin(), list.end(), &b) == list.end());
 }
 
 TEST_CASE("Button: callbacks are optional (no-op if unset)") {

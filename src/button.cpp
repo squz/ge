@@ -3,7 +3,36 @@
 
 #include <ge/button.h>
 
+#include <algorithm>
+
 namespace ge {
+
+namespace {
+
+// 🎯T109 Game-thread-only registry of Buttons that may appear in hit_targets.
+std::vector<Button*>& hitTargetRegistry() {
+    static std::vector<Button*> reg;
+    return reg;
+}
+
+} // namespace
+
+void publishHitTarget(Button* b) {
+    if (!b) return;
+    auto& reg = hitTargetRegistry();
+    if (std::find(reg.begin(), reg.end(), b) != reg.end()) return;
+    reg.push_back(b);
+}
+
+void unpublishHitTarget(Button* b) {
+    if (!b) return;
+    auto& reg = hitTargetRegistry();
+    reg.erase(std::remove(reg.begin(), reg.end(), b), reg.end());
+}
+
+std::vector<Button*> publishedHitTargets() {
+    return hitTargetRegistry();
+}
 
 bool Button::handleEvent(const PointerEvent& ev) {
     // 🎯T131.3 Wrap the state machine so any visible-state (phase) transition

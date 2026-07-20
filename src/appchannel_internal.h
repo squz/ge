@@ -29,4 +29,20 @@ namespace ge::appchannel::detail {
 nlohmann::json buildSliceDescriptors(
     const std::vector<std::pair<std::string, nlohmann::json>>& slices);
 
+// 🎯T109 One exportable hit target (pure DTO for tests + encoder).
+struct HitTargetExport {
+    std::string id;
+    std::string kind = "button";
+    std::string role;
+    std::string label;
+    float       x = 0, y = 0, w = 0, h = 0;  // pts, y-down
+    bool        enabled = true;
+};
+
+// Build {"targets":[...]} with bbox / bbox_norm / center_norm when surface > 0.
+nlohmann::json buildHitTargetsPayload(
+    float surfaceW, float surfaceH,
+    const std::vector<HitTargetExport>& items,
+    const nlohmann::json& extras = nlohmann::json::array());
+
 } // namespace ge::appchannel::detail
