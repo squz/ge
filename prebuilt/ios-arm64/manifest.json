@@ -29,7 +29,7 @@
   },
   "prebuilts": {
     "prebuilt/ios-arm64/libbox2d.a": "9c9d4edc5f07f1acf58a742f1827575b4a799131ba9ad41387a82925b57741ca",
-    "prebuilt/ios-arm64/libge.a": "bb5e4b99ab171f64fec2c7cbed1c4b865d18567dd44f7acb73eacef4e5b7ac52",
+    "prebuilt/ios-arm64/libge.a": "ea5803902fcec94c69d546f3751a396bcce6daadddba75dbabcd2c02c803e19b",
     "prebuilt/ios-arm64/libliteparser.a": "f44970cee15ef3bab481137728be10dc4ceea73eac699f5bd46426abd990c203",
     "prebuilt/ios-arm64/liblunasvg_ge.a": "4cbd0867c2d3811f63378ba44f82d4469dd5d9525c4b87ea1f3e8a3f360cd9f3",
     "prebuilt/ios-arm64/liblz4_ge.a": "72a95f6f6feafab3a1bf0d0b4b7e34d3f4edca525561a2ca24ff0540c314cb4f",
@@ -206,7 +206,7 @@
     "src/SessionHost.mm": "b37239eeab2aea96e26d8292bab053977fa985b7f1019bce1f08006235b8480f",
     "src/Signal.cpp": "2e6e04294d561310aea1a60f0b3ead68d6e91389a2c78c25e935141cce44d9e5",
     "src/SokolContext.mm": "097d39668d549c74daa7db3f22c199030937c86225345aefde063f3229754253",
-    "src/appchannel.cpp": "98ec21402a02a4e25a97dfa0d3c9663a930ba63514e904ac1af322a3404d6d2b",
+    "src/appchannel.cpp": "565f8aca5998eea9ef144918d2bd363bb509b2d769cd19e14f07eb1f1a37ae70",
     "src/appchannel_internal.h": "e7df9d1945c56681bb94b499af4b86eb71a108e8614e5ce8be1ac9ddd6e88fce",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/audio_apple.mm": "f891fd144ec32d03ffdcf811dec90ec24cf255ba277f20e98f62d0d5fa4a7b3e",

@@ -621,7 +621,7 @@ void registerBuiltins() {
             e.sensor.data[0] = ax;
             e.sensor.data[1] = ay;
             e.sensor.data[2] = az;
-            // Sticky override: update latch so pumpEvents re-asserts each frame.
+            // While suppressed: update latch so pumpEvents re-asserts each frame.
             if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override) {
                 ge::detail::setAccelLatch(ax, ay, az);
             }
@@ -632,14 +632,12 @@ void registerBuiltins() {
         return kAck;
     });
 
-    // ── sensor stream authority (sticky until disable; default passthrough) ──
-    // Distinct enable/disable ops — not a mode enum on every call.
-    //   sensor_override_enable  {sensor?, value?=[x,y,z]}  — claim stream (sticky)
-    //   sensor_override_set     {sensor?, value=[x,y,z]}   — update latch (must be enabled)
-    //   sensor_mute_enable      {sensor?}                  — sticky mute (neutral)
-    //   sensor_disable          {sensor?}                  — restore real device stream
-    //   sensor_status           {sensor?}                  — query {enabled, kind, value?}
-    // Only "accel" today. Touch/keys are never affected.
+    // ── sensor stream authority (one concern per method; sticky suppress) ──
+    //   sensor_suppress   {sensor?}              — drop real samples (sticky)
+    //   sensor_set        {sensor?, value=[x,y,z]} — set scripted sample (while suppressed)
+    //   sensor_unsuppress {sensor?}              — restore real device stream
+    //   sensor_status     {sensor?}              — query {suppressed, value?}
+    // Only "accel" today. Touch/keys never affected. suppress does NOT set a value.
     auto requireAccel = [](const nlohmann::json& p) {
         const std::string sensor = p.value("sensor", std::string{"accel"});
         if (sensor != "accel")
@@ -656,51 +654,36 @@ void registerBuiltins() {
     auto statusJson = []() -> nlohmann::json {
         using M = ge::detail::SensorStreamMode;
         const auto m = ge::detail::accelStreamMode();
-        nlohmann::json out{{"sensor", "accel"}};
-        if (m == M::Passthrough) {
-            out["enabled"] = false;
-            out["kind"] = "passthrough";
-        } else if (m == M::Override) {
-            out["enabled"] = true;
-            out["kind"] = "override";
-            float x, y, z;
-            if (ge::detail::accelLatch(x, y, z))
-                out["value"] = nlohmann::json::array({x, y, z});
-        } else {
-            out["enabled"] = true;
-            out["kind"] = "mute";
+        nlohmann::json out{{"sensor", "accel"},
+                           {"suppressed", m != M::Passthrough}};
+        float x, y, z;
+        if (m == M::Mute) {
             out["value"] = nlohmann::json::array({0.0, 0.0, 0.0});
+        } else if (ge::detail::accelLatch(x, y, z)) {
+            out["value"] = nlohmann::json::array({x, y, z});
         }
         return out;
     };
 
-    reg("sensor_override_enable", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
+    reg("sensor_suppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        // Sticky: stays until sensor_disable (or mute_enable).
+        // Sticky until sensor_unsuppress. Does not set a sample.
         ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-        if (p.contains("value")) {
-            float x, y, z;
-            parseValue3(p, x, y, z);
-            ge::detail::setAccelLatch(x, y, z);
-        }
         return statusJson();
     });
-    reg("sensor_override_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
+    reg("sensor_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        if (ge::detail::accelStreamMode() != ge::detail::SensorStreamMode::Override)
-            throw Error{-32602, "sensor_override_set: override is not enabled "
-                                "(call sensor_override_enable first)"};
+        if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Passthrough)
+            throw Error{-32602, "sensor_set: sensor is not suppressed "
+                                "(call sensor_suppress first)"};
         float x, y, z;
         parseValue3(p, x, y, z);
         ge::detail::setAccelLatch(x, y, z);
+        // Ensure we re-assert latch (not mute/neutral-only).
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
         return statusJson();
     });
-    reg("sensor_mute_enable", [requireAccel, statusJson](const nlohmann::json& p) {
-        requireAccel(p);
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Mute);
-        return statusJson();
-    });
-    reg("sensor_disable", [requireAccel, statusJson](const nlohmann::json& p) {
+    reg("sensor_unsuppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
         ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
         return statusJson();

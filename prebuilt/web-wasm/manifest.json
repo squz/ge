@@ -26,7 +26,7 @@
   },
   "prebuilts": {
     "prebuilt/web-wasm/libbox2d.a": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
-    "prebuilt/web-wasm/libge.a": "c642e8f1db4dcaf25970c89dcefd760e6ad1b056a3e9d7ea99e8c876a3300993",
+    "prebuilt/web-wasm/libge.a": "0bde731de79f5c17f89989cd65c7a6ca9f4ded31fb17635861e93b6327db60bf",
     "prebuilt/web-wasm/libliteparser.a": "4c02ba01a7d6a1ae028f359bc3a43846791669449a85db52d783a3c459974e98",
     "prebuilt/web-wasm/liblunasvg_ge.a": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
     "prebuilt/web-wasm/liblz4_ge.a": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
@@ -203,7 +203,7 @@
     "src/SessionHost.mm": "b37239eeab2aea96e26d8292bab053977fa985b7f1019bce1f08006235b8480f",
     "src/Signal.cpp": "2e6e04294d561310aea1a60f0b3ead68d6e91389a2c78c25e935141cce44d9e5",
     "src/SokolContext_web.cpp": "20d622b9d7c962f80923b6861e4d7451626ab7e7080cdc2d9debfc02f085d868",
-    "src/appchannel.cpp": "98ec21402a02a4e25a97dfa0d3c9663a930ba63514e904ac1af322a3404d6d2b",
+    "src/appchannel.cpp": "565f8aca5998eea9ef144918d2bd363bb509b2d769cd19e14f07eb1f1a37ae70",
     "src/appchannel_internal.h": "e7df9d1945c56681bb94b499af4b86eb71a108e8614e5ce8be1ac9ddd6e88fce",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/button.cpp": "e18703fccd2426e277efe5e9c7af35b9c4cce15afd6ee6f90265fb74848636d8",

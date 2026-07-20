@@ -27,7 +27,7 @@
   },
   "prebuilts": {
     "prebuilt/android-arm64-debug/libbox2d.a": "6c12fc5fa21a922664b95adc94ce96d759562902cfb3e7ebd612e9bde273e008",
-    "prebuilt/android-arm64-debug/libge.a": "e2ef07a450910c9f24da007c7a4e58c741289de1cdef3c2dc8e61bf7d29dfd0e",
+    "prebuilt/android-arm64-debug/libge.a": "1e4da696da72039fdd64b397f4d238d1d6280c6749417d40754d39d311dd1625",
     "prebuilt/android-arm64-debug/libliteparser.a": "601da896d2098161670ddf945277fffbf8400fc19b1828462cb441db6949fbfe",
     "prebuilt/android-arm64-debug/liblunasvg_ge.a": "6a8087402213c0450894108c37ad9390e9e62d410a5ce2e6e5b0622ac2422d6f",
     "prebuilt/android-arm64-debug/liblz4_ge.a": "d3ff35d3de5a88adeb9588eae0b01177436acf1724fd89fb93649427683d5444",
@@ -207,7 +207,7 @@
     "src/SessionHost.mm": "b37239eeab2aea96e26d8292bab053977fa985b7f1019bce1f08006235b8480f",
     "src/Signal.cpp": "2e6e04294d561310aea1a60f0b3ead68d6e91389a2c78c25e935141cce44d9e5",
     "src/SokolContext_android.cpp": "a05c7c925cc77ecfb966c7e7ebbf4eeaa7c912845117dca281678ce3660ee12e",
-    "src/appchannel.cpp": "98ec21402a02a4e25a97dfa0d3c9663a930ba63514e904ac1af322a3404d6d2b",
+    "src/appchannel.cpp": "565f8aca5998eea9ef144918d2bd363bb509b2d769cd19e14f07eb1f1a37ae70",
     "src/appchannel_internal.h": "e7df9d1945c56681bb94b499af4b86eb71a108e8614e5ce8be1ac9ddd6e88fce",
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/button.cpp": "e18703fccd2426e277efe5e9c7af35b9c4cce15afd6ee6f90265fb74848636d8",
