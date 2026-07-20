@@ -604,23 +604,25 @@ void registerBuiltins() {
             e.key.down     = (type == "key_down");
             e.key.repeat   = false;
         } else if (type == "accel") {
-            // Device-frame acceleration; the engine rotates it into screen
-            // frame in pumpEvents just like a real SDL_SENSOR_ACCEL sample.
-            // Tagged synthetic so sensor_control mode=override can drop real
-            // CoreMotion/etc. samples without dropping scripted ones.
-            const float ax = jnum(p, "x", 0.0f);
-            const float ay = jnum(p, "y", 0.0f);
-            const float az = jnum(p, "z", 0.0f);
+            // Device-frame acceleration; engine rotates to screen frame in
+            // pumpEvents. Prefer value=[x,y,z]; x/y/z still accepted.
+            float ax = 0.f, ay = 0.f, az = 0.f;
+            if (p.contains("value") && p["value"].is_array() && p["value"].size() >= 3) {
+                ax = p["value"][0].get<float>();
+                ay = p["value"][1].get<float>();
+                az = p["value"][2].get<float>();
+            } else {
+                ax = jnum(p, "x", 0.0f);
+                ay = jnum(p, "y", 0.0f);
+                az = jnum(p, "z", 0.0f);
+            }
             e.type           = SDL_EVENT_SENSOR_UPDATE;
             e.sensor.which   = static_cast<SDL_SensorID>(ge::detail::kSyntheticAccelWhich);
             e.sensor.data[0] = ax;
             e.sensor.data[1] = ay;
             e.sensor.data[2] = az;
-            // While override is active, latch so pumpEvents re-asserts without
-            // flood-inject. Passthrough/mute: one-shot push only (mute ignores
-            // real sensors; inject still updates latch for a later override).
-            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override ||
-                p.value("latch", false)) {
+            // Sticky override: update latch so pumpEvents re-asserts each frame.
+            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override) {
                 ge::detail::setAccelLatch(ax, ay, az);
             }
         } else {
@@ -630,60 +632,82 @@ void registerBuiltins() {
         return kAck;
     });
 
-    // ── sensor stream authority (fine-grained; default passthrough) ──
-    // sensor: "accel" (only stream today). mode:
-    //   passthrough — real device sensors flow; inject is one-shot
-    //   override    — drop real samples; latch + inject own the stream
-    //   mute        — drop real samples; emit neutral (0,0,0) each frame
-    // Optional x,y,z when enabling override sets the latch immediately.
-    // Query: omit mode → returns {sensor, mode, latch?}.
-    reg("sensor_control", [](const nlohmann::json& p) -> nlohmann::json {
+    // ── sensor stream authority (sticky until disable; default passthrough) ──
+    // Distinct enable/disable ops — not a mode enum on every call.
+    //   sensor_override_enable  {sensor?, value?=[x,y,z]}  — claim stream (sticky)
+    //   sensor_override_set     {sensor?, value=[x,y,z]}   — update latch (must be enabled)
+    //   sensor_mute_enable      {sensor?}                  — sticky mute (neutral)
+    //   sensor_disable          {sensor?}                  — restore real device stream
+    //   sensor_status           {sensor?}                  — query {enabled, kind, value?}
+    // Only "accel" today. Touch/keys are never affected.
+    auto requireAccel = [](const nlohmann::json& p) {
         const std::string sensor = p.value("sensor", std::string{"accel"});
         if (sensor != "accel")
-            throw Error{-32602, "sensor_control: unknown sensor '" + sensor +
-                                    "' (supported: accel)"};
-
-        auto modeName = [](ge::detail::SensorStreamMode m) -> const char* {
-            switch (m) {
-            case ge::detail::SensorStreamMode::Passthrough: return "passthrough";
-            case ge::detail::SensorStreamMode::Override:    return "override";
-            case ge::detail::SensorStreamMode::Mute:        return "mute";
-            }
-            return "passthrough";
-        };
-
-        if (!p.contains("mode")) {
-            nlohmann::json out{{"sensor", "accel"},
-                               {"mode", modeName(ge::detail::accelStreamMode())}};
+            throw Error{-32602, "unknown sensor '" + sensor + "' (supported: accel)"};
+        return sensor;
+    };
+    auto parseValue3 = [](const nlohmann::json& p, float& x, float& y, float& z) {
+        if (!p.contains("value") || !p["value"].is_array() || p["value"].size() < 3)
+            throw Error{-32602, "value must be a 3-number array [x,y,z]"};
+        x = p["value"][0].get<float>();
+        y = p["value"][1].get<float>();
+        z = p["value"][2].get<float>();
+    };
+    auto statusJson = []() -> nlohmann::json {
+        using M = ge::detail::SensorStreamMode;
+        const auto m = ge::detail::accelStreamMode();
+        nlohmann::json out{{"sensor", "accel"}};
+        if (m == M::Passthrough) {
+            out["enabled"] = false;
+            out["kind"] = "passthrough";
+        } else if (m == M::Override) {
+            out["enabled"] = true;
+            out["kind"] = "override";
             float x, y, z;
-            if (ge::detail::accelLatch(x, y, z)) {
-                out["latch"] = nlohmann::json{{"x", x}, {"y", y}, {"z", z}};
-            }
-            return out;
-        }
-
-        const std::string mode = p.value("mode", std::string{});
-        if (mode == "passthrough") {
-            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
-        } else if (mode == "override") {
-            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-            if (p.contains("x") || p.contains("y") || p.contains("z")) {
-                ge::detail::setAccelLatch(jnum(p, "x", 0.0f), jnum(p, "y", 0.0f),
-                                          jnum(p, "z", 0.0f));
-            }
-        } else if (mode == "mute") {
-            ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Mute);
+            if (ge::detail::accelLatch(x, y, z))
+                out["value"] = nlohmann::json::array({x, y, z});
         } else {
-            throw Error{-32602, "sensor_control: mode must be passthrough|override|mute"};
-        }
-
-        nlohmann::json out{{"sensor", "accel"},
-                           {"mode", modeName(ge::detail::accelStreamMode())}};
-        float x, y, z;
-        if (ge::detail::accelLatch(x, y, z)) {
-            out["latch"] = nlohmann::json{{"x", x}, {"y", y}, {"z", z}};
+            out["enabled"] = true;
+            out["kind"] = "mute";
+            out["value"] = nlohmann::json::array({0.0, 0.0, 0.0});
         }
         return out;
+    };
+
+    reg("sensor_override_enable", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        // Sticky: stays until sensor_disable (or mute_enable).
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
+        if (p.contains("value")) {
+            float x, y, z;
+            parseValue3(p, x, y, z);
+            ge::detail::setAccelLatch(x, y, z);
+        }
+        return statusJson();
+    });
+    reg("sensor_override_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        if (ge::detail::accelStreamMode() != ge::detail::SensorStreamMode::Override)
+            throw Error{-32602, "sensor_override_set: override is not enabled "
+                                "(call sensor_override_enable first)"};
+        float x, y, z;
+        parseValue3(p, x, y, z);
+        ge::detail::setAccelLatch(x, y, z);
+        return statusJson();
+    });
+    reg("sensor_mute_enable", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Mute);
+        return statusJson();
+    });
+    reg("sensor_disable", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
+        return statusJson();
+    });
+    reg("sensor_status", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        return statusJson();
     });
 
     // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)

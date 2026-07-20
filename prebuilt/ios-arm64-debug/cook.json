@@ -5,10 +5,10 @@
   "opt": "-O2",
   "flags": "-g -O2 -fno-omit-frame-pointer -fvisibility=hidden -fno-color-diagnostics -arch arm64 -miphoneos-version-min=16.3 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk",
   "flags_sha256": "fee12d903a699650bd8cc177c43e8d8d952ff35013495ffd3a45a332c5aa9012",
-  "utc": "2026-07-19T22:09:37Z",
+  "utc": "2026-07-20T02:58:23Z",
   "archives": {
     "box2d": "262cbdb30ce88d64ac3fb128318086eb70e95cb9c64f39279bcf0e9c84d41d6a",
-    "ge": "fa55af04a9d405821a4cd8a580c8037ceac9c645907160f8338c0a176ea036e9",
+    "ge": "3cb526278782c3585c69dfbb1860ebf9f038dc2f5445964559b7ffb8f6372629",
     "liteparser": "c6d41d991c6b309cd45714b7f287c216a323e6a4ddcd42d6cfd710168f45c4fb",
     "lunasvg_ge": "02450d0222afe2cefc44f284ff678e6e516539212faded55eecf483e4f456f7c",
     "lz4_ge": "c7abb22d725030449310094e99bea48c3724dcd9cc82011a232a0715c59fcd1b",
