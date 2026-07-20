@@ -474,6 +474,34 @@ still emit the compact bare-string form, and the agent can fall back to
 `app_state_describe`. The example is captured at registration (before `ge::run`),
 so it can be a hand-written literal or the getter's initial output.
 
+**Recommended schema convention — `hit_targets` (🎯T109).** Publish interactables
+(buttons, regions, SVG controls, …) so spyder scripts can list → find by
+**id/role** → inject at centre without hard-coded coordinates or host CV.
+Canonical sample: `sample/tiltbuggy` title banner (`id`/`role` = `reset`, kind
+`button`) plus `playfield` (`kind` = `region`). Wire the same rect you hit-test
+with `ge::Button` (or custom hit geometry); export `center_norm` / `bbox_norm` in
+**app_input 0–1** surface space. Spyder host: `find_hit_target` +
+`resolve_target` + recipe `l1_tap_hit_target` (see spyder `agents-guide.md`
+§ Hit targets).
+
+```jsonc
+{
+  "targets": [
+    {
+      "id": "reset",           // required stable key (prefer over label)
+      "kind": "button",        // button | region | svg | …
+      "role": "reset",         // optional semantic role
+      "label": "TiltBuggy",    // display only — not for addressing
+      "enabled": true,
+      "space": "pts",          // units for raw bbox (pts y-down full surface)
+      "bbox": [x, y, w, h],
+      "bbox_norm": [x, y, w, h],
+      "center_norm": [cx, cy]  // preferred for app_input
+    }
+  ]
+}
+```
+
 **Recommended schema convention — geometry / physics slices.** So spyder can
 render and compare physics state uniformly *across* games, a slice that exposes
 geometry should follow this shape (all positions in the game's world units; state

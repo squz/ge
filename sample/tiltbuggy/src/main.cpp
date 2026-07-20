@@ -99,6 +99,7 @@ struct State {
     // T109: title heading as hit target — tap resets buggy to origin.
     ge::Button titleResetBtn;
     ge::Rect   titleBannerPts{};  // last layout (pts, y-down); for hit_targets
+    ge::Rect   playfieldPts{};    // drawSafe / arena (region kind, same schema)
     float      fullW = 0.f, fullH = 0.f;  // for bbox_norm in hit_targets
 };
 
@@ -234,27 +235,50 @@ int main(int argc, char* argv[]) {
     ge::appchannel::registerStateSlice("iap", [] {
         return nlohmann::json{{"pro", ge::iap::owned("pro")}};
     });
-    // T109 v1 test case: title heading is a hit target (tap → reset).
-    // bbox in full-surface points (y-down); bbox_norm for app_input 0–1 space.
+    // T109 v1: hit_targets slice — button (title reset) + same-shape region.
+    // bbox in full-surface points (y-down); center_norm/bbox_norm for app_input 0–1.
     ge::appchannel::registerStateSlice("hit_targets", [&state] {
         nlohmann::json targets = nlohmann::json::array();
-        const ge::Rect b = state.titleBannerPts;
-        if (!b.empty() && state.fullW > 0.f && state.fullH > 0.f) {
-            targets.push_back({
-                {"id", "reset"},
-                {"kind", "button"},
-                {"role", "reset"},
-                {"label", "TiltBuggy"},
-                {"enabled", true},
-                {"space", "pts"},
-                {"bbox", {b.x, b.y, b.w, b.h}},
-                {"bbox_norm",
-                 {b.x / state.fullW, b.y / state.fullH,
-                  b.w / state.fullW, b.h / state.fullH}},
-                {"center_norm",
-                 {(b.x + 0.5f * b.w) / state.fullW,
-                  (b.y + 0.5f * b.h) / state.fullH}},
-            });
+        if (state.fullW > 0.f && state.fullH > 0.f) {
+            const ge::Rect b = state.titleBannerPts;
+            if (!b.empty()) {
+                targets.push_back({
+                    {"id", "reset"},
+                    {"kind", "button"},
+                    {"role", "reset"},
+                    {"label", "TiltBuggy"},
+                    {"enabled", true},
+                    {"space", "pts"},
+                    {"bbox", {b.x, b.y, b.w, b.h}},
+                    {"bbox_norm",
+                     {b.x / state.fullW, b.y / state.fullH,
+                      b.w / state.fullW, b.h / state.fullH}},
+                    {"center_norm",
+                     {(b.x + 0.5f * b.w) / state.fullW,
+                      (b.y + 0.5f * b.h) / state.fullH}},
+                });
+            }
+            // Same descriptor shape for a non-button interactable region
+            // (playfield). Geometry only — not wired as a Button; proves the
+            // schema is not Button-only (🎯T109.3).
+            const ge::Rect play = state.playfieldPts;
+            if (!play.empty()) {
+                targets.push_back({
+                    {"id", "playfield"},
+                    {"kind", "region"},
+                    {"role", "playfield"},
+                    {"label", "Arena"},
+                    {"enabled", true},
+                    {"space", "pts"},
+                    {"bbox", {play.x, play.y, play.w, play.h}},
+                    {"bbox_norm",
+                     {play.x / state.fullW, play.y / state.fullH,
+                      play.w / state.fullW, play.h / state.fullH}},
+                    {"center_norm",
+                     {(play.x + 0.5f * play.w) / state.fullW,
+                      (play.y + 0.5f * play.h) / state.fullH}},
+                });
+            }
         }
         return nlohmann::json{{"targets", targets}};
     },
@@ -269,6 +293,15 @@ int main(int argc, char* argv[]) {
              {"bbox", {100.0, 8.0, 300.0, 67.5}},
              {"bbox_norm", {0.2, 0.01, 0.6, 0.08}},
              {"center_norm", {0.5, 0.05}}},
+            {{"id", "playfield"},
+             {"kind", "region"},
+             {"role", "playfield"},
+             {"label", "Arena"},
+             {"enabled", true},
+             {"space", "pts"},
+             {"bbox", {0.0, 0.0, 800.0, 600.0}},
+             {"bbox_norm", {0.0, 0.0, 1.0, 1.0}},
+             {"center_norm", {0.5, 0.5}}},
         })},
     });
     // 🎯T115 "geometry" slice — the recommended geometry/physics schema: bodies
@@ -468,13 +501,17 @@ int main(int argc, char* argv[]) {
                     state.renderer->init(ge::resource(ge::shaderDir()).c_str());
                     state.rendererInited = true;
                 }
-                // Keep hit target layout in sync with title chrome (drawSafe).
+                // Keep hit target layout in sync with title chrome + playfield.
                 {
                     const auto full = c.fullRectInPts();
                     state.fullW = full.w;
                     state.fullH = full.h;
                     state.titleBannerPts =
                         tiltbuggy::Renderer::titleBannerRectInPts(c);
+                    state.playfieldPts = c.drawSafeRectInPts();
+                    if (state.playfieldPts.empty()) {
+                        state.playfieldPts = full;
+                    }
                 }
                 state.renderer->drawFrame(*state.scene, c);
                 // 🎯T131.5 Push the present counter so a spyder matrix cell can
