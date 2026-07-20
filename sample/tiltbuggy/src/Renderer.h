@@ -28,6 +28,11 @@ public:
     void drawFrame(const Scene& scene, const ge::Context& c,
                    float tiltX = 0.f, float tiltY = 0.f);
 
+    // Title / heading banner in full-surface point space (y-down), same
+    // layout as drawFrame. Empty if chrome is unavailable. Used as the
+    // T109 hit-target test case (tap heading → reset buggy).
+    static ge::Rect titleBannerRectInPts(const ge::Context& c);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> i_;

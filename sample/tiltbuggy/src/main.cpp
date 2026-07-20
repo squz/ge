@@ -5,8 +5,8 @@
 // TiltBuggy (🎯T137): a tiled-asphalt arena with ice + dirt patches and the
 // buggy, driven by device tilt. Tilt the device (or, on desktop/sim/emu, hold
 // Shift and drag — AccelSynth) and the buggy drives across the arena; ice and
-// dirt rob traction. No title, no buttons, no recolour — the screen matches the
-// original.
+// dirt rob traction. Title banner is interactive (T109 test case): tap the
+// "TiltBuggy" heading to reset the car to spawn.
 //
 // CORE GAME: tilt→gravity, the vehicle-dynamics model (Scene.cpp), the surface
 // traps, the camera, and the original textures (Renderer.cpp).
@@ -24,6 +24,7 @@
 #include <ge/appchannel.h>
 #include <ge/box2d_render.h>  // 🎯T131.2 renderWhileAwake
 #include <ge/box2d_slice.h>
+#include <ge/button.h>
 #include <ge/iap.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
@@ -95,6 +96,10 @@ struct State {
     float arenaAspect = 0.f;            // rebuild scene when content aspect changes
     float poseWriteAccum = 0.f;         // 🎯T154 durable pose write cadence
     std::shared_ptr<sqlpipe::Database> db;  // Context::db() for pose persistence
+    // T109: title heading as hit target — tap resets buggy to origin.
+    ge::Button titleResetBtn;
+    ge::Rect   titleBannerPts{};  // last layout (pts, y-down); for hit_targets
+    float      fullW = 0.f, fullH = 0.f;  // for bbox_norm in hit_targets
 };
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
@@ -229,6 +234,43 @@ int main(int argc, char* argv[]) {
     ge::appchannel::registerStateSlice("iap", [] {
         return nlohmann::json{{"pro", ge::iap::owned("pro")}};
     });
+    // T109 v1 test case: title heading is a hit target (tap → reset).
+    // bbox in full-surface points (y-down); bbox_norm for app_input 0–1 space.
+    ge::appchannel::registerStateSlice("hit_targets", [&state] {
+        nlohmann::json targets = nlohmann::json::array();
+        const ge::Rect b = state.titleBannerPts;
+        if (!b.empty() && state.fullW > 0.f && state.fullH > 0.f) {
+            targets.push_back({
+                {"id", "reset"},
+                {"kind", "button"},
+                {"role", "reset"},
+                {"label", "TiltBuggy"},
+                {"enabled", true},
+                {"space", "pts"},
+                {"bbox", {b.x, b.y, b.w, b.h}},
+                {"bbox_norm",
+                 {b.x / state.fullW, b.y / state.fullH,
+                  b.w / state.fullW, b.h / state.fullH}},
+                {"center_norm",
+                 {(b.x + 0.5f * b.w) / state.fullW,
+                  (b.y + 0.5f * b.h) / state.fullH}},
+            });
+        }
+        return nlohmann::json{{"targets", targets}};
+    },
+    nlohmann::json{
+        {"targets", nlohmann::json::array({
+            {{"id", "reset"},
+             {"kind", "button"},
+             {"role", "reset"},
+             {"label", "TiltBuggy"},
+             {"enabled", true},
+             {"space", "pts"},
+             {"bbox", {100.0, 8.0, 300.0, 67.5}},
+             {"bbox_norm", {0.2, 0.01, 0.6, 0.08}},
+             {"center_norm", {0.5, 0.05}}},
+        })},
+    });
     // 🎯T115 "geometry" slice — the recommended geometry/physics schema: bodies
     // in world units carrying position + velocity, so spyder renders/compares
     // physics state uniformly across ge games (and an agent can diff it across
@@ -294,6 +336,29 @@ int main(int argc, char* argv[]) {
         state.rendererInited = false;
         state.db = ctx.db();
         state.poseWriteAccum = 0.f;
+
+        // T109: title banner button — tap "TiltBuggy" heading to respawn.
+        state.titleResetBtn = {};
+        state.titleResetBtn.hitTest = [&state](ge::la::float2 p) {
+            const ge::Rect& r = state.titleBannerPts;
+            if (r.empty()) return false;
+            return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+        };
+        state.titleResetBtn.onFire = [&state] {
+            if (!state.scene) return;
+            state.scene->applyPose({0.f, 0.f, 0.f});
+            state.gravity = {0.f, 0.f};
+            if (state.db) {
+                try {
+                    state.db->exec(
+                        "INSERT OR REPLACE INTO pose(id,x,y,angle,updated_at) "
+                        "VALUES(1,0,0,0,0)");
+                } catch (...) {
+                }
+            }
+            SPDLOG_INFO("tiltbuggy: title tap — reset buggy to spawn");
+        };
+        state.titleResetBtn.onRedraw = [ctx] { ctx.requestRedraw(); };
 
         // 🎯T154: restore last durable pose if present (stream reconnect / direct relaunch).
         if (state.db) {
@@ -403,6 +468,14 @@ int main(int argc, char* argv[]) {
                     state.renderer->init(ge::resource(ge::shaderDir()).c_str());
                     state.rendererInited = true;
                 }
+                // Keep hit target layout in sync with title chrome (drawSafe).
+                {
+                    const auto full = c.fullRectInPts();
+                    state.fullW = full.w;
+                    state.fullH = full.h;
+                    state.titleBannerPts =
+                        tiltbuggy::Renderer::titleBannerRectInPts(c);
+                }
                 state.renderer->drawFrame(*state.scene, c);
                 // 🎯T131.5 Push the present counter so a spyder matrix cell can
                 // assert it goes flat when the buggy settles (idle) and resumes
@@ -413,6 +486,15 @@ int main(int argc, char* argv[]) {
             },
             .onEvent = [&, ctx](const SDL_Event& e) {
                 SPDLOG_INFO("onEvent type=0x{:x}", e.type);
+                // Title reset button (T109 hit-target test case).
+                if (auto pe = ge::input::fromSdl(
+                        e, {state.fullW > 0.f ? state.fullW : 1.f,
+                            state.fullH > 0.f ? state.fullH : 1.f})) {
+                    if (state.titleResetBtn.handleEvent(*pe)) {
+                        if (state.renderOnDemand) ctx.requestRedraw();
+                        return;
+                    }
+                }
                 if (e.type == SDL_EVENT_SENSOR_UPDATE) {
                     // Engine delivers device acceleration in screen frame.
                     // The world/board accelerates in that direction, so the

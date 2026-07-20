@@ -28,6 +28,17 @@
 
 namespace tiltbuggy {
 
+ge::Rect Renderer::titleBannerRectInPts(const ge::Context& c) {
+    // Mirror drawFrame title layout: top of drawSafe, y-down points.
+    const ge::Rect draw = c.drawSafeRectInPts();
+    if (draw.w <= 0.f || draw.h <= 0.f) return {};
+    const float bannerW = std::min(draw.w * 0.72f, 420.f);
+    const float bannerH = bannerW * (90.f / 400.f);
+    const float bx = draw.x + (draw.w - bannerW) * 0.5f;
+    const float by = draw.y + 8.f;
+    return ge::Rect{bx, by, bannerW, bannerH};
+}
+
 namespace {
 
 // World size of one asphalt/ice/dirt texture tile (the original tiled ~every
@@ -218,32 +229,33 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
     i_->batch.submit(mvp);
 
     // ── Title (screen pts, y-down) — top of *draw*-safe ───────────────
-    // Banner is content/decoration, not interactive chrome: it does not
-    // need uiSafe clearance from system bars or gesture zones. Pin to
-    // drawSafe (cutouts only; full surface on a Pixel).
-    if (!i_->titleBorder.isNull() || !i_->titleText.isNull()) {
-        const float bannerW = std::min(draw.w * 0.72f, 420.f);
-        const float bannerH = bannerW * (90.f / 400.f);
-        const float bx = draw.x + (draw.w - bannerW) * 0.5f;
-        const float by = draw.y + 8.f;
-        const ge::la::float4x4 titleMvp =
-            orthoMetal(0.f, full.w, full.h, 0.f, -1.f, 1.f);
+    // Interactive chrome for T109: same rect as titleBannerRectInPts().
+    {
+        const ge::Rect banner = titleBannerRectInPts(c);
+        if (!banner.empty() &&
+            (!i_->titleBorder.isNull() || !i_->titleText.isNull())) {
+            const float bx = banner.x, by = banner.y;
+            const float bannerW = banner.w, bannerH = banner.h;
+            const ge::la::float4x4 titleMvp =
+                orthoMetal(0.f, full.w, full.h, 0.f, -1.f, 1.f);
 
-        i_->batch.clear();
-        if (!i_->titleBorder.isNull()) {
-            i_->batch.addSprite(ge::frame(ge::Rect{bx, by, bannerW, bannerH}),
-                                i_->titleBorder);
+            i_->batch.clear();
+            if (!i_->titleBorder.isNull()) {
+                i_->batch.addSprite(ge::frame(banner), i_->titleBorder);
+            }
+            if (!i_->titleText.isNull()) {
+                // Rasterized at kTitlePpp density; draw at logical pt size.
+                const float drawW =
+                    static_cast<float>(i_->titleText.width) / kTitlePpp;
+                const float drawH =
+                    static_cast<float>(i_->titleText.height) / kTitlePpp;
+                const float tx = bx + (bannerW - drawW) * 0.5f;
+                const float ty = by + (bannerH - drawH) * 0.5f;
+                i_->batch.addSprite(ge::frame(ge::Rect{tx, ty, drawW, drawH}),
+                                    i_->titleText);
+            }
+            i_->batch.submit(titleMvp);
         }
-        if (!i_->titleText.isNull()) {
-            // Rasterized at kTitlePpp density; draw at logical pt size.
-            const float drawW = static_cast<float>(i_->titleText.width) / kTitlePpp;
-            const float drawH = static_cast<float>(i_->titleText.height) / kTitlePpp;
-            const float tx = bx + (bannerW - drawW) * 0.5f;
-            const float ty = by + (bannerH - drawH) * 0.5f;
-            i_->batch.addSprite(ge::frame(ge::Rect{tx, ty, drawW, drawH}),
-                                i_->titleText);
-        }
-        i_->batch.submit(titleMvp);
     }
 
     // 🎯T97 debug overlay — opt-in (DEBUG_OVERLAY); a no-op while disabled.
