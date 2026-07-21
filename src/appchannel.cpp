@@ -6,6 +6,7 @@
 // entirely under NDEBUG. See include/ge/appchannel.h for the wire format.
 
 #include <ge/appchannel.h>
+#include <ge/button.h>
 
 #include <spdlog/spdlog.h>
 
@@ -39,6 +40,7 @@
 
 #include "appchannel_internal.h"      // ge::appchannel::detail::buildSliceDescriptors
 #include "render/LifecycleInject.h"   // ge::detail::injectMemoryWarning
+#include "render/SensorControl.h"     // fine-grained accel stream authority
 #include "render/ScreenshotBridge.h"  // ge::detail::captureFrameRGBA
 
 #endif  // NDEBUG
@@ -81,6 +83,12 @@ std::unordered_map<std::string, StateGetter> g_slices;
 std::unordered_map<std::string, nlohmann::json> g_sliceExamples;
 StateGetter   g_stateSaver;
 StateRestorer g_stateRestorer;
+
+// 🎯T109 Hit-target surface size (full-surface pts) + optional non-button extras.
+float g_hitSurfaceW = 0.f;
+float g_hitSurfaceH = 0.f;
+nlohmann::json g_extraHitTargets = nlohmann::json::array();
+bool g_hitTargetsSliceRegistered = false;
 
 // Game-thread task queue. State handlers run on the worker thread but must
 // observe game state from the game thread (no torn reads against the sim), so
@@ -603,17 +611,93 @@ void registerBuiltins() {
             e.key.down     = (type == "key_down");
             e.key.repeat   = false;
         } else if (type == "accel") {
-            // Device-frame acceleration; the engine rotates it into screen
-            // frame in pumpEvents just like a real SDL_SENSOR_ACCEL sample.
+            // Device-frame acceleration; engine rotates to screen frame in
+            // pumpEvents. Prefer value=[x,y,z]; x/y/z still accepted.
+            float ax = 0.f, ay = 0.f, az = 0.f;
+            if (p.contains("value") && p["value"].is_array() && p["value"].size() >= 3) {
+                ax = p["value"][0].get<float>();
+                ay = p["value"][1].get<float>();
+                az = p["value"][2].get<float>();
+            } else {
+                ax = jnum(p, "x", 0.0f);
+                ay = jnum(p, "y", 0.0f);
+                az = jnum(p, "z", 0.0f);
+            }
             e.type           = SDL_EVENT_SENSOR_UPDATE;
-            e.sensor.data[0] = jnum(p, "x", 0.0f);
-            e.sensor.data[1] = jnum(p, "y", 0.0f);
-            e.sensor.data[2] = jnum(p, "z", 0.0f);
+            e.sensor.which   = static_cast<SDL_SensorID>(ge::detail::kSyntheticAccelWhich);
+            e.sensor.data[0] = ax;
+            e.sensor.data[1] = ay;
+            e.sensor.data[2] = az;
+            // While suppressed: update latch so pumpEvents re-asserts each frame.
+            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override) {
+                ge::detail::setAccelLatch(ax, ay, az);
+            }
         } else {
             throw Error{-32602, "input_inject: unknown type '" + type + "'"};
         }
         SDL_PushEvent(&e);
         return kAck;
+    });
+
+    // ── sensor stream authority (one concern per method; sticky suppress) ──
+    //   sensor_suppress   {sensor?}              — drop real samples (sticky)
+    //   sensor_set        {sensor?, value=[x,y,z]} — set scripted sample (while suppressed)
+    //   sensor_unsuppress {sensor?}              — restore real device stream
+    //   sensor_status     {sensor?}              — query {suppressed, value?}
+    // Only "accel" today. Touch/keys never affected. suppress does NOT set a value.
+    auto requireAccel = [](const nlohmann::json& p) {
+        const std::string sensor = p.value("sensor", std::string{"accel"});
+        if (sensor != "accel")
+            throw Error{-32602, "unknown sensor '" + sensor + "' (supported: accel)"};
+        return sensor;
+    };
+    auto parseValue3 = [](const nlohmann::json& p, float& x, float& y, float& z) {
+        if (!p.contains("value") || !p["value"].is_array() || p["value"].size() < 3)
+            throw Error{-32602, "value must be a 3-number array [x,y,z]"};
+        x = p["value"][0].get<float>();
+        y = p["value"][1].get<float>();
+        z = p["value"][2].get<float>();
+    };
+    auto statusJson = []() -> nlohmann::json {
+        using M = ge::detail::SensorStreamMode;
+        const auto m = ge::detail::accelStreamMode();
+        nlohmann::json out{{"sensor", "accel"},
+                           {"suppressed", m != M::Passthrough}};
+        float x, y, z;
+        if (m == M::Mute) {
+            out["value"] = nlohmann::json::array({0.0, 0.0, 0.0});
+        } else if (ge::detail::accelLatch(x, y, z)) {
+            out["value"] = nlohmann::json::array({x, y, z});
+        }
+        return out;
+    };
+
+    reg("sensor_suppress", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        // Sticky until sensor_unsuppress. Does not set a sample.
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
+        return statusJson();
+    });
+    reg("sensor_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Passthrough)
+            throw Error{-32602, "sensor_set: sensor is not suppressed "
+                                "(call sensor_suppress first)"};
+        float x, y, z;
+        parseValue3(p, x, y, z);
+        ge::detail::setAccelLatch(x, y, z);
+        // Ensure we re-assert latch (not mute/neutral-only).
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
+        return statusJson();
+    });
+    reg("sensor_unsuppress", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
+        return statusJson();
+    });
+    reg("sensor_status", [requireAccel, statusJson](const nlohmann::json& p) {
+        requireAccel(p);
+        return statusJson();
     });
 
     // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)
@@ -697,9 +781,14 @@ void registerMethod(std::string method, Handler handler) {
     handlers()[std::move(method)] = std::move(handler);
 }
 
+// Defined with the hit-target registry helpers below (must precede installFromEnv use).
+void ensureHitTargetsSliceRegistered();
+
 void installFromEnv(const std::string& appName, const std::string& appVersion) {
     auto [host, port] = parseTarget(resolveTarget());
     if (port <= 0) return;
+    // 🎯T109 Advertise hit_targets in hello even before any Button publishes.
+    ensureHitTargetsSliceRegistered();
     registerBuiltins();
     Channel::instance().start(host, port, appName, appVersion);
     SPDLOG_INFO("appchannel: dialing spyder app-channel {}:{} (app={})", host, port, appName);
@@ -758,7 +847,111 @@ nlohmann::json buildSliceDescriptors(
     return out;
 }
 
+nlohmann::json buildHitTargetsPayload(
+    float surfaceW, float surfaceH,
+    const std::vector<HitTargetExport>& items,
+    const nlohmann::json& extras) {
+    nlohmann::json targets = nlohmann::json::array();
+    const bool haveSurface = surfaceW > 0.f && surfaceH > 0.f;
+    auto appendOne = [&](const HitTargetExport& it) {
+        if (it.id.empty() || it.w == 0.f || it.h == 0.f) return;
+        nlohmann::json t{
+            {"id", it.id},
+            {"kind", it.kind.empty() ? "button" : it.kind},
+            {"enabled", it.enabled},
+            {"space", "pts"},
+            {"bbox", {it.x, it.y, it.w, it.h}},
+        };
+        if (!it.role.empty()) t["role"] = it.role;
+        if (!it.label.empty()) t["label"] = it.label;
+        if (haveSurface) {
+            t["bbox_norm"] = {it.x / surfaceW, it.y / surfaceH,
+                              it.w / surfaceW, it.h / surfaceH};
+            t["center_norm"] = {(it.x + 0.5f * it.w) / surfaceW,
+                                (it.y + 0.5f * it.h) / surfaceH};
+        }
+        targets.push_back(std::move(t));
+    };
+    for (const auto& it : items) appendOne(it);
+    if (extras.is_array()) {
+        for (const auto& e : extras) {
+            if (!e.is_object()) continue;
+            HitTargetExport it;
+            it.id      = e.value("id", "");
+            it.kind    = e.value("kind", "region");
+            it.role    = e.value("role", "");
+            it.label   = e.value("label", "");
+            it.enabled = e.value("enabled", true);
+            if (e.contains("bbox") && e["bbox"].is_array() && e["bbox"].size() >= 4) {
+                it.x = e["bbox"][0].get<float>();
+                it.y = e["bbox"][1].get<float>();
+                it.w = e["bbox"][2].get<float>();
+                it.h = e["bbox"][3].get<float>();
+            }
+            // If caller already supplied norm fields only, pass through later.
+            if (it.w == 0.f && e.contains("center_norm")) {
+                // Still require bbox for contract; skip incomplete extras.
+                continue;
+            }
+            appendOne(it);
+            // Preserve precomputed center_norm/bbox_norm if present on extra.
+            if (!targets.empty() && e.contains("center_norm")) {
+                targets.back()["center_norm"] = e["center_norm"];
+            }
+            if (!targets.empty() && e.contains("bbox_norm")) {
+                targets.back()["bbox_norm"] = e["bbox_norm"];
+            }
+        }
+    }
+    return nlohmann::json{{"targets", std::move(targets)}};
+}
+
 } // namespace detail
+
+namespace {
+
+nlohmann::json collectPublishedHitTargets() {
+    std::vector<detail::HitTargetExport> items;
+    for (Button* b : publishedHitTargets()) {
+        if (!b || b->id.empty() || b->hitBounds.empty()) continue;
+        detail::HitTargetExport it;
+        it.id      = b->id;
+        it.kind    = "button";
+        it.role    = b->role;
+        it.label   = b->label;
+        it.enabled = b->hitEnabled;
+        it.x = b->hitBounds.x;
+        it.y = b->hitBounds.y;
+        it.w = b->hitBounds.w;
+        it.h = b->hitBounds.h;
+        items.push_back(std::move(it));
+    }
+    return detail::buildHitTargetsPayload(
+        g_hitSurfaceW, g_hitSurfaceH, items, g_extraHitTargets);
+}
+
+} // namespace
+
+void ensureHitTargetsSliceRegistered() {
+    if (g_hitTargetsSliceRegistered) return;
+    g_hitTargetsSliceRegistered = true;
+    registerStateSlice(
+        "hit_targets",
+        [] { return collectPublishedHitTargets(); },
+        nlohmann::json{
+            {"targets", nlohmann::json::array({
+                {{"id", "example"},
+                 {"kind", "button"},
+                 {"role", "reset"},
+                 {"label", "Example"},
+                 {"enabled", true},
+                 {"space", "pts"},
+                 {"bbox", {100.0, 8.0, 200.0, 40.0}},
+                 {"bbox_norm", {0.1, 0.01, 0.2, 0.05}},
+                 {"center_norm", {0.2, 0.035}}},
+            })},
+        });
+}
 
 void registerStateSlice(std::string name, StateGetter getter, nlohmann::json example) {
     if (!example.is_null()) g_sliceExamples[name] = std::move(example);
@@ -791,6 +984,20 @@ bool active() { return Channel::instance().active(); }
 
 void flush(int timeoutMs) { Channel::instance().flushFor(timeoutMs); }
 
+void setHitTargetSurfacePts(float width, float height) {
+    g_hitSurfaceW = width;
+    g_hitSurfaceH = height;
+}
+
+void setExtraHitTargets(nlohmann::json targetsArray) {
+    if (targetsArray.is_null()) {
+        g_extraHitTargets = nlohmann::json::array();
+        return;
+    }
+    if (!targetsArray.is_array()) return;
+    g_extraHitTargets = std::move(targetsArray);
+}
+
 #else  // NDEBUG — feature compiled out entirely.
 
 void registerMethod(std::string, Handler) {}
@@ -804,6 +1011,8 @@ void perfTick(float) {}
 void registerStateSlice(std::string, StateGetter, nlohmann::json) {}
 void registerStateSerializer(StateGetter, StateRestorer) {}
 void pumpMainThreadTasks() {}
+void setHitTargetSurfacePts(float, float) {}
+void setExtraHitTargets(nlohmann::json) {}
 
 #endif
 

@@ -48,6 +48,7 @@ GE_SRC_COMMON := \
 	src/CmdStream.cpp \
 	src/SessionHost.mm \
 	src/render/DirectRenderHost.mm \
+	src/render/SensorControl.cpp \
 	vendor/src/sqlpipe.cpp
 
 # ── per-platform glue ──────────────────────────────────────────────

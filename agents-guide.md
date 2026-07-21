@@ -474,6 +474,50 @@ still emit the compact bare-string form, and the agent can fall back to
 `app_state_describe`. The example is captured at registration (before `ge::run`),
 so it can be a hand-written literal or the getter's initial output.
 
+**Recommended schema convention — `hit_targets` (🎯T109).** Built-in app-channel
+slice (registered by `installFromEnv`). Spyder scripts list → find by **id/role**
+→ inject at centre without hard-coded coordinates or host CV.
+
+**Buttons (engine path):** put sparse automation metadata on `ge::Button` (visuals
+stay separate). `id` empty → not exported. Use `setHitRect(r)` so hit-test and
+export bbox stay the same rect; `publishHitTarget(&btn)` once (owner lifetime).
+
+```cpp
+btn.id = "restart";
+btn.role = "reset";
+btn.setHitRect(expandedRect);   // hitTest + hitBounds
+btn.onFire = …;
+ge::publishHitTarget(&btn);     // once; unpublish in destructor
+// SessionHost sets surface size each frame → center_norm / bbox_norm
+```
+
+**Non-button regions:** `ge::appchannel::setExtraHitTargets([{id, kind, role, bbox, …}])`
+(same field shape; replaced wholesale each call).
+
+Canonical samples: `sample/tiltbuggy` title (`id`/`role` = `reset`) + `playfield`
+region; multimaze2 `TopBar` back/restart/home via the same Button path.
+
+```jsonc
+{
+  "targets": [
+    {
+      "id": "reset",           // required stable key (prefer over label)
+      "kind": "button",        // button | region | svg | …
+      "role": "reset",         // optional semantic role
+      "label": "TiltBuggy",    // display only — not for addressing
+      "enabled": true,
+      "space": "pts",          // units for raw bbox (pts y-down full surface)
+      "bbox": [x, y, w, h],
+      "bbox_norm": [x, y, w, h],
+      "center_norm": [cx, cy]  // preferred for app_input
+    }
+  ]
+}
+```
+
+Spyder host: `find_hit_target` + `resolve_target` + recipe `l1_tap_hit_target`
+(see spyder `agents-guide.md` § Hit targets).
+
 **Recommended schema convention — geometry / physics slices.** So spyder can
 render and compare physics state uniformly *across* games, a slice that exposes
 geometry should follow this shape (all positions in the game's world units; state

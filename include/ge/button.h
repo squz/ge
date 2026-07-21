@@ -31,6 +31,7 @@
 #include <SDL3/SDL_touch.h>  // SDL_FingerID
 
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace ge {
@@ -63,6 +64,22 @@ struct Button {
     HitTest             hitTest           = {};
     FireCallback        onFire            = {};
     HighlightCallback   onHighlightChange = {};
+
+    // 🎯T109 Optional automation metadata for the built-in `hit_targets`
+    // app-channel slice. Visuals stay free to change; scripts address by
+    // id/role. Empty `id` → not exported. `hitBounds` is the declared
+    // bbox in the same point space as PointerEvent (full-surface y-down);
+    // required for export (a pure predicate has no rect to serialise).
+    // Prefer setHitRect() so hitTest and hitBounds stay in lockstep.
+    std::string id;
+    std::string role;
+    std::string label;
+    Rect        hitBounds{};     // empty → skip export even if id set
+    bool        hitEnabled = true;
+
+    // Sets hitBounds and hitTest from the same rect (export + interaction).
+    // Defined below after rectHitTest.
+    void setHitRect(Rect r);
 
     // 🎯T131.3 Redraw sink — called on every visible-state (phase) transition:
     // touch-down highlight, drag-off un-highlight, drag-back re-highlight,
@@ -127,10 +144,28 @@ struct ButtonGroup {
 // Convenience: rect-based hit test. Captures the rect by value, so
 // the hit region is frozen at the time of the call. For buttons
 // whose geometry changes per-frame, reassign `btn.hitTest =
-// ge::rectHitTest(currentRect)` each frame, or write the lambda
-// inline to close over a live source.
+// ge::rectHitTest(currentRect)` each frame (or prefer setHitRect so
+// hitBounds tracks for 🎯T109 export), or write the lambda inline to
+// close over a live source.
 inline Button::HitTest rectHitTest(Rect r) {
     return [r](la::float2 p) { return r.contains(p); };
 }
+
+inline void Button::setHitRect(Rect r) {
+    hitBounds = r;
+    hitTest   = rectHitTest(r);
+}
+
+// 🎯T109 Register / unregister a Button for the built-in `hit_targets`
+// app-channel slice. The Button must outlive the registration (typical:
+// publish in the owner constructor, unpublish in the destructor). Empty
+// id or empty hitBounds still register but are omitted from the export
+// until both are set.
+void publishHitTarget(Button* b);
+void unpublishHitTarget(Button* b);
+
+// Snapshot of currently published buttons (for tests / engine export).
+// Order is registration order. Not thread-safe — game thread only.
+std::vector<Button*> publishedHitTargets();
 
 } // namespace ge

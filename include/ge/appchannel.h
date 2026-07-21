@@ -117,4 +117,17 @@ void registerStateSerializer(StateGetter save, StateRestorer restore);
 // in release builds.
 void pumpMainThreadTasks();
 
+// 🎯T109 Hit-target export surface (built-in `hit_targets` state slice).
+//
+// Buttons published via ge::publishHitTarget with non-empty id + hitBounds
+// appear automatically. setHitTargetSurfacePts supplies full-surface size so
+// the slice can emit bbox_norm / center_norm for app_input 0–1 inject.
+// setExtraHitTargets adds non-button descriptors (regions, SVG, …) with the
+// same field shape; replaced wholesale each call (pass [] to clear).
+//
+// installFromEnv registers the slice before the hello handshake. All no-ops
+// in release builds.
+void setHitTargetSurfacePts(float width, float height);
+void setExtraHitTargets(nlohmann::json targetsArray);
+
 } // namespace ge::appchannel
