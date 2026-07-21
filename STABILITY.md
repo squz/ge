@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.79.0** (gitignore legacy tools/android + web residue for clean consumer submodules).
+Snapshot as of: **v0.80.0** (sensor suppress/set + Button hit_targets export for spyder T109).
 
 ---
 
