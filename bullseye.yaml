@@ -2360,9 +2360,10 @@ targets:
     achieved: 2026-07-19
   T166:
     name: Per-instance metric<T> objects with assignment sampling, selectable series arming, zero-I/O ring capture, and on-demand dump over the app channel
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
+    actual_cost: 1.0
     acceptance:
     - Public DX is ge::metrics::metric<T> registered by name at construction; per-frame fill is assignment (metric = value), not a required sample({{name,value}}…) bag API as the primary surface
     - operator= is a no-op when the series is unarmed or capture is inactive (cheap internal flag); no hot-path format, socket, or file I/O
@@ -2379,6 +2380,7 @@ targets:
     - yourworld2-audit
     origin: manual
     discovered: 2026-07-21
+    achieved: 2026-07-21
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
