@@ -6,6 +6,7 @@
 // entirely under NDEBUG. See include/ge/appchannel.h for the wire format.
 
 #include <ge/appchannel.h>
+#include <ge/metrics.h>
 #include <ge/button.h>
 
 #include <spdlog/spdlog.h>
@@ -698,6 +699,61 @@ void registerBuiltins() {
     reg("sensor_status", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
         return statusJson();
+    });
+
+    // ── per-instance metrics ring (🎯T166) ──
+    auto resolveMetricsScope = [](const nlohmann::json& p) -> ge::metrics::Scope* {
+        if (p.contains("instance") && p["instance"].is_string()) {
+            auto* s = ge::metrics::Scope::find(p["instance"].get<std::string>());
+            if (!s)
+                throw Error{-32602, "metrics: unknown instance"};
+            return s;
+        }
+        auto all = ge::metrics::Scope::all();
+        if (all.empty())
+            throw Error{-32601, "metrics: no Scope registered (create ge::metrics::Scope per instance)"};
+        if (all.size() > 1)
+            throw Error{-32602, "metrics: multiple instances; pass 'instance' id"};
+        return all[0];
+    };
+    reg("metrics_list", [resolveMetricsScope](const nlohmann::json& p) {
+        // With no instance and multiple scopes, list all instances' catalogs.
+        if (!p.contains("instance") && ge::metrics::Scope::all().size() != 1) {
+            nlohmann::json out = nlohmann::json::array();
+            for (auto* s : ge::metrics::Scope::all())
+                out.push_back(s->list());
+            return nlohmann::json{{"instances", std::move(out)}};
+        }
+        return resolveMetricsScope(p)->list();
+    });
+    reg("metrics_arm", [resolveMetricsScope](const nlohmann::json& p) {
+        auto* s = resolveMetricsScope(p);
+        if (!p.contains("series") || !p["series"].is_array())
+            throw Error{-32602, "metrics_arm: 'series' array required"};
+        std::vector<std::string> series;
+        for (const auto& el : p["series"]) {
+            if (el.is_string()) series.push_back(el.get<std::string>());
+        }
+        std::size_t cap = 3600;
+        if (p.contains("capacity")) {
+            if (p["capacity"].is_number_unsigned())
+                cap = p["capacity"].get<std::size_t>();
+            else if (p["capacity"].is_number_integer())
+                cap = (std::size_t)std::max(0, p["capacity"].get<int>());
+        }
+        s->arm(series, cap);
+        return s->status();
+    });
+    reg("metrics_disarm", [resolveMetricsScope](const nlohmann::json& p) {
+        auto* s = resolveMetricsScope(p);
+        s->disarm();
+        return s->status();
+    });
+    reg("metrics_status", [resolveMetricsScope](const nlohmann::json& p) {
+        return resolveMetricsScope(p)->status();
+    });
+    reg("metrics_dump", [resolveMetricsScope](const nlohmann::json& p) {
+        return resolveMetricsScope(p)->dump();
     });
 
     // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)
