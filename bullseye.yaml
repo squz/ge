@@ -2381,6 +2381,35 @@ targets:
     origin: manual
     discovered: 2026-07-21
     achieved: 2026-07-21
+  T167:
+    name: 'ge owns the end-to-end compressed-texture pipeline: cook, package, and runtime load — one API for every consumer game'
+    status: identified
+    value: 13.0
+    cost: 8.0
+    acceptance:
+    - ge provides a public cook path (CLI and/or library) that takes authoring sources (at minimum RGBA PNG, 2D and cube) and emits platform-appropriate GPU-ready assets (not a per-game encode_getex copy).
+    - ge provides a single runtime load API (e.g. loadTexture / loadCube) that resolves the right encoding for the live backend and returns a sokol image+view — consumers never branch on ASTC vs ETC2 vs RGBA/PNG themselves.
+    - Device iOS + modern Android sample ASTC 4x4 from cooked assets; iOS Simulator and web produce a correct frame without a game-specific fallback (ETC2 and/or PNG/RGBA as ge decides, documented).
+    - Packaging hooks for consumer mobile/web builds (android syncAssets / ios resources / web data) can ship only the formats that platform needs; source PNGs are not required on device when a compressed pack exists.
+    - 'Documented in ge CLAUDE.md / agents-guide: authoring workflow, supported encodings, platform matrix, and how a game opts in (one recipe, not n point solutions).'
+    - TiltBuggy or a small sample (or a unit/integration test with a known PNG) exercises cook → load → sample on at least one compressed path; yourworld2 is a consumer of the API only, not the owner of the pipeline.
+    context: 'Surfaced from yourworld2 (yourworld2-audit). GeTexFormat + TextureEncoder encode offline; games were re-implementing cook. COOK HALF (2026-07-25): Module.mk pattern rules + bin/ge-texenc — `%.astc.getex` / `%.etc2.getex` / `%.png.getex` from `%.png`; consumers list getex deps only (yourworld2: make cubemap-getex). STILL OPEN: runtime load API (one call, platform pick ASTC/ETC2/PNG), packaging hooks so device ships compressed-only, cube-map load helper, sample/docs proof on sim+web+device. Distinct from T128.8 (wire stream LOD).'
+    tags:
+    - textures
+    - astc
+    - etc2
+    - getex
+    - assets
+    - pipeline
+    - packaging
+    - ios
+    - android
+    - web
+    - simulator
+    - yourworld2-audit
+    - api
+    origin: yourworld2-audit
+    discovered: 2026-07-25
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
