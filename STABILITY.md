@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.80.0** (sensor suppress/set + Button hit_targets export for spyder T109).
+Snapshot as of: **v0.81.0** (metrics ring T166 + agent DX docs).
 
 ---
 
