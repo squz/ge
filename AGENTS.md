@@ -316,7 +316,27 @@ Make then runs `bin/ge-texenc $< $@` via the pattern rules `%.astc.getex: %.png`
 
 **Exported cook variables** (read-only): `ge/TEXENC`, `ge/ASTCENC_LIB`, `ge/ETCPAK_LIB`, `ge/TEXTURE_ENCODER_OBJ` — for advanced precompute tools that want to link the encoder without re-declaring astcenc.
 
-**Not covered here:** selecting which format to load at runtime; shipping only device ASTC in the APK (packaging lists). Those are the load/package half of 🎯T167.
+**Runtime load (same 🎯T167):**
+
+```cpp
+#include <ge/texture.h>
+
+// Stem or concrete path — ge picks .astc.getex / .etc2.getex / .png.getex / .png
+// based on what the live sokol backend can sample and what files exist.
+ge::GpuTexture tex = ge::loadTexture("data/textures/globe");
+ge::GpuTexture cube = ge::loadCube("data/textures/cubemap/face_"); // face_0..5
+// bind tex.view / cube.view; destroy() or let dtor free
+```
+
+Platform matrix (default preference order when files exist):
+
+| Backend / platform | Preference |
+|--------------------|------------|
+| iOS device / modern Android (ASTC sampleable) | `.astc.getex` → `.etc2.getex` → `.png.getex` → `.png` |
+| iOS Simulator / GLES without ASTC | `.etc2.getex` → `.png.getex` → `.png` |
+| Web / no block-compress | `.png.getex` → `.png` (or ETC2 if advertised) |
+
+**Packaging:** ship only the encodings each target needs. Device APKs/IPAs should include `*.astc.getex` (and optional ETC2 for sim builds) and **exclude** source globe PNGs when getex packs exist. Desktop can keep PNGs for the authoring loop. Android `syncAssets` example: `exclude '**/*.png'` under `data/textures/cubemap` and `world_*.png`, keep `*.getex`.
 
 ### App icons (🎯T50)
 

@@ -166,7 +166,8 @@ Both introduced in PR #11 (engine/render/bridge split).
 - `ge::GeTexEncoding : uint16_t { Astc4x4=0, Png=1, Etc2Rgba8=2 }`. **Stable**.
 - `ge::GeTexHeader` — 16-byte static-asserted header for `.getex` files. **Stable**. Data-breaking to change.
 - `ge::kGeTexMagic[4] = "GETX"`. **Stable**.
-- `ge::textureToFile(path, pixels, w, h)` — write to `.astc.getex` / `.png.getex` / `.astc` / `.png`. **Needs review** (tools-flavoured; placement in public headers is debatable).
+- `ge::textureToFile(path, pixels, w, h)` — write to `.astc.getex` / `.etc2.getex` / `.png.getex` / `.astc` / `.png`. **Stable** for offline cook (also `bin/ge-texenc` + Module.mk patterns).
+- `ge::loadTexture` / `ge::loadCube` / `ge::textureCandidatePaths` / `ge::resolveTexturePath` / `ge::GpuTexture` (🎯T167) — runtime load with backend-aware encoding pick. **Stable**.
 
 ---
 

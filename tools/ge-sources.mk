@@ -38,6 +38,7 @@ GE_SRC_COMMON := \
 	src/Pass.cpp \
 	src/svg.cpp \
 	src/png.cpp \
+	src/texture_load.cpp \
 	src/text.cpp \
 	src/iap.cpp \
 	src/log.cpp \
