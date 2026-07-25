@@ -17,7 +17,7 @@ JOBS=$(sysctl -n hw.ncpu)
 DAWN_COMMIT="4764cd21387f41d979d6bdd662d08ec0f8bf267b"
 DAWN_REPO="https://dawn.googlesource.com/dawn"
 
-SDL_IMAGE_TAG="release-3.4.0"
+SDL_IMAGE_TAG="release-3.4.4"
 SDL_IMAGE_REPO="https://github.com/libsdl-org/SDL_image.git"
 
 SDL_TTF_TAG="release-3.2.2"
