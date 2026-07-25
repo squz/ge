@@ -2383,9 +2383,10 @@ targets:
     achieved: 2026-07-21
   T167:
     name: 'ge owns the end-to-end compressed-texture pipeline: cook, package, and runtime load — one API for every consumer game'
-    status: identified
+    status: achieved
     value: 13.0
     cost: 8.0
+    actual_cost: 8.0
     acceptance:
     - ge provides a public cook path (CLI and/or library) that takes authoring sources (at minimum RGBA PNG, 2D and cube) and emits platform-appropriate GPU-ready assets (not a per-game encode_getex copy).
     - ge provides a single runtime load API (e.g. loadTexture / loadCube) that resolves the right encoding for the live backend and returns a sokol image+view — consumers never branch on ASTC vs ETC2 vs RGBA/PNG themselves.
@@ -2410,6 +2411,7 @@ targets:
     - api
     origin: yourworld2-audit
     discovered: 2026-07-25
+    achieved: 2026-07-25
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
