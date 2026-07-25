@@ -286,6 +286,37 @@ Module.mk defines these targets so the parent doesn't need to:
 | `ge/android` | Build the Android debug APK |
 | `web` | Build the browser app — `<app>.html/.js/.wasm` via Emscripten + WebGL2 (🎯T157; see [`docs/web-platform.md`](docs/web-platform.md)) |
 | `ge/app-icons` | Expand `icons/icon.svg` into iOS + Android icon resources (🎯T50) |
+| `ge/texenc` | Build `bin/ge-texenc` (PNG → ASTC/ETC2/PNG getex cook tool) |
+
+### Compressed texture cook (🎯T167 — pipeline half)
+
+ge ships `bin/ge-texenc` and **pattern rules** so every consumer encodes GPU assets the same way. **Runtime load / platform pick is a separate surface** (same target’s load half); this section is cook-only.
+
+**What gets produced** (output extension selects the encoder — see `ge::textureToFile`):
+
+| Output | Encoding | Typical use |
+|--------|----------|-------------|
+| `*.astc.getex` | mipmapped ASTC 4×4 | iOS device, modern Android |
+| `*.etc2.getex` | mipmapped ETC2 RGBA8 | iOS Simulator baseline |
+| `*.png.getex` | mipmapped PNG blobs | universal / web-oriented pack |
+
+**Consumer workflow:**
+
+```makefile
+# After -include ge/Module.mk
+CUBEMAP_PNG  := $(wildcard data/textures/cubemap/face_*.png)
+CUBEMAP_ASTC := $(CUBEMAP_PNG:.png=.astc.getex)
+CUBEMAP_ETC2 := $(CUBEMAP_PNG:.png=.etc2.getex)
+
+# Depend on cooked outputs from data / android / ios targets:
+data: $(CUBEMAP_ASTC) $(CUBEMAP_ETC2)
+```
+
+Make then runs `bin/ge-texenc $< $@` via the pattern rules `%.astc.getex: %.png` (and etc2/png.getex siblings). No per-game encoder binary.
+
+**Exported cook variables** (read-only): `ge/TEXENC`, `ge/ASTCENC_LIB`, `ge/ETCPAK_LIB`, `ge/TEXTURE_ENCODER_OBJ` — for advanced precompute tools that want to link the encoder without re-declaring astcenc.
+
+**Not covered here:** selecting which format to load at runtime; shipping only device ASTC in the APK (packaging lists). Those are the load/package half of 🎯T167.
 
 ### App icons (🎯T50)
 

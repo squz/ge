@@ -164,9 +164,26 @@ ge/RENDER_SHADERS_SPIRV = $(ge/RENDER_SHADERS)
 ge/APP_SHADERS_GLES     = $(APP_SHADERS)
 ge/RENDER_SHADERS_GLES  = $(ge/RENDER_SHADERS)
 
-# Texture encoder (used by precompute tools, NOT part of libge.a)
+# Texture encoder (used by precompute tools + ge-texenc, NOT part of libge.a)
 ge/TEXTURE_ENCODER_SRC = $(ge)/src/TextureEncoder.cpp
 ge/TEXTURE_ENCODER_OBJ = $(BUILD_DIR)/ge/src/TextureEncoder.o
+
+# Offline ASTC / ETC2 libraries for ge-texenc (and consumer precompute tools).
+# Not linked into libge.a — cook path only (🎯T167).
+ge/ASTCENC_DIR = $(ge)/vendor/github.com/ARM-software/astc-encoder
+ge/ASTCENC_SRC = $(filter-out $(wildcard $(ge/ASTCENC_DIR)/Source/astcenccli_*.cpp),$(wildcard $(ge/ASTCENC_DIR)/Source/*.cpp))
+ge/ASTCENC_OBJ = $(patsubst $(ge/ASTCENC_DIR)/Source/%.cpp,$(BUILD_DIR)/ge/vendor/astcenc/%.o,$(ge/ASTCENC_SRC))
+ge/ASTCENC_LIB = $(BUILD_DIR)/ge/libastcenc.a
+# Disable x86 SIMD; enable NEON on arm64 hosts (Apple Silicon / Android NDK cook).
+ge/ASTCENC_SIMD = -DASTCENC_SSE=0 -DASTCENC_AVX=0 -DASTCENC_POPCNT=0 \
+	$(if $(filter arm64 aarch64,$(shell uname -m 2>/dev/null)),-DASTCENC_NEON=1,-DASTCENC_NEON=0)
+ge/ASTCENC_CXXFLAGS = -std=c++17 -O2 $(ge/ASTCENC_SIMD) -I$(ge/ASTCENC_DIR)/Source
+
+ge/ETCPAK_DIR = $(ge)/vendor/github.com/wolfpld/etcpak
+ge/ETCPAK_SRC = $(wildcard $(ge/ETCPAK_DIR)/*.cpp)
+ge/ETCPAK_OBJ = $(patsubst $(ge/ETCPAK_DIR)/%.cpp,$(BUILD_DIR)/ge/vendor/etcpak/%.o,$(ge/ETCPAK_SRC))
+ge/ETCPAK_LIB = $(BUILD_DIR)/ge/libetcpak.a
+ge/ETCPAK_CXXFLAGS = -std=c++20 -O2 -I$(ge/ETCPAK_DIR)
 
 # Box2D v3 physics library (C code)
 ge/BOX2D_DIR = $(ge)/vendor/github.com/erincatto/box2d
@@ -463,6 +480,67 @@ ge/imgdiff: $(ge/IMGDIFF)
 $(ge/IMGDIFF): $(ge)/tools/imgdiff.cpp
 	@mkdir -p $(@D)
 	$(CXX) -std=c++20 -O2 -I$(ge)/include -I$(ge)/vendor/include $< -o $@
+
+# ────────────────────────────────────────────────
+# Compressed texture cook (🎯T167 — pipeline / cook half)
+#
+# ge-texenc encodes RGBA PNG → .astc.getex / .etc2.getex / .png.getex
+# (format by output extension; see ge::textureToFile). Pattern rules below
+# fire when a consumer lists the getex path as a Make dependency:
+#
+#   # after -include ge/Module.mk
+#   CUBEMAP_PNG  := $(wildcard data/textures/cubemap/face_*.png)
+#   CUBEMAP_ASTC := $(CUBEMAP_PNG:.png=.astc.getex)
+#   data: $(CUBEMAP_ASTC)
+#
+# Runtime load / platform pick is a separate ge surface (T167 load half).
+# ────────────────────────────────────────────────
+ge/TEXENC = bin/ge-texenc
+ge/TEXENC_CXXFLAGS = -std=c++20 -O2 \
+	-I$(ge)/include -I$(ge)/vendor/include \
+	-I$(ge)/vendor/github.com/gabime/spdlog/include \
+	-I$(ge/ASTCENC_DIR)/Source -I$(ge/ETCPAK_DIR)
+
+.PHONY: ge/texenc
+ge/texenc: $(ge/TEXENC)
+
+$(BUILD_DIR)/ge/vendor/astcenc/%.o: $(ge/ASTCENC_DIR)/Source/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(ge/ASTCENC_CXXFLAGS) -c $< -o $@
+
+$(ge/ASTCENC_LIB): $(ge/ASTCENC_OBJ)
+	@mkdir -p $(dir $@)
+	libtool -static -o $@ $^
+
+$(BUILD_DIR)/ge/vendor/etcpak/%.o: $(ge/ETCPAK_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(ge/ETCPAK_CXXFLAGS) -c $< -o $@
+
+$(ge/ETCPAK_LIB): $(ge/ETCPAK_OBJ)
+	@mkdir -p $(dir $@)
+	libtool -static -o $@ $^
+
+$(ge/TEXTURE_ENCODER_OBJ): $(ge)/src/TextureEncoder.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(ge/TEXENC_CXXFLAGS) -c $< -o $@
+
+$(ge/TEXENC): $(ge)/tools/texenc.cpp $(ge/TEXTURE_ENCODER_OBJ) $(ge/ASTCENC_LIB) $(ge/ETCPAK_LIB)
+	@mkdir -p $(@D)
+	$(CXX) $(ge/TEXENC_CXXFLAGS) $< $(ge/TEXTURE_ENCODER_OBJ) $(ge/ASTCENC_LIB) $(ge/ETCPAK_LIB) -o $@
+
+# Stem pattern: path/foo.png → path/foo.astc.getex (etc.). Consumers depend on
+# the outputs; they never invoke ge-texenc by hand.
+%.astc.getex: %.png | $(ge/TEXENC)
+	@mkdir -p $(dir $@)
+	$(ge/TEXENC) $< $@
+
+%.etc2.getex: %.png | $(ge/TEXENC)
+	@mkdir -p $(dir $@)
+	$(ge/TEXENC) $< $@
+
+%.png.getex: %.png | $(ge/TEXENC)
+	@mkdir -p $(dir $@)
+	$(ge/TEXENC) $< $@
 
 # icon-gen — build-time app-icon expander (🎯T50). Takes a single source SVG
 # and writes both platforms' icon resource layouts via ge::rasterizeSvgToPixels.
