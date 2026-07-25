@@ -391,11 +391,32 @@ thread never blocks on the socket.**
 | `state_query` | `app_state` | return a consumer-registered state slice (run on the game thread) |
 | `save_state` / `restore_state` | `app_save_state` / `app_restore_state` | round-trip a consumer snapshot; ge MessagePack-encodes it into a `state` bin, spyder base64s into `{state_b64, size}` |
 | `screenshot_app` | `app_screenshot` | framebuffer readback → PNG `{format, width, height, data:<bin>}` |
+| `metrics_list` / `metrics_arm` / `metrics_disarm` / `metrics_status` / `metrics_dump` | `app_metrics_*` | 🎯T166 per-instance frame-trace ring: list series, arm selected names + capacity, dump full retained history (not latest-only `perfEmit`) |
 
 Time-control rides the run loop via `ge::appchannel::applyTimeControl(dt)` (the
 real frame `dt` in, the effective `dt` for `onUpdate` out). `app_pause` keeps
 render + input alive, so `app_input` / `app_state` / `app_screenshot` while paused
 are **state-correlated** — the killer combo for visual debugging.
+
+**Per-instance metrics DX** (`<ge/metrics.h>`, 🎯T166) — one `Scope` per game
+instance; typed producers assign each frame (no-op when unarmed; zero I/O):
+
+```cpp
+#include <ge/metrics.h>
+struct App {
+    ge::metrics::Scope metrics;
+    ge::metrics::metric<float> dt{metrics, "dt"};
+    ge::metrics::metric<float> zoom{metrics, "zoom"};
+    void update(float frameDt) {
+        dt = frameDt;
+        zoom = cameraZoom;
+        metrics.endFrame();
+    }
+};
+// spyder: app_metrics_arm { series: ["dt","zoom"], capacity: 3600 }
+//         … drive UX …
+//         app_metrics_dump  → { series, frames: [[…], …], count }
+```
 
 **Consumer-cooperative surface** (register *before* `ge::run` so it's advertised
 in the hello; getters run on the game thread, marshalled by the run loop's

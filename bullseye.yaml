@@ -2358,6 +2358,29 @@ targets:
     origin: user design re-statement, 2026-07-19
     discovered: 2026-07-19
     achieved: 2026-07-19
+  T166:
+    name: Per-instance metric<T> objects with assignment sampling, selectable series arming, zero-I/O ring capture, and on-demand dump over the app channel
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    actual_cost: 1.0
+    acceptance:
+    - Public DX is ge::metrics::metric<T> registered by name at construction; per-frame fill is assignment (metric = value), not a required sample({{name,value}}…) bag API as the primary surface
+    - operator= is a no-op when the series is unarmed or capture is inactive (cheap internal flag); no hot-path format, socket, or file I/O
+    - Metric objects, the slots they write, armed masks, and rings are per game instance/session — not process-global singletons shared across concurrent instances
+    - Two concurrent instances can assign different values without cross-talk; arming/dumping one instance does not read or clear the other's ring
+    - metrics_list (or hello) advertises the instance catalog; metrics_arm accepts series list + capacity for that instance; metrics_disarm / metrics_status / metrics_dump target that instance only
+    - Dump returns a compact full retained-frame history for the selected series on that instance (not latest-only gauges)
+    - 'Unarmed or no channel: capture is a single-branch no-op; entire feature compiled out under NDEBUG (stub metric<T> if needed so release call sites can compile or are #ifndef-gated)'
+    - Unit tests cover assignment + arm select + per-instance isolation + ring wrap/dump; agents-guide/STABILITY document the metric<T> DX and per-instance model
+    context: 'yourworld2 ASUS carousel investigation needs every-frame zoom/mag/dt history without SPDLOG observer effect. Existing perfEmit is latest-value windowed gauges (T92.4), not a frame trace. DX: typed ge::metrics::metric<T> producers (e.g. metric<float> dt{"dt"}; dt = frameDt;) owned per game instance — not free-function sample bags or process-global statics. operator= is the hot path: no-op when that series is unarmed (internal active flag); optional capturing() exists but apps need not wrap every assign. Multi-session: catalog writes, armed masks, and rings are per instance/session. Control plane (list/arm/disarm/status/dump) parallels sensors/tweaks; spyder targets a session. Debug-only, SPYDER_APP_CHANNEL gated. Pairs with spyder 🎯T110 and yourworld2 🎯T68.'
+    tags:
+    - app-channel
+    - telemetry
+    - yourworld2-audit
+    origin: manual
+    discovered: 2026-07-21
+    achieved: 2026-07-21
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
