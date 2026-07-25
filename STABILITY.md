@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.81.0** (metrics ring T166 + agent DX docs).
+Snapshot as of: **v0.82.0** (SDL3 release-3.4.12 + recooked prebuilts).
 
 ---
 
