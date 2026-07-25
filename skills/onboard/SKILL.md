@@ -143,8 +143,7 @@ cd ~/work/github.com/squz/<game>
 make
 ```
 
-This compiles the game server, libge.a, and all dependencies. First build takes
-5–15 minutes (bgfx compiles from source).
+This compiles the game, libge.a, and dependencies (sokol_gfx + SDL3). First build can take several minutes while prebuilts/vendors warm caches.
 
 Verify: `ls bin/` shows the game binary.
 

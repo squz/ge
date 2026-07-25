@@ -28,6 +28,7 @@
 GE_SRC_COMMON := \
 	src/Context.cpp \
 	src/appchannel.cpp \
+	src/metrics.cpp \
 	src/Resource.cpp \
 	src/FileIO.cpp \
 	src/Signal.cpp \

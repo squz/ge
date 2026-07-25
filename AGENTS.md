@@ -58,6 +58,31 @@ the host, not a user-facing GUI product.
 
 **Do not start `ged`.** Use spyder for control-plane work.
 
+## Human moments (agent behaviour)
+
+The human is product owner + taste oracle + irreversible-ops authority.
+Agents implement, verify, and document.
+
+Interrupt the human only for:
+- irreversible shared-state ops (squash-merge to default branch, `gh release`, store submit)
+- product / taste judgment (feel, UX, ship / no-ship)
+- secrets, accounts, or physical device unlocks the agent cannot do
+- blocked after three failed automated attempts at the same step
+
+Do **not** interrupt for "should I run tests?", "is the binary up?", or "what is next?" — use smoke/oracles and bullseye first.
+
+After a device smoke script passes and a visual question remains, state what already passed, then ask one concrete question.
+
+## Consumer DX contract
+
+Games that consume ge (esfera2, multimaze2, yourworld2, …) should keep their
+agent entrypoints (`AGENTS.md` / `CLAUDE.md`) and README aligned with this file:
+primary modality is **direct** `ge::run`; control plane is **spyder**; no `ged`.
+File engine targets in the standalone ge workspace (`~/work/github.com/squz/ge`),
+not the submodule pin. Bump the submodule only to a **released** ge tag unless
+actively co-developing an unreleased engine feature.
+
+
 ## ge Claude Code Plugin
 
 ge ships a Claude Code plugin that exposes four skills for shipping ge-consumer apps.
