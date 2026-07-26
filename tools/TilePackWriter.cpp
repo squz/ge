@@ -75,9 +75,9 @@ void parallelFor(int count, int minParallel, const std::function<void(int)>& bod
 // gunzip via `zcat` subprocess (no zlib vendored yet — see tools/TilePackWriter.h
 // header comment / 🎯T168.1 cook report for the tradeoff).
 std::vector<uint8_t> runZcat(const std::string& path) {
-    std::string cmd = "zcat '" + path + "'";
+    std::string cmd = "gunzip -c '" + path + "'";
     FILE* p = popen(cmd.c_str(), "r");
-    if (!p) throw std::runtime_error("popen(zcat) failed for " + path);
+    if (!p) throw std::runtime_error("popen(gunzip) failed for " + path);
     std::vector<uint8_t> out;
     uint8_t buf[65536];
     size_t n;
@@ -86,7 +86,7 @@ std::vector<uint8_t> runZcat(const std::string& path) {
     }
     int rc = pclose(p);
     if (rc != 0) {
-        throw std::runtime_error("zcat failed (exit " + std::to_string(rc) + ") for " + path);
+        throw std::runtime_error("gunzip failed (exit " + std::to_string(rc) + ") for " + path);
     }
     return out;
 }
