@@ -36,8 +36,11 @@ constexpr uint16_t kGeTilePackVersion = 1;
 // Per-plane texel encodings. Values are frozen once released.
 enum class GeTilePlaneEncoding : uint16_t {
     Astc4x4 = 0, // → SG_PIXELFORMAT_ASTC_4x4_RGBA (imagery)
-    R8      = 1, // raw R8 unorm, nearest-sampled (country-ID plane)
-    EacR11  = 2, // → SG_PIXELFORMAT_EAC_R11 (SDF plane)
+    R8      = 1, // raw R8 unorm, nearest-sampled
+    EacR11  = 2, // → SG_PIXELFORMAT_EAC_R11 (reserved, not cooked in v1)
+    Rg8     = 3, // raw RG8 unorm carrying a 16-bit ID: id = R + G*256
+                 // (little-endian u16 source), nearest-sampled, single mip.
+                 // Country-ID plane — 254 regions overflowed u8 (🎯T69.2).
 };
 
 struct GeTilePackHeader {

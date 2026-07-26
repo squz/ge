@@ -41,6 +41,17 @@ void writeRawPlane(const fs::path& path, int w, int h, int channels, uint8_t val
     out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
 }
 
+void writeRawPlaneU16(const fs::path& path, int w, int h, uint16_t value) {
+    std::vector<uint8_t> bytes(size_t(w) * h * 2);
+    for (size_t i = 0, n = size_t(w) * h; i < n; ++i) {
+        bytes[i * 2]     = uint8_t(value & 0xff);
+        bytes[i * 2 + 1] = uint8_t(value >> 8);
+    }
+    std::ofstream out(path, std::ios::binary);
+    REQUIRE(bool(out));
+    out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+}
+
 std::vector<uint8_t> readWholeFile(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
     REQUIRE(bool(in));
@@ -74,6 +85,17 @@ nlohmann::json buildConfig(const fs::path& dir, const std::string& outputName) {
                 {"filter", "nearest"},
             }},
         },
+        {
+            // 🎯T69.2 u16 country IDs: 274 regions overflowed u8, so IDs ride
+            // as RG8 (id = R + G*256) from a raw u16 source.
+            {"name", "id16"}, {"encoding", "rg8"},
+            {"tileSize", 32}, {"gutter", 2}, {"mips", 1}, {"levels", 2},
+            {"input", {
+                {"path", (dir / "id16.bin").string()},
+                {"width", 8}, {"height", 4}, {"channels", 1},
+                {"dtype", "u16"}, {"filter", "nearest"},
+            }},
+        },
     });
     return cfg;
 }
@@ -87,6 +109,7 @@ TEST_CASE("cookTilePack round-trip: layout, r8 exact values, truncation prefix")
 
     writeRawPlane(dir / "rgb.bin", 8, 4, 3, 140);
     writeRawPlane(dir / "id.bin", 8, 4, 1, 200);
+    writeRawPlaneU16(dir / "id16.bin", 8, 4, 300); // deliberately > 255
 
     nlohmann::json config = buildConfig(dir, "full.getp");
     std::string err;
@@ -98,19 +121,22 @@ TEST_CASE("cookTilePack round-trip: layout, r8 exact values, truncation prefix")
     std::memcpy(&header, full.data(), sizeof(header));
     CHECK(std::memcmp(header.magic, kGeTilePackMagic, 4) == 0);
     CHECK(header.version == kGeTilePackVersion);
-    CHECK(header.planeCount == 2);
+    CHECK(header.planeCount == 3);
     CHECK(header.fileSize == full.size());
 
     std::vector<GeTilePlaneDesc> descs(header.planeCount);
     std::memcpy(descs.data(), full.data() + sizeof(header), descs.size() * sizeof(GeTilePlaneDesc));
 
-    int rgbPlane = -1, idPlane = -1;
+    int rgbPlane = -1, idPlane = -1, id16Plane = -1;
     for (size_t i = 0; i < descs.size(); ++i) {
         if (planeName(descs[i]) == "rgb") rgbPlane = int(i);
         if (planeName(descs[i]) == "id") idPlane = int(i);
+        if (planeName(descs[i]) == "id16") id16Plane = int(i);
     }
     REQUIRE(rgbPlane >= 0);
     REQUIRE(idPlane >= 0);
+    REQUIRE(id16Plane >= 0);
+    CHECK(descs[id16Plane].encoding == uint16_t(GeTilePlaneEncoding::Rg8));
     CHECK(descs[idPlane].encoding == uint16_t(GeTilePlaneEncoding::R8));
     CHECK(descs[idPlane].tileSize == 32);
     CHECK(descs[idPlane].gutter == 2);
@@ -159,6 +185,20 @@ TEST_CASE("cookTilePack round-trip: layout, r8 exact values, truncation prefix")
     const uint8_t* payload = blob + 4; // past mipSizes[1]
     for (uint32_t i = 0; i < mip0Size; ++i) {
         CHECK(payload[i] == 200);
+    }
+
+    // ── rg8 plane: u16 value 300 round-trips as lo=44, hi=1 ──
+    GeTileEntry id16Entry{};
+    std::memcpy(&id16Entry, full.data() + descs[id16Plane].indexOffset + idx0 * sizeof(GeTileEntry),
+                sizeof(id16Entry));
+    const uint8_t* blob16 = full.data() + id16Entry.offset;
+    uint32_t mip0Size16;
+    std::memcpy(&mip0Size16, blob16, 4);
+    CHECK(mip0Size16 == uint32_t(storedEdge * storedEdge * 2));
+    const uint8_t* payload16 = blob16 + 4;
+    for (uint32_t i = 0; i < uint32_t(storedEdge * storedEdge); ++i) {
+        CHECK(payload16[i * 2] == 44);      // 300 & 0xff
+        CHECK(payload16[i * 2 + 1] == 1);   // 300 >> 8
     }
 
     // ── truncation property: levelCapOverride=0 is a byte-identical prefix

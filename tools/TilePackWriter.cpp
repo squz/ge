@@ -110,12 +110,14 @@ struct PlaneCfg {
     bool filterNearest = false;
     std::string inputPath;
     int rawWidth = 0, rawHeight = 0, rawChannels = 0;
-    bool isRaw = false; // else PNG
+    bool rawU16 = false; // input dtype u16 (little-endian); else u8
+    bool isRaw = false;  // else PNG
 };
 
 GeTilePlaneEncoding parseEncoding(const std::string& s) {
     if (s == "astc4x4") return GeTilePlaneEncoding::Astc4x4;
     if (s == "r8") return GeTilePlaneEncoding::R8;
+    if (s == "rg8") return GeTilePlaneEncoding::Rg8;
     if (s == "eac_r11" || s == "eacr11") return GeTilePlaneEncoding::EacR11;
     throw std::runtime_error("unknown plane encoding: " + s);
 }
@@ -143,6 +145,18 @@ PlaneCfg parsePlaneCfg(const nlohmann::json& j) {
     const auto& in = j.at("input");
     p.inputPath = in.at("path").get<std::string>();
     p.filterNearest = in.value("filter", std::string("linear")) == "nearest";
+    p.rawU16 = in.value("dtype", std::string("u8")) == "u16";
+
+    if (p.encoding == GeTilePlaneEncoding::Rg8) {
+        // Rg8 carries discrete 16-bit IDs: blending or mipping IDs would
+        // manufacture nonexistent countries, and PNG sources can't carry u16.
+        if (!p.filterNearest || p.mipCount != 1 || !p.rawU16) {
+            throw std::runtime_error("plane '" + p.name +
+                "': rg8 requires filter=nearest, mips=1, and a raw u16 input");
+        }
+    } else if (p.rawU16) {
+        throw std::runtime_error("plane '" + p.name + "': dtype u16 is only valid with rg8");
+    }
 
     if (endsWith(p.inputPath, ".png")) {
         p.isRaw = false;
@@ -220,7 +234,8 @@ EquirectSource loadEquirectSource(const PlaneCfg& p, const std::string& resolved
     EquirectSource src;
     if (p.isRaw) {
         std::vector<uint8_t> bytes = readMaybeGz(resolvedPath);
-        size_t expected = size_t(p.rawWidth) * p.rawHeight * p.rawChannels;
+        size_t texels = size_t(p.rawWidth) * p.rawHeight * p.rawChannels;
+        size_t expected = texels * (p.rawU16 ? 2 : 1);
         if (bytes.size() != expected) {
             throw std::runtime_error("plane '" + p.name + "': raw input " + resolvedPath +
                 " has " + std::to_string(bytes.size()) + " bytes, expected " +
@@ -229,8 +244,17 @@ EquirectSource loadEquirectSource(const PlaneCfg& p, const std::string& resolved
         src.width = p.rawWidth;
         src.height = p.rawHeight;
         src.channels = p.rawChannels;
-        src.data.resize(bytes.size());
-        for (size_t i = 0; i < bytes.size(); ++i) src.data[i] = float(bytes[i]);
+        src.data.resize(texels);
+        if (p.rawU16) {
+            // Little-endian u16 → float. Exact for the full 0..65535 range
+            // (floats hold integers ≤ 2^24), so nearest-sampled IDs
+            // round-trip losslessly through the float pipeline.
+            for (size_t i = 0; i < texels; ++i) {
+                src.data[i] = float(uint16_t(bytes[i * 2]) | uint16_t(bytes[i * 2 + 1]) << 8);
+            }
+        } else {
+            for (size_t i = 0; i < texels; ++i) src.data[i] = float(bytes[i]);
+        }
     } else {
         int w = 0, h = 0, fileChannels = 0;
         int desired = desiredChannelsForPng(p.encoding);
@@ -248,8 +272,10 @@ EquirectSource loadEquirectSource(const PlaneCfg& p, const std::string& resolved
         for (size_t i = 0; i < n; ++i) src.data[i] = float(img[i]);
         stbi_image_free(img);
     }
-    if (p.encoding == GeTilePlaneEncoding::R8 && src.channels != 1) {
-        throw std::runtime_error("plane '" + p.name + "': r8 encoding requires a 1-channel input");
+    if ((p.encoding == GeTilePlaneEncoding::R8 ||
+         p.encoding == GeTilePlaneEncoding::Rg8) && src.channels != 1) {
+        throw std::runtime_error("plane '" + p.name +
+            "': r8/rg8 encoding requires a 1-channel input");
     }
     return src;
 }
@@ -511,6 +537,7 @@ std::vector<uint8_t> expandToRgba8(const std::vector<float>& mip, int w, int h, 
 // encoding happens (see cookTilePack's layout pass).
 uint64_t mipBlobSize(int w, int h, GeTilePlaneEncoding enc) {
     if (enc == GeTilePlaneEncoding::R8) return uint64_t(w) * h;
+    if (enc == GeTilePlaneEncoding::Rg8) return uint64_t(w) * h * 2;
     return uint64_t((w + 3) / 4) * uint64_t((h + 3) / 4) * 16; // Astc4x4
 }
 
@@ -538,6 +565,14 @@ std::vector<uint8_t> encodeTileBlob(const std::vector<float>& canvas0, int store
         if (p.encoding == GeTilePlaneEncoding::R8) {
             std::vector<uint8_t> bytes(size_t(w) * h);
             for (size_t i = 0; i < bytes.size(); ++i) bytes[i] = quantizeByte(mip[i]);
+            mipBytes.push_back(std::move(bytes));
+        } else if (p.encoding == GeTilePlaneEncoding::Rg8) {
+            std::vector<uint8_t> bytes(size_t(w) * h * 2);
+            for (size_t i = 0, n = size_t(w) * h; i < n; ++i) {
+                uint32_t v = uint32_t(std::clamp(std::round(mip[i]), 0.0f, 65535.0f));
+                bytes[i * 2]     = uint8_t(v & 0xff);
+                bytes[i * 2 + 1] = uint8_t(v >> 8);
+            }
             mipBytes.push_back(std::move(bytes));
         } else {
             auto rgba = expandToRgba8(mip, w, h, channels);
