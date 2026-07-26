@@ -169,6 +169,15 @@ Both introduced in PR #11 (engine/render/bridge split).
 - `ge::textureToFile(path, pixels, w, h)` — write to `.astc.getex` / `.etc2.getex` / `.png.getex` / `.astc` / `.png`. **Stable** for offline cook (also `bin/ge-texenc` + Module.mk patterns).
 - `ge::loadTexture` / `ge::loadCube` / `ge::textureCandidatePaths` / `ge::resolveTexturePath` / `ge::GpuTexture` (🎯T167) — runtime load with backend-aware encoding pick. **Stable**.
 
+### Tile pyramid (🎯T168)
+
+- `.getp` on-disk format — `GeTilePackHeader` (24B), `GeTilePlaneDesc` (32B), `GeTileEntry` (16B), `GeTilePlaneEncoding { Astc4x4=0, R8=1, EacR11=2 (reserved), Rg8=3 }`, coarse→fine blob layout with the byte-prefix truncation property (`TilePackFormat.h`). **Stable**. Data-breaking to change.
+- `ge::CubeSphere` conventions — `CubeFace` (sokol slice order), `cubeFaceDir` / `cubeFaceUVForDir` / `tileRect` / `tileForFaceUV` / `tilePatchMesh` / `tileAncestorRemap` / `tilePayloadToTexUV` / `dirForLonLat` / `lonLatForDir`. The face basis is pinned by `CubeSphere_test.cpp`; changing it invalidates every cooked pack. **Stable** (basis) / **Needs review** (helper signatures).
+- `ge::TilePyramid` / `ge::TileView` / `ge::TilePyramidOptions` — open / pump / resolve, fully-resident coarse-first loading. **Fluid** while yw2 is the only consumer.
+- `ge::queryDeviceTier` / `ge::DeviceTierInfo` / `ge::TextureTier` / `ge::tierFor` (🎯T168.3). **Needs review**.
+- `ge::cookTilePack` (tools tree, not public include/) + `bin/ge-texpack` + JSON config schema. **Fluid**. Known limit: loads equirect sources whole as float (~4× source bytes RSS).
+- Vendored-sokol patch: Apple-silicon macOS Metal enables ETC2/EAC/ASTC (caps behind `MTLGPUFamilyApple7` + unconditional format mapping) — grep `ge patch` in `sokol_gfx.h`; re-apply on sokol upgrades.
+
 ---
 
 ## Build-system contract
