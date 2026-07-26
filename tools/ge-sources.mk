@@ -29,6 +29,7 @@ GE_SRC_COMMON := \
 	src/Context.cpp \
 	src/appchannel.cpp \
 	src/metrics.cpp \
+	src/DeviceTier.cpp \
 	src/Resource.cpp \
 	src/FileIO.cpp \
 	src/Signal.cpp \
@@ -70,6 +71,7 @@ GE_SRC_APPLE := \
 	src/audio_apple.mm \
 	src/log_apple.mm \
 	src/Attitude_apple.mm \
+	src/DeviceTier_apple.mm \
 	src/SokolContext.mm \
 	src/render/RefreshRateBoost_apple.mm
 
@@ -79,6 +81,7 @@ GE_SRC_ANDROID := \
 	src/Immersive_android.cpp \
 	src/CutoutInsets_android.cpp \
 	src/Attitude_android.cpp \
+	src/DeviceTier_android.cpp \
 	src/iap_android.cpp \
 	src/log_android.cpp \
 	src/SokolContext_android.cpp \
@@ -121,6 +124,11 @@ GE_SRC_IOS_IMMERSIVE := \
 GE_SRC_STUB_ATTITUDE := \
 	src/Attitude_stub.cpp
 
+# DeviceTier has three: apple (sysctlbyname), android (sysinfo), stub
+# (0 RAM — web / other, where physical RAM isn't queryable).
+GE_SRC_STUB_DEVICE_TIER := \
+	src/DeviceTier_stub.cpp
+
 # ── orientation lock ───────────────────────────────────────────────
 # iOS uses a real swizzle (Apple TN3192). Every other platform — macOS
 # desktop, Android, Linux desktop — uses the stub.
@@ -157,7 +165,7 @@ GE_SRC_DIRECT_ANDROID          := $(GE_SRC_COMMON) $(GE_SRC_ANDROID) $(GE_SRC_OR
 # 🎯T157 Web direct-mode: core + web glue + every stub (no chrome, no
 # sensors, no orientation lock in the browser). Never combined with
 # GE_SRC_BROKERED — the web build is direct-only by construction.
-GE_SRC_DIRECT_WEB              := $(GE_SRC_COMMON) $(GE_SRC_WEB) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_STUB_ATTITUDE) $(GE_SRC_ORIENTATION_STUB)
+GE_SRC_DIRECT_WEB              := $(GE_SRC_COMMON) $(GE_SRC_WEB) $(GE_SRC_STUB_IMMERSIVE) $(GE_SRC_STUB_ATTITUDE) $(GE_SRC_STUB_DEVICE_TIER) $(GE_SRC_ORIENTATION_STUB)
 
 # ── helper print targets (for tools/prebuild.sh extraction) ────────
 # `make -s -f tools/ge-sources.mk print-direct-ios` etc. Newline-separated

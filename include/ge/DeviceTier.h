@@ -35,6 +35,12 @@ struct DeviceTierInfo {
 // (carve-outs), so the boundary sits below 6 GiB.
 constexpr uint64_t kFullTierMinRamBytes = 5ull * 1024 * 1024 * 1024 + 512ull * 1024 * 1024;
 
+// Pure decision rule, exposed for unit testing without a sokol context:
+// !astc → Legacy; ramBytes >= kFullTierMinRamBytes → Full; else Capped.
+// queryDeviceTier() is this plus the platform RAM query, the live sokol
+// ASTC/ETC2 check, logging, and app-channel reporting.
+TextureTier tierFor(uint64_t ramBytes, bool astc);
+
 // Queries platform RAM + live sokol backend format support, logs the
 // decision once, and reports it on the app channel when connected.
 // Requires an initialized sokol context (else returns Legacy + logs).
