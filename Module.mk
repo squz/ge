@@ -262,6 +262,7 @@ ge/TEST_SRC = \
 	$(ge)/src/png_test.cpp \
 	$(ge)/src/texture_load_test.cpp \
 	$(ge)/src/CubeSphere_test.cpp \
+	$(ge)/src/TilePackFormat_test.cpp \
 	$(ge)/src/text_test.cpp \
 	$(ge)/src/sprite_test.cpp \
 	$(ge)/src/appchannel_test.cpp \
@@ -545,6 +546,45 @@ $(ge/TEXENC): $(ge)/tools/texenc.cpp $(ge/TEXTURE_ENCODER_OBJ) $(ge/ASTCENC_LIB)
 	@mkdir -p $(dir $@)
 	$(ge/TEXENC) $< $@
 
+# ────────────────────────────────────────────────
+# Tile-pack cook (🎯T168.1 — cube-sphere pyramid / cook half)
+#
+# ge-texpack cooks a JSON-configured set of equirectangular planes into one
+# .getp tile pack (header/plane-descs/index/blobs — see TilePackFormat.h).
+# The cook itself lives in tools/TilePackWriter.cpp (not linked into
+# libge.a — same opt-in convention as TextureEncoder.cpp above) so the
+# round-trip doctest (src/TilePackFormat_test.cpp) can call
+# ge::cookTilePack() directly instead of shelling out to the CLI; that's
+# also why $(ge/TILEPACKWRITER_OBJ) and $(ge/ASTCENC_LIB) are added to the
+# unit-test link line below, alongside ge/TEST_BIN's normal prerequisites.
+#
+# Runtime load is TilePyramid (T168.2, TilePack.h) — a separate ge surface.
+# ────────────────────────────────────────────────
+ge/TEXPACK = bin/ge-texpack
+ge/TEXPACK_CXXFLAGS = -std=c++20 -O2 \
+	-I$(ge)/include -I$(ge)/vendor/include \
+	-I$(ge)/vendor/github.com/gabime/spdlog/include \
+	-I$(ge/ASTCENC_DIR)/Source
+
+.PHONY: ge/texpack
+ge/texpack: $(ge/TEXPACK)
+
+ge/TILEPACKWRITER_OBJ = $(BUILD_DIR)/ge/tools/TilePackWriter.o
+
+$(ge/TILEPACKWRITER_OBJ): $(ge)/tools/TilePackWriter.cpp $(ge)/tools/TilePackWriter.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(ge/TEXPACK_CXXFLAGS) -c $< -o $@
+
+# CubeSphere.o (face/tile math the cook samples through) is otherwise only
+# ever built as part of libge.a; ge-texpack links it standalone via the
+# generic $(BUILD_DIR)/ge/src/%.o pattern rule above so it doesn't have to
+# pull in the rest of the engine (sokol/SDL/etc.) just to run the cook CLI.
+ge/CUBESPHERE_OBJ = $(BUILD_DIR)/ge/src/CubeSphere.o
+
+$(ge/TEXPACK): $(ge)/tools/texpack.cpp $(ge/TILEPACKWRITER_OBJ) $(ge/CUBESPHERE_OBJ) $(ge/ASTCENC_LIB)
+	@mkdir -p $(@D)
+	$(CXX) $(ge/TEXPACK_CXXFLAGS) $< $(ge/TILEPACKWRITER_OBJ) $(ge/CUBESPHERE_OBJ) $(ge/ASTCENC_LIB) -o $@
+
 # icon-gen — build-time app-icon expander (🎯T50). Takes a single source SVG
 # and writes both platforms' icon resource layouts via ge::rasterizeSvgToPixels.
 # Same link line as the player ($(ge/PLAYER) above): linking libge.a pulls in
@@ -606,9 +646,13 @@ ge/TEST_BIN = bin/ge-test
 unit-test: $(ge/TEST_BIN)
 	$(ge/TEST_BIN)
 
-$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS)
+# TilePackFormat_test.cpp calls ge::cookTilePack() (tools/TilePackWriter.cpp,
+# 🎯T168.1 — not part of libge.a), so its object and astcenc (the encoder it
+# calls into for astc4x4 planes) join the normal test link line.
+$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB)
 	@mkdir -p $(@D)
-	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
+	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB) \
+	    $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
 # ────────────────────────────────────────────────
 # Mobile targets
