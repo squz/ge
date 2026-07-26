@@ -39,6 +39,7 @@ GE_SRC_COMMON := \
 	src/svg.cpp \
 	src/png.cpp \
 	src/texture_load.cpp \
+	src/CubeSphere.cpp \
 	src/text.cpp \
 	src/iap.cpp \
 	src/log.cpp \

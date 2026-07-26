@@ -260,6 +260,7 @@ ge/TEST_SRC = \
 	$(ge)/src/svg_test.cpp \
 	$(ge)/src/png_test.cpp \
 	$(ge)/src/texture_load_test.cpp \
+	$(ge)/src/CubeSphere_test.cpp \
 	$(ge)/src/text_test.cpp \
 	$(ge)/src/sprite_test.cpp \
 	$(ge)/src/appchannel_test.cpp \
