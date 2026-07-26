@@ -2412,6 +2412,112 @@ targets:
     origin: yourworld2-audit
     discovered: 2026-07-25
     achieved: 2026-07-25
+  T168:
+    name: 'Games render globe-scale imagery from a ge cube-sphere tile pyramid: one nested pack, fully-resident coarse-first load, device-tier depth cap'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A consumer game (yourworld2) loads a ~930 MB 1 km pyramid fully resident on a ≥6 GB phone and renders per-tile with no runtime streaming machinery
+    - 'The same pack file serves every tier: leaf load depth is capped per device by ge, with no game-side branching'
+    - Coarse levels render within ~100 ms of launch; full pyramid resident within ~2 s via background load with budgeted uploads and no frame hitches
+    context: 'Extends T167 (compressed-texture pipeline) from single images/cubemaps to a nested per-face quadtree pyramid (2048^2 ASTC tiles, gutters, per-tile mips). Driven by yourworld2''s 1 km/px Blue Marble globe (see yourworld2 bullseye.yaml). Full residency was chosen over virtual texturing/streaming: sokol has no partial image updates, and the working set fits, so streaming reduces to load-time behavior. Needs sg_desc.image_pool_size sized for ~300 tiles. Device tier = physical RAM (>=6 GB -> 1 km leaf, else 2 km) + ASTC capability (GLES 3.2 or KHR_texture_compression_astc_ldr; non-ASTC GLES devices fall back to the game''s legacy textures).'
+    tags:
+    - yourworld2
+    - textures
+    - tile-pyramid
+    - cook
+    - sokol
+    origin: manual
+    discovered: 2026-07-26
+  T168.1:
+    name: getex tile-pack format holds a nested cube-sphere quadtree pyramid, and the ge cook produces it from an equirect master
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Pack format: per-face quadtree of 2048^2 ASTC tiles with filter gutters and per-tile mips, levels nested so truncating the leaf level yields the next-coarser pyramid; single indexed file suitable for mmap'
+    - 'Cook: equirect master (up to 86400x43200) reprojects gnomonically per face, tiles, and astcenc-compresses in parallel; incremental recook per tile'
+    - 'Auxiliary channels supported alongside RGB imagery: integer ID plane (R8UI/R16UI) and single-channel SDF (EAC R11), same tiling scheme'
+    - 'Round-trip test: cooked pack loads and renders correctly in a sample consumer'
+    context: 'Achieved: GETP format + ge-texpack cook shipped. Oracle evidence: round-trip doctest (layout density, r8/rg8 exact values incl >255 IDs, byte-prefix truncation property) green in 384/384 suite; real cook of yw2''s 3-plane world pack (86400x43200 source → 1.5 GB, 192 s); Rg8 added for 274-region u16 IDs; gunzip (not BSD zcat) on macOS. Known limit filed as follow-up: whole-image float loading (~45 GB RSS on the full source).'
+    tags:
+    - yourworld2
+    - getex
+    - cook
+    - tile-pyramid
+    origin: manual
+    discovered: 2026-07-26
+    achieved: 2026-07-27
+  T168.2:
+    name: 'ge loads a tile pyramid fully resident: mmap, coarse-first, budgeted uploads, no frame hitches'
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Coarse levels (through ~8 km) uploaded and renderable within ~100 ms of pack open; remaining levels fill in on a background thread with a per-frame upload budget (tunable via Tweak)
+    - Zero steady-state uploads once resident; load depth capped by a caller-supplied or tier-supplied max level
+    - sg image pool sized for the tile count (~300 at 2048^2 tiles); tile textures are immutable storage
+    - Frame-time metric shows no hitch above threshold during background fill on a mid-tier GLES device and an iPhone
+    context: 'Loader implemented and desktop-verified (yw2 renders the 1.5 GB pack fully resident, coarse-first, hitch-free at ~128 fps; capped-pack presence rule + FAILED-state resource checks tested). Remaining for achievement: on-device (phone/tablet) resident load + hitch metric per acceptance.'
+    depends_on:
+    - T168.1
+    tags:
+    - yourworld2
+    - loader
+    - tile-pyramid
+    - performance
+    origin: manual
+    discovered: 2026-07-26
+  T168.3:
+    name: ge exposes a device tier (RAM + ASTC capability) that selects pyramid load depth with no game-side branching
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Tier query returns: full-depth (>=6 GB physical RAM + ASTC sampleable), capped-depth (<6 GB + ASTC), legacy (no ASTC) — RAM via sysctl hw.memsize / sysinfo (stable physical quantity, deliberately not os_proc_available_memory which is runtime-variable), ASTC via sg_query_pixelformat (subsumes GLES 3.2 / KHR extension detection)'
+    - Pyramid loader consumes the tier's levelCap; games can override via TilePyramidOptions for testing
+    - Legacy tier is observable so a consumer routes to its existing texture path
+    - Tier decision logged at startup and pushed on the app channel
+    context: 'Implemented + unit-tested (boundary cases, levelCap mapping); desktop verified (M4 Max → Full, and correctly Legacy before the Apple-silicon ASTC caps patch). Acceptance wording updated to match the implemented (better) design. Remaining: observe tier decisions on a real phone/tablet (Jevons/Pixel smoke).'
+    tags:
+    - yourworld2
+    - device-tier
+    - gles
+    - astc
+    origin: manual
+    discovered: 2026-07-26
+  T168.4:
+    name: 'ge-texpack cooks band-streamed: peak RSS stays under 2x the largest single face, independent of source size'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Cooking yw2's 86400x43200 3-channel source peaks well under 16 GB RSS (measured 45+ GB today from whole-image float loading)
+    - Output packs are byte-identical to the current whole-image implementation on the round-trip test corpus
+    context: 'Filed from the T168 cook: EquirectSource holds the full input as float32 (4 bytes/channel) plus per-face mosaic pyramids — ~60 GB transient on the full yw2 source, which visibly pressured the host. Band-stream the equirect reads (the compositor tool in yw2 demonstrates the pattern) or store u8 and convert per-sample.'
+    tags:
+    - yourworld2
+    - cook
+    - memory
+    origin: manual
+    discovered: 2026-07-27
+  T168.5:
+    name: 'Tile-pack size shrinks toward the pyramid-only bound: per-tile mip redundancy and SDF encoding revisited'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - yw2's world pack drops from 1.5 GB to under ~1.1 GB at unchanged visual quality (leaf level and per-country identity unchanged)
+    - 'Options evaluated with measurements: fewer per-tile mips (rely on level switching sooner), EacR11 for the SDF plane (etcpak or astcenc route), gutter cost review'
+    context: The chunked-LOD design stores per-tile mips that duplicate coarser pyramid levels (~+33%/level), and the SDF plane rides ASTC 4x4 (1 B/px) because EacR11 is reserved-unimplemented. 1.5 GB is fine for 8 GB devices but overshoots the 930 MB design estimate.
+    tags:
+    - yourworld2
+    - tile-pyramid
+    - size
+    - eac
+    origin: manual
+    discovered: 2026-07-27
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
