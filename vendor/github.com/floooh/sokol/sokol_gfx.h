@@ -14781,7 +14781,11 @@ _SOKOL_PRIVATE MTLPixelFormat _sg_mtl_pixel_format(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_BC6H_RGBUF:             return MTLPixelFormatBC6H_RGBUfloat;
         case SG_PIXELFORMAT_BC7_RGBA:               return MTLPixelFormatBC7_RGBAUnorm;
         case SG_PIXELFORMAT_BC7_SRGBA:              return MTLPixelFormatBC7_RGBAUnorm_sRGB;
-        #else
+        #endif
+        // ge patch (T168): ETC2/EAC/ASTC MTLPixelFormat constants exist in the
+        // macOS SDK too; map them unconditionally and let the runtime caps
+        // (Apple-silicon gate above) decide usability. Pairs with the caps
+        // hunk in _sg_mtl_init_caps.
         case SG_PIXELFORMAT_ETC2_RGB8:              return MTLPixelFormatETC2_RGB8;
         case SG_PIXELFORMAT_ETC2_SRGB8:             return MTLPixelFormatETC2_RGB8_sRGB;
         case SG_PIXELFORMAT_ETC2_RGB8A1:            return MTLPixelFormatETC2_RGB8A1;
@@ -14793,7 +14797,6 @@ _SOKOL_PRIVATE MTLPixelFormat _sg_mtl_pixel_format(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_EAC_RG11SN:             return MTLPixelFormatEAC_RG11Snorm;
         case SG_PIXELFORMAT_ASTC_4x4_RGBA:          return MTLPixelFormatASTC_4x4_LDR;
         case SG_PIXELFORMAT_ASTC_4x4_SRGBA:         return MTLPixelFormatASTC_4x4_sRGB;
-        #endif
         default: return MTLPixelFormatInvalid;
     }
 }
@@ -15273,6 +15276,28 @@ _SOKOL_PRIVATE void _sg_mtl_init_caps(void) {
         _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_EAC_RG11SN]);
         _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ASTC_4x4_RGBA]);
         _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ASTC_4x4_SRGBA]);
+    #endif
+    // ge patch (🎯T168): Apple-silicon Macs support ASTC/ETC2/EAC in Metal,
+    // but the compile-time macOS/iOS split above predates Apple silicon and
+    // leaves them disabled on desktop. Enable at runtime for Apple-family
+    // GPUs so the tile-pyramid path (and dev parity with mobile) works on
+    // M-series Macs. Re-apply if a sokol update drops this hunk.
+    #if defined(_SG_TARGET_MACOS)
+    if (@available(macOS 11.0, *)) {
+        if ([_sg.mtl.device supportsFamily:MTLGPUFamilyApple7]) {
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ETC2_RGB8]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ETC2_SRGB8]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ETC2_RGB8A1]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ETC2_RGBA8]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ETC2_SRGB8A8]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_EAC_R11]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_EAC_R11SN]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_EAC_RG11]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_EAC_RG11SN]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ASTC_4x4_RGBA]);
+            _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_ASTC_4x4_SRGBA]);
+        }
+    }
     #endif
 
     // compute shader access

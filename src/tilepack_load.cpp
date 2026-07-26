@@ -239,17 +239,25 @@ struct TilePyramid::M {
         for (size_t i = 0; i < t.mips.size(); ++i)
             d.data.mip_levels[i] = sg_range{t.mips[i].data(), t.mips[i].size()};
 
+        // sokol reports validation-layer failures as objects in FAILED state
+        // with a VALID id — checking only for SG_INVALID_ID would count a
+        // dead tile as resident and (worse) flip baseResident() true with
+        // nothing drawable. Query the state explicitly.
         const sg_image img = sg_make_image(&d);
-        if (img.id == SG_INVALID_ID) {
+        if (img.id == SG_INVALID_ID ||
+            sg_query_image_state(img) != SG_RESOURCESTATE_VALID) {
             SPDLOG_ERROR("TilePyramid: sg_make_image failed for {}", label);
-            return; // same fallback as above: permanently non-resident, logged.
+            if (img.id != SG_INVALID_ID) sg_destroy_image(img);
+            return; // permanently non-resident; resolve() serves an ancestor.
         }
         sg_view_desc vd{};
         vd.texture.image = img;
         vd.label = label;
         const sg_view view = sg_make_view(&vd);
-        if (view.id == SG_INVALID_ID) {
+        if (view.id == SG_INVALID_ID ||
+            sg_query_view_state(view) != SG_RESOURCESTATE_VALID) {
             SPDLOG_ERROR("TilePyramid: sg_make_view failed for {}", label);
+            if (view.id != SG_INVALID_ID) sg_destroy_view(view);
             sg_destroy_image(img);
             return;
         }
