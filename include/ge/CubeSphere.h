@@ -80,6 +80,18 @@ float chordErrorForGrid(uint8_t level, int gridN);
 // Kept here (not the loader) so shaders/tools derive it from one place.
 la::float2 tilePayloadToTexUV(const la::float2& uv, int tileSize, int gutter);
 
+// 🎯T168.2 Remaps a tile's payload UV [0,1]^2 into the payload UV space of one
+// of its ancestors, for rendering a tile from a coarser resident level while
+// the requested tile's own texture is still loading. Precondition:
+// ancestorLevel <= level (an ancestor is coarser or equal); undefined
+// otherwise. uvScale/uvBias compose as: ancestorUV = uv * uvScale + uvBias.
+struct TileAncestorRemap {
+    la::float2 uvScale = {1.0f, 1.0f};
+    la::float2 uvBias  = {0.0f, 0.0f};
+};
+TileAncestorRemap tileAncestorRemap(uint8_t level, uint16_t tx, uint16_t ty,
+                                    uint8_t ancestorLevel);
+
 // Equirectangular helpers used by the cook: longitude λ ∈ [-π,π] (x east),
 // latitude φ ∈ [-π/2,π/2] (up). Direction convention: Z up, lon 0 on +X.
 la::float3   dirForLonLat(float lon, float lat);

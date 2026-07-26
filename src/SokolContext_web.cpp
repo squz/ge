@@ -125,6 +125,8 @@ SokolContext::SokolContext(const SokolConfig& config) : m(new M) {
     desc.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH;  // 🎯T133
     desc.environment.defaults.sample_count = 1;
     desc.logger.func = sokolLog;
+    desc.image_pool_size = 2048; // 🎯T168.2 room for a full tile pyramid (~300 tiles)
+    desc.view_pool_size = 4096;
     sg_setup(&desc);
     if (!sg_isvalid()) {
         SPDLOG_ERROR("sg_setup (WebGL2) failed");

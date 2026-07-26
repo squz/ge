@@ -127,4 +127,17 @@ float2 lonLatForDir(const float3& dir) {
     return {std::atan2(n.y, n.x), std::asin(std::clamp(n.z, -1.0f, 1.0f))};
 }
 
+TileAncestorRemap tileAncestorRemap(uint8_t level, uint16_t tx, uint16_t ty,
+                                    uint8_t ancestorLevel) {
+    const uint8_t d = uint8_t(level - ancestorLevel);
+    const uint32_t denom = 1u << d;
+    const uint32_t txa = uint32_t(tx) >> d;
+    const uint32_t tya = uint32_t(ty) >> d;
+    const float inv = 1.0f / float(denom);
+    TileAncestorRemap r;
+    r.uvScale = {inv, inv};
+    r.uvBias = {float(tx - (txa << d)) * inv, float(ty - (tya << d)) * inv};
+    return r;
+}
+
 } // namespace ge

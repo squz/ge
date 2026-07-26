@@ -261,6 +261,7 @@ ge/TEST_SRC = \
 	$(ge)/src/svg_test.cpp \
 	$(ge)/src/png_test.cpp \
 	$(ge)/src/texture_load_test.cpp \
+	$(ge)/src/tilepack_load_test.cpp \
 	$(ge)/src/CubeSphere_test.cpp \
 	$(ge)/src/TilePackFormat_test.cpp \
 	$(ge)/src/text_test.cpp \

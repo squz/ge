@@ -169,6 +169,8 @@ SokolContext::SokolContext(const SokolConfig& config)
     desc.environment.defaults.sample_count = 1;
     desc.environment.metal.device = (__bridge const void*)m->device;
     desc.logger.func = sokolLog;
+    desc.image_pool_size = 2048; // 🎯T168.2 room for a full tile pyramid (~300 tiles)
+    desc.view_pool_size = 4096;
     sg_setup(&desc);
     if (!sg_isvalid()) {
         SPDLOG_ERROR("sg_setup failed");

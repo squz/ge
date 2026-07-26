@@ -160,6 +160,8 @@ struct GlesM final : SokolContext::M {
         desc.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH;   // 🎯T133
         desc.environment.defaults.sample_count = 1;
         desc.logger.func = sokolLog;
+        desc.image_pool_size = 2048; // 🎯T168.2 room for a full tile pyramid (~300 tiles)
+        desc.view_pool_size = 4096;
         ge_sokol_set_api(ge_sokol_bind_gles());
         sg_setup(&desc);
         if (!sg_isvalid()) { SPDLOG_ERROR("sg_setup (GLES) failed"); return false; }
@@ -322,6 +324,8 @@ struct VkM final : SokolContext::M {
         desc.environment.vulkan.queue              = queue;
         desc.environment.vulkan.queue_family_index = queueFamily;
         desc.logger.func = sokolLog;
+        desc.image_pool_size = 2048; // 🎯T168.2 room for a full tile pyramid (~300 tiles)
+        desc.view_pool_size = 4096;
         ge_sokol_set_api(ge_sokol_bind_vk());
         sg_setup(&desc);
         if (!sg_isvalid()) { SPDLOG_ERROR("sg_setup (Vulkan) failed"); return false; }
