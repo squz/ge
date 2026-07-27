@@ -911,6 +911,14 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   the overlay is enabled, `flush` also draws a smoothed FPS readout in the
   top-right corner, even if no other debug primitives were queued. GPU resources
   are created lazily on first enabled flush.
+- **Perf HUD strip (🎯T173)** — `hudEnabled()` / `setHudEnabled(bool)` (latches
+  `GE_PERF_HUD`; independent of the debug-draw layer), `setHudPlacement(anchor,
+  offsetPt)` (four corners + `HudAnchor::Custom` absolute pt position —
+  imperative plain stores, safe to call every frame), `setHudProvider(fn)`
+  (game segments appended after the engine dt/fps), `hudLabel(dt, fps, extra)`
+  (pure composition, unit-tested). Drawn by `flush` over a translucent backing
+  box; while the HUD is on it replaces the legacy bare FPS readout. See
+  `agents-guide.md` → "Perf HUD strip" for the consumer example.
 
 `sample/tiltbuggy` demonstrates all three surfaces end-to-end (sector-tinted
 playfield, buggy-chassis wireframe, tilt HUD); run it with `DEBUG_OVERLAY=1`.

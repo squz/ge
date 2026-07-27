@@ -252,6 +252,39 @@ static tweak::Tweak<float> speed("buggy.speed", 5.0f);
 Specialized variants: `EnumTweak` (dropdown), `Vec2Tweak`, `AxisTweak`, `Color`. Use
 `tweak::loadOverrides(db)` at startup to reapply saved values.
 
+### Perf HUD strip — `include/ge/debug.h` (🎯T173)
+
+Engine-owned one-line performance strip: dt/fps (engine facts) plus optional
+game-supplied segments, drawn by `ge::debug::flush()` over a translucent
+backing box so it stays legible on bright content. Independent of the debug
+overlay: `GE_PERF_HUD=1` (latched on first query) or `setHudEnabled(true)`
+turns it on even while `GE_DEBUG_OVERLAY` is off. Games that gate on their
+own env (yourworld2's `YW_PERF`) call `setHudEnabled` from that check.
+
+Placement is **imperative** — plain stores read at the next `flush()`, so the
+game can reposition any time, up to every frame, as its chrome evolves:
+
+```cpp
+using ge::debug::HudAnchor;
+
+// Anywhere, any time (per-frame is fine):
+ge::debug::setHudEnabled(true);
+ge::debug::setHudPlacement(HudAnchor::BottomLeft, {8, 8});      // corner + inset (pt)
+ge::debug::setHudPlacement(HudAnchor::Custom, {panelX, panelY}); // absolute pt position
+
+// Game-supplied segments, appended after "dt 16.7 ms  60.0 fps":
+ge::debug::setHudProvider([&] {
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "zoom %.2f  mag %s  carV %.1f  adm %s",
+                  cam.zoom, magnetOn ? "on" : "off", carousel.v, admName);
+    return std::string(buf);
+});
+```
+
+The label composition is a pure function, `ge::debug::hudLabel(dt, fps, extra)`
+(unit-tested in `src/debug_test.cpp`); invalid readings render as `--`. The
+provider runs once per flush on the game thread — keep it allocation-light.
+
 ### SVG rendering and measurement — `include/ge/svg.h`
 
 `ge::rasterizeSvg` and `ge::rasterizeSvgToPixels` render SVG strings through
