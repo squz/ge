@@ -2521,6 +2521,27 @@ targets:
     - eac
     origin: manual
     discovered: 2026-07-27
+  T169:
+    name: cmdstream image recipes cost nothing in direct mode and stay bounded when streaming
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Direct-mode games register no image recipes: registry empty after rasterizeText/loadImage when recipes are disabled (default), unit-tested'
+    - Recipe registration gated behind setImageRecipesEnabled(true), called by the stream/server host before game textures exist; capture lookups fall back gracefully for unregistered images
+    - unregisterImage(id) is called from texture-owning destructors (Sprite, GpuTexture) so an enabled registry mirrors live textures instead of growing per rasterization (sokol id generations made every text re-raster a fresh key)
+    - Font bytes are shared via a per-path cache, not copied per record (~2.3 MB TTF per registered string today) and not re-read from disk per rasterizeText call
+    - 'Leak reproduction closed: desktop yw2 RSS flat over 2 minutes of continuous rendering (was ~250 MB/s); Pixel survives a soak (was lmkd-killed at ~5.6 GB PSS in 90 s)'
+    context: 'Found 2026-07-27 via yw2 🎯T69.6: malloc_history pinned ~2.3 MB per rendered frame to rasterizeText → cmdstream::registerImageText (CmdStream.cpp:606) — each changing HUD/clock string registers a new recipe (full font copy, fresh disk read, never erased, key churns with sokol id generations). Introduced with T128.7 (font+string recipes for streaming); registry runs unconditionally in direct mode. Killed the Pixel foreground app (system-wide lmkd purge) and ate 24 GB desktop RAM in ~80 s. Not a T69/tile issue — affects every ge consumer that draws changing text.'
+    tags:
+    - cmdstream
+    - leak
+    - memory
+    - text
+    - yourworld2-audit
+    - critical
+    origin: manual
+    discovered: 2026-07-27
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
