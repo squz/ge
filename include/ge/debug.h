@@ -170,15 +170,36 @@ void flush(const Context& ctx, const la::float4x4& worldToClip);
 // Discard queued primitives without drawing (e.g. a frame you skip).
 void clear();
 
-// Test introspection — queued counts since the last flush / clear. Not part
-// of the rendering contract; used by debug_test.cpp to verify accumulation
-// without a GPU.
+// ── per-session scoping (🎯T174) ─────────────────────────────────────────
+// All of the above — the primitive queues AND the perf HUD config — is
+// per-session state, carried by the Context. The render host binds the
+// session before dispatching game callbacks (and flush(ctx, …) re-binds
+// from its Context), so in a multi-session server each stream accumulates
+// and renders its own debug content, and free functions need no Context
+// parameter. Direct-mode games see no change: one session, bound at
+// startup. Calls made before any session exists (unit tests, early init)
+// land in a process-default session.
+namespace internal {
+// Bind `ctx`'s session as the target of the free functions above,
+// creating its state lazily. Engine-internal; called by the hosts.
+void bindContext(const Context& ctx);
+} // namespace internal
+
+// Test introspection — queued counts since the last flush / clear, for the
+// currently bound session. Not part of the rendering contract; used by
+// debug_test.cpp to verify accumulation without a GPU.
 namespace testing {
 int lineVertexCount();
 int triVertexCount();
 int textItemCount();
 int pointItemCount();
 int circleItemCount();
+// 🎯T174 The bound session's HUD provider output ("" if none) — lets a
+// multi-session test verify provider isolation without a GPU.
+std::string hudProviderText();
+// 🎯T174 Re-bind the process-default session (test hygiene after binding
+// throwaway Contexts).
+void bindProcessDefault();
 } // namespace testing
 
 } // namespace ge::debug

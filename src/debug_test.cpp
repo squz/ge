@@ -204,3 +204,68 @@ TEST_CASE("ge::debug HUD enable is independent and imperative") {
     ge::debug::setHudProvider([] { return std::string("seg"); });
     ge::debug::setHudProvider({});  // clear
 }
+
+// ── 🎯T174 per-session scoping ───────────────────────────────────────
+
+TEST_CASE("🎯T174: debug queues and HUD config are per-session") {
+    using ge::Context;
+    using ge::DeviceClass;
+    namespace dbg = ge::debug;
+
+    Context a(640, 480, DeviceClass::Desktop, ":memory:", "");
+    Context b(640, 480, DeviceClass::Desktop, ":memory:", "");
+
+    // Session A: overlay on, one line queued, provider "session-A".
+    dbg::internal::bindContext(a);
+    dbg::setEnabled(true);
+    dbg::clear();
+    dbg::line(float2{0, 0}, float2{1, 1});
+    dbg::setHudProvider([] { return std::string("session-A"); });
+    dbg::setHudPlacement(dbg::HudAnchor::TopLeft, {1, 1});
+    CHECK(dbg::testing::lineVertexCount() == 2);
+    CHECK(dbg::testing::hudProviderText() == "session-A");
+
+    // Session B: its own overlay flag, its own queues, its own provider.
+    dbg::internal::bindContext(b);
+    CHECK(dbg::testing::lineVertexCount() == 0);   // B's queues are empty
+    CHECK(dbg::testing::hudProviderText() == "");  // B has no provider yet
+    dbg::setEnabled(true);
+    dbg::line(float2{0, 0}, float2{1, 0});
+    dbg::line(float2{0, 0}, float2{0, 1});
+    dbg::setHudProvider([] { return std::string("session-B"); });
+    CHECK(dbg::testing::lineVertexCount() == 4);
+    CHECK(dbg::testing::hudProviderText() == "session-B");
+
+    // Re-binding A restores A's content untouched — two sessions with
+    // distinct HUD providers each render their own strip.
+    dbg::internal::bindContext(a);
+    CHECK(dbg::testing::lineVertexCount() == 2);
+    CHECK(dbg::testing::hudProviderText() == "session-A");
+
+    // A's clear() must not clear B.
+    dbg::clear();
+    CHECK(dbg::testing::lineVertexCount() == 0);
+    dbg::internal::bindContext(b);
+    CHECK(dbg::testing::lineVertexCount() == 4);
+
+    // Restore the process-default session for the other test cases.
+    dbg::testing::bindProcessDefault();
+    reset(true);
+}
+
+TEST_CASE("🎯T174: binding the same Context twice reuses its state") {
+    using ge::Context;
+    using ge::DeviceClass;
+    namespace dbg = ge::debug;
+
+    Context a(640, 480, DeviceClass::Desktop, ":memory:", "");
+    dbg::internal::bindContext(a);
+    dbg::setEnabled(true);
+    dbg::clear();
+    dbg::line(float2{0, 0}, float2{1, 1});
+    Context aCopy = a;  // shared M — same session
+    dbg::internal::bindContext(aCopy);
+    CHECK(dbg::testing::lineVertexCount() == 2);
+    dbg::testing::bindProcessDefault();
+    reset(true);
+}

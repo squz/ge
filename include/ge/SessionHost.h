@@ -26,6 +26,11 @@ class Database;
 
 namespace ge {
 
+// 🎯T174 Opaque per-session ge::debug state (defined in src/debug.cpp).
+namespace debug {
+struct SessionState;
+}
+
 enum class DeviceClass : uint8_t {
     Unknown = 0,
     Phone   = 1,
@@ -549,6 +554,12 @@ public:
     // 🎯T131.5 Engine-internal: the render host calls this at each swapchain
     // present to advance framesPresented().
     void recordPresent() const;
+
+    // 🎯T174 Engine-internal: the per-session ge::debug state slot (draw
+    // queues + perf HUD config), created lazily by ge::debug. Opaque here
+    // so this header stays debug-free; consumers use the ge::debug free
+    // functions, which route through the session the host has bound.
+    std::shared_ptr<debug::SessionState>& debugStateSlot() const;
 
 private:
     struct M;
