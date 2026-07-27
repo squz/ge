@@ -2523,7 +2523,7 @@ targets:
     discovered: 2026-07-27
   T169:
     name: cmdstream image recipes cost nothing in direct mode and stay bounded when streaming
-    status: identified
+    status: achieved
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2532,7 +2532,7 @@ targets:
     - unregisterImage(id) is called from texture-owning destructors (Sprite, GpuTexture) so an enabled registry mirrors live textures instead of growing per rasterization (sokol id generations made every text re-raster a fresh key)
     - Font bytes are shared via a per-path cache, not copied per record (~2.3 MB TTF per registered string today) and not re-read from disk per rasterizeText call
     - 'Leak reproduction closed: desktop yw2 RSS flat over 2 minutes of continuous rendering (was ~250 MB/s); Pixel survives a soak (was lmkd-killed at ~5.6 GB PSS in 90 s)'
-    context: 'Found 2026-07-27 via yw2 🎯T69.6: malloc_history pinned ~2.3 MB per rendered frame to rasterizeText → cmdstream::registerImageText (CmdStream.cpp:606) — each changing HUD/clock string registers a new recipe (full font copy, fresh disk read, never erased, key churns with sokol id generations). Introduced with T128.7 (font+string recipes for streaming); registry runs unconditionally in direct mode. Killed the Pixel foreground app (system-wide lmkd purge) and ate 24 GB desktop RAM in ~80 s. Not a T69/tile issue — affects every ge consumer that draws changing text.'
+    context: 'Achieved 2026-07-27, shipped in v0.85.0 (#199). Oracle evidence: malloc_history pinned the exact stack (rasterizeText → registerImageText, 2.3 MB font copy per rasterized string, id-generation key churn, no erasure); after the fix desktop yw2 RSS flat (±0 MB / 30 s soaks, both render paths — was ~250 MB/s to 24 GB); Pixel Tablet release build PSS flat at ~1.035 GB over a 5-minute interactive soak (was lmkd-killed at 5.6 GB in 90 s); 386/386 unit tests incl. default-off/enabled/unregister cases. Declared residue: textures created before the first capture arm carry no recipes — the experimental T128.2 SP2S replay must retro-register or gracefully fall back when it graduates (noted in #199).'
     tags:
     - cmdstream
     - leak
@@ -2542,6 +2542,7 @@ targets:
     - critical
     origin: manual
     discovered: 2026-07-27
+    achieved: 2026-07-27
   T17:
     name: Player binary applies viewport tilt composite symmetric to DirectRenderHost
     status: achieved
@@ -2567,6 +2568,61 @@ targets:
     origin: 'gap discovered during mobile validation of PR #11 architecture'
     discovered: 2026-04-16
     achieved: 2026-04-17
+  T170:
+    name: 'ge offers gesture-hint-as-a-service: a skeletal gesture timeline with event tags, rendered by a default SDF-outline hand that games can replace with their own art'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'A gesture timeline API in ge core produces per-frame pointer/joint state (unit gesture space, N pointers) plus tagged events for at least: tap, double-tap, long-press, swipe, drag, pinch-zoom, pinch-rotate — with no rendering dependency'
+    - Event tags (contact, release, apex, pinch-start, …) fire at the correct timeline moments, verified by a desktop unit test that plays each gesture and asserts tag order and timing
+    - A default SDF hand renderer draws a white-fill, black-outline, halo-edged cartoon hand from the skeleton each frame; fingers blend smoothly into the palm and interior separator strokes fade with depth (image-2-style minimal aesthetic)
+    - 'Consistency is locked offline: golden PNGs of each gesture at representative timeline moments (including mid-interpolation frames), rendered via the T124 headless render path, are committed and enforced by the render-test golden loop in CI — the reviewed look is the shipped look'
+    - A game can consume the timeline data-only (own aesthetic) or one-call default rendering; both paths demonstrated in sample/tiltbuggy or an equivalent in-repo sample
+    - Look parameters (capsule radii, smooth-min blend, stroke width, halo width, interior-stroke fade) are runtime-tunable via the Tweak system
+    - Renders correctly on desktop Metal and at least one mobile backend (iOS Metal or Android GLES/Vulkan) with per-pixel anti-aliasing (fwidth-based)
+    context: 'Games routinely need to hint touch gestures (tap, double-tap, long-press, swipe, drag, pinch zoom/rotate) with an animated hand. Design settled in discussion 2026-07-27: (1) Core is a rendering-agnostic gesture timeline — per-frame skeleton/joint state for N pointers in unit gesture space, keyframed with easing, loop/fade policy, and tagged events (contact, release, apex, pinch-start, …) delivered via callback so a game can fire its own visual feedback at the exact moment of contact. Trajectory (e.g. swipe from A to B) is a runtime parameter, never baked. (2) Default renderer is an SDF hand evaluated in a fragment shader: palm blob + finger/thumb capsule chains combined with smooth-min; outline = |d|<w band, white fill = d<0, sticker halo = d<w+halo; interior finger-separation strokes rendered as per-finger capsule outlines faded by depth inside the palm field (the fade distance is the detail dial). Aesthetic reference: minimal white-fill black-outline cartoon hand (mitten-adjacent, no nails/wrinkles). Squash-on-contact via fingertip radius pulse on the contact tag. All look parameters (radii, blend, stroke widths, fade) exposed as Tweaks. No atlas, no textures, no offline cook; resolution-independent at any zoom; continuous motion sampled at display rate (ProMotion-friendly). Runtime-vs-precooked was explicitly weighed (2026-07-27, second pass): animations are pre-canned, so an offline cook + bundled atlas was considered for reviewability/consistency; rejected because the procedural generator must be built either way (no artist frames), the cook adds packing/density/bundling machinery while quantizing shape change, and the consistency benefit is obtained instead by golden renders through the T124 headless path enforced in CI. Escape hatch if the shader ever misbehaves on a backend: bake the same model to an atlas at startup or offline via renderBatch — timeline core and game-facing API unchanged, so the choice is reversible. Rejected alternatives: baked frame atlas (motion quantized to cell count, trajectory baked in), rigid PvZ-style part rig (seams at joints — fallback only if SDF look disappoints), skinned mesh / LBS (weight-authoring cost not justified for a hint hand). Stretch synergy: shape the timeline''s per-frame output like ge::PointerEvent so gesture scripts can double as synthetic input for app_input / unit tests.'
+    tags:
+    - rendering
+    - api
+    - visual
+    origin: 'Design discussion 2026-07-27: hand-gesture hint animations as an engine service'
+    discovered: 2026-07-27
+  T170.1:
+    name: 'The gesture-hint service covers device-motion hints: a device-pose timeline track and a default SDF hand-holding-phone tilt animation (multimaze2 first-timer hint)'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - The timeline API carries a device-pose track (orientation over time) as a first-class track type alongside pointer tracks, with tagged events (tilt-left, tilt-right, settle, …) firing via the same callback mechanism — verified by a desktop unit test asserting tag order and timing
+    - The default SDF renderer draws a hand gripping a phone (rounded-box phone, thumb in front, fingers occluded behind) in the same white-fill/black-outline/halo aesthetic, animating a left/right rock with 2.5D pitch suggestion
+    - Golden PNGs of the tilt hint at representative timeline moments are committed and enforced by the render-test golden loop in CI
+    - sample/tiltbuggy demonstrates the tilt hint end-to-end (default renderer path), and the data-only path exposes the pose stream for games rendering their own device art
+    - Look and motion parameters (rock amplitude, period, grip geometry, phone proportions) are runtime-tunable via the Tweak system
+    context: 'Requested 2026-07-27 for multimaze2 first-timers: an outline animation of a hand holding a phone, rocking it to hint tilt controls. First non-pointer hint — forces the T170 timeline to carry a device-pose track (orientation over time: roll/pitch, small variant payload alongside pointer tracks) with its own tags (tilt-left, tilt-right, settle, …), sharing keyframe/easing/loop/callback machinery. Design this variant into the timeline API up front rather than retrofitting a pointer-only API. Rendering extends the SDF vocabulary: phone = rounded-box SDF; grip = thumb unioned in front, fingers occluded behind via SDF combination order; left/right rock = roll rotation via the existing transform layer; pitch suggested by 2.5D squash/skew of the phone rect — no true 3D projection at hint fidelity. Same white-fill/black-outline/halo aesthetic, Tweak-tunable, golden-render CI lock. Engine-side per ownership rule; tiltbuggy (itself a tilt game) is the in-repo demo host, multimaze2 the downstream consumer.'
+    tags:
+    - rendering
+    - api
+    - visual
+    origin: 'Design discussion 2026-07-27: multimaze2 tilt-hint request'
+    discovered: 2026-07-27
+  T171:
+    name: Tile pyramid supports a view-dependent resident working set with smooth LOD cross-fade
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - The loader maintains a bounded resident set chosen from the current view frustum plus a prefetch ring of neighbouring tiles (anticipating panning), evicting least-recently-visible tiles under a configurable memory budget
+    - Full-globe 500m packs (~2.7GB+) run on the Pixel Tablet within its memory budget, no lmkd kills over a 10-minute soak
+    - LOD transitions blend parent and child levels in proportion to fractional screen-space error — no visible snapping when zooming or when a tile finishes loading
+    - Tile upload is asynchronous (no frame hitch when a leaf tile arrives)
+    - Desktop retains the fully-resident fast path when the budget allows
+    context: 'yourworld2 500m leaf imagery (~2.7GB land-only pack) exceeds fully-resident budgets on mobile. User directive 2026-07-27: aggressively manage memory via a view-dependent working set with neighbour prefetch, and blend LODs smoothly in proportion to resolution so there is no snapping. Tag: yourworld2-audit.'
+    tags:
+    - yourworld2-audit
+    - tilepack
+    origin: manual
+    discovered: 2026-07-27
   T18:
     name: bgfx builds and renders on iOS + Android for distribution apps
     status: achieved

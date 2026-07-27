@@ -438,6 +438,27 @@ ge::appchannel::registerStateSerializer(
 
 // Perf counters — emit each frame; ride alongside frame_ms in the ~1 Hz perf push:
 ge::appchannel::perfEmit("buggy_x", p.x);
+
+// App-private commands (spyder app_methods / app_call) — semantic actions
+// agents discover and invoke without per-game MCP tools or full save/restore.
+// Handlers run on the game thread (same as state_query). Optional
+// example_params + doc ride in hello for discovery.
+ge::appchannel::registerMethod(
+    "reset_pose",
+    [&](const nlohmann::json&) {
+        state.scene->applyPose({0.f, 0.f, 0.f});
+        return nlohmann::json{{"ok", true}};
+    },
+    nlohmann::json::object(),          // example_params (shape template)
+    "Reset vehicle to spawn");         // one-line doc
+```
+
+Spyder side after connect:
+
+```starlark
+emit(app_methods(session_id=sid, scope="app"))
+# → methods: [{name:"reset_pose", kind:"app", example_params:{}, doc:"…"}, …]
+app_call(session_id=sid, method="reset_pose", params={})
 ```
 
 The push half carries dev logs + perf over the same channel: a typed `log` push

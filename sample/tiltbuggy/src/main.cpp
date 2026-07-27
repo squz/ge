@@ -197,7 +197,12 @@ int main(int argc, char* argv[]) {
             });
         ge::appchannel::installFromEnv("tiltbuggy-factory", "dev");
         SPDLOG_INFO("tiltbuggy GE_FACTORY: spawn_instance registered; idling");
-        for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
+        // pumpMainThreadTasks: registerMethod handlers marshal onto the game
+        // thread; without a SessionHost loop the factory must pump itself.
+        for (;;) {
+            ge::appchannel::pumpMainThreadTasks();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
 #endif // !__ANDROID__
 
@@ -283,6 +288,31 @@ int main(int argc, char* argv[]) {
             return j;
         },
         [&state](const nlohmann::json& j) { applyState(state, j); });
+
+    // App-advertised command (spyder app_methods / app_call): semantic reset
+    // without coordinates or full save/restore. Same effect as title-tap.
+    ge::appchannel::registerMethod(
+        "reset_pose",
+        [&state](const nlohmann::json&) -> nlohmann::json {
+            if (!state.scene)
+                throw ge::appchannel::Error{-32000, "reset_pose: scene not ready"};
+            state.scene->applyPose({0.f, 0.f, 0.f});
+            state.gravity = {0.f, 0.f};
+            if (state.db) {
+                try {
+                    state.db->exec(
+                        "INSERT OR REPLACE INTO pose(id,x,y,angle,updated_at) "
+                        "VALUES(1,0,0,0,0)");
+                } catch (...) {
+                }
+            }
+            return nlohmann::json{
+                {"ok", true},
+                {"buggy", {{"x", 0.0}, {"y", 0.0}, {"angle", 0.0}}},
+            };
+        },
+        nlohmann::json::object(),
+        "Reset buggy to spawn (same as title-banner tap)");
 
     auto factory = [&](ge::Context ctx) -> ge::RunConfig {
         // 🎯T131.5 In render-on-demand mode the buggy is allowed to sleep so a
