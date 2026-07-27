@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.84.0** (T168 cube-sphere tile pyramid: GETP format, cook, resident loader, device tier).
+Snapshot as of: **v0.85.0** (T169 cmdstream image-recipe leak fix; recipes gated + bounded).
 
 ---
 
