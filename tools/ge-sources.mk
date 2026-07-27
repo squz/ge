@@ -35,6 +35,8 @@ GE_SRC_COMMON := \
 	src/Signal.cpp \
 	src/sprite.cpp \
 	src/debug.cpp \
+	src/hint.cpp \
+	src/hint_hand.cpp \
 	src/solid.cpp \
 	src/Pass.cpp \
 	src/svg.cpp \

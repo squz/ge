@@ -25,7 +25,13 @@
 #include <ge/box2d_render.h>  // 🎯T131.2 renderWhileAwake
 #include <ge/box2d_slice.h>
 #include <ge/button.h>
+#include <ge/hint.h>       // 🎯T170 gesture-hint timeline (data-only tier)
+#include <ge/hint_hand.h>  // 🎯T170 default SDF hand renderer
 #include <ge/iap.h>
+#include <ge/ortho.h>
+#include <ge/sprite.h>
+#include <ge/svg.h>
+#include <ge/transform.h>
 #include <ge/Protocol.h>
 #include <ge/Resource.h>
 #include <ge/sdl_input.h>
@@ -102,7 +108,33 @@ struct State {
     ge::Rect   titleBannerPts{};
     ge::Rect   playfieldPts{};
     float      fullW = 0.f, fullH = 0.f;
+
+    // 🎯T170 gesture-hint demo. `hint` is set by a fixture ("hint" key) or
+    // the HINT env var. Default tier draws ge's SDF hand; HINT_STYLE=ring
+    // is the data-only tier — the app consumes pointers() + tags and draws
+    // its own aesthetic (expanding rings on contact) with SpriteBatch.
+    std::unique_ptr<ge::hint::Player> hint;
+    bool                              hintRing = false;
+    struct HintRipple {
+        ge::la::float2 posUnit;  // unit gesture space; mapped at draw time
+        float          age = 0.f;
+    };
+    std::vector<HintRipple> ripples;
+    ge::Rect                hintAreaPts{};
+    ge::Sprite              ringSprite;
+    ge::SpriteBatch         ringBatch;
 };
+
+ge::hint::Kind hintKindFromName(const std::string& name) {
+    using ge::hint::Kind;
+    if (name == "double-tap") return Kind::DoubleTap;
+    if (name == "long-press") return Kind::LongPress;
+    if (name == "swipe") return Kind::Swipe;
+    if (name == "drag") return Kind::Drag;
+    if (name == "pinch-zoom") return Kind::PinchZoom;
+    if (name == "pinch-rotate") return Kind::PinchRotate;
+    return Kind::Tap;
+}
 
 // 🎯T124 Apply a serialized state to the live game — shared by the app-channel
 // restore and the headless render path. The static arena is rebuilt by the
@@ -118,6 +150,45 @@ void applyState(State& state, const nlohmann::json& j) {
                                 b.value("angle", 0.0f)});
     }
     ge::iap::testing::setOwned("pro", j.value("pro", false));
+    // 🎯T170 hint fixture: {"kind": "swipe", "time": 0.65, "from": [x,y],
+    // "to": [x,y]} — build a non-looping player and seek it to `time` with
+    // one update, so a golden render is a pure function of the fixture.
+    // Reset unconditionally: renderBatch shares one State across items, so
+    // a hint must never leak from one fixture into the next.
+    state.hint.reset();
+    state.hintRing = false;
+    state.ripples.clear();
+    if (j.contains("hint")) {
+        const auto&      h = j["hint"];
+        ge::hint::Params hp;
+        hp.loop = false;
+        if (h.contains("from") && h["from"].is_array() && h["from"].size() >= 2)
+            hp.from = {h["from"][0].get<float>(), h["from"][1].get<float>()};
+        if (h.contains("to") && h["to"].is_array() && h["to"].size() >= 2)
+            hp.to = {h["to"][0].get<float>(), h["to"][1].get<float>()};
+        state.hint = std::make_unique<ge::hint::Player>(
+            hintKindFromName(h.value("kind", "tap")), hp);
+        if (h.value("style", "") == "ring") {
+            // Data-only tier golden: step deterministically so contact tags
+            // spawn ripples at their true times and age to `time`.
+            state.hintRing    = true;
+            state.hint->onTag = [&state](std::string_view tag) {
+                if (tag == ge::hint::tag::contact || tag == ge::hint::tag::pinchStart)
+                    for (const auto& p : state.hint->pointers())
+                        if (p.contact) state.ripples.push_back({p.pos, 0.f});
+            };
+            const float target = h.value("time", 0.0f);
+            const float step   = 1.0f / 120.0f;
+            for (float t = 0; t < target; t += step) {
+                state.hint->update(step);
+                for (auto& r : state.ripples) r.age += step;
+                std::erase_if(state.ripples,
+                              [](const State::HintRipple& r) { return r.age > 0.8f; });
+            }
+        } else {
+            state.hint->update(h.value("time", 0.0f));
+        }
+    }
 }
 
 } // namespace
@@ -331,6 +402,67 @@ int main(int argc, char* argv[]) {
                                                          state.renderOnDemand);
         state.renderer = std::make_unique<tiltbuggy::Renderer>();
         state.rendererInited = false;
+
+        // 🎯T170 hint overlay — drawn by Renderer at the end of its pass.
+        // Default tier: ge's SDF hand. HINT_STYLE=ring: data-only tier —
+        // the app draws pointer dots + contact ripples with its own art
+        // (SpriteBatch + a lunasvg ring), consuming only pointers() + tags.
+        state.renderer->overlay = [&state](const ge::Context& c) {
+            state.hintAreaPts = c.drawSafeRectInPts();
+            if (state.hintAreaPts.empty()) state.hintAreaPts = c.fullRectInPts();
+            if (!state.hint) return;
+            if (!state.hintRing) {
+                ge::hint::drawHand(c, *state.hint, state.hintAreaPts);
+                return;
+            }
+            if (state.ringSprite.tex.id == SG_INVALID_ID)
+                state.ringSprite = ge::rasterizeSvg(
+                    R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+                            <circle cx="64" cy="64" r="56" fill="none" stroke="#fff" stroke-width="10"/>
+                          </svg>)SVG",
+                    128, 128);
+            const ge::Rect full = c.fullRectInPts();
+            const auto     mvp  = ge::ortho::pixelOrtho(full.w, full.h);
+            const ge::Rect area = state.hintAreaPts;
+            for (const auto& p : state.hint->pointers()) {
+                if (p.opacity <= 0.01f) continue;
+                const ge::la::float2 pt{area.x + p.pos.x * area.w,
+                                        area.y + p.pos.y * area.h};
+                const float    d = p.contact ? 22.f : 30.f;
+                const uint32_t g = uint32_t(std::lround(p.opacity * 255.f));
+                state.ringBatch.addSprite(ge::frameCentered(pt, {d, d}), state.ringSprite,
+                                          (g << 24) | (g << 16) | (g << 8) | g);
+            }
+            for (const auto& r : state.ripples) {
+                const float    u = r.age / 0.8f;
+                const float    d = 30.f + 150.f * u;
+                const uint32_t g = uint32_t(std::lround((1.f - u) * 255.f));
+                const ge::la::float2 rp{area.x + r.posUnit.x * area.w,
+                                        area.y + r.posUnit.y * area.h};
+                state.ringBatch.addSprite(ge::frameCentered(rp, {d, d}),
+                                          state.ringSprite,
+                                          (g << 24) | (g << 16) | (g << 8) | g);
+            }
+            state.ringBatch.submit(mvp);
+        };
+
+        // 🎯T170 live hint demo: HINT=<kind> loops the gesture over the
+        // playfield until quit. Contact ripples (ring tier) spawn from the
+        // tag callback — the exact moment the finger meets the glass.
+        if (const char* hk = std::getenv("HINT")) {
+            state.hint = std::make_unique<ge::hint::Player>(hintKindFromName(hk));
+            const char* hs   = std::getenv("HINT_STYLE");
+            state.hintRing   = hs && std::strcmp(hs, "ring") == 0;
+            state.hint->onTag = [&state](std::string_view tag) {
+                SPDLOG_INFO("tiltbuggy: hint tag '{}'", std::string(tag));
+                if (!state.hintRing || !state.hint) return;
+                if (tag == ge::hint::tag::contact || tag == ge::hint::tag::pinchStart)
+                    for (const auto& p : state.hint->pointers())
+                        if (p.contact) state.ripples.push_back({p.pos, 0.f});
+            };
+            // Render-on-demand: a playing hint is a level trigger.
+            ctx.addRenderTrigger([&state] { return state.hint && state.hint->active(); });
+        }
         state.db = ctx.db();
         state.poseWriteAccum = 0.f;
 
@@ -393,6 +525,13 @@ int main(int argc, char* argv[]) {
 
         return {
             .onUpdate = [&](float dt) {
+                // 🎯T170 advance the hint timeline + the ring tier's ripples.
+                if (state.hint) {
+                    state.hint->update(dt);
+                    for (auto& r : state.ripples) r.age += dt;
+                    std::erase_if(state.ripples,
+                                  [](const State::HintRipple& r) { return r.age > 0.8f; });
+                }
                 state.scene->step(dt, state.gravity);
                 auto p = state.scene->buggyPose();
                 // 🎯T92.4 Sample app-channel perf counter — the copyable

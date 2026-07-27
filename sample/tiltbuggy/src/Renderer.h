@@ -4,6 +4,7 @@
 
 #include <ge/SessionHost.h>
 
+#include <functional>
 #include <memory>
 
 namespace tiltbuggy {
@@ -32,6 +33,11 @@ public:
     // layout as drawFrame. Empty if chrome is unavailable. Used as the
     // T109 hit-target test case (tap heading → reset buggy).
     static ge::Rect titleBannerRectInPts(const ge::Context& c);
+
+    // 🎯T170 Optional overlay drawn last, inside the frame's pass — used
+    // for gesture-hint hands / tag ripples. The pass is still open when
+    // it runs, so overlay code just issues draws.
+    std::function<void(const ge::Context&)> overlay;
 
 private:
     struct Impl;

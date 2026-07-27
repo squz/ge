@@ -1,5 +1,50 @@
 [
-  {"state": "fixtures/default.json", "out": "build/render/default.png"},
-  {"state": "fixtures/tilted.json",  "out": "build/render/tilted.png"},
-  {"state": "fixtures/pro.json",     "out": "build/render/pro.png"}
+  {
+    "state": "fixtures/default.json",
+    "out": "build/render/default.png"
+  },
+  {
+    "state": "fixtures/tilted.json",
+    "out": "build/render/tilted.png"
+  },
+  {
+    "state": "fixtures/pro.json",
+    "out": "build/render/pro.png"
+  },
+  {
+    "state": "fixtures/hint-tap-hover.json",
+    "out": "build/render/hint-tap-hover.png"
+  },
+  {
+    "state": "fixtures/hint-tap-press.json",
+    "out": "build/render/hint-tap-press.png"
+  },
+  {
+    "state": "fixtures/hint-double-tap.json",
+    "out": "build/render/hint-double-tap.png"
+  },
+  {
+    "state": "fixtures/hint-long-press.json",
+    "out": "build/render/hint-long-press.png"
+  },
+  {
+    "state": "fixtures/hint-swipe-mid.json",
+    "out": "build/render/hint-swipe-mid.png"
+  },
+  {
+    "state": "fixtures/hint-drag-mid.json",
+    "out": "build/render/hint-drag-mid.png"
+  },
+  {
+    "state": "fixtures/hint-pinch-zoom.json",
+    "out": "build/render/hint-pinch-zoom.png"
+  },
+  {
+    "state": "fixtures/hint-pinch-rotate.json",
+    "out": "build/render/hint-pinch-rotate.png"
+  },
+  {
+    "state": "fixtures/hint-ring-tap.json",
+    "out": "build/render/hint-ring-tap.png"
+  }
 ]

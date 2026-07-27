@@ -153,7 +153,8 @@ ge/RENDER_SHADER_DIR = $(ge)/src/render/shaders
 ge/RENDER_SHADERS = \
 	$(BUILD_DIR)/ge/shaders/ge_sprite.h \
 	$(BUILD_DIR)/ge/shaders/ge_debug.h \
-	$(BUILD_DIR)/ge/shaders/ge_solid.h
+	$(BUILD_DIR)/ge/shaders/ge_solid.h \
+	$(BUILD_DIR)/ge/shaders/ge_hint.h
 
 # Android shader variants — no longer separated (sokol-shdc bakes all
 # backends into one header per shader). Kept as aliases of the base set
@@ -256,6 +257,7 @@ ge/TEST_SRC = \
 	$(ge)/src/DampedRotation_test.cpp \
 	$(ge)/src/DeviceTier_test.cpp \
 	$(ge)/src/GlobeController_test.cpp \
+	$(ge)/src/hint_test.cpp \
 	$(ge)/src/Rect_test.cpp \
 	$(ge)/src/Rect_constexpr_test.cpp \
 	$(ge)/src/svg_test.cpp \

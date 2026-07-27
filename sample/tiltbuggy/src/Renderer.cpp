@@ -265,6 +265,9 @@ void Renderer::drawFrame(const Scene& scene, const ge::Context& c,
         ge::debug::circle({pose.x, pose.y}, che.x * 1.2f);
         ge::debug::flush(c, mvp);
     }
+
+    // 🎯T170 hint / app overlay — drawn last, over everything.
+    if (overlay) overlay(c);
 }
 
 } // namespace tiltbuggy
