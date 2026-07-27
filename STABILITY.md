@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.87.0** (gesture-hint service: `ge::hint` timelines + tags + SDF hand renderer; `ge::debug` perf HUD strip with game-supplied segments).
+Snapshot as of: **v0.88.0** (`ge::debug` state per-session via `Context::debugStateSlot` — 🎯T174; process-globals audit in `docs/globals-audit.md`).
 
 ---
 
