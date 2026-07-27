@@ -31,11 +31,11 @@ namespace {
 // ── look knobs (fractions of hand size unless noted) ────────────────
 
 tweak::Tweak<float> tweakHandSizePt{"hint.hand_size_pt", 110.0f};
-tweak::Tweak<float> tweakSmoothK{"hint.smooth_k", 0.022f};
+tweak::Tweak<float> tweakSmoothK{"hint.smooth_k", 0.026f};
 tweak::Tweak<float> tweakOutlineW{"hint.outline_w", 0.030f};
 tweak::Tweak<float> tweakHaloW{"hint.halo_w", 0.028f};
-tweak::Tweak<float> tweakStrokeW{"hint.stroke_w", 0.009f};
-tweak::Tweak<float> tweakStrokeFade{"hint.stroke_fade", 0.055f};
+tweak::Tweak<float> tweakStrokeW{"hint.stroke_w", 0.008f};
+tweak::Tweak<float> tweakStrokeFade{"hint.stroke_fade", 0.040f};
 tweak::Tweak<float> tweakHoverScale{"hint.hover_scale", 0.10f};
 
 constexpr int kMaxCaps = 24;  // must match u_caps_* array size in ge_hint.glsl
@@ -113,20 +113,20 @@ void pointingHand(std::vector<Cap>& out, la::float2 tip, float S, float press) {
     const float tipSquash = 1.0f + 0.30f * press;
 
     // index (chain 1): distal + proximal
-    cap(0.000f, 0.048f, 0.024f, 0.180f, 0.052f * tipSquash, 1);
-    cap(0.024f, 0.180f, 0.065f, 0.335f, 0.058f, 1);
+    cap(0.000f, 0.048f, 0.022f, 0.175f, 0.050f * tipSquash, 1);
+    cap(0.022f, 0.175f, 0.058f, 0.330f, 0.056f, 1);
     // palm mass (chain 0): ONE fat angled capsule. Deliberately a single
     // shape — every extra overlapping capsule adds iterative smooth-min
     // bias, which plateaus the |d|<outline rim band into a black blob.
-    cap(0.135f, 0.465f, 0.225f, 0.580f, 0.195f, 0);
-    // curled fingers (chains 2..4): knuckle scallops along the right
-    // silhouette — centers sit at/over the palm edge so each bump pokes
-    // out (image-1 style) and only a short separator runs interior.
-    cap(0.230f, 0.330f, 0.320f, 0.380f, 0.075f, 2);
-    cap(0.310f, 0.425f, 0.390f, 0.475f, 0.066f, 3);
-    cap(0.360f, 0.525f, 0.425f, 0.570f, 0.056f, 4);
-    // thumb (chain 5): pokes out of the left silhouette
-    cap(0.020f, 0.400f, -0.105f, 0.300f, 0.070f, 5);
+    cap(0.125f, 0.455f, 0.205f, 0.570f, 0.190f, 0);
+    // curled fingers (chains 2..4): knuckles tucked into a smooth arc —
+    // gentle scallops (≲0.02 protrusion), not bulbous orc knobs; the
+    // faint interior separators do most of the "fingers" reading.
+    cap(0.195f, 0.345f, 0.255f, 0.385f, 0.062f, 2);
+    cap(0.265f, 0.430f, 0.320f, 0.470f, 0.056f, 3);
+    cap(0.315f, 0.520f, 0.360f, 0.555f, 0.048f, 4);
+    // thumb (chain 5): short, slim, mostly merged — a soft bulge, not a claw
+    cap(0.015f, 0.395f, -0.075f, 0.315f, 0.058f, 5);
 }
 
 // Pinch hand: index tip at q0, thumb tip at q1, palm hanging below the

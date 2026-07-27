@@ -8,7 +8,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "18b34b4df311ac9eb1b8c60a7cd9f0da6ebfe93200c8e541ef7770f7f976aee5",
-    "tools/prebuild.sh": "ee8130c5166f8488d122fcac414659581f65be6841e5a4a9018cbf8a57711f79",
+    "tools/prebuild.sh": "4af1208cf0a326b4cd120c0b48dd8192572ea5a0ce1163db67c18d235a485b46",
     "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
     "tools/write-manifest.py": "cbc39db9c959b281678d4c172cbe1294b640f8713137af91129ea5ae81e24f72"
   },
@@ -26,7 +26,7 @@
   },
   "prebuilts": {
     "prebuilt/web-wasm/libbox2d.a": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
-    "prebuilt/web-wasm/libge.a": "2bc495197c0dca2650467ba4ece45a2c1efe41493363e7bc2c7c4748b24c4152",
+    "prebuilt/web-wasm/libge.a": "d1e8a80655f4cf68a48b413b1ce1c1ddfb22ec0458ac0349e46030a234b3f3c2",
     "prebuilt/web-wasm/libliteparser.a": "4c02ba01a7d6a1ae028f359bc3a43846791669449a85db52d783a3c459974e98",
     "prebuilt/web-wasm/liblunasvg_ge.a": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
     "prebuilt/web-wasm/liblz4_ge.a": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
@@ -180,6 +180,8 @@
     "include/ge/audio.h": "dee9117f73ed76a310cef4af7eed2b18fdbcf7abbb77dad76e852239bbf8f168",
     "include/ge/button.h": "850c5d9eff156594e4be73e25d2ba3f197d139927870590daa00191c7109b4dd",
     "include/ge/debug.h": "597c300075e53897cc01acfac83c457d2d60dc43395f51eda88743c77df9dbbb",
+    "include/ge/hint.h": "a8b27662d9885f64d1ad0a12cbc15c5f8b8f0f950670ee985248f5951c8d7f7c",
+    "include/ge/hint_hand.h": "eec5efdeeb062e5a42716038fe615387f52c95d31361651da51c40cc0f9a0c9c",
     "include/ge/iap.h": "5db130e8acb1c630dc3f323abfe47ce5aeeca1c5cf66d83a3b670b3fcc6eca08",
     "include/ge/log.h": "0499bcb19f22909b42df0e663eeb2e3cc24b31a0bdbabd3cb29abd9496c27988",
     "include/ge/long_press.h": "0d9abb9b5d5198d8c85caaf39b43cf385fc9d2e5a2bc876f20f07980c2176d29",
@@ -218,6 +220,8 @@
     "src/audio.cpp": "ca77dc5018c813a98b6dea1ccc06ea0a3b3f68e17914188be6c88ca21bb1df21",
     "src/button.cpp": "a05576c277d3490d9c1977bff0d5509a83e162c5a883077729732e916f9ecb73",
     "src/debug.cpp": "505847c21b4e94d9c901dc1ec73e011908438d64e49092be07744b130ef364b3",
+    "src/hint.cpp": "d88d1aec6750a22f9a410dcb0e866007f45d4085f3686a5357acde06edee42b5",
+    "src/hint_hand.cpp": "55a53e754f1f206954fea91c4fa1a43e21c9e507e95d1476ba45722642050f46",
     "src/iap.cpp": "d9743376b98f20068e39eca1313c6f4b5b810f7ca310d274ec6c62efdd41d995",
     "src/iap_internal.h": "87d94f03e82157d821df52eb260daded665304fa70755ac4aa42106542e5a28f",
     "src/log.cpp": "caf8b9483650c432556c049e7c3fcd48992e28759c7c7dacecb8e31795388bd8",

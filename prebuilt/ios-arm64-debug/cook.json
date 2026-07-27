@@ -5,14 +5,14 @@
   "opt": "-O2",
   "flags": "-g -O2 -fno-omit-frame-pointer -fvisibility=hidden -fno-color-diagnostics -arch arm64 -miphoneos-version-min=16.3 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk",
   "flags_sha256": "fee12d903a699650bd8cc177c43e8d8d952ff35013495ffd3a45a332c5aa9012",
-  "utc": "2026-07-27T05:29:55Z",
+  "utc": "2026-07-27T12:52:41Z",
   "archives": {
-    "box2d": "262cbdb30ce88d64ac3fb128318086eb70e95cb9c64f39279bcf0e9c84d41d6a",
-    "ge": "20998877b949bde97e48752138b079dca38836f610966969ad564c9e61ff576e",
-    "liteparser": "c6d41d991c6b309cd45714b7f287c216a323e6a4ddcd42d6cfd710168f45c4fb",
-    "lunasvg_ge": "02450d0222afe2cefc44f284ff678e6e516539212faded55eecf483e4f456f7c",
-    "lz4_ge": "c7abb22d725030449310094e99bea48c3724dcd9cc82011a232a0715c59fcd1b",
-    "plutovg_ge": "c4abdb89996c5020465b9dfa98fcfc6fdc7fc9c78a290b8a8bd0512b5028b960",
-    "sqlite3_ge": "e872644b812d9ab3532500f2a4140d96a83af105553efdaa81489f2f30201737"
+    "box2d": "197353f0dc946be0c1a89d2fae26fe47aa3e0c30b76b573c5222d24219375760",
+    "ge": "4e09ad8dbe7e903382191f0427498088e7ef6e3072f628fd990ef16872be3d0b",
+    "liteparser": "645a2838fdd5a953d77ddc1be169543cd4ba719d5482b38b996958a1dc3f9cc9",
+    "lunasvg_ge": "0c98a304233a947d422afd79cf4735dc61fa3e85615eedec71a0c26400967187",
+    "lz4_ge": "0233f33ec7bddce293c9643924e245767eabd7f4dcd8961c924d5a7ad6fea140",
+    "plutovg_ge": "777ba78b97b8a65440a17d64d9d21a7d28c787017a6bdf36c7652fb956c7c7d4",
+    "sqlite3_ge": "3f2e11a3bbbb2f7eaae53b565a230649847f3c1bfa29b610333f4c07044a85a2"
   }
 }

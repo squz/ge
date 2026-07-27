@@ -501,7 +501,7 @@ SOKOL_SHDC="vendor/github.com/floooh/sokol-tools-bin/bin/osx_arm64/sokol-shdc"
 # (ge_sprite.h / ge_debug.h / ge_solid.h). Without it, *_shader_desc returns
 # NULL on a Vulkan-selected device → sg_make_shader(NULL) aborts.
 GE_SHDC_LANGS="metal_macos:metal_ios:metal_sim:glsl300es:spirv_vk"
-for sh in ge_sprite ge_debug ge_solid; do
+for sh in ge_sprite ge_debug ge_solid ge_hint; do
   "$SOKOL_SHDC" -i "src/render/shaders/$sh.glsl" \
                 -o "$GE_SHADER_OUT_DIR/$sh.h" \
                 -l "$GE_SHDC_LANGS" -f sokol
