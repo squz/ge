@@ -153,7 +153,8 @@ ge/RENDER_SHADER_DIR = $(ge)/src/render/shaders
 ge/RENDER_SHADERS = \
 	$(BUILD_DIR)/ge/shaders/ge_sprite.h \
 	$(BUILD_DIR)/ge/shaders/ge_debug.h \
-	$(BUILD_DIR)/ge/shaders/ge_solid.h
+	$(BUILD_DIR)/ge/shaders/ge_solid.h \
+	$(BUILD_DIR)/ge/shaders/ge_hint.h
 
 # Android shader variants — no longer separated (sokol-shdc bakes all
 # backends into one header per shader). Kept as aliases of the base set

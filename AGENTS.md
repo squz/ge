@@ -812,6 +812,52 @@ sprite = ge::renderSvgDocument(*doc, 1024, 256);
 
 **Apple TTC limitation** — Apple's first-party fonts (SF Pro, Helvetica, HelveticaNeue) ship as `.ttc` collections; lunasvg's public C API drops the TTC face index, so requesting bold on an Apple system font yields synthetic **faux-bold** rather than the designed Bold cut. Custom fonts (separate `.ttf` per weight) and non-Apple platforms are unaffected. Dev-time only; ship custom fonts for production typography. Upgrade path if it bites: 5-line patch to lunasvg's wrapper to thread the ttcindex through to plutovg's existing `plutovg_font_face_load_from_file(path, ttcindex)`.
 
+### Gesture hints (🎯T170)
+
+Hand-gesture hint animations as a service: ge owns the skeletal dynamics
+(timing, easing, choreography, event tags) and ships a default renderer;
+games put their own "meat on the bones" or take the default hand.
+
+- **`ge::hint::Player`** (`<ge/hint.h>`) — the rendering-agnostic core. A
+  gesture `Kind` (Tap, DoubleTap, LongPress, Swipe, Drag, PinchZoom,
+  PinchRotate) + `Params{from, to, loop, speed, loopGap}` compiles to a
+  keyframed `Clip`; `update(dt)` advances it and `pointers()` exposes
+  per-frame `PointerState{pos, contact, press, opacity}` in **unit gesture
+  space** (0..1 square, y-down — the consumer maps it onto any screen rect).
+  Trajectory is a runtime parameter, never baked: a swipe hint runs from
+  *this* card to *that* slot. Motion is interpolated continuously, so a
+  ProMotion display gets 120 Hz motion from the same clip.
+- **Event tags** — `onTag` fires `hint::tag::contact / release / apex /
+  holdStart / pinchStart / pinchEnd` at exact timeline moments, *after*
+  pointer states refresh — so a `contact` handler reading `pointers()` sees
+  the touch at its position and can spawn the game's own ripple/flash. Tag
+  order and timing are locked by unit tests (`src/hint_test.cpp`).
+- **`ge::hint::drawHand(ctx, player, areaPts)`** (`<ge/hint_hand.h>`) — the
+  default renderer: a white-fill / black-outline / sticker-halo cartoon hand
+  re-derived from the skeleton every frame as an SDF capsule union in a
+  fragment shader (`src/render/shaders/ge_hint.glsl`). Fingers blend
+  smoothly into the palm (smooth-min); interior finger-separator strokes
+  fade with depth into the palm field ("lines that stop short"); fingertip
+  squashes on contact; fwidth AA at any scale. No textures, no atlas, no
+  cooked assets. Two pointers ⇒ a pinch hand (index + thumb) that rotates
+  with the pointer pair. Look knobs are Tweaks under `hint.*`
+  (`hand_size_pt`, `smooth_k`, `outline_w`, `halo_w`, `stroke_w`,
+  `stroke_fade`, `hover_scale`).
+- **Two consumption tiers**, both demonstrated in `sample/tiltbuggy`:
+  `HINT=<kind>` (tap, double-tap, long-press, swipe, drag, pinch-zoom,
+  pinch-rotate) loops the default hand over the playfield; add
+  `HINT_STYLE=ring` for the data-only tier (the app draws pointer dots +
+  tag-triggered ripples with its own SpriteBatch art — no ge hand).
+- **Render-on-demand**: gate redraws on `player.active()` (tiltbuggy wires
+  `ctx.addRenderTrigger`); `drawHand` draws nothing while fully faded
+  (loop gap), and a finished non-looping player reports `active() == false`.
+- **Goldens**: `sample/tiltbuggy/fixtures/hint-*.json` seek a non-looping
+  player to a fixed time via the 🎯T124 headless path; `make render-test`
+  enforces the committed look in CI.
+- **🎯T170.1 (future)**: the track payload is deliberately extensible so a
+  device-pose track (tilt-the-phone hints) joins the same timeline/tag
+  machinery without an API break.
+
 ### Debug overlay (🎯T97)
 
 `<ge/debug.h>` — an opt-in, flag-toggleable debug-render layer. Accumulate
