@@ -256,6 +256,7 @@ ge/TEST_SRC = \
 	$(ge)/src/DampedRotation_test.cpp \
 	$(ge)/src/DeviceTier_test.cpp \
 	$(ge)/src/GlobeController_test.cpp \
+	$(ge)/src/hint_test.cpp \
 	$(ge)/src/Rect_test.cpp \
 	$(ge)/src/Rect_constexpr_test.cpp \
 	$(ge)/src/svg_test.cpp \
