@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.85.0** (T169 cmdstream image-recipe leak fix; recipes gated + bounded).
+Snapshot as of: **v0.86.0** (app-method advertise: `registerMethod` example_params/doc in hello; TiltBuggy `reset_pose`).
 
 ---
 
