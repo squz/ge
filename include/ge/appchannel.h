@@ -44,7 +44,15 @@ struct Error {
 
 // Register a request handler. Must be called BEFORE installFromEnv so the
 // method is advertised in `hello`. No-op in release builds.
-void registerMethod(std::string method, Handler handler);
+//
+// Optional `exampleParams` / `doc` ride in hello as a method descriptor
+// ({name, example_params?, doc?}) so spyder's app_methods can surface the
+// API without reading game source. Bare name-only when both are empty
+// (engine builtins). Game-private commands should pass a one-line example
+// object (shape template, not live data).
+void registerMethod(std::string method, Handler handler,
+                    nlohmann::json exampleParams = nullptr,
+                    std::string doc = "");
 
 // If SPYDER_APP_CHANNEL names a "host:port" listener, dial it on a background
 // thread and perform the hello handshake; otherwise no-op. Idempotent.
