@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.86.0** (app-method advertise: `registerMethod` example_params/doc in hello; TiltBuggy `reset_pose`).
+Snapshot as of: **v0.87.0** (gesture-hint service: `ge::hint` timelines + tags + SDF hand renderer; `ge::debug` perf HUD strip with game-supplied segments).
 
 ---
 
@@ -94,6 +94,8 @@ All public API lives under `include/ge/*.h`.
 - `ge::Sprite` — move-only owning textured quad (🎯T135). **Stable**.
 - `ge::drawSolid` — unlit solid-color indexed mesh fill (`<ge/solid.h>`). MVP × position + flat colour. **Stable** (new).
 - `ge::sprite` / `svg` / `png` / `text` / `debug` factories — **Stable** / **Needs review** collectively.
+- `ge::hint` — gesture-hint timelines (`Player`, `makeClip`, tags) + `drawHand` SDF renderer (`<ge/hint.h>`, `<ge/hint_hand.h>`, 🎯T170). New in v0.87.0. **Fluid** (device-pose track for 🎯T170.1 will extend the clip payload).
+- `ge::debug` perf HUD strip — `hudEnabled` / `setHudEnabled` / `setHudPlacement` / `setHudProvider` / `hudLabel` (🎯T173). New in v0.87.0. **Fluid**.
 - `ge::RenderHost` — abstract host interface used internally by direct / server paths. **Fluid**.
 
 ### Protocol types and constants (`wire::`)
