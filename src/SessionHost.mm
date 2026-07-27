@@ -23,6 +23,7 @@
 
 #include <SDL3/SDL.h>
 #include <ge/appchannel.h>
+#include <ge/debug.h>  // 🎯T174 internal::bindContext
 #include <ge/log.h>
 #include <ge/png.h>
 #include <spdlog/spdlog.h>
@@ -282,6 +283,11 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
     ge::setCrashDiagnosticsEnabled(config.crashDiagnostics);
     if (config.crashDiagnostics) ge::installCrashHandlers();
 
+    // 🎯T174 Bind this session's ge::debug scope before the factory runs, so
+    // HUD providers / debug primitives registered during construction land in
+    // the session, not the process default.
+    debug::internal::bindContext(host.context());
+
     RunConfig rc = factory(host.context());
     host.setEventHandler(rc.onEvent);
     host.setBackPressedHandler(rc.onBackPressed);
@@ -358,6 +364,7 @@ int renderBatch(Factory factory, SessionHostConfig config,
     config.hidden   = true;    // unmapped window — nothing shown
     DirectRenderHost host(config);
     applyImmersive(false);
+    debug::internal::bindContext(host.context());  // 🎯T174
     RunConfig rc = factory(host.context());
     host.setEventHandler(rc.onEvent);
 

@@ -70,10 +70,10 @@ constexpr float kFpsMarginPt       = 10.0f;
 // quality can't ask for thousands of verts.
 constexpr int   kMaxCircleSegments = 256;
 
-struct State {
-    bool enabled       = false;
-    bool enableLatched = false;
-
+// GPU pipelines, stream buffer, and the monospace font are process-global
+// on purpose — they live on the shared sokol device and carry no
+// session-varying content.
+struct GpuState {
     sg_pipeline lines  = {};
     sg_pipeline tris   = {};
     sg_buffer   stream = {};
@@ -82,18 +82,20 @@ struct State {
     bool    fontTried = false;
     bool    fontOk    = false;
     FontRef font;
-
-    std::vector<DebugVertex> lineVerts;
-    std::vector<DebugVertex> triVerts;
-    std::vector<TextItem>    texts;
-    std::vector<PointItem>   points;
-    std::vector<CircleItem>  circles;
 };
 
-State& st() {
-    static State s;
-    return s;
+GpuState& gpu() {
+    static GpuState g;
+    return g;
 }
+
+// 🎯T173 Perf HUD config — per-session (🎯T174).
+struct HudState {
+    int                          enabled = -1;  // -1 = env not latched yet
+    HudAnchor                    anchor  = HudAnchor::TopRight;
+    la::float2                   offsetPt{8.0f, 8.0f};
+    std::function<std::string()> provider;
+};
 
 bool parseBool(const char* v) {
     if (!v) return false;
@@ -102,8 +104,46 @@ bool parseBool(const char* v) {
     return s == "1" || s == "true" || s == "yes" || s == "on";
 }
 
+} // namespace
+
+// 🎯T174 Everything session-varying: the accumulation queues, the debug-draw
+// enable, and the perf HUD config. One per session, carried by the Context
+// (Context::debugStateSlot()); the host binds the active session around game
+// callbacks and flush(ctx, …) re-binds from its Context. Defined at
+// namespace scope to complete the opaque decl in SessionHost.h / debug.h.
+struct SessionState {
+    bool enabled       = false;
+    bool enableLatched = false;
+
+    HudState hud;
+
+    std::vector<DebugVertex> lineVerts;
+    std::vector<DebugVertex> triVerts;
+    std::vector<TextItem>    texts;
+    std::vector<PointItem>   points;
+    std::vector<CircleItem>  circles;
+};
+
+namespace {
+
+// The process-default session: calls made with no session in existence
+// (unit tests, pre-run init) land here — which is also exactly the
+// single-session direct-mode behaviour before the host binds.
+std::shared_ptr<SessionState>& defaultSession() {
+    static std::shared_ptr<SessionState> d = std::make_shared<SessionState>();
+    return d;
+}
+
+// The bound session.
+std::shared_ptr<SessionState>& currentSlot() {
+    static std::shared_ptr<SessionState> cur = defaultSession();
+    return cur;
+}
+
+SessionState& st() { return *currentSlot(); }
+
 bool ensureState() {
-    auto& s = st();
+    auto& s = gpu();
     if (s.ready) return true;
     if (!sg_isvalid()) return false;
 
@@ -144,11 +184,11 @@ bool ensureState() {
 
 void drawRun(sg_pipeline pipe, const DebugVertex* verts, int count,
              const la::float4x4& mvp) {
-    auto& s = st();
+    auto& g = gpu();
     const int bytes = int(count * sizeof(DebugVertex));
     sg_range r{ .ptr = verts, .size = size_t(bytes) };
-    const int offset = sg_append_buffer(s.stream, &r);
-    if (sg_query_buffer_overflow(s.stream)) {
+    const int offset = sg_append_buffer(g.stream, &r);
+    if (sg_query_buffer_overflow(g.stream)) {
         SPDLOG_WARN("ge::debug: stream buffer overflow ({} bytes)", bytes);
         return;
     }
@@ -156,7 +196,7 @@ void drawRun(sg_pipeline pipe, const DebugVertex* verts, int count,
     sg_apply_pipeline(pipe);
 
     sg_bindings b{};
-    b.vertex_buffers[0]        = s.stream;
+    b.vertex_buffers[0]        = g.stream;
     b.vertex_buffer_offsets[0] = offset;
     sg_apply_bindings(&b);
 
@@ -190,22 +230,6 @@ std::string fpsLabel(const Context& ctx) {
     if (f > 0.0f) std::snprintf(buf, sizeof(buf), "%.0f FPS", f);
     else          std::snprintf(buf, sizeof(buf), "FPS --");
     return buf;
-}
-
-// ── perf HUD strip state (🎯T173) ────────────────────────────────────
-// Plain stores read at flush() — setHudPlacement is safe to call every
-// frame. Enable latches GE_PERF_HUD on first query, like enabled().
-
-struct HudState {
-    int                          enabled = -1;  // -1 = env not latched yet
-    HudAnchor                    anchor  = HudAnchor::TopRight;
-    la::float2                   offsetPt{8.0f, 8.0f};
-    std::function<std::string()> provider;
-};
-
-HudState& hud() {
-    static HudState h;
-    return h;
 }
 
 constexpr la::float4 kHudBackColor{0.0f, 0.0f, 0.0f, 0.55f};
@@ -410,20 +434,27 @@ void expandCircle(la::float3 center, float radius, la::float4 wire,
 } // namespace
 
 bool hudEnabled() {
-    auto& h = hud();
+    auto& h = st().hud;
     if (h.enabled < 0) h.enabled = parseBool(std::getenv("GE_PERF_HUD")) ? 1 : 0;
     return h.enabled == 1;
 }
 
-void setHudEnabled(bool on) { hud().enabled = on ? 1 : 0; }
+void setHudEnabled(bool on) { st().hud.enabled = on ? 1 : 0; }
 
 void setHudPlacement(HudAnchor anchor, la::float2 offsetPt) {
-    hud().anchor   = anchor;
-    hud().offsetPt = offsetPt;
+    st().hud.anchor   = anchor;
+    st().hud.offsetPt = offsetPt;
 }
 
 void setHudProvider(std::function<std::string()> provider) {
-    hud().provider = std::move(provider);
+    st().hud.provider = std::move(provider);
+}
+
+// 🎯T174 Bind `ctx`'s session as the target of the free-function API.
+void internal::bindContext(const Context& ctx) {
+    auto& slot = ctx.debugStateSlot();
+    if (!slot) slot = std::make_shared<SessionState>();
+    currentSlot() = slot;
 }
 
 std::string hudLabel(float dtSeconds, float fps, std::string_view extra) {
@@ -446,7 +477,11 @@ std::string hudLabel(float dtSeconds, float fps, std::string_view extra) {
 }
 
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
+    // 🎯T174 flush targets its Context's session — re-bind so the free
+    // functions and this draw agree even if the host missed a bind.
+    internal::bindContext(ctx);
     auto& s = st();
+    auto& g = gpu();
     const bool showHud = hudEnabled();
     // Legacy bare FPS readout: overlay on, HUD not claiming the corner.
     const bool showFps = enabled() && !showHud;
@@ -485,28 +520,28 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
     }
 
     if (!s.triVerts.empty())
-        drawRun(s.tris, s.triVerts.data(), int(s.triVerts.size()), worldToClip);
+        drawRun(g.tris, s.triVerts.data(), int(s.triVerts.size()), worldToClip);
     if (!s.lineVerts.empty())
-        drawRun(s.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
+        drawRun(g.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
 
     if (!s.texts.empty() || showFps || showHud) {
-        if (!s.fontTried) {
-            s.fontTried = true;
+        if (!g.fontTried) {
+            g.fontTried = true;
             try {
-                s.font   = resolveFont("system:monospace");
-                s.fontOk = true;
+                g.font   = resolveFont("system:monospace");
+                g.fontOk = true;
             } catch (const std::exception& e) {
                 SPDLOG_WARN("ge::debug: no monospace font for text overlay: {}",
                             e.what());
             }
         }
-        if (s.fontOk) {
+        if (g.fontOk) {
             const float ppt  = ctx.pixelsPerPt();
             const Rect  full = ctx.fullRectInPts();
             const la::float4x4 px = ortho::pixelOrtho(full.w * ppt, full.h * ppt);
             const float sizePx = kTextPt * ppt;
             auto drawText = [&](la::float2 pos, const std::string& str, la::float4 color) {
-                Sprite sp = rasterizeText(str, s.font, sizePx, color);
+                Sprite sp = rasterizeText(str, g.font, sizePx, color);
                 if (sp.isNull()) return;
                 const Rect rect{pos.x, pos.y, float(sp.width), float(sp.height)};
                 sp.draw(la::mul(px, frame(rect)));
@@ -516,7 +551,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
                 drawText(t.pos, t.str, t.color);
             }
             if (showFps) {
-                Sprite sp = rasterizeText(fps, s.font, sizePx, kTextColor);
+                Sprite sp = rasterizeText(fps, g.font, sizePx, kTextColor);
                 if (!sp.isNull()) {
                     const float margin = kFpsMarginPt * ppt;
                     const float surfaceW = full.w * ppt;
@@ -532,11 +567,11 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
             // translucent backing box, at the imperative placement (which
             // the game may have re-set this very frame).
             if (showHud) {
-                auto& h = hud();
+                auto& h = s.hud;
                 const std::string label =
                     hudLabel(ctx.frameTime(), ctx.fps(),
                              h.provider ? h.provider() : std::string{});
-                Sprite sp = rasterizeText(label, s.font, sizePx, kTextColor);
+                Sprite sp = rasterizeText(label, g.font, sizePx, kTextColor);
                 if (!sp.isNull()) {
                     const float padPx = kHudPadPt * ppt;
                     const float boxW  = float(sp.width) + 2.0f * padPx;
@@ -559,7 +594,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
                         {x0, y0, 0, bg}, {x1, y0, 0, bg}, {x1, y1, 0, bg},
                         {x0, y0, 0, bg}, {x1, y1, 0, bg}, {x0, y1, 0, bg},
                     };
-                    drawRun(s.tris, box, 6, px);
+                    drawRun(g.tris, box, 6, px);
                     const Rect rect{x0 + padPx, y0 + padPx,
                                     float(sp.width), float(sp.height)};
                     sp.draw(la::mul(px, frame(rect)));
@@ -581,6 +616,13 @@ int triVertexCount()  { return int(st().triVerts.size()); }
 int textItemCount()   { return int(st().texts.size()); }
 int pointItemCount()  { return int(st().points.size()); }
 int circleItemCount() { return int(st().circles.size()); }
+// 🎯T174 Bound session's HUD provider output ("" if none).
+std::string hudProviderText() {
+    auto& p = st().hud.provider;
+    return p ? p() : std::string{};
+}
+// 🎯T174 Re-bind the process-default session (test hygiene).
+void bindProcessDefault() { currentSlot() = defaultSession(); }
 } // namespace testing
 
 } // namespace ge::debug

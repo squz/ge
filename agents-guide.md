@@ -285,6 +285,13 @@ The label composition is a pure function, `ge::debug::hudLabel(dt, fps, extra)`
 (unit-tested in `src/debug_test.cpp`); invalid readings render as `--`. The
 provider runs once per flush on the game thread — keep it allocation-light.
 
+Per-session scoping (🎯T174): the HUD config and all debug primitive queues
+are carried by the `Context` — the engine binds the active session around
+your callbacks, so in a multi-session server each stream gets its own strip
+and its own debug content. Nothing changes for consumers; the free-function
+API is unchanged. See `docs/globals-audit.md` for the wider process-global
+audit.
+
 ### SVG rendering and measurement — `include/ge/svg.h`
 
 `ge::rasterizeSvg` and `ge::rasterizeSvgToPixels` render SVG strings through

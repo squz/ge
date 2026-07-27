@@ -919,6 +919,14 @@ program + stream buffer, mirroring `ge::Sprite` (which packs to ABGR at upload).
   (pure composition, unit-tested). Drawn by `flush` over a translucent backing
   box; while the HUD is on it replaces the legacy bare FPS readout. See
   `agents-guide.md` → "Perf HUD strip" for the consumer example.
+- **Per-session scoping (🎯T174)** — the primitive queues, the debug-draw
+  enable, and the HUD config are per-session state carried by the `Context`;
+  the host binds the session around game callbacks and `flush(ctx, …)`
+  re-binds from its Context, so a multi-session server keeps each stream's
+  debug content separate. Free functions need no Context parameter;
+  direct-mode games see no change. GPU pipelines stay process-global (shared
+  sokol device). The full process-global audit lives in
+  `docs/globals-audit.md`; remaining latent items are 🎯T175/🎯T176.
 
 `sample/tiltbuggy` demonstrates all three surfaces end-to-end (sector-tinted
 playfield, buggy-chassis wireframe, tilt HUD); run it with `DEBUG_OVERLAY=1`.

@@ -51,6 +51,11 @@ struct Context::M {
     // value at the last presented frame. Game-thread only.
     std::function<uint64_t()> stateGen;
     uint64_t lastStateGen = 0;
+    // 🎯T174 Per-session ge::debug state (queues + HUD config), created
+    // lazily by ge::debug::internal::bindContext. shared_ptr to an
+    // incomplete type is fine — the control block (made in debug.cpp,
+    // where SessionState is complete) owns the deleter.
+    std::shared_ptr<debug::SessionState> debugState;
 };
 
 Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
@@ -189,6 +194,11 @@ uint64_t Context::framesPresented() const { return m->presented.load(std::memory
 void Context::recordPresent() const {
     m->presented.fetch_add(1, std::memory_order_relaxed);
     if (m->stateGen) m->lastStateGen = m->stateGen();  // 🎯T131.4 diff catches up
+}
+
+// 🎯T174
+std::shared_ptr<debug::SessionState>& Context::debugStateSlot() const {
+    return m->debugState;
 }
 
 } // namespace ge
