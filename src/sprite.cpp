@@ -43,6 +43,8 @@ uint64_t spriteReleaseCount() { return g_spriteReleases.load(std::memory_order_r
 void Sprite::destroy() {
     if (view.id != SG_INVALID_ID || tex.id != SG_INVALID_ID) {
         detail::g_spriteReleases.fetch_add(1, std::memory_order_relaxed);
+        // 🎯T169: keep the cmdstream recipe registry mirroring live textures.
+        cmdstream::unregisterImage(tex.id);
         if (sg_isvalid()) {
             if (view.id != SG_INVALID_ID) sg_destroy_view(view);
             if (tex.id  != SG_INVALID_ID) sg_destroy_image(tex);

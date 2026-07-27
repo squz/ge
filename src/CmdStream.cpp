@@ -5,6 +5,7 @@
 
 #include <lz4.h>
 
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <vector>
@@ -556,7 +557,27 @@ std::unordered_map<uint32_t, ImageRecipe>& imageRegistry() {
     return m;
 }
 
+// 🎯T169: default off — see CmdStream.h. Atomic because the stream host
+// enables from its own thread before the game loop starts.
+std::atomic<bool> g_imageRecipesEnabled{false};
+
 } // namespace
+
+void setImageRecipesEnabled(bool enabled) {
+    g_imageRecipesEnabled.store(enabled, std::memory_order_relaxed);
+}
+
+bool imageRecipesEnabled() {
+    return g_imageRecipesEnabled.load(std::memory_order_relaxed);
+}
+
+void unregisterImage(uint32_t imageId) {
+    // Unconditional (not gated on enabled): an entry may exist from before a
+    // disable, and sokol recycles id slots across generations.
+    if (imageId != 0) imageRegistry().erase(imageId);
+}
+
+size_t imageRecipeCount() { return imageRegistry().size(); }
 
 void setLiveCapture(LiveCapture* cap) {
     std::lock_guard<std::mutex> lk(g_liveMu);
@@ -569,6 +590,7 @@ LiveCapture* liveCapture() {
 
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
                          const void* rgba, size_t n) {
+    if (!imageRecipesEnabled()) return; // 🎯T169
     if (!rgba || n == 0 || imageId == 0) return;
     ImageRecipe rec;
     rec.kind = ImageRecipeKind::Pixels;
@@ -582,6 +604,7 @@ void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
 void registerImageSvg(uint32_t imageId, std::string_view svg,
                       int16_t targetW, int16_t targetH,
                       uint16_t rasterW, uint16_t rasterH) {
+    if (!imageRecipesEnabled()) return; // 🎯T169
     if (imageId == 0 || svg.empty()) return;
     ImageRecipe rec;
     rec.kind = ImageRecipeKind::Svg;
@@ -597,6 +620,7 @@ void registerImageText(uint32_t imageId, std::string_view text,
                        const void* fontBytes, size_t fontN, int32_t faceIndex,
                        float sizePt, float r, float g, float b, float a,
                        uint16_t rasterW, uint16_t rasterH) {
+    if (!imageRecipesEnabled()) return; // 🎯T169
     if (imageId == 0 || text.empty() || !fontBytes || fontN == 0) return;
     ImageRecipe rec;
     rec.kind = ImageRecipeKind::Text;
@@ -617,6 +641,7 @@ void registerImageText(uint32_t imageId, std::string_view text,
 void registerImageEncoded(uint32_t imageId, uint8_t format,
                           const void* encoded, size_t n,
                           uint16_t w, uint16_t h) {
+    if (!imageRecipesEnabled()) return; // 🎯T169
     if (imageId == 0 || !encoded || n == 0) return;
     ImageRecipe rec;
     rec.kind = ImageRecipeKind::Encoded;
@@ -648,6 +673,8 @@ const ImageRecipe* lookupImageRecipe(uint32_t imageId) {
 
 void LiveCapture::begin(uint32_t seq, Cache* serverCache,
                         uint16_t contentW, uint16_t contentH) {
+    // 🎯T169: capture requires recipes for textures created from here on.
+    setImageRecipesEnabled(true);
     std::lock_guard<std::mutex> lk(g_liveMu);
     cache_ = serverCache;
     w_ = std::make_unique<Writer>(serverCache);

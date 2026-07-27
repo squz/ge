@@ -371,6 +371,19 @@ void setLiveCapture(LiveCapture* cap);
 LiveCapture* liveCapture();
 
 // Side-table: recipe or RGBA for sokol image ids (filled by load/raster paths).
+//
+// 🎯T169: recipes exist for the stream/capture path only. Registration is
+// DISABLED by default — direct-mode games never arm capture, and the
+// unconditional registry leaked a full font copy per rasterized HUD string
+// (sokol id generations make every re-raster a fresh key; nothing erased).
+// The stream host / live capture enables recipes before game textures are
+// created; texture owners call unregisterImage from their destroy paths so
+// an enabled registry mirrors live textures.
+void setImageRecipesEnabled(bool enabled);
+bool imageRecipesEnabled();
+void unregisterImage(uint32_t imageId);
+size_t imageRecipeCount(); // introspection for tests/metrics
+
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,
                          const void* rgba, size_t n);
 void registerImageSvg(uint32_t imageId, std::string_view svg,
