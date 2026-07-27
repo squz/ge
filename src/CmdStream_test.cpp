@@ -483,3 +483,35 @@ TEST_CASE("cmdstream MakeEncodedImage smaller than RGBA for synthetic PNG header
     CHECK(r.decode(payload, visit, &acc));
     CHECK(acc.saw);
 }
+
+// ── 🎯T169: image-recipe registry gating and bounding ──────────────────────
+
+TEST_CASE("image recipes: disabled by default, nothing registers") {
+    using namespace ge::cmdstream;
+    setImageRecipesEnabled(false); // explicit — other tests may have enabled
+    const size_t before = imageRecipeCount();
+    const uint8_t rgba[16] = {};
+    registerImagePixels(4242u, 2, 2, rgba, sizeof(rgba));
+    registerImageText(4243u, "hud", rgba, sizeof(rgba), 0, 12.0f,
+                      1, 1, 1, 1, 2, 2);
+    CHECK(imageRecipeCount() == before);
+    CHECK(lookupImageRecipe(4242u) == nullptr);
+    CHECK(lookupImageRecipe(4243u) == nullptr);
+}
+
+TEST_CASE("image recipes: enabled registers, unregister erases, ids replace") {
+    using namespace ge::cmdstream;
+    setImageRecipesEnabled(true);
+    const uint8_t rgba[16] = {};
+    const size_t before = imageRecipeCount();
+    registerImageText(5301u, "a", rgba, sizeof(rgba), 0, 12.0f, 1, 1, 1, 1, 2, 2);
+    CHECK(imageRecipeCount() == before + 1);
+    CHECK(lookupImageRecipe(5301u) != nullptr);
+    // Same id re-registered replaces, not grows (sokol id reuse).
+    registerImageText(5301u, "b", rgba, sizeof(rgba), 0, 12.0f, 1, 1, 1, 1, 2, 2);
+    CHECK(imageRecipeCount() == before + 1);
+    unregisterImage(5301u);
+    CHECK(imageRecipeCount() == before);
+    CHECK(lookupImageRecipe(5301u) == nullptr);
+    setImageRecipesEnabled(false); // restore default for other tests
+}

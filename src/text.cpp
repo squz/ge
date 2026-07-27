@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 
 namespace ge {
@@ -197,6 +198,16 @@ TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,
     return out;
 }
 
+namespace {
+// 🎯T169: one copy of each font file, shared across every text recipe.
+const std::vector<uint8_t>& cachedFontBytes(const std::string& path) {
+    static std::unordered_map<std::string, std::vector<uint8_t>> cache;
+    auto it = cache.find(path);
+    if (it == cache.end()) it = cache.emplace(path, readFileBytes(path)).first;
+    return it->second;
+}
+} // namespace
+
 Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
                      float sizePt,
@@ -230,8 +241,12 @@ Sprite rasterizeText(const std::string& text,
     out.height = pixels.height;
 
     // 🎯T128.7: ship font + string recipe (not RGBA) when streaming.
-    if (out.tex.id != SG_INVALID_ID) {
-        auto fontBytes = readFileBytes(font.path);
+    // 🎯T169: recipes are stream-only; skip entirely (including the font
+    // file read) in direct mode, and cache font bytes per path — reading
+    // and copying a ~2.3 MB TTF per rasterized string leaked a frame's
+    // worth of memory for every HUD update.
+    if (out.tex.id != SG_INVALID_ID && cmdstream::imageRecipesEnabled()) {
+        const auto& fontBytes = cachedFontBytes(font.path);
         if (!fontBytes.empty()) {
             cmdstream::registerImageText(
                 out.tex.id, text,
