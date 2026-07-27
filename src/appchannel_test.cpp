@@ -126,6 +126,32 @@ TEST_CASE("buildSliceDescriptors: empty registry yields an empty array") {
     CHECK(arr.empty());
 }
 
+TEST_CASE("buildMethodDescriptors: bare + rich mixed hello methods") {
+    using ge::appchannel::detail::MethodAdvert;
+    using ge::appchannel::detail::buildMethodDescriptors;
+    const auto arr = buildMethodDescriptors({
+        MethodAdvert{.name = "ping"},
+        MethodAdvert{
+            .name = "select_country",
+            .example_params = json{{"id", "FR"}},
+            .doc = "Select by ISO id",
+        },
+        MethodAdvert{.name = "globe_look_at", .example_params = json{{"lon", 0.0}}, .doc = ""},
+    });
+    REQUIRE(arr.size() == 3);
+    CHECK(arr[0].is_string());
+    CHECK(arr[0] == "ping");
+    CHECK(arr[1].is_object());
+    CHECK(arr[1]["name"] == "select_country");
+    CHECK(arr[1]["example_params"]["id"] == "FR");
+    CHECK(arr[1]["doc"] == "Select by ISO id");
+    CHECK(arr[2].is_object());
+    CHECK(arr[2]["name"] == "globe_look_at");
+    CHECK(arr[2].contains("example_params"));
+    CHECK(!arr[2].contains("doc"));
+    CHECK(viaMsgpack(arr) == arr);
+}
+
 // ── 🎯T119: log-push envelope matches spyder's LogPush wire shape ──────────
 // Mirrors src/log.cpp's AppChannelLogSink and spyder's
 // internal/appchannel/session.go LogPush (msgpack tags). The timestamp field

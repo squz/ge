@@ -25,6 +25,7 @@
 #include <deque>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -120,6 +121,17 @@ nlohmann::json runOnGameThread(const std::function<nlohmann::json()>& fn) {
 std::unordered_map<std::string, Handler>& handlers() {
     static std::unordered_map<std::string, Handler> h;
     return h;
+}
+
+// Optional discovery metadata for app-registered methods (example_params/doc).
+// Keyed by method name; absent → bare-string hello entry.
+struct MethodMeta {
+    nlohmann::json example_params;
+    std::string doc;
+};
+std::unordered_map<std::string, MethodMeta>& methodMeta() {
+    static std::unordered_map<std::string, MethodMeta> m;
+    return m;
 }
 
 // dialTCP attempts a single TCP connect to host:port. On failure the
@@ -254,9 +266,22 @@ private:
             return;
         }
         // hello: advertise the methods we handle and the state slices
-        // consumers registered (before ge::run).
-        nlohmann::json methods = nlohmann::json::array();
-        for (const auto& kv : handlers()) methods.push_back(kv.first);
+        // consumers registered (before ge::run). Mixed method descriptors:
+        // bare string, or {name, example_params?, doc?} when registerMethod
+        // volunteered discovery metadata (spyder app_methods / app_call).
+        std::vector<detail::MethodAdvert> methodList;
+        methodList.reserve(handlers().size());
+        for (const auto& kv : handlers()) {
+            detail::MethodAdvert a;
+            a.name = kv.first;
+            auto it = methodMeta().find(kv.first);
+            if (it != methodMeta().end()) {
+                a.example_params = it->second.example_params;
+                a.doc = it->second.doc;
+            }
+            methodList.push_back(std::move(a));
+        }
+        nlohmann::json methods = detail::buildMethodDescriptors(methodList);
         // 🎯T116 Build mixed slice descriptors: bare name, or {name, example}
         // for slices that volunteered one. buildSliceDescriptors is pure (unit-
         // tested in appchannel_test.cpp against spyder's SliceDescriptor forms).
@@ -844,8 +869,21 @@ void registerBuiltins() {
 
 } // namespace
 
-void registerMethod(std::string method, Handler handler) {
-    handlers()[std::move(method)] = std::move(handler);
+void registerMethod(std::string method, Handler handler,
+                    nlohmann::json exampleParams, std::string doc) {
+    const std::string name = method;
+    // Consumer handlers run on the game thread (same as state_query /
+    // restore_state) so they can safely mutate sim/UI. GE_FACTORY and other
+    // no-window hosts must pumpMainThreadTasks in their idle loop.
+    auto held = std::make_shared<Handler>(std::move(handler));
+    handlers()[std::move(method)] = [held](const nlohmann::json& p) {
+        return runOnGameThread([held, p] { return (*held)(p); });
+    };
+    if (!exampleParams.is_null() || !doc.empty()) {
+        methodMeta()[name] = MethodMeta{std::move(exampleParams), std::move(doc)};
+    } else {
+        methodMeta().erase(name);
+    }
 }
 
 // Defined with the hit-target registry helpers below (must precede installFromEnv use).
@@ -910,6 +948,21 @@ nlohmann::json buildSliceDescriptors(
             out.push_back(name);                                    // bare string
         else
             out.push_back({{"name", name}, {"example", example}});  // {name, example}
+    }
+    return out;
+}
+
+nlohmann::json buildMethodDescriptors(const std::vector<MethodAdvert>& methods) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& m : methods) {
+        if (m.example_params.is_null() && m.doc.empty()) {
+            out.push_back(m.name);
+            continue;
+        }
+        nlohmann::json o{{"name", m.name}};
+        if (!m.example_params.is_null()) o["example_params"] = m.example_params;
+        if (!m.doc.empty()) o["doc"] = m.doc;
+        out.push_back(std::move(o));
     }
     return out;
 }
@@ -1067,7 +1120,7 @@ void setExtraHitTargets(nlohmann::json targetsArray) {
 
 #else  // NDEBUG — feature compiled out entirely.
 
-void registerMethod(std::string, Handler) {}
+void registerMethod(std::string, Handler, nlohmann::json, std::string) {}
 void installFromEnv(const std::string&, const std::string&) {}
 void push(std::string, nlohmann::json) {}
 bool active() { return false; }

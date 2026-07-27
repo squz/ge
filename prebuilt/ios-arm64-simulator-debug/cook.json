@@ -5,10 +5,10 @@
   "opt": "-O2",
   "flags": "-g -O2 -fno-omit-frame-pointer -fvisibility=hidden -fno-color-diagnostics -target arm64-apple-ios16.3-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk",
   "flags_sha256": "f56b8a9cf04d6db99612ed1d2c4a880fa4564dc6b89760e0a20a3ee0a9156b1b",
-  "utc": "2026-07-27T12:52:41Z",
+  "utc": "2026-07-27T13:02:33Z",
   "archives": {
     "box2d": "d395bd10d61e2708004a02917409d2146bca45eac5515d990f58353b87a76ee6",
-    "ge": "04d3b2d50a49ef980937d1384324a2a49b33b33541531f14f97a727f4dfc69b6",
+    "ge": "7ab1df7b580496534f9cd30e05b0cba10b8d48740f4004ce70f67c73b488d7cf",
     "liteparser": "2a5c6ceb807246742f31d9c361912f9946ddbf4b906719fc9dd7f481cee610e4",
     "lunasvg_ge": "afc275874b4bcbc5f5e806ff11495d417ebb088c06608a072a2d28ba2715b731",
     "lz4_ge": "5ac693131da48c10e1bed69442aa234e858d04fdd84504c781a0d973abf91f3c",

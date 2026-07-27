@@ -2570,7 +2570,7 @@ targets:
     achieved: 2026-04-17
   T170:
     name: 'ge offers gesture-hint-as-a-service: a skeletal gesture timeline with event tags, rendered by a default SDF-outline hand that games can replace with their own art'
-    status: achieved
+    status: identified
     value: 0.0
     cost: 0.0
     acceptance:
@@ -2588,7 +2588,6 @@ targets:
     - visual
     origin: 'Design discussion 2026-07-27: hand-gesture hint animations as an engine service'
     discovered: 2026-07-27
-    achieved: 2026-07-27
   T170.1:
     name: 'The gesture-hint service covers device-motion hints: a device-pose timeline track and a default SDF hand-holding-phone tilt animation (multimaze2 first-timer hint)'
     status: identified

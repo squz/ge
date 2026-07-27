@@ -29,6 +29,16 @@ namespace ge::appchannel::detail {
 nlohmann::json buildSliceDescriptors(
     const std::vector<std::pair<std::string, nlohmann::json>>& slices);
 
+// Build hello.methods mixed array (spyder MethodDescriptor):
+//   - no example and empty doc → bare string name
+//   - else → {name, example_params?, doc?}
+struct MethodAdvert {
+    std::string name;
+    nlohmann::json example_params = nullptr;  // null = omit
+    std::string doc;
+};
+nlohmann::json buildMethodDescriptors(const std::vector<MethodAdvert>& methods);
+
 // 🎯T109 One exportable hit target (pure DTO for tests + encoder).
 struct HitTargetExport {
     std::string id;
