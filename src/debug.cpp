@@ -192,6 +192,25 @@ std::string fpsLabel(const Context& ctx) {
     return buf;
 }
 
+// ── perf HUD strip state (🎯T173) ────────────────────────────────────
+// Plain stores read at flush() — setHudPlacement is safe to call every
+// frame. Enable latches GE_PERF_HUD on first query, like enabled().
+
+struct HudState {
+    int                          enabled = -1;  // -1 = env not latched yet
+    HudAnchor                    anchor  = HudAnchor::TopRight;
+    la::float2                   offsetPt{8.0f, 8.0f};
+    std::function<std::string()> provider;
+};
+
+HudState& hud() {
+    static HudState h;
+    return h;
+}
+
+constexpr la::float4 kHudBackColor{0.0f, 0.0f, 0.0f, 0.55f};
+constexpr float      kHudPadPt = 4.0f;  // backing-box padding around the text
+
 template <class V>
 void meshImpl(std::span<const V> verts, std::span<const uint16_t> idx,
               la::float4 wire, la::float4 fill) {
@@ -390,12 +409,50 @@ void expandCircle(la::float3 center, float radius, la::float4 wire,
 
 } // namespace
 
+bool hudEnabled() {
+    auto& h = hud();
+    if (h.enabled < 0) h.enabled = parseBool(std::getenv("GE_PERF_HUD")) ? 1 : 0;
+    return h.enabled == 1;
+}
+
+void setHudEnabled(bool on) { hud().enabled = on ? 1 : 0; }
+
+void setHudPlacement(HudAnchor anchor, la::float2 offsetPt) {
+    hud().anchor   = anchor;
+    hud().offsetPt = offsetPt;
+}
+
+void setHudProvider(std::function<std::string()> provider) {
+    hud().provider = std::move(provider);
+}
+
+std::string hudLabel(float dtSeconds, float fps, std::string_view extra) {
+    char buf[64];
+    if (dtSeconds > 0.0f)
+        std::snprintf(buf, sizeof(buf), "dt %.1f ms  ", dtSeconds * 1000.0f);
+    else
+        std::snprintf(buf, sizeof(buf), "dt --  ");
+    std::string out = buf;
+    if (fps > 0.0f)
+        std::snprintf(buf, sizeof(buf), "%.1f fps", fps);
+    else
+        std::snprintf(buf, sizeof(buf), "fps --");
+    out += buf;
+    if (!extra.empty()) {
+        out += "  ";
+        out += extra;
+    }
+    return out;
+}
+
 void flush(const Context& ctx, const la::float4x4& worldToClip) {
     auto& s = st();
-    const bool showFps = enabled();
+    const bool showHud = hudEnabled();
+    // Legacy bare FPS readout: overlay on, HUD not claiming the corner.
+    const bool showFps = enabled() && !showHud;
     const std::string fps = showFps ? fpsLabel(ctx) : std::string{};
     if (s.lineVerts.empty() && s.triVerts.empty() && s.texts.empty() &&
-        s.points.empty() && s.circles.empty() && !showFps)
+        s.points.empty() && s.circles.empty() && !showFps && !showHud)
         return;
     if (!ensureState()) { clear(); return; }
 
@@ -432,7 +489,7 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
     if (!s.lineVerts.empty())
         drawRun(s.lines, s.lineVerts.data(), int(s.lineVerts.size()), worldToClip);
 
-    if (!s.texts.empty() || showFps) {
+    if (!s.texts.empty() || showFps || showHud) {
         if (!s.fontTried) {
             s.fontTried = true;
             try {
@@ -468,6 +525,44 @@ void flush(const Context& ctx, const la::float4x4& worldToClip) {
                     const Rect rect{x, margin, float(sp.width), float(sp.height)};
                     sp.draw(la::mul(px, frame(rect)));
                     // 🎯T135 sp frees its sg_image + sg_view here at scope end.
+                }
+            }
+
+            // 🎯T173 perf HUD strip: dt/fps + game-supplied segments over a
+            // translucent backing box, at the imperative placement (which
+            // the game may have re-set this very frame).
+            if (showHud) {
+                auto& h = hud();
+                const std::string label =
+                    hudLabel(ctx.frameTime(), ctx.fps(),
+                             h.provider ? h.provider() : std::string{});
+                Sprite sp = rasterizeText(label, s.font, sizePx, kTextColor);
+                if (!sp.isNull()) {
+                    const float padPx = kHudPadPt * ppt;
+                    const float boxW  = float(sp.width) + 2.0f * padPx;
+                    const float boxH  = float(sp.height) + 2.0f * padPx;
+                    const float surW  = full.w * ppt;
+                    const float surH  = full.h * ppt;
+                    const la::float2 offPx = h.offsetPt * ppt;
+                    la::float2 boxPos;  // top-left of the backing box, px
+                    switch (h.anchor) {
+                        case HudAnchor::TopLeft:     boxPos = offPx; break;
+                        case HudAnchor::TopRight:    boxPos = {surW - boxW - offPx.x, offPx.y}; break;
+                        case HudAnchor::BottomLeft:  boxPos = {offPx.x, surH - boxH - offPx.y}; break;
+                        case HudAnchor::BottomRight: boxPos = {surW - boxW - offPx.x, surH - boxH - offPx.y}; break;
+                        case HudAnchor::Custom:      boxPos = offPx; break;
+                    }
+                    const uint32_t bg = packAbgr(kHudBackColor);
+                    const float x0 = boxPos.x, y0 = boxPos.y;
+                    const float x1 = x0 + boxW, y1 = y0 + boxH;
+                    const DebugVertex box[6] = {
+                        {x0, y0, 0, bg}, {x1, y0, 0, bg}, {x1, y1, 0, bg},
+                        {x0, y0, 0, bg}, {x1, y1, 0, bg}, {x0, y1, 0, bg},
+                    };
+                    drawRun(s.tris, box, 6, px);
+                    const Rect rect{x0 + padPx, y0 + padPx,
+                                    float(sp.width), float(sp.height)};
+                    sp.draw(la::mul(px, frame(rect)));
                 }
             }
         }

@@ -20,7 +20,9 @@
 #include <ge/SessionHost.h>   // ge::Context
 
 #include <cstdint>
+#include <functional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace ge::debug {
@@ -114,6 +116,46 @@ void point(la::float3 pos, Color color = kWireColor);
 // ── text, screen space (top-left origin, +Y down, framebuffer pixels) ────
 // Anchored at posPx; independent of worldToClip. Single line, monospace.
 void text(la::float2 posPx, std::string_view str, Color color = kTextColor);
+
+// ── perf HUD strip (🎯T173) ──────────────────────────────────────────────
+// A one-line performance strip — engine-owned dt/fps plus optional
+// game-supplied segments — drawn by flush() over a translucent backing
+// box so it stays legible on bright content. Independent of the debug-
+// draw layer: hudEnabled() latches the GE_PERF_HUD env var on first
+// query, setHudEnabled() overrides at runtime, and the strip renders
+// even while the rest of the overlay is disabled. (While the overlay is
+// enabled and the HUD is not, the legacy bare FPS readout still draws.)
+//
+// Placement is imperative and cheap — plain stores read at the next
+// flush(), so a game may reposition every frame as its chrome evolves:
+//
+//     ge::debug::setHudPlacement(ge::debug::HudAnchor::TopLeft, {8, 8});
+//     // or pin it precisely, in point space:
+//     ge::debug::setHudPlacement(ge::debug::HudAnchor::Custom,
+//                                {panel.x, panel.y1() + 4});
+//
+// Custom anchors interpret offsetPt as the absolute top-left of the
+// strip in point space; corner anchors inset from that corner.
+//
+// Game segments come from a provider queried once per flush:
+//
+//     ge::debug::setHudProvider([&] {
+//         return fmt::format("zoom {:.2f}  mag {}", cam.zoom, magnet ? "on" : "off");
+//     });
+
+enum class HudAnchor { TopLeft, TopRight, BottomLeft, BottomRight, Custom };
+
+bool hudEnabled();
+void setHudEnabled(bool on);
+void setHudPlacement(HudAnchor anchor, la::float2 offsetPt = {8.0f, 8.0f});
+// Empty function clears. Called on the game thread from flush(); keep it
+// allocation-light — its string is appended after the engine dt/fps text.
+void setHudProvider(std::function<std::string()> provider);
+
+// Pure label composition (exposed for tests): "dt 16.7 ms  60.0 fps",
+// plus "  " + extra when extra is non-empty. dtSeconds <= 0 or fps <= 0
+// render as "--".
+std::string hudLabel(float dtSeconds, float fps, std::string_view extra);
 
 // ── flush ────────────────────────────────────────────────────────────────
 // Draw everything accumulated since the last flush into the active render

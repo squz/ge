@@ -173,3 +173,34 @@ TEST_CASE("ge::debug::setEnabled toggles accumulation at runtime") {
     ge::debug::line(float2{0, 0}, float2{1, 1});
     CHECK(ge::debug::testing::lineVertexCount() == 2);  // unchanged while off
 }
+
+// ── 🎯T173 perf HUD strip ────────────────────────────────────────────
+
+TEST_CASE("ge::debug::hudLabel composes dt/fps and optional extra") {
+    // Normal readings: dt in ms (1 decimal), fps (1 decimal).
+    CHECK(ge::debug::hudLabel(1.0f / 60.0f, 60.0f, "") == "dt 16.7 ms  60.0 fps");
+    CHECK(ge::debug::hudLabel(0.008f, 125.0f, "") == "dt 8.0 ms  125.0 fps");
+
+    // Extra segments append after two spaces; empty extra appends nothing.
+    CHECK(ge::debug::hudLabel(0.010f, 100.0f, "zoom 1.25  mag on") ==
+          "dt 10.0 ms  100.0 fps  zoom 1.25  mag on");
+
+    // Invalid readings render as "--" (first frames, headless).
+    CHECK(ge::debug::hudLabel(0.0f, 0.0f, "") == "dt --  fps --");
+    CHECK(ge::debug::hudLabel(-1.0f, -5.0f, "x") == "dt --  fps --  x");
+}
+
+TEST_CASE("ge::debug HUD enable is independent and imperative") {
+    // setHudEnabled overrides whatever the env latch said, both ways.
+    ge::debug::setHudEnabled(true);
+    CHECK(ge::debug::hudEnabled());
+    ge::debug::setHudEnabled(false);
+    CHECK(!ge::debug::hudEnabled());
+
+    // Placement + provider setters are cheap stores — callable any time,
+    // any number of times (per-frame repositioning is the contract).
+    ge::debug::setHudPlacement(ge::debug::HudAnchor::TopLeft, {8, 8});
+    ge::debug::setHudPlacement(ge::debug::HudAnchor::Custom, {123, 456});
+    ge::debug::setHudProvider([] { return std::string("seg"); });
+    ge::debug::setHudProvider({});  // clear
+}
