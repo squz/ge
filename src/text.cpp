@@ -6,8 +6,9 @@
 #ifndef GE_PLAYER_NO_SOKOL
 #include <ge/CmdStream.h>
 #include "sokol_gfx.h"
-#include <fstream>
 #endif
+#include <fstream>
+#include <mutex>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <spdlog/spdlog.h>
@@ -23,16 +24,61 @@ namespace ge {
 
 namespace {
 
-FT_Library& ftLibrary() {
-    static FT_Library lib = nullptr;
-    if (lib == nullptr) {
-        FT_Error err = FT_Init_FreeType(&lib);
+// ── 🎯T176 FreeType threading (contract per freetype.h, FT_Library /
+// FT_Face docs, FreeType >= 2.5.6) ─────────────────────────────────────
+//
+//  - ONE FT_Library is shared by every thread. The library needs a lock
+//    ONLY around face creation/destruction (FT_New_*_Face / FT_Done_Face)
+//    — that is g_ftFaceMu below.
+//  - FT_Load_Glyph and siblings are documented thread-safe WITHOUT any
+//    lock, provided a given FT_Face is used by one thread at a time. We
+//    create a face per rasterize call, so glyph rendering — the expensive
+//    part — runs fully in parallel across threads.
+//  - An FT_Face can never be a shared immutable artifact: it is a mutable
+//    scratchpad by design (the glyph slot is reused per FT_Load_Glyph;
+//    size + hinter/interpreter state live in it). The immutable, shared
+//    artifact is the FONT BYTES: FT_New_Memory_Face does not copy its
+//    buffer ("you must not deallocate the memory before FT_Done_Face"),
+//    so every face — on any thread — sits over one write-once entry of
+//    cachedFontBytes. Table parsing is lazy per face, so per-call face
+//    creation costs microseconds.
+
+std::once_flag g_ftInitOnce;
+FT_Library     g_ftLib = nullptr;
+std::mutex     g_ftFaceMu;  // guards FT_New_*_Face / FT_Done_Face only
+
+FT_Library ftLibrary() {
+    std::call_once(g_ftInitOnce, [] {
+        FT_Error err = FT_Init_FreeType(&g_ftLib);
         if (err != 0) {
             spdlog::error("ge::rasterizeText: FT_Init_FreeType failed (error {})", err);
-            lib = nullptr;
+            g_ftLib = nullptr;
         }
+    });
+    return g_ftLib;
+}
+
+// Open a face over an in-memory font (no copy — the bytes must outlive
+// the face). Returns nullptr on failure, with the error logged.
+FT_Face newMemoryFace(const void* bytes, size_t n, int faceIndex) {
+    FT_Library lib = ftLibrary();
+    if (lib == nullptr || bytes == nullptr || n == 0) return nullptr;
+    std::lock_guard<std::mutex> lk(g_ftFaceMu);
+    FT_Face face = nullptr;
+    FT_Error err = FT_New_Memory_Face(
+        lib, static_cast<const FT_Byte*>(bytes), static_cast<FT_Long>(n),
+        static_cast<FT_Long>(faceIndex), &face);
+    if (err != 0) {
+        spdlog::error("ge::rasterizeText: FT_New_Memory_Face failed (error {})", err);
+        return nullptr;
     }
-    return lib;
+    return face;
+}
+
+void doneFace(FT_Face face) {
+    if (!face) return;
+    std::lock_guard<std::mutex> lk(g_ftFaceMu);
+    FT_Done_Face(face);
 }
 
 } // namespace
@@ -131,14 +177,27 @@ TextPixels rasterizeTextFace(const std::string& text,
     return out;
 }
 
-#ifndef GE_PLAYER_NO_SOKOL
 std::vector<uint8_t> readFileBytes(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return {};
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(in),
                                 std::istreambuf_iterator<char>());
 }
-#endif
+
+// 🎯T169/T176: one write-once copy of each font file, shared by every
+// face on every thread. Only the map access locks: entries are never
+// erased and never mutated after insert, and unordered_map references
+// survive rehash — so the returned reference is safe to read unlocked
+// for the life of the process (FT_New_Memory_Face requires exactly
+// that: the buffer must outlive its faces).
+std::mutex g_fontBytesMu;
+const std::vector<uint8_t>& cachedFontBytes(const std::string& path) {
+    static std::unordered_map<std::string, std::vector<uint8_t>> cache;
+    std::lock_guard<std::mutex> lk(g_fontBytesMu);
+    auto it = cache.find(path);
+    if (it == cache.end()) it = cache.emplace(path, readFileBytes(path)).first;
+    return it->second;
+}
 
 } // namespace
 
@@ -154,20 +213,21 @@ TextPixels rasterizeTextToPixels(const std::string& text,
         return out;
     }
 
-    FT_Library lib = ftLibrary();
-    if (lib == nullptr) return out;
-
-    FT_Face face = nullptr;
-    FT_Error err = FT_New_Face(lib, font.path.c_str(),
-                               static_cast<FT_Long>(font.faceIndex), &face);
-    if (err != 0) {
-        spdlog::error("ge::rasterizeText: FT_New_Face failed for '{}' face {} (error {})",
-                      font.path, font.faceIndex, err);
+    // T176: faces open over the shared write-once byte cache (one disk
+    // read per font per process), via the mutexed face create/destroy.
+    const auto& bytes = cachedFontBytes(font.path);
+    if (bytes.empty()) {
+        spdlog::error("ge::rasterizeText: cannot read font '{}'", font.path);
         return out;
     }
-
+    FT_Face face = newMemoryFace(bytes.data(), bytes.size(), font.faceIndex);
+    if (!face) {
+        spdlog::error("ge::rasterizeText: face open failed for '{}' face {}",
+                      font.path, font.faceIndex);
+        return out;
+    }
     out = rasterizeTextFace(text, face, sizePt, color);
-    FT_Done_Face(face);
+    doneFace(face);
     return out;
 }
 
@@ -179,34 +239,12 @@ TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,
     TextPixels out;
     if (text.empty() || !fontBytes || fontN == 0) return out;
 
-    FT_Library lib = ftLibrary();
-    if (lib == nullptr) return out;
-
-    FT_Face face = nullptr;
-    FT_Error err = FT_New_Memory_Face(
-        lib,
-        static_cast<const FT_Byte*>(fontBytes),
-        static_cast<FT_Long>(fontN),
-        static_cast<FT_Long>(faceIndex),
-        &face);
-    if (err != 0) {
-        spdlog::error("ge::rasterizeText: FT_New_Memory_Face failed (error {})", err);
-        return out;
-    }
+    FT_Face face = newMemoryFace(fontBytes, fontN, faceIndex);
+    if (!face) return out;
     out = rasterizeTextFace(text, face, sizePt, color);
-    FT_Done_Face(face);
+    doneFace(face);
     return out;
 }
-
-namespace {
-// 🎯T169: one copy of each font file, shared across every text recipe.
-const std::vector<uint8_t>& cachedFontBytes(const std::string& path) {
-    static std::unordered_map<std::string, std::vector<uint8_t>> cache;
-    auto it = cache.find(path);
-    if (it == cache.end()) it = cache.emplace(path, readFileBytes(path)).first;
-    return it->second;
-}
-} // namespace
 
 Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
@@ -219,26 +257,10 @@ Sprite rasterizeText(const std::string& text,
     auto pixels = rasterizeTextToPixels(text, font, sizePt, color);
     if (pixels.isNull()) return Sprite{};
 
-    sg_image_desc desc{};
-    desc.width        = pixels.width;
-    desc.height       = pixels.height;
-    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
-    desc.data.mip_levels[0] = (sg_range){
-        .ptr  = pixels.rgba.data(),
-        .size = pixels.rgba.size(),
-    };
-    desc.label = "ge.text.sprite";
-
-    Sprite out;
-    out.tex = sg_make_image(&desc);
-
-    sg_view_desc vd{};
-    vd.texture.image = out.tex;
-    vd.label = "ge.text.sprite.view";
-    out.view = sg_make_view(&vd);
-
-    out.width  = pixels.width;
-    out.height = pixels.height;
+    // T176: thin composition — CPU pixels (any thread) + the promoted
+    // pixels->Sprite upload (game thread only).
+    Sprite out = spriteFromRgba(pixels.width, pixels.height,
+                                pixels.rgba.data(), "ge.text.sprite");
 
     // 🎯T128.7: ship font + string recipe (not RGBA) when streaming.
     // 🎯T169: recipes are stream-only; skip entirely (including the font

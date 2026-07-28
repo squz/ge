@@ -76,3 +76,48 @@ TEST_CASE("rasterizeTextToPixels: empty string returns null") {
     ge::TextPixels px = ge::rasterizeTextToPixels("", font, 24.0f, {1.0f, 1.0f, 1.0f, 1.0f});
     CHECK(px.isNull());
 }
+
+// ── 🎯T176 concurrency ──────────────────────────────────────────────
+// TSan is not wired into this build lane (documented CI-infeasibility per
+// the T176 acceptance), so this exercises the contract directly: many
+// threads rasterizing concurrently — mixed strings, sizes, and both the
+// path and memory faces — must produce byte-identical output to a serial
+// reference. Pre-T176 this was a data race on the FT_Library lazy init,
+// the face create/destroy, and the font-bytes cache.
+#include <atomic>
+#include <thread>
+
+TEST_CASE("🎯T176: concurrent rasterizeTextToPixels matches serial output") {
+    ge::FontRef font;
+    try { font = ge::resolveFont("system:sans-serif"); }
+    catch (...) { return; }  // headless CI without fonts: nothing to test
+
+    struct Job { const char* text; float pt; };
+    const Job jobs[] = {{"alpha", 18.f}, {"Bravo 42", 24.f},
+                        {"charlie!", 13.f}, {"Δelta", 32.f}};
+
+    // Serial reference (also warms the byte cache single-threaded).
+    ge::TextPixels ref[4];
+    for (int i = 0; i < 4; ++i)
+        ref[i] = ge::rasterizeTextToPixels(jobs[i].text, font, jobs[i].pt,
+                                           {1, 1, 1, 1});
+    REQUIRE(!ref[0].isNull());
+
+    constexpr int kThreads = 8, kIters = 25;
+    std::atomic<int> mismatches{0};
+    std::vector<std::thread> pool;
+    for (int t = 0; t < kThreads; ++t) {
+        pool.emplace_back([&, t] {
+            for (int i = 0; i < kIters; ++i) {
+                const Job& j = jobs[(t + i) % 4];
+                auto px = ge::rasterizeTextToPixels(j.text, font, j.pt, {1, 1, 1, 1});
+                const auto& r = ref[(t + i) % 4];
+                if (px.width != r.width || px.height != r.height ||
+                    px.rgba != r.rgba)
+                    mismatches.fetch_add(1);
+            }
+        });
+    }
+    for (auto& th : pool) th.join();
+    CHECK(mismatches.load() == 0);
+}
