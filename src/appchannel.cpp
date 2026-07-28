@@ -6,6 +6,7 @@
 // entirely under NDEBUG. See include/ge/appchannel.h for the wire format.
 
 #include <ge/appchannel.h>
+#include <ge/SessionHost.h>  // 🎯T175 Context / liveSessionIds
 #include <ge/metrics.h>
 #include <ge/button.h>
 
@@ -59,58 +60,142 @@ constexpr std::size_t kMaxBody = 16u * 1024 * 1024;  // 16 MB per spyder spec
 // reads/writes are atomic so the channel worker thread can mutate while the
 // game thread reads. Identity values (not paused, 1× speed, no steps) make
 // applyTimeControl a pass-through when nothing has driven them.
-std::atomic<bool>  g_tcPaused{false};
-std::atomic<float> g_tcSpeed{1.0f};
-std::atomic<int>   g_tcStepFrames{0};
+// (🎯T175.10 moved into SessionScoped below — declared here only as the
+// struct's members.)
 // A single stepped frame advances this much nominal time — fixed (not the
 // real wall-clock dt, which would be huge after a pause) so frame-stepping is
 // reproducible.
 constexpr float kStepDt = 1.0f / 60.0f;
 
-// 🎯T92.4 Perf counters. perfEmit (game thread) sets the latest value per
-// name; perfTick accumulates frame time and, once the window elapses, pushes
-// {frame_ms (window average), counters}.
-std::mutex g_perfMu;
-std::unordered_map<std::string, double> g_perfCounters;
-float g_perfAccumMs = 0.0f;
-int   g_perfFrames  = 0;
 constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
 
-// 🎯T92.5 State registry. Populated by registerStateSlice/Serializer BEFORE
-// ge::run (single-threaded), read by the channel worker thread after — the
-// happens-before is the channel-thread launch in start().
-std::unordered_map<std::string, StateGetter> g_slices;
-// 🎯T116 Optional per-slice example payloads, advertised in the hello as
-// {name, example} descriptors. Same write-once-before-run lifetime as g_slices.
-std::unordered_map<std::string, nlohmann::json> g_sliceExamples;
-StateGetter   g_stateSaver;
-StateRestorer g_stateRestorer;
+// ── 🎯T175.2/3/4/10 per-session app-channel state ───────────────────
+// One store per session id, plus the *defaults* store at key 0 holding
+// registrations made with no Context in scope (the classic register-
+// before-ge::run flow). A session's view falls through to defaults per
+// key, so pre-run registrations apply to every session while Context-
+// scoped registrations are that session's own. Stores are created on
+// demand and never destroyed (bounded: a handful of sessions per
+// process; process-per-session streaming has exactly one).
+struct SessionScoped {
+    // 🎯T92.5/T175.2 state registry + hit-target extras/surface.
+    std::unordered_map<std::string, StateGetter>    slices;
+    std::unordered_map<std::string, nlohmann::json> sliceExamples;
+    StateGetter    stateSaver;
+    StateRestorer  stateRestorer;
+    bool           extrasSet = false;  // session overlay: set → overrides defaults
+    nlohmann::json extraHitTargets = nlohmann::json::array();
+    float hitSurfaceW = 0.f;  // defaults-store fallback when no session Context
+    float hitSurfaceH = 0.f;
+    // 🎯T92.2/T175.10 time control.
+    std::atomic<bool>  tcPaused{false};
+    std::atomic<float> tcSpeed{1.0f};
+    std::atomic<int>   tcStepFrames{0};
+    // 🎯T92.4/T175.4 perf counters + window.
+    std::mutex perfMu;
+    std::unordered_map<std::string, double> perfCounters;
+    float perfAccumMs = 0.0f;
+    int   perfFrames  = 0;
+    // 🎯T175.3 game-thread task queue (each session has its own game thread).
+    std::mutex taskMu;
+    std::deque<std::function<void()>> tasks;
+};
 
-// 🎯T109 Hit-target surface size (full-surface pts) + optional non-button extras.
-float g_hitSurfaceW = 0.f;
-float g_hitSurfaceH = 0.f;
-nlohmann::json g_extraHitTargets = nlohmann::json::array();
+std::mutex g_scopedMu;
+std::unordered_map<uint32_t, std::shared_ptr<SessionScoped>> g_scoped;
+
+// T109: the built-in hit_targets slice registers once into the defaults
+// store (every session inherits it).
 bool g_hitTargetsSliceRegistered = false;
 
-// Game-thread task queue. State handlers run on the worker thread but must
-// observe game state from the game thread (no torn reads against the sim), so
-// they marshal a task here and block on its result; pumpMainThreadTasks drains
-// it from the run loop.
-std::mutex g_taskMu;
-std::deque<std::function<void()>> g_tasks;
+std::shared_ptr<SessionScoped> scopedFor(uint32_t id) {
+    std::lock_guard<std::mutex> lk(g_scopedMu);
+    auto& sp = g_scoped[id];
+    if (!sp) sp = std::make_shared<SessionScoped>();
+    return sp;
+}
 
-// Marshal `fn` onto the game thread, block until it runs, return its result.
-// `fn`'s exceptions propagate back to the caller (the dispatcher turns them
-// into a JSON-RPC error). Caller's stack outlives the task (it blocks on the
-// future), so the by-reference capture is safe.
-nlohmann::json runOnGameThread(const std::function<nlohmann::json()>& fn) {
+// The store a Context-less engine/consumer call means: the sole live
+// session, else defaults. (Direct mode and process-per-session streaming
+// both have exactly one live session; unit tests usually have none.)
+uint32_t lenientCurrentId() {
+    const auto live = ge::liveSessionIds();
+    return live.size() == 1 ? live.front() : 0u;
+}
+
+// The store an RPC addresses: explicit {"session": id} (validated live) >
+// sole live session > defaults when none live > ambiguity error.
+uint32_t rpcSessionId(const nlohmann::json& p) {
+    if (p.is_object() && p.contains("session"))
+        return detail::resolveSessionParam(p);
+    const auto live = ge::liveSessionIds();
+    if (live.size() == 1) return live.front();
+    if (live.empty()) return 0;  // defaults store (tests / pre-session)
+    throw Error{-32602,
+                "ambiguous: multiple live sessions - name one with {\"session\": <id>}"};
+}
+
+// Time-control / perf / pump per-store helpers.
+float applyTimeControlFor(uint32_t sid, float realDt) {
+    auto sc = scopedFor(sid);
+    if (sc->tcPaused.load()) {
+        if (sc->tcStepFrames.load() > 0) {
+            sc->tcStepFrames.fetch_sub(1);
+            return kStepDt;     // advance exactly one frame; re-holds at 0
+        }
+        return 0.0f;            // held: render + input continue, no sim advance
+    }
+    return realDt * sc->tcSpeed.load();
+}
+
+nlohmann::json perfAccumulateFor(uint32_t sid, float frameMs) {
+    auto sc = scopedFor(sid);
+    std::lock_guard<std::mutex> lk(sc->perfMu);
+    sc->perfAccumMs += frameMs;
+    sc->perfFrames  += 1;
+    if (sc->perfAccumMs < kPerfWindowMs) return nullptr;  // inside the window
+    nlohmann::json samples = nlohmann::json::object();
+    samples["frame_ms"] = sc->perfAccumMs / float(sc->perfFrames);
+    for (const auto& kv : sc->perfCounters) samples[kv.first] = kv.second;
+    sc->perfAccumMs = 0.0f;
+    sc->perfFrames  = 0;
+    return samples;
+}
+
+void pumpFor(uint32_t sid) {
+    auto sc = scopedFor(sid);
+    for (;;) {
+        std::function<void()> task;
+        {
+            std::lock_guard<std::mutex> lk(sc->taskMu);
+            if (sc->tasks.empty()) break;
+            task = std::move(sc->tasks.front());
+            sc->tasks.pop_front();
+        }
+        task();
+    }
+}
+
+// 🎯T175.2 The session the current game-thread task is serving (set around
+// slice-getter invocation so collectPublishedHitTargets can read the
+// addressed session's Context). Game-thread only; 0 = none.
+uint32_t g_currentRpcSession = 0;
+
+// Marshal `fn` onto session `sid`'s game thread, block until it runs,
+// return its result. `fn`'s exceptions propagate back to the caller (the
+// dispatcher turns them into a JSON-RPC error). Caller's stack outlives
+// the task (it blocks on the future), so the by-reference capture is safe.
+nlohmann::json runOnGameThread(uint32_t sid, const std::function<nlohmann::json()>& fn) {
+    auto scoped = scopedFor(sid);
     std::promise<nlohmann::json> prom;
     auto fut = prom.get_future();
     {
-        std::lock_guard<std::mutex> lk(g_taskMu);
-        g_tasks.push_back([&] {
+        std::lock_guard<std::mutex> lk(scoped->taskMu);
+        scoped->tasks.push_back([&, sid] {
+            g_currentRpcSession = sid;
             try { prom.set_value(fn()); }
             catch (...) { prom.set_exception(std::current_exception()); }
+            g_currentRpcSession = 0;
         });
     }
     return fut.get();
@@ -285,20 +370,30 @@ private:
         // 🎯T116 Build mixed slice descriptors: bare name, or {name, example}
         // for slices that volunteered one. buildSliceDescriptors is pure (unit-
         // tested in appchannel_test.cpp against spyder's SliceDescriptor forms).
-        std::vector<std::pair<std::string, nlohmann::json>> sliceList;
-        sliceList.reserve(g_slices.size());
-        for (const auto& kv : g_slices) {
-            auto ex = g_sliceExamples.find(kv.first);
-            sliceList.emplace_back(
-                kv.first,
-                ex != g_sliceExamples.end() ? ex->second : nlohmann::json(nullptr));
-        }
+        // 🎯T175.2 union: defaults ∪ every live session's slices
+        // (session entry wins for the example on a name collision).
+        std::unordered_map<std::string, nlohmann::json> sliceUnion;
+        auto addSlices = [&](uint32_t sid) {
+            auto sc = scopedFor(sid);
+            for (const auto& kv : sc->slices) {
+                auto ex = sc->sliceExamples.find(kv.first);
+                sliceUnion[kv.first] =
+                    ex != sc->sliceExamples.end() ? ex->second : nlohmann::json(nullptr);
+            }
+        };
+        addSlices(0);
+        for (uint32_t sid : ge::liveSessionIds()) addSlices(sid);
+        std::vector<std::pair<std::string, nlohmann::json>> sliceList(
+            sliceUnion.begin(), sliceUnion.end());
         nlohmann::json slices = detail::buildSliceDescriptors(sliceList);
         sendFrame(nlohmann::json{
             {"id", nextId_++},
             {"method", "hello"},
             {"params", {{"app_name", app_}, {"app_version", ver_},
-                        {"methods", methods}, {"slices", slices}}}});
+                        {"methods", methods}, {"slices", slices},
+                        // 🎯T175.1 live session ids, so spyder can list and
+                        // address sessions in this process.
+                        {"sessions", ge::liveSessionIds()}}}});
 
         for (;;) {
             nlohmann::json msg;
@@ -576,28 +671,32 @@ void registerBuiltins() {
     });
 
     // ── time-control ── (read by the run loop via applyTimeControl)
-    reg("pause", [kAck](const nlohmann::json&) {
-        g_tcStepFrames.store(0);
-        g_tcPaused.store(true);
+    reg("pause", [kAck](const nlohmann::json& p) {
+        auto sc = scopedFor(rpcSessionId(p));  // 🎯T175.10 "pause" = one session
+        sc->tcStepFrames.store(0);
+        sc->tcPaused.store(true);
         return kAck;
     });
-    reg("resume", [kAck](const nlohmann::json&) {
-        g_tcStepFrames.store(0);
-        g_tcSpeed.store(1.0f);      // "resume normal pacing" — clear any speed
-        g_tcPaused.store(false);
+    reg("resume", [kAck](const nlohmann::json& p) {
+        auto sc = scopedFor(rpcSessionId(p));
+        sc->tcStepFrames.store(0);
+        sc->tcSpeed.store(1.0f);    // "resume normal pacing" — clear any speed
+        sc->tcPaused.store(false);
         return kAck;
     });
     reg("step", [kAck](const nlohmann::json& p) {
+        auto sc = scopedFor(rpcSessionId(p));
         int frames = (p.is_object() && p.contains("frames")) ? p.value("frames", 1) : 1;
         if (frames < 1) frames = 1;
-        g_tcStepFrames.store(frames);
-        g_tcPaused.store(true);     // step implies "advance N then re-pause"
+        sc->tcStepFrames.store(frames);
+        sc->tcPaused.store(true);   // step implies "advance N then re-pause"
         return kAck;
     });
     reg("speed", [kAck](const nlohmann::json& p) {
+        auto sc = scopedFor(rpcSessionId(p));
         float m = (p.is_object() && p.contains("multiplier")) ? p.value("multiplier", 1.0f) : 1.0f;
         if (m < 0.0f) m = 0.0f;
-        g_tcSpeed.store(m);         // orthogonal to pause; inert while paused
+        sc->tcSpeed.store(m);       // orthogonal to pause; inert while paused
         return kAck;
     });
 
@@ -655,8 +754,8 @@ void registerBuiltins() {
             e.sensor.data[1] = ay;
             e.sensor.data[2] = az;
             // While suppressed: update latch so pumpEvents re-asserts each frame.
-            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override) {
-                ge::detail::setAccelLatch(ax, ay, az);
+            if (ge::detail::accelStreamMode(rpcSessionId(p)) == ge::detail::SensorStreamMode::Override) {
+                ge::detail::setAccelLatch(rpcSessionId(p), ax, ay, az);
             }
         } else {
             throw Error{-32602, "input_inject: unknown type '" + type + "'"};
@@ -684,15 +783,15 @@ void registerBuiltins() {
         y = p["value"][1].get<float>();
         z = p["value"][2].get<float>();
     };
-    auto statusJson = []() -> nlohmann::json {
+    auto statusJson = [](uint32_t sid) -> nlohmann::json {
         using M = ge::detail::SensorStreamMode;
-        const auto m = ge::detail::accelStreamMode();
+        const auto m = ge::detail::accelStreamMode(sid);
         nlohmann::json out{{"sensor", "accel"},
                            {"suppressed", m != M::Passthrough}};
         float x, y, z;
         if (m == M::Mute) {
             out["value"] = nlohmann::json::array({0.0, 0.0, 0.0});
-        } else if (ge::detail::accelLatch(x, y, z)) {
+        } else if (ge::detail::accelLatch(sid, x, y, z)) {
             out["value"] = nlohmann::json::array({x, y, z});
         }
         return out;
@@ -701,29 +800,29 @@ void registerBuiltins() {
     reg("sensor_suppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
         // Sticky until sensor_unsuppress. Does not set a sample.
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Override);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Passthrough)
+        if (ge::detail::accelStreamMode(rpcSessionId(p)) == ge::detail::SensorStreamMode::Passthrough)
             throw Error{-32602, "sensor_set: sensor is not suppressed "
                                 "(call sensor_suppress first)"};
         float x, y, z;
         parseValue3(p, x, y, z);
-        ge::detail::setAccelLatch(x, y, z);
+        ge::detail::setAccelLatch(rpcSessionId(p), x, y, z);
         // Ensure we re-assert latch (not mute/neutral-only).
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Override);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_unsuppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Passthrough);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_status", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        return statusJson();
+        return statusJson(rpcSessionId(p));
     });
 
     // ── per-instance metrics ring (🎯T166) ──
@@ -736,7 +835,9 @@ void registerBuiltins() {
                 throw Error{-32602, "metrics: unknown instance"};
             return s;
         }
-        auto all = ge::metrics::Scope::all();
+        // T175.9 resolve within the addressed session first (its own scopes
+        // plus untagged process-wide ones) before declaring ambiguity.
+        auto all = ge::metrics::Scope::all(rpcSessionId(p));
         if (all.empty())
             throw Error{-32601, "metrics: no Scope registered (create ge::metrics::Scope per instance)"};
         if (all.size() > 1)
@@ -744,10 +845,10 @@ void registerBuiltins() {
         return all[0];
     };
     reg("metrics_list", [resolveMetricsScope](const nlohmann::json& p) {
-        return runOnGameThread([resolveMetricsScope, p] {
-            if (!p.contains("instance") && ge::metrics::Scope::all().size() != 1) {
+        return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
+            if (!p.contains("instance") && ge::metrics::Scope::all(rpcSessionId(p)).size() != 1) {
                 nlohmann::json out = nlohmann::json::array();
-                for (auto* s : ge::metrics::Scope::all())
+                for (auto* s : ge::metrics::Scope::all(rpcSessionId(p)))
                     out.push_back(s->list());
                 return nlohmann::json{{"instances", std::move(out)}};
             }
@@ -755,7 +856,7 @@ void registerBuiltins() {
         });
     });
     reg("metrics_arm", [resolveMetricsScope](const nlohmann::json& p) {
-        return runOnGameThread([resolveMetricsScope, p] {
+        return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
             auto* s = resolveMetricsScope(p);
             if (!p.contains("series") || !p["series"].is_array())
                 throw Error{-32602, "metrics_arm: 'series' array required"};
@@ -775,19 +876,19 @@ void registerBuiltins() {
         });
     });
     reg("metrics_disarm", [resolveMetricsScope](const nlohmann::json& p) {
-        return runOnGameThread([resolveMetricsScope, p] {
+        return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
             auto* s = resolveMetricsScope(p);
             s->disarm();
             return s->status();
         });
     });
     reg("metrics_status", [resolveMetricsScope](const nlohmann::json& p) {
-        return runOnGameThread([resolveMetricsScope, p] {
+        return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
             return resolveMetricsScope(p)->status();
         });
     });
     reg("metrics_dump", [resolveMetricsScope](const nlohmann::json& p) {
-        return runOnGameThread([resolveMetricsScope, p] {
+        return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
             return resolveMetricsScope(p)->dump();
         });
     });
@@ -795,22 +896,35 @@ void registerBuiltins() {
     // ── state registry (🎯T92.5) ── (getters marshalled to the game thread)
     reg("state_query", [](const nlohmann::json& p) {
         const std::string slice = p.value("slice", std::string{});
-        auto it = g_slices.find(slice);
-        if (it == g_slices.end())
+        const uint32_t sid = rpcSessionId(p);  // T175.2 session overlay
+        auto sc = scopedFor(sid);
+        auto d  = scopedFor(0);
+        StateGetter getter;
+        if (auto i = sc->slices.find(slice); i != sc->slices.end()) getter = i->second;
+        else if (auto j = d->slices.find(slice); j != d->slices.end()) getter = j->second;
+        if (!getter)
             throw Error{-32602, "state_query: unknown slice '" + slice + "'"};
-        return runOnGameThread(it->second);
+        return runOnGameThread(sid, getter);
     });
-    reg("save_state", [](const nlohmann::json&) {
-        if (!g_stateSaver)
+    reg("save_state", [](const nlohmann::json& p) {
+        const uint32_t sid = rpcSessionId(p);  // T175.2
+        auto sc = scopedFor(sid);
+        auto d  = scopedFor(0);
+        StateGetter saver = sc->stateSaver ? sc->stateSaver : d->stateSaver;
+        if (!saver)
             throw Error{-32601, "save_state: no serializer registered"};
-        const nlohmann::json snap = runOnGameThread(g_stateSaver);
+        const nlohmann::json snap = runOnGameThread(sid, saver);
         // Return the snapshot as raw MessagePack bytes in a `state` bin field;
         // spyder base64-encodes it into the app_save_state {state_b64, size}.
         const std::vector<std::uint8_t> bytes = nlohmann::json::to_msgpack(snap);
         return nlohmann::json{{"state", nlohmann::json::binary(bytes)}};
     });
     reg("restore_state", [kAck](const nlohmann::json& p) {
-        if (!g_stateRestorer)
+        const uint32_t sid = rpcSessionId(p);  // T175.2
+        auto sc = scopedFor(sid);
+        auto d  = scopedFor(0);
+        StateRestorer restorer = sc->stateRestorer ? sc->stateRestorer : d->stateRestorer;
+        if (!restorer)
             throw Error{-32601, "restore_state: no serializer registered"};
         // spyder base64-decodes the tool's state_b64 and hands us the raw
         // bytes back as the `state` bin.
@@ -822,7 +936,7 @@ void registerBuiltins() {
         catch (const std::exception& e) {
             throw Error{-32602, std::string("restore_state: bad blob: ") + e.what()};
         }
-        runOnGameThread([snap] { g_stateRestorer(snap); return nlohmann::json(nullptr); });
+        runOnGameThread(sid, [snap, restorer] { restorer(snap); return nlohmann::json(nullptr); });
         return kAck;
     });
 
@@ -830,7 +944,10 @@ void registerBuiltins() {
     // Capture the framebuffer (game thread, via the render host), PNG-encode
     // it here (off the render thread), and return {format, width, height,
     // data:<bin>} — the PNG rides as a MessagePack bin, no base64.
-    reg("screenshot_app", [](const nlohmann::json&) {
+    reg("screenshot_app", [](const nlohmann::json& p) {
+        rpcSessionId(p);  // T175.10 validate addressing; the capture below is
+                          // the rendering host's frame — the addressed session
+                          // under process-per-session.
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
         if (!ge::detail::captureFrameRGBA(rgba, w, h) || w <= 0 || h <= 0)
@@ -877,7 +994,7 @@ void registerMethod(std::string method, Handler handler,
     // no-window hosts must pumpMainThreadTasks in their idle loop.
     auto held = std::make_shared<Handler>(std::move(handler));
     handlers()[std::move(method)] = [held](const nlohmann::json& p) {
-        return runOnGameThread([held, p] { return (*held)(p); });
+        return runOnGameThread(rpcSessionId(p), [held, p] { return (*held)(p); });
     };
     if (!exampleParams.is_null() || !doc.empty()) {
         methodMeta()[name] = MethodMeta{std::move(exampleParams), std::move(doc)};
@@ -900,39 +1017,42 @@ void installFromEnv(const std::string& appName, const std::string& appVersion) {
 }
 
 float applyTimeControl(float realDt) {
-    if (g_tcPaused.load()) {
-        if (g_tcStepFrames.load() > 0) {
-            g_tcStepFrames.fetch_sub(1);
-            return kStepDt;     // advance exactly one frame; re-holds at 0
-        }
-        return 0.0f;            // held: render + input continue, no sim advance
-    }
-    return realDt * g_tcSpeed.load();
+    return applyTimeControlFor(lenientCurrentId(), realDt);  // T175.10
+}
+float applyTimeControl(const Context& ctx, float realDt) {
+    return applyTimeControlFor(ctx.sessionId(), realDt);
 }
 
 void perfEmit(const std::string& name, double value) {
-    std::lock_guard<std::mutex> lk(g_perfMu);
-    g_perfCounters[name] = value;
+    auto sc = scopedFor(lenientCurrentId());  // T175.4
+    std::lock_guard<std::mutex> lk(sc->perfMu);
+    sc->perfCounters[name] = value;
 }
+void perfEmit(const Context& ctx, const std::string& name, double value) {
+    auto sc = scopedFor(ctx.sessionId());
+    std::lock_guard<std::mutex> lk(sc->perfMu);
+    sc->perfCounters[name] = value;
+}
+
+namespace detail {
+// 🎯T175.12 The window arithmetic, channel-independent so tests lock the
+// shipped math. Returns the samples object when the window elapsed
+// (resetting it), else null.
+nlohmann::json perfAccumulate(float frameMs) {
+    return perfAccumulateFor(lenientCurrentId(), frameMs);  // T175.4
+}
+}  // namespace detail
 
 void perfTick(float frameMs) {
     if (!Channel::instance().active()) return;  // nothing to push to
     // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
     // rides as just another sample alongside the consumer's perfEmit counters.
-    nlohmann::json samples = nlohmann::json::object();
-    {
-        std::lock_guard<std::mutex> lk(g_perfMu);
-        g_perfAccumMs += frameMs;
-        g_perfFrames  += 1;
-        if (g_perfAccumMs < kPerfWindowMs) return;  // still inside the window
-        samples["frame_ms"] = g_perfAccumMs / float(g_perfFrames);
-        for (const auto& kv : g_perfCounters) samples[kv.first] = kv.second;
-        g_perfAccumMs = 0.0f;
-        g_perfFrames  = 0;
-    }
+    nlohmann::json samples = detail::perfAccumulate(frameMs);
+    if (samples.is_null()) return;  // still inside the window
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     Channel::instance().push("perf", nlohmann::json{
+        {"session", lenientCurrentId()},  // T175.4
         {"ts",      static_cast<std::int64_t>(ms)},  // 🎯T119 spyder PerfPush is msgpack:"ts"
         {"samples", std::move(samples)},
     });
@@ -1032,7 +1152,8 @@ namespace {
 
 nlohmann::json collectPublishedHitTargets() {
     std::vector<detail::HitTargetExport> items;
-    for (Button* b : publishedHitTargets()) {
+    // T175.5 the addressed session's buttons + process defaults.
+    for (Button* b : publishedHitTargets(g_currentRpcSession)) {
         if (!b || b->id.empty() || b->hitBounds.empty()) continue;
         detail::HitTargetExport it;
         it.id      = b->id;
@@ -1046,8 +1167,26 @@ nlohmann::json collectPublishedHitTargets() {
         it.h = b->hitBounds.h;
         items.push_back(std::move(it));
     }
-    return detail::buildHitTargetsPayload(
-        g_hitSurfaceW, g_hitSurfaceH, items, g_extraHitTargets);
+    // T175.2: surface from the addressed session's Context when live;
+    // defaults-store fallback (tests / pre-session). Extras: session
+    // overlay over defaults.
+    auto d = scopedFor(0);
+    float sw = 0.f, sh = 0.f;
+    const uint32_t sid = g_currentRpcSession;
+    if (sid != 0) {
+        if (auto ctx = ge::sessionById(sid)) {
+            const ge::Rect r = ctx->fullRectInPts();
+            sw = r.w;
+            sh = r.h;
+        }
+    }
+    if (sw <= 0.f || sh <= 0.f) {
+        sw = d->hitSurfaceW;
+        sh = d->hitSurfaceH;
+    }
+    auto sc = sid != 0 ? scopedFor(sid) : d;
+    const nlohmann::json& extras = sc->extrasSet ? sc->extraHitTargets : d->extraHitTargets;
+    return detail::buildHitTargetsPayload(sw, sh, items, extras);
 }
 
 } // namespace
@@ -1074,26 +1213,35 @@ void ensureHitTargetsSliceRegistered() {
 }
 
 void registerStateSlice(std::string name, StateGetter getter, nlohmann::json example) {
-    if (!example.is_null()) g_sliceExamples[name] = std::move(example);
-    g_slices[std::move(name)] = std::move(getter);
+    auto d = scopedFor(0);  // T175.2 no-Context registration = process default
+    if (!example.is_null()) d->sliceExamples[name] = std::move(example);
+    d->slices[std::move(name)] = std::move(getter);
+}
+void registerStateSlice(const Context& ctx, std::string name, StateGetter getter,
+                        nlohmann::json example) {
+    auto sc = scopedFor(ctx.sessionId());  // T175.2 session-scoped
+    if (!example.is_null()) sc->sliceExamples[name] = std::move(example);
+    sc->slices[std::move(name)] = std::move(getter);
 }
 
 void registerStateSerializer(StateGetter save, StateRestorer restore) {
-    g_stateSaver    = std::move(save);
-    g_stateRestorer = std::move(restore);
+    auto d = scopedFor(0);
+    d->stateSaver    = std::move(save);
+    d->stateRestorer = std::move(restore);
+}
+void registerStateSerializer(const Context& ctx, StateGetter save, StateRestorer restore) {
+    auto sc = scopedFor(ctx.sessionId());
+    sc->stateSaver    = std::move(save);
+    sc->stateRestorer = std::move(restore);
 }
 
 void pumpMainThreadTasks() {
-    for (;;) {
-        std::function<void()> task;
-        {
-            std::lock_guard<std::mutex> lk(g_taskMu);
-            if (g_tasks.empty()) break;
-            task = std::move(g_tasks.front());
-            g_tasks.pop_front();
-        }
-        task();
-    }
+    pumpFor(0);  // T175.3: defaults queue, then the sole session's own
+    if (const uint32_t id = lenientCurrentId()) pumpFor(id);
+}
+void pumpMainThreadTasks(const Context& ctx) {
+    pumpFor(0);
+    pumpFor(ctx.sessionId());
 }
 
 void push(std::string method, nlohmann::json params) {
@@ -1105,18 +1253,97 @@ bool active() { return Channel::instance().active(); }
 void flush(int timeoutMs) { Channel::instance().flushFor(timeoutMs); }
 
 void setHitTargetSurfacePts(float width, float height) {
-    g_hitSurfaceW = width;
-    g_hitSurfaceH = height;
+    auto d = scopedFor(0);  // T175.2 fallback surface (no live session Context)
+    d->hitSurfaceW = width;
+    d->hitSurfaceH = height;
 }
 
 void setExtraHitTargets(nlohmann::json targetsArray) {
+    auto d = scopedFor(0);
     if (targetsArray.is_null()) {
-        g_extraHitTargets = nlohmann::json::array();
+        d->extraHitTargets = nlohmann::json::array();
         return;
     }
     if (!targetsArray.is_array()) return;
-    g_extraHitTargets = std::move(targetsArray);
+    d->extraHitTargets = std::move(targetsArray);
 }
+void setExtraHitTargets(const Context& ctx, nlohmann::json targetsArray) {
+    auto sc = scopedFor(ctx.sessionId());  // T175.2 session overlay
+    if (targetsArray.is_null()) {
+        sc->extrasSet = false;
+        sc->extraHitTargets = nlohmann::json::array();
+        return;
+    }
+    if (!targetsArray.is_array()) return;
+    sc->extrasSet = true;
+    sc->extraHitTargets = std::move(targetsArray);
+}
+
+// ── 🎯T175.1 session addressing (see appchannel_internal.h) ──────────
+namespace detail {
+
+uint32_t resolveSessionParam(const nlohmann::json& params) {
+    const auto live = ge::liveSessionIds();
+    if (params.is_object() && params.contains("session")) {
+        if (!params["session"].is_number_unsigned())
+            throw Error{-32602, "session: must be an unsigned session id"};
+        const uint32_t id = params["session"].get<uint32_t>();
+        for (uint32_t l : live)
+            if (l == id) return id;
+        throw Error{-32602, "session: no live session with id " + std::to_string(id)};
+    }
+    if (live.size() == 1) return live.front();
+    if (live.empty()) throw Error{-32000, "no live session"};
+    throw Error{-32602,
+                "ambiguous: " + std::to_string(live.size()) +
+                    " live sessions — name one with {\"session\": <id>}"};
+}
+
+}  // namespace detail
+
+// ── 🎯T175.12 characterization hooks (see appchannel_internal.h) ─────
+namespace detail {
+
+nlohmann::json invokeMethodForTest(const std::string& name,
+                                   const nlohmann::json& params) {
+    ensureHitTargetsSliceRegistered();
+    registerBuiltins();
+    auto it = handlers().find(name);
+    if (it == handlers().end())
+        throw std::runtime_error("invokeMethodForTest: no such method: " + name);
+    return it->second(params);
+}
+
+bool hasMethodForTest(const std::string& name) {
+    registerBuiltins();
+    return handlers().find(name) != handlers().end();
+}
+
+nlohmann::json perfCountersSnapshotForTest(const Context& ctx) {
+    auto sc = scopedFor(ctx.sessionId());
+    std::lock_guard<std::mutex> lk(sc->perfMu);
+    nlohmann::json out = nlohmann::json::object();
+    for (const auto& kv : sc->perfCounters) out[kv.first] = kv.second;
+    return out;
+}
+
+nlohmann::json perfCountersSnapshotForTest() {
+    auto sc = scopedFor(lenientCurrentId());
+    std::lock_guard<std::mutex> lk(sc->perfMu);
+    nlohmann::json out = nlohmann::json::object();
+    for (const auto& kv : sc->perfCounters) out[kv.first] = kv.second;
+    return out;
+}
+
+void resetAppChannelStateForTest() {
+    {
+        std::lock_guard<std::mutex> lk(g_scopedMu);
+        g_scoped.clear();  // every per-session store, defaults included
+    }
+    g_hitTargetsSliceRegistered = false;
+}
+
+}  // namespace detail
 
 #else  // NDEBUG — feature compiled out entirely.
 
@@ -1126,13 +1353,19 @@ void push(std::string, nlohmann::json) {}
 bool active() { return false; }
 void flush(int) {}
 float applyTimeControl(float realDt) { return realDt; }
+float applyTimeControl(const Context&, float realDt) { return realDt; }
 void perfEmit(const std::string&, double) {}
+void perfEmit(const Context&, const std::string&, double) {}
 void perfTick(float) {}
 void registerStateSlice(std::string, StateGetter, nlohmann::json) {}
+void registerStateSlice(const Context&, std::string, StateGetter, nlohmann::json) {}
 void registerStateSerializer(StateGetter, StateRestorer) {}
+void registerStateSerializer(const Context&, StateGetter, StateRestorer) {}
 void pumpMainThreadTasks() {}
+void pumpMainThreadTasks(const Context&) {}
 void setHitTargetSurfacePts(float, float) {}
 void setExtraHitTargets(nlohmann::json) {}
+void setExtraHitTargets(const Context&, nlohmann::json) {}
 
 #endif
 

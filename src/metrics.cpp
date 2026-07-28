@@ -5,6 +5,8 @@
 
 #include <ge/metrics.h>
 
+#include <ge/SessionHost.h>  // T175.9 liveSessionIds
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -33,6 +35,7 @@ const char* kindName(Kind k) {
 
 struct Scope::M {
     std::string id;
+    uint32_t session = 0;  // T175.9 latched at construction
     struct Series {
         std::string name;
         Kind kind = Kind::Float;
@@ -71,6 +74,13 @@ struct Scope::M {
     }
 };
 
+namespace {
+uint32_t lenientMetricsSid() {
+    const auto live = liveSessionIds();
+    return live.size() == 1 ? live.front() : 0u;
+}
+}  // namespace
+
 Scope::Scope(std::string id) {
     m_ = new M;
     if (id.empty()) {
@@ -80,6 +90,7 @@ Scope::Scope(std::string id) {
     } else {
         m_->id = std::move(id);
     }
+    m_->session = lenientMetricsSid();  // T175.9
     std::lock_guard<std::mutex> lk(g_regMu);
     g_scopes.push_back(this);
 }
@@ -129,6 +140,17 @@ std::vector<Scope*> Scope::all() {
     std::lock_guard<std::mutex> lk(g_regMu);
     return g_scopes;
 }
+
+std::vector<Scope*> Scope::all(uint32_t sessionId) {
+    std::lock_guard<std::mutex> lk(g_regMu);
+    std::vector<Scope*> out;
+    for (Scope* s : g_scopes)
+        if (s->m_ && (s->m_->session == 0 || s->m_->session == sessionId))
+            out.push_back(s);
+    return out;
+}
+
+uint32_t Scope::session() const { return m_->session; }
 
 Scope* Scope::find(std::string_view id) {
     std::lock_guard<std::mutex> lk(g_regMu);

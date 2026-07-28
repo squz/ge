@@ -269,6 +269,7 @@ ge/TEST_SRC = \
 	$(ge)/src/text_test.cpp \
 	$(ge)/src/sprite_test.cpp \
 	$(ge)/src/appchannel_test.cpp \
+	$(ge)/src/appchannel_scoping_test.cpp \
 $(ge)/src/metrics_test.cpp \
 	$(ge)/src/box2d_slice_test.cpp \
 	$(ge)/src/transform_test.cpp \

@@ -23,15 +23,23 @@ enum class SensorStreamMode : std::uint8_t {
 // Real open sensors never use this id, so pumpEvents can tell them apart.
 inline constexpr std::uint32_t kSyntheticAccelWhich = 0x53504F56u; // 'SPOV'
 
+// T175.7 Session-scoped: the sid forms address one session's sensor
+// authority; the sid-less forms mean the sole live session (else the
+// process-default store 0 — tests / pre-session).
 void setAccelStreamMode(SensorStreamMode mode);
+void setAccelStreamMode(std::uint32_t sessionId, SensorStreamMode mode);
 SensorStreamMode accelStreamMode();
+SensorStreamMode accelStreamMode(std::uint32_t sessionId);
 
 // Latched device-frame sample used while mode == Override.
 // Also updated by input_inject type=accel when override is active.
 void setAccelLatch(float x, float y, float z);
+void setAccelLatch(std::uint32_t sessionId, float x, float y, float z);
 bool accelLatch(float& x, float& y, float& z); // false if never set this session
+bool accelLatch(std::uint32_t sessionId, float& x, float& y, float& z);
 
-// Reset to factory defaults (passthrough, clear latch). For tests / detach.
+// Reset every session's sensor authority to factory defaults
+// (passthrough, clear latch). For tests / detach.
 void resetSensorControl();
 
 } // namespace ge::detail

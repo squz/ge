@@ -112,6 +112,18 @@ sg_buffer makeStreamBuffer() {
 // Frame-boundary reset: rewind the pool cursor and zero the per-buffer
 // byte counters so the next frame refills from pool[0]. Registered once
 // via sg_add_commit_listener; fires on every sg_commit (game thread).
+//
+// T175.11 concurrency decision (docs/globals-audit.md, "frame cursor"
+// entry): these per-frame append cursors are process-global while
+// sessions are per-Context. That is SAFE BY SERIALISATION, structurally:
+// sokol_gfx is single-threaded by contract, ge issues every sg_* call on
+// the one game thread (DirectRenderHost owns the loop; sokol's debug
+// validation aborts on cross-thread use), and each frame ends in exactly
+// one sg_commit. Any future in-process multi-world must render sessions
+// sequentially on that thread — under which the cursors remain a
+// per-frame resource, never contended. If that axiom ever changes
+// (parallel session rendering), these cursors must move into a
+// per-session pool BEFORE the second render thread exists.
 void onSpriteCommit(void* userData) {
     auto& s = *static_cast<State*>(userData);
     s.curIdx = 0;

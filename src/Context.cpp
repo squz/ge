@@ -9,6 +9,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <functional>
 #include <vector>
 
@@ -56,7 +59,48 @@ struct Context::M {
     // incomplete type is fine — the control block (made in debug.cpp,
     // where SessionState is complete) owns the deleter.
     std::shared_ptr<debug::SessionState> debugState;
+    // 🎯T175.1 Stable session identity (monotonic, never reused in a
+    // process). The registry entry is removed in ~M — the exact moment
+    // the last Context copy dies.
+    uint32_t sessionId = 0;
+    ~M();
 };
+
+namespace {
+// 🎯T175.1 Live-session registry. weak_ptr<void> so the map type doesn't
+// need to name the private Context::M at namespace scope; sessionById
+// (a friend) casts back. Mutex-guarded: ids are read by dev RPCs off
+// the game thread.
+std::mutex g_sessionRegMu;
+std::vector<std::pair<uint32_t, std::weak_ptr<void>>> g_sessionReg;
+std::atomic<uint32_t> g_nextSessionId{1};
+
+void unregisterSession(uint32_t id) {
+    std::lock_guard<std::mutex> lk(g_sessionRegMu);
+    std::erase_if(g_sessionReg, [id](const auto& e) { return e.first == id; });
+}
+}  // namespace
+
+Context::M::~M() { unregisterSession(sessionId); }
+
+std::vector<uint32_t> liveSessionIds() {
+    std::lock_guard<std::mutex> lk(g_sessionRegMu);
+    std::vector<uint32_t> out;
+    for (const auto& e : g_sessionReg)
+        if (!e.second.expired()) out.push_back(e.first);
+    return out;
+}
+
+std::optional<Context> sessionById(uint32_t id) {
+    std::lock_guard<std::mutex> lk(g_sessionRegMu);
+    for (const auto& e : g_sessionReg) {
+        if (e.first != id) continue;
+        if (auto sp = e.second.lock())
+            return Context(std::static_pointer_cast<Context::M>(sp));
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
 
 Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
                  const std::string& dbPath,
@@ -67,6 +111,12 @@ Context::Context(int surfaceWidth, int surfaceHeight, DeviceClass deviceClass,
     m->surfacePxW = surfaceWidth;
     m->surfacePxH = surfaceHeight;
     m->deviceClass = deviceClass;
+    // 🎯T175.1 mint the session id and register while the shared_ptr exists.
+    m->sessionId = g_nextSessionId.fetch_add(1, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lk(g_sessionRegMu);
+        g_sessionReg.emplace_back(m->sessionId, std::weak_ptr<void>(m));
+    }
     SPDLOG_INFO("Context: opening db path='{}' schemaDdl={}B", dbPath, schemaDdl.size());
     try {
         m->db = std::make_shared<sqlpipe::Database>(dbPath, schemaDdl);
@@ -200,5 +250,8 @@ void Context::recordPresent() const {
 std::shared_ptr<debug::SessionState>& Context::debugStateSlot() const {
     return m->debugState;
 }
+
+// 🎯T175.1
+uint32_t Context::sessionId() const { return m->sessionId; }
 
 } // namespace ge

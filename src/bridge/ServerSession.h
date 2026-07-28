@@ -44,6 +44,10 @@ public:
     ServerSession(const ServerSession&) = delete;
     ServerSession& operator=(const ServerSession&) = delete;
 
+    // T175.8 The host session this server serves; injected via
+    // ServerHook.bindSession after the Context exists. 0 until bound.
+    void setSessionId(std::uint32_t sid);
+
     // Spawn the relay connection thread (returns immediately).
     void start();
     // Tear down: stop capture, close sockets, join threads.

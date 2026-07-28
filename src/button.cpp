@@ -3,35 +3,83 @@
 
 #include <ge/button.h>
 
+#include <ge/SessionHost.h>  // T175.5 session registry
+
 #include <algorithm>
+#include <unordered_map>
 
 namespace ge {
 
 namespace {
 
-// 🎯T109 Game-thread-only registry of Buttons that may appear in hit_targets.
-std::vector<Button*>& hitTargetRegistry() {
-    static std::vector<Button*> reg;
-    return reg;
+// T175.5 Game-thread-only registries of Buttons that may appear in
+// hit_targets, keyed by session id (0 = process defaults, visible to
+// every session — the Context-less publish). Entries for sessions that
+// have died are pruned lazily on read, closing the dangling-Button*
+// window a process-global registry left open.
+std::unordered_map<uint32_t, std::vector<Button*>>& hitTargetRegistries() {
+    static std::unordered_map<uint32_t, std::vector<Button*>> regs;
+    return regs;
 }
 
-} // namespace
+uint32_t lenientSessionId() {
+    const auto live = liveSessionIds();
+    return live.size() == 1 ? live.front() : 0u;
+}
 
-void publishHitTarget(Button* b) {
+void pruneDeadSessions() {
+    auto& regs = hitTargetRegistries();
+    const auto live = liveSessionIds();
+    for (auto it = regs.begin(); it != regs.end();) {
+        const uint32_t id = it->first;
+        const bool alive = id == 0 ||
+            std::find(live.begin(), live.end(), id) != live.end();
+        it = alive ? std::next(it) : regs.erase(it);
+    }
+}
+
+void publishTo(uint32_t sid, Button* b) {
     if (!b) return;
-    auto& reg = hitTargetRegistry();
+    auto& reg = hitTargetRegistries()[sid];
     if (std::find(reg.begin(), reg.end(), b) != reg.end()) return;
     reg.push_back(b);
 }
 
+} // namespace
+
+void publishHitTarget(Button* b) { publishTo(lenientSessionId(), b); }
+
+void publishHitTarget(const Context& ctx, Button* b) {
+    publishTo(ctx.sessionId(), b);
+}
+
 void unpublishHitTarget(Button* b) {
     if (!b) return;
-    auto& reg = hitTargetRegistry();
-    reg.erase(std::remove(reg.begin(), reg.end(), b), reg.end());
+    // Remove from every session's registry — a Button must never dangle,
+    // whichever session (or default) it was published under.
+    for (auto& kv : hitTargetRegistries()) {
+        auto& reg = kv.second;
+        reg.erase(std::remove(reg.begin(), reg.end(), b), reg.end());
+    }
 }
 
 std::vector<Button*> publishedHitTargets() {
-    return hitTargetRegistry();
+    return publishedHitTargets(lenientSessionId());
+}
+
+std::vector<Button*> publishedHitTargets(uint32_t sessionId) {
+    pruneDeadSessions();
+    auto& regs = hitTargetRegistries();
+    std::vector<Button*> out;
+    if (auto d = regs.find(0); d != regs.end())
+        out.insert(out.end(), d->second.begin(), d->second.end());
+    if (sessionId != 0) {
+        if (auto s = regs.find(sessionId); s != regs.end())
+            for (Button* b : s->second)
+                if (std::find(out.begin(), out.end(), b) == out.end())
+                    out.push_back(b);
+    }
+    return out;
 }
 
 bool Button::handleEvent(const PointerEvent& ev) {

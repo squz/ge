@@ -1073,7 +1073,16 @@ local-network-permission gotcha.
   `active`, `applyTimeControl` (run-loop pacing), `perfEmit` (custom perf
   counter), `registerStateSlice` / `registerStateSerializer` (consumer state
   registry — register *before* `ge::run`; getters run on the game thread),
-  `pumpMainThreadTasks` (run-loop drains marshalled state tasks). Transport in
+  `pumpMainThreadTasks` (run-loop drains marshalled state tasks). **🎯T175:
+  every session-varying piece (slices, serializers, extras, time control,
+  perf counters, task queues, sensor authority, capture sinks, viewer
+  lifecycle, metrics resolution, button hit-targets) is per-session** —
+  Context-less calls mean the sole live session (registrations before
+  `ge::run` become process defaults every session inherits); Context
+  overloads scope to one session; dev RPCs address a session with an
+  optional `{"session": <id>}` (ids advertised in the hello, minted by
+  `Context::sessionId()`). Full classification: `docs/globals-audit.md`.
+  Transport in
   `src/appchannel.cpp`; per-platform screenshot readback in
   `SokolContext::captureNextFrame` (Metal blit on Apple, `glReadPixels` on
   Android) bridged via `src/render/ScreenshotBridge.h`.

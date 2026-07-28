@@ -171,6 +171,9 @@ inline bool localDeviceTouchFirst() {
 
 // 🎯T154 viewer-background atomic (wire SP2L); also used by paused().
 std::atomic<bool> g_viewerBackgrounded{false};
+// T175.8 per-session wire-fed bits (ORed with the process bit above).
+std::mutex g_vbMu;
+std::unordered_map<std::uint32_t, bool> g_vbBySession;
 
 // 🎯T92.6 Screenshot bridge state.
 struct ScreenshotRequest {
@@ -195,8 +198,18 @@ void injectAudioFocus(bool gained) {
 void injectViewerBackgrounded(bool backgrounded) {
     g_viewerBackgrounded.store(backgrounded, std::memory_order_release);
 }
+void injectViewerBackgrounded(std::uint32_t sessionId, bool backgrounded) {
+    std::lock_guard<std::mutex> lk(g_vbMu);
+    g_vbBySession[sessionId] = backgrounded;
+}
 bool viewerBackgrounded() {
     return g_viewerBackgrounded.load(std::memory_order_acquire);
+}
+bool viewerBackgroundedFor(std::uint32_t sessionId) {
+    if (viewerBackgrounded()) return true;  // process bit wins for all
+    std::lock_guard<std::mutex> lk(g_vbMu);
+    auto it = g_vbBySession.find(sessionId);
+    return it != g_vbBySession.end() && it->second;
 }
 
 bool screenshotArmed() { return g_ssArmed.load(); }
@@ -620,7 +633,7 @@ DeviceClass DirectRenderHost::deviceClass() const {
 bool DirectRenderHost::paused() const {
     // 🎯T154: viewer background over the wire (stream server) uses the same
     // paused() gate so the game does not branch on modality.
-    if (detail::viewerBackgrounded()) return true;
+    if (detail::viewerBackgroundedFor(i_->ctx->sessionId())) return true;  // T175.8
 #if defined(__APPLE__) && TARGET_OS_IPHONE
     // 🎯T88 On iOS (device + simulator) a backgrounded scene cannot get a
     // Metal command buffer — SokolContext::beginFrame would block forever
@@ -1003,7 +1016,7 @@ void DirectRenderHost::pumpEvents() {
         if (e.type == SDL_EVENT_SENSOR_UPDATE) {
             using ge::detail::SensorStreamMode;
             using ge::detail::kSyntheticAccelWhich;
-            const auto mode = ge::detail::accelStreamMode();
+            const auto mode = ge::detail::accelStreamMode(i_->ctx->sessionId());  // T175.7
             const bool synthetic =
                 static_cast<std::uint32_t>(e.sensor.which) == kSyntheticAccelWhich;
             if (mode == SensorStreamMode::Mute) {
@@ -1056,14 +1069,14 @@ void DirectRenderHost::pumpEvents() {
     if (i_->eventHandler && i_->wantAccelInput) {
         using ge::detail::SensorStreamMode;
         using ge::detail::kSyntheticAccelWhich;
-        const auto mode = ge::detail::accelStreamMode();
+        const auto mode = ge::detail::accelStreamMode(i_->ctx->sessionId());  // T175.7
         float data[3] = {0.f, 0.f, 0.f};
         bool emit = false;
         if (mode == SensorStreamMode::Mute) {
             emit = true; // neutral (0,0,0)
         } else if (mode == SensorStreamMode::Override) {
             float lx = 0.f, ly = 0.f, lz = 0.f;
-            if (ge::detail::accelLatch(lx, ly, lz)) {
+            if (ge::detail::accelLatch(i_->ctx->sessionId(), lx, ly, lz)) {  // T175.7
                 data[0] = lx;
                 data[1] = ly;
                 data[2] = lz;

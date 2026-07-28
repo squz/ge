@@ -21,6 +21,7 @@ class Database;
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -561,10 +562,23 @@ public:
     // functions, which route through the session the host has bound.
     std::shared_ptr<debug::SessionState>& debugStateSlot() const;
 
+    // 🎯T175.1 Stable per-session identity, minted at construction
+    // (monotonic, never reused within a process). Copies of a Context
+    // share the id. Dev RPCs address sessions by this id.
+    uint32_t sessionId() const;
+
 private:
     struct M;
     std::shared_ptr<M> m;
+    explicit Context(std::shared_ptr<M> m_) : m(std::move(m_)) {}
+    friend std::optional<Context> sessionById(uint32_t);
 };
+
+// 🎯T175.1 Engine-internal session registry: every live Context session,
+// by id (weakly held — a session disappears when its last Context copy
+// dies). The dev-RPC resolver uses these; games don't need them.
+std::vector<uint32_t> liveSessionIds();
+std::optional<Context> sessionById(uint32_t id);
 
 // 🎯T111 Engine-reported performance metrics, delivered via RunConfig::onMetrics.
 // A growing bundle: fps is the first field; later fields (dropped frames, GPU

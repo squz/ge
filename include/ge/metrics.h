@@ -65,7 +65,12 @@ public:
 
     // Registry of live scopes (for app-channel routing).
     static std::vector<Scope*> all();
+    // T175.9 The scopes visible to one session: those constructed while it
+    // was the sole live session, plus untagged (process-wide) scopes.
+    static std::vector<Scope*> all(uint32_t sessionId);
     static Scope* find(std::string_view id);
+    // T175.9 Session tag, latched at construction (0 = process-wide).
+    uint32_t session() const;
 
     // Used by metric<T>; also tests.
     int registerSeries(std::string_view name, Kind kind);
