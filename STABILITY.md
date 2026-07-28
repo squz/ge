@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.88.0** (`ge::debug` state per-session via `Context::debugStateSlot` — 🎯T174; process-globals audit in `docs/globals-audit.md`).
+Snapshot as of: **v0.89.0** (dev-plane session scoping — 🎯T175: per-session app-channel stores, session-addressed RPCs via `Context::sessionId`, per-session buttons/capture/sensors/viewer-bit/metrics; audit table all-green in `docs/globals-audit.md`).
 
 ---
 
