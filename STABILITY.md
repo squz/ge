@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.89.0** (dev-plane session scoping — 🎯T175: per-session app-channel stores, session-addressed RPCs via `Context::sessionId`, per-session buttons/capture/sensors/viewer-bit/metrics; audit table all-green in `docs/globals-audit.md`).
+Snapshot as of: **v0.90.0** (thread-safe text rasterisation on FreeType's documented contract — 🎯T176: any-thread `rasterizeTextToPixels`, public `spriteFromRgba`; hint-driven synthetic touch — 🎯T177: `ge::hint::InputDriver`, one timeline drives hand and production input, strictly opt-in).
 
 ---
 
@@ -95,6 +95,8 @@ All public API lives under `include/ge/*.h`.
 - `ge::drawSolid` — unlit solid-color indexed mesh fill (`<ge/solid.h>`). MVP × position + flat colour. **Stable** (new).
 - `ge::sprite` / `svg` / `png` / `text` / `debug` factories — **Stable** / **Needs review** collectively.
 - `ge::hint` — gesture-hint timelines (`Player`, `makeClip`, tags) + `drawHand` SDF renderer (`<ge/hint.h>`, `<ge/hint_hand.h>`, 🎯T170). New in v0.87.0. **Fluid** (device-pose track for 🎯T170.1 will extend the clip payload).
+- `ge::spriteFromRgba` — public RGBA8 pixels→Sprite upload (game-thread-only; 🎯T176). New in v0.90.0. **Stable**.
+- `ge::hint::InputDriver` — opt-in synthetic-touch sink over hint timelines (`<ge/hint_input.h>`, 🎯T177). New in v0.90.0. **Fluid** (scenario layer 🎯T178 will build on it).
 - `ge::debug` perf HUD strip — `hudEnabled` / `setHudEnabled` / `setHudPlacement` / `setHudProvider` / `hudLabel` (🎯T173). New in v0.87.0. **Fluid**.
 - `ge::RenderHost` — abstract host interface used internally by direct / server paths. **Fluid**.
 
