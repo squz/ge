@@ -252,6 +252,29 @@ static tweak::Tweak<float> speed("buggy.speed", 5.0f);
 Specialized variants: `EnumTweak` (dropdown), `Vec2Tweak`, `AxisTweak`, `Color`. Use
 `tweak::loadOverrides(db)` at startup to reapply saved values.
 
+### Hint-driven input — `include/ge/hint_input.h` (🎯T177)
+
+Opt-in second consumer of a `hint::Player` timeline: synthetic SDL finger
+events derived from the same interpolated states the hand renderer draws,
+mapped through the same `areaPts`, injected via the production event path.
+
+```cpp
+ge::hint::InputDriver driver;              // sink defaults to SDL_PushEvent
+// each frame, AFTER player.update(dt), with the renderer's areaPts:
+driver.update(ctx, player, areaPts);
+// real input arrived / demo over:
+driver.cancel();                            // lifts held synthetic fingers
+// filtering consequences:
+if (ge::hint::isSyntheticFinger(ev.tfinger.fingerID)) { /* demo finger */ }
+```
+
+Presentation never implies driving — a hint that suggests a gesture the
+USER should make attaches no driver. Drive only when effects are
+acceptable or revertible (snapshot state on the `contact` tag, restore
+after `release`). Deterministic under stepped dt; a custom `sink` lets
+tests capture events (see `src/hint_input_test.cpp`'s production-path
+Button proof).
+
 ### Perf HUD strip — `include/ge/debug.h` (🎯T173)
 
 Engine-owned one-line performance strip: dt/fps (engine facts) plus optional

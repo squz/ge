@@ -848,6 +848,20 @@ games put their own "meat on the bones" or take the default hand.
   pinch-rotate) loops the default hand over the playfield; add
   `HINT_STYLE=ring` for the data-only tier (the app draws pointer dots +
   tag-triggered ripples with its own SpriteBatch art — no ge hand).
+- **Input driving (🎯T177, strictly opt-in)** — `ge::hint::InputDriver`
+  (`<ge/hint_input.h>`) is a second consumer of the same timeline: it
+  diffs pointer states into synthetic SDL finger events (down/motion/up,
+  pinch = two fingers) through the app's normal event path, so a demo
+  exercises production input handling with zero correlation code and no
+  drift from the drawn gesture. Synthetic events carry
+  `kSyntheticTouchId` + reserved finger ids (`isSyntheticFinger`) so
+  games can filter consequences. Presentation NEVER implies driving —
+  attach a driver only when the demo's effects are acceptable/revertible
+  (tag-orchestrated snapshot-at-contact / restore-after-release);
+  `cancel()` lifts held fingers on interruption. tiltbuggy demo:
+  `HINT=tap HINT_DRIVE=1` presses the real title-reset Button each loop.
+  The scenario layer above (steps, anchors, verdicts, interruption
+  policy) is 🎯T178.
 - **Render-on-demand**: gate redraws on `player.active()` (tiltbuggy wires
   `ctx.addRenderTrigger`); `drawHand` draws nothing while fully faded
   (loop gap), and a finished non-looping player reports `active() == false`.
