@@ -76,6 +76,15 @@ struct SpriteVertex {
 // model-to-world transform baked into the vertex positions on the CPU.
 // `submit(worldToClip)` flushes runs of same-texture sprites, one
 // draw call per (texture) run.
+// 🎯T176 Form a Sprite from raw RGBA8 pixels (premultiplied alpha), the
+// upload path rasterizeText/rasterizeSvg use internally — promoted so
+// background-baked pixels (rasterizeTextToPixels on a worker thread)
+// have a first-class way onto the GPU. GAME-THREAD ONLY, like every
+// sg_* call: bake pixels anywhere, form the Sprite on the game thread.
+// Null Sprite when sokol is not ready or the input is empty.
+Sprite spriteFromRgba(int width, int height, const uint8_t* rgba,
+                      const char* label = "ge.sprite.rgba");
+
 class SpriteBatch {
 public:
     SpriteBatch();

@@ -380,3 +380,34 @@ void SpriteBatch::submit(const la::float4x4& worldToClip) {
 }
 
 } // namespace ge
+
+namespace ge {
+
+// 🎯T176 public pixels→Sprite (see sprite.h). Game thread only.
+Sprite spriteFromRgba(int width, int height, const uint8_t* rgba,
+                      const char* label) {
+    Sprite out;
+    if (!rgba || width <= 0 || height <= 0 || !sg_isvalid()) return out;
+
+    sg_image_desc desc{};
+    desc.width        = width;
+    desc.height       = height;
+    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    desc.data.mip_levels[0] = (sg_range){
+        .ptr  = rgba,
+        .size = size_t(width) * size_t(height) * 4,
+    };
+    desc.label = label;
+    out.tex = sg_make_image(&desc);
+
+    sg_view_desc vd{};
+    vd.texture.image = out.tex;
+    vd.label = label;
+    out.view = sg_make_view(&vd);
+
+    out.width  = width;
+    out.height = height;
+    return out;
+}
+
+} // namespace ge

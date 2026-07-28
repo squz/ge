@@ -26,6 +26,13 @@ struct TextPixels {
 
 // Rasterize a UTF-8 string to RGBA8 premultiplied pixels using FreeType.
 //
+// 🎯T176 Thread-safe: callable from any thread, concurrently. One shared
+// FT_Library; face create/destroy is mutex-guarded per FreeType's
+// documented contract, glyph rendering runs lock-free on the per-call
+// face, and font bytes are a write-once shared cache (the "compile the
+// font once, use it from every thread" model — the immutable artifact
+// is the byte buffer, which FT_New_Memory_Face shares without copying).
+//
 // `font`    — a FontRef obtained from `ge::resolveFont` or constructed directly.
 // `sizePt`  — point size (1pt = 1/72 inch at 72 DPI, i.e. 1px per pt).
 // `color`   — RGBA in [0, 1]. Alpha is interpreted straight; output is
@@ -51,6 +58,9 @@ TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,
 
 // Rasterize and upload to a `Sprite`. Null Sprite on failure.
 // Under cmdstream, registers a MakeText recipe (font bytes + string).
+// GAME-THREAD ONLY: the sokol upload (like all sg_* calls) must run on
+// the render thread — background threads bake with rasterizeTextToPixels
+// and form the Sprite on the game thread.
 Sprite rasterizeText(const std::string& text,
                      const FontRef& font,
                      float sizePt,

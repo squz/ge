@@ -5,10 +5,10 @@
   "opt": "-O2",
   "flags": "-O2 -fvisibility=hidden -fno-color-diagnostics -fexceptions -msimd128 -msse2",
   "flags_sha256": "fbbb70420b4b9e6ba21ad8f4ed0c07b797d2b773be4dd96338e50d77c587f051",
-  "utc": "2026-07-28T09:46:12Z",
+  "utc": "2026-07-28T09:57:50Z",
   "archives": {
     "box2d": "98ff3e8b37767adb2666514f8c594f61514273a52aee0a046c28fc590f78c784",
-    "ge": "22f6d37472e6a0c7d6196e887282b6b4107ee04935801a4d4e48b34cafa17254",
+    "ge": "845f0ebbc12daf49923da355b425c157f42a046ba0d808b27b55a1df99c2a108",
     "liteparser": "4c02ba01a7d6a1ae028f359bc3a43846791669449a85db52d783a3c459974e98",
     "lunasvg_ge": "458e7f5d99a8400fe405256b2877f91ff4bb8bb3c87fa859fb16e8a0fd2f9e88",
     "lz4_ge": "700d2067d6f51f260b90ffb4a48c7ab0f8eee3c199649c0064f50e711080a2aa",
