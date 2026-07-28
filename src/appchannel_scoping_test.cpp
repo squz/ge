@@ -16,15 +16,18 @@
 
 #include "appchannel_internal.h"
 #include "render/LifecycleInject.h"
+#include "render/SensorControl.h"
 
 #include <ge/CmdStream.h>
 #include <ge/appchannel.h>
 #include <ge/button.h>
+#include <ge/metrics.h>
 
 #include <doctest.h>
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <thread>
@@ -368,4 +371,104 @@ TEST_CASE("🎯T175.2: hit_targets surface comes from the addressed session's Co
 
     ge::unpublishHitTarget(&btn);
     det::resetAppChannelStateForTest();
+}
+
+// ── 🎯T175.5/6/7/8/9 independent scoping moves ──────────────────────
+
+TEST_CASE("🎯T175.5: button registries are per-session; defaults visible to all; dead sessions pruned") {
+    det::resetAppChannelStateForTest();
+    ge::Button dflt, aBtn;
+    dflt.id = "dflt";
+    dflt.setHitRect(ge::Rect{1, 1, 2, 2});
+    aBtn.id = "a_btn";
+    aBtn.setHitRect(ge::Rect{1, 1, 2, 2});
+
+    uint32_t deadId = 0;
+    {
+        ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+        ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+        ge::publishHitTarget(&dflt);       // two live → defaults registry
+        ge::publishHitTarget(a, &aBtn);    // session a's own
+        CHECK(ge::publishedHitTargets(a.sessionId()).size() == 2);
+        CHECK(ge::publishedHitTargets(b.sessionId()).size() == 1);
+        deadId = a.sessionId();
+    }
+    // a and b died: a's registry entry is pruned; defaults remain.
+    const auto after = ge::publishedHitTargets(deadId);
+    CHECK(after.size() == 1);
+    CHECK(after[0] == &dflt);
+
+    ge::unpublishHitTarget(&dflt);
+    ge::unpublishHitTarget(&aBtn);
+    CHECK(ge::publishedHitTargets().empty());
+}
+
+TEST_CASE("🎯T175.6: per-session capture sinks; the engine binds the active session's") {
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::cmdstream::LiveCapture ca, cb;
+    ge::cmdstream::setLiveCapture(a.sessionId(), &ca);
+    ge::cmdstream::setLiveCapture(b.sessionId(), &cb);
+
+    ge::cmdstream::bindActiveCapture(a.sessionId());
+    CHECK(ge::cmdstream::liveCapture() == &ca);   // a's frame sees a's sink
+    ge::cmdstream::bindActiveCapture(b.sessionId());
+    CHECK(ge::cmdstream::liveCapture() == &cb);   // b's frame sees b's sink
+
+    ge::cmdstream::setLiveCapture(a.sessionId(), nullptr);
+    ge::cmdstream::setLiveCapture(b.sessionId(), nullptr);
+    ge::cmdstream::bindActiveCapture(0);
+    CHECK(ge::cmdstream::liveCapture() == nullptr);
+}
+
+TEST_CASE("🎯T175.7: sensor authority is per-session") {
+    using ge::detail::SensorStreamMode;
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+
+    ge::detail::setAccelStreamMode(a.sessionId(), SensorStreamMode::Override);
+    ge::detail::setAccelLatch(a.sessionId(), 1.f, 2.f, 3.f);
+
+    CHECK(ge::detail::accelStreamMode(b.sessionId()) == SensorStreamMode::Passthrough);
+    float x = 0, y = 0, z = 0;
+    CHECK(!ge::detail::accelLatch(b.sessionId(), x, y, z));  // b has no latch
+    CHECK(ge::detail::accelLatch(a.sessionId(), x, y, z));
+    CHECK(x == 1.f);
+
+    ge::detail::resetSensorControl();
+    CHECK(ge::detail::accelStreamMode(a.sessionId()) == SensorStreamMode::Passthrough);
+}
+
+TEST_CASE("🎯T175.8: wire-fed viewer bit is per-session, ORed with the process bit") {
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+
+    ge::detail::injectViewerBackgrounded(a.sessionId(), true);
+    CHECK(ge::detail::viewerBackgroundedFor(a.sessionId()));
+    CHECK(!ge::detail::viewerBackgroundedFor(b.sessionId()));  // b unaffected
+
+    ge::detail::injectViewerBackgrounded(true);  // process bit pauses all
+    CHECK(ge::detail::viewerBackgroundedFor(b.sessionId()));
+
+    ge::detail::injectViewerBackgrounded(false);
+    ge::detail::injectViewerBackgrounded(a.sessionId(), false);
+    CHECK(!ge::detail::viewerBackgroundedFor(a.sessionId()));
+    CHECK(!ge::detail::viewerBackgroundedFor(b.sessionId()));
+}
+
+TEST_CASE("🎯T175.9: metrics scopes resolve within a session; untagged scopes stay process-wide") {
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::metrics::Scope sa("t175_sa");  // sole live session → tagged a
+    CHECK(sa.session() == a.sessionId());
+
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::metrics::Scope sw("t175_wide");  // two live → untagged (process-wide)
+    CHECK(sw.session() == 0);
+
+    const auto va = ge::metrics::Scope::all(a.sessionId());
+    const auto vb = ge::metrics::Scope::all(b.sessionId());
+    CHECK(std::find(va.begin(), va.end(), &sa) != va.end());
+    CHECK(std::find(va.begin(), va.end(), &sw) != va.end());
+    CHECK(std::find(vb.begin(), vb.end(), &sa) == vb.end());  // a's scope invisible to b
+    CHECK(std::find(vb.begin(), vb.end(), &sw) != vb.end());
 }

@@ -75,6 +75,7 @@ struct WireWriter {
 } // namespace
 
 struct ServerSession::Impl {
+    std::uint32_t hostSessionId = 0;  // T175.8 bound via setSessionId
     std::string host;
     int port = 0;
     std::string name;
@@ -272,7 +273,7 @@ void ServerSession::Impl::closeWire() {
     capturePixels.store(true);
     // Disarm + destroy Writer under LiveCapture's mutex so the render
     // thread cannot UAF emitBlob mid-frame (was SIGSEGV on attach).
-    cmdstream::setLiveCapture(nullptr);
+    cmdstream::setLiveCapture(hostSessionId, nullptr);  // T175.6
     live.resetSession();
     cmdCache.clear();
     {
@@ -426,7 +427,7 @@ void ServerSession::Impl::wireInputLoop(std::shared_ptr<WsConnection> w) {
             encW = encH = 0;
             transport.store(wire::kTransportH264);
             capturePixels.store(true);
-            cmdstream::setLiveCapture(nullptr);
+            cmdstream::setLiveCapture(hostSessionId, nullptr);  // T175.6
             live.resetSession();
             cmdCache.clear();
             SPDLOG_INFO("ServerSession: last wire gone — stream state reset");
@@ -518,11 +519,11 @@ void ServerSession::Impl::dispatchPlayerMessage(const std::vector<char>& data,
                     std::min(avail, sizeof(life)));
         switch (life.kind) {
         case wire::kLifeForeground:
-            detail::injectViewerBackgrounded(false);
+            detail::injectViewerBackgrounded(hostSessionId, false);  // T175.8
             ge::audio::onForeground();
             break;
         case wire::kLifeBackground:
-            detail::injectViewerBackgrounded(true);
+            detail::injectViewerBackgrounded(hostSessionId, true);  // T175.8
             ge::audio::onBackground();
             break;
         case wire::kLifeBackPressed:
@@ -675,6 +676,8 @@ ServerSession::ServerSession(std::string host, int port, std::string name,
 
 ServerSession::~ServerSession() { stop(); }
 
+void ServerSession::setSessionId(std::uint32_t sid) { i_->hostSessionId = sid; }
+
 void ServerSession::start() {
     i_->running.store(true);
     if (const char* cs = std::getenv("GE_WIRE_SESSION"); cs && cs[0]) {
@@ -783,12 +786,12 @@ void ServerSession::onFrameBegin(int contentW, int contentH) {
     const uint16_t ch = contentH > 0 ? static_cast<uint16_t>(
         std::min(contentH, 65535)) : 0;
     i_->live.begin(s, &i_->cmdCache, cw, ch);
-    cmdstream::setLiveCapture(&i_->live);
+    cmdstream::setLiveCapture(i_->hostSessionId, &i_->live);  // T175.6
 }
 
 void ServerSession::onFrameEnd() {
     if (cmdstream::liveCapture() != &i_->live) return;
-    cmdstream::setLiveCapture(nullptr);
+    cmdstream::setLiveCapture(i_->hostSessionId, nullptr);  // T175.6
     auto payload = i_->live.end();
     if (payload.empty()) return;
     const auto st = i_->live.stats();

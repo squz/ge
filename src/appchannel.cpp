@@ -754,8 +754,8 @@ void registerBuiltins() {
             e.sensor.data[1] = ay;
             e.sensor.data[2] = az;
             // While suppressed: update latch so pumpEvents re-asserts each frame.
-            if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Override) {
-                ge::detail::setAccelLatch(ax, ay, az);
+            if (ge::detail::accelStreamMode(rpcSessionId(p)) == ge::detail::SensorStreamMode::Override) {
+                ge::detail::setAccelLatch(rpcSessionId(p), ax, ay, az);
             }
         } else {
             throw Error{-32602, "input_inject: unknown type '" + type + "'"};
@@ -783,15 +783,15 @@ void registerBuiltins() {
         y = p["value"][1].get<float>();
         z = p["value"][2].get<float>();
     };
-    auto statusJson = []() -> nlohmann::json {
+    auto statusJson = [](uint32_t sid) -> nlohmann::json {
         using M = ge::detail::SensorStreamMode;
-        const auto m = ge::detail::accelStreamMode();
+        const auto m = ge::detail::accelStreamMode(sid);
         nlohmann::json out{{"sensor", "accel"},
                            {"suppressed", m != M::Passthrough}};
         float x, y, z;
         if (m == M::Mute) {
             out["value"] = nlohmann::json::array({0.0, 0.0, 0.0});
-        } else if (ge::detail::accelLatch(x, y, z)) {
+        } else if (ge::detail::accelLatch(sid, x, y, z)) {
             out["value"] = nlohmann::json::array({x, y, z});
         }
         return out;
@@ -800,29 +800,29 @@ void registerBuiltins() {
     reg("sensor_suppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
         // Sticky until sensor_unsuppress. Does not set a sample.
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Override);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_set", [requireAccel, parseValue3, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        if (ge::detail::accelStreamMode() == ge::detail::SensorStreamMode::Passthrough)
+        if (ge::detail::accelStreamMode(rpcSessionId(p)) == ge::detail::SensorStreamMode::Passthrough)
             throw Error{-32602, "sensor_set: sensor is not suppressed "
                                 "(call sensor_suppress first)"};
         float x, y, z;
         parseValue3(p, x, y, z);
-        ge::detail::setAccelLatch(x, y, z);
+        ge::detail::setAccelLatch(rpcSessionId(p), x, y, z);
         // Ensure we re-assert latch (not mute/neutral-only).
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Override);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Override);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_unsuppress", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        ge::detail::setAccelStreamMode(ge::detail::SensorStreamMode::Passthrough);
-        return statusJson();
+        ge::detail::setAccelStreamMode(rpcSessionId(p), ge::detail::SensorStreamMode::Passthrough);
+        return statusJson(rpcSessionId(p));
     });
     reg("sensor_status", [requireAccel, statusJson](const nlohmann::json& p) {
         requireAccel(p);
-        return statusJson();
+        return statusJson(rpcSessionId(p));
     });
 
     // ── per-instance metrics ring (🎯T166) ──
@@ -835,7 +835,9 @@ void registerBuiltins() {
                 throw Error{-32602, "metrics: unknown instance"};
             return s;
         }
-        auto all = ge::metrics::Scope::all();
+        // T175.9 resolve within the addressed session first (its own scopes
+        // plus untagged process-wide ones) before declaring ambiguity.
+        auto all = ge::metrics::Scope::all(rpcSessionId(p));
         if (all.empty())
             throw Error{-32601, "metrics: no Scope registered (create ge::metrics::Scope per instance)"};
         if (all.size() > 1)
@@ -844,9 +846,9 @@ void registerBuiltins() {
     };
     reg("metrics_list", [resolveMetricsScope](const nlohmann::json& p) {
         return runOnGameThread(rpcSessionId(p), [resolveMetricsScope, p] {
-            if (!p.contains("instance") && ge::metrics::Scope::all().size() != 1) {
+            if (!p.contains("instance") && ge::metrics::Scope::all(rpcSessionId(p)).size() != 1) {
                 nlohmann::json out = nlohmann::json::array();
-                for (auto* s : ge::metrics::Scope::all())
+                for (auto* s : ge::metrics::Scope::all(rpcSessionId(p)))
                     out.push_back(s->list());
                 return nlohmann::json{{"instances", std::move(out)}};
             }
@@ -942,7 +944,10 @@ void registerBuiltins() {
     // Capture the framebuffer (game thread, via the render host), PNG-encode
     // it here (off the render thread), and return {format, width, height,
     // data:<bin>} — the PNG rides as a MessagePack bin, no base64.
-    reg("screenshot_app", [](const nlohmann::json&) {
+    reg("screenshot_app", [](const nlohmann::json& p) {
+        rpcSessionId(p);  // T175.10 validate addressing; the capture below is
+                          // the rendering host's frame — the addressed session
+                          // under process-per-session.
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
         if (!ge::detail::captureFrameRGBA(rgba, w, h) || w <= 0 || h <= 0)
@@ -1147,7 +1152,8 @@ namespace {
 
 nlohmann::json collectPublishedHitTargets() {
     std::vector<detail::HitTargetExport> items;
-    for (Button* b : publishedHitTargets()) {
+    // T175.5 the addressed session's buttons + process defaults.
+    for (Button* b : publishedHitTargets(g_currentRpcSession)) {
         if (!b || b->id.empty() || b->hitBounds.empty()) continue;
         detail::HitTargetExport it;
         it.id      = b->id;

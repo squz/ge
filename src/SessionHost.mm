@@ -22,6 +22,7 @@
 #include "../tools/player_orientation.h"
 
 #include <SDL3/SDL.h>
+#include <ge/CmdStream.h>  // T175.6 bindActiveCapture
 #include <ge/appchannel.h>
 #include <ge/debug.h>  // 🎯T174 internal::bindContext
 #include <ge/log.h>
@@ -140,6 +141,7 @@ void DirectLoop::step() {
         // so they see a consistent snapshot. No-op when no channel is
         // active.
         ge::appchannel::pumpMainThreadTasks(host.context());  // T175.3 session-exact
+        ge::cmdstream::bindActiveCapture(host.context().sessionId());  // T175.6
         // 🎯T109 Full-surface pts for hit_targets center_norm / bbox_norm.
         {
             const ge::Rect full = host.context().fullRectInPts();
@@ -275,6 +277,7 @@ void runDirectHosted(Factory factory, SessionHostConfig config,
         host.setViewerMetricsStore(server->viewer);
         if (server->armSink) host.setArmStateSink(server->armSink);
         if (server->bindDb) server->bindDb(host.context().db());
+        if (server->bindSession) server->bindSession(host.context().sessionId());  // T175.8
     }
 
     // 🎯T136 Crash diagnostics: gate the callback guards (below) on the same

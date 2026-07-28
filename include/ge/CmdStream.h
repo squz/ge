@@ -366,9 +366,15 @@ private:
     std::unordered_map<uint32_t, bool> imagesEmitted_;
 };
 
-// Arm/disarm process-global live capture (game thread only).
+// Arm/disarm live capture (game thread only). T175.6: sinks are stored
+// per session; liveCapture() reads the ACTIVE session's sink (a cached
+// pointer — the draw hot path is unchanged). The engine binds the active
+// session each frame via bindActiveCapture; the sid-less setter targets
+// the sole live session (else the default store 0).
 void setLiveCapture(LiveCapture* cap);
+void setLiveCapture(std::uint32_t sessionId, LiveCapture* cap);
 LiveCapture* liveCapture();
+void bindActiveCapture(std::uint32_t sessionId);
 
 // Side-table: recipe or RGBA for sokol image ids (filled by load/raster paths).
 //

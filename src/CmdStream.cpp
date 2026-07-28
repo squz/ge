@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <ge/CmdStream.h>
+#include <ge/SessionHost.h>  // T175.6 liveSessionIds
 
 #include <lz4.h>
 
@@ -550,7 +551,14 @@ H264Estimate estimateH264FullRes(int width, int height) {
 namespace {
 
 std::mutex g_liveMu;
-LiveCapture* g_live = nullptr;
+std::unordered_map<std::uint32_t, LiveCapture*> g_liveBySession;  // T175.6
+std::uint32_t g_activeSid = 0;
+LiveCapture* g_live = nullptr;  // active session's sink — hot-path cache
+
+std::uint32_t liveLenientSid() {
+    const auto live = ge::liveSessionIds();
+    return live.size() == 1 ? live.front() : 0u;
+}
 
 std::unordered_map<uint32_t, ImageRecipe>& imageRegistry() {
     static std::unordered_map<uint32_t, ImageRecipe> m;
@@ -579,13 +587,21 @@ void unregisterImage(uint32_t imageId) {
 
 size_t imageRecipeCount() { return imageRegistry().size(); }
 
-void setLiveCapture(LiveCapture* cap) {
+void setLiveCapture(LiveCapture* cap) { setLiveCapture(liveLenientSid(), cap); }
+void setLiveCapture(std::uint32_t sessionId, LiveCapture* cap) {
     std::lock_guard<std::mutex> lk(g_liveMu);
-    g_live = cap;
+    g_liveBySession[sessionId] = cap;
+    if (g_activeSid == sessionId) g_live = cap;  // refresh the hot cache
 }
 LiveCapture* liveCapture() {
     std::lock_guard<std::mutex> lk(g_liveMu);
     return g_live;
+}
+void bindActiveCapture(std::uint32_t sessionId) {
+    std::lock_guard<std::mutex> lk(g_liveMu);
+    g_activeSid = sessionId;
+    auto it = g_liveBySession.find(sessionId);
+    g_live = it != g_liveBySession.end() ? it->second : nullptr;
 }
 
 void registerImagePixels(uint32_t imageId, uint16_t w, uint16_t h,

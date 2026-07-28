@@ -28,8 +28,13 @@ void injectMemoryWarning(MemoryPressureLevel level);
 void injectBackPressed();
 void injectAudioFocus(bool gained);
 // Viewer foreground/background: when streaming, gates paused() like host OS.
+// T175.8: the sid forms write/read one session's wire-fed bit; the process
+// form remains for OS-adjacent/legacy callers. A session is "backgrounded"
+// when EITHER its own bit or the process bit is set.
 void injectViewerBackgrounded(bool backgrounded);
+void injectViewerBackgrounded(std::uint32_t sessionId, bool backgrounded);
 bool viewerBackgrounded();
+bool viewerBackgroundedFor(std::uint32_t sessionId);
 
 // Accelerometer stream control lives in SensorControl.h (setAccelStreamMode…).
 

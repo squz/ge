@@ -55,6 +55,9 @@ struct ServerHook {
     // 🎯T158: server-owned arm state — host reports AccelSynth arm
     // transitions; the session signals the primary glass (SP2A).
     std::function<void(bool)> armSink;
+    // T175.1/8: after the host Context is built, tell the session its id so
+    // wire-fed lifecycle + capture use session-exact forms.
+    std::function<void(std::uint32_t)> bindSession;
 };
 
 // The direct run loop, optionally driving server mode via `server` (null = the

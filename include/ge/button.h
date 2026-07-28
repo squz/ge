@@ -161,11 +161,20 @@ inline void Button::setHitRect(Rect r) {
 // publish in the owner constructor, unpublish in the destructor). Empty
 // id or empty hitBounds still register but are omitted from the export
 // until both are set.
+//
+// 🎯T175.5 Registries are per-session: the Context overload publishes
+// into that session; the Context-less form publishes into the sole live
+// session (else the process-default registry every session sees).
+// unpublish removes from every registry; dead sessions' entries are
+// pruned lazily, so a Button never dangles past its session.
 void publishHitTarget(Button* b);
+void publishHitTarget(const Context& ctx, Button* b);
 void unpublishHitTarget(Button* b);
 
-// Snapshot of currently published buttons (for tests / engine export).
-// Order is registration order. Not thread-safe — game thread only.
+// Snapshot of currently published buttons (for tests / engine export):
+// the defaults registry plus the addressed session's own. Order is
+// registration order. Not thread-safe — game thread only.
 std::vector<Button*> publishedHitTargets();
+std::vector<Button*> publishedHitTargets(uint32_t sessionId);
 
 } // namespace ge
