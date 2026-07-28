@@ -30,6 +30,10 @@
 
 #include <nlohmann/json.hpp>
 
+namespace ge {
+class Context;  // T175 session-scoped overloads
+}
+
 namespace ge::appchannel {
 
 // A request handler: receives the request's `params` and returns the
@@ -82,6 +86,9 @@ void flush(int timeoutMs = 200);
 // here. Returns realDt unchanged when no channel is active, and is a no-op
 // pass-through in release builds.
 float applyTimeControl(float realDt);
+// T175.10 Session-exact form for the run loop; the no-arg form maps to the
+// sole live session (else the process-defaults store).
+float applyTimeControl(const Context& ctx, float realDt);
 
 // 🎯T92.4 Perf push. perfEmit records the latest value of a named custom
 // counter — consumers call it from the game thread (e.g. each frame). perfTick
@@ -91,6 +98,7 @@ float applyTimeControl(float realDt);
 // is active and compiled out in release builds. The push itself is enqueued on
 // the channel's async sender, so the game thread never blocks on the socket.
 void perfEmit(const std::string& name, double value);
+void perfEmit(const Context& ctx, const std::string& name, double value);  // T175.4
 void perfTick(float frameMs);
 
 // 🎯T92.5 State registry. Register these BEFORE ge::run so the slice names are
@@ -120,10 +128,21 @@ void registerStateSlice(std::string name, StateGetter getter,
 // hands the decoded JSON back to `restore`.
 void registerStateSerializer(StateGetter save, StateRestorer restore);
 
+// T175.2 Session-scoped registrations: use inside a factory (where the
+// Context is in scope) so each session owns its slices/serializer. The
+// Context-less forms above register process defaults every session
+// inherits; a session's own registration shadows a default of the same
+// name. RPCs address a session with an optional {"session": <id>} param
+// (default: the sole live session).
+void registerStateSlice(const Context& ctx, std::string name, StateGetter getter,
+                        nlohmann::json example = nullptr);
+void registerStateSerializer(const Context& ctx, StateGetter save, StateRestorer restore);
+
 // Drain tasks the state handlers marshalled onto the game thread. The
 // SessionHost run loop calls this once per iteration; consumers don't. No-op
 // in release builds.
 void pumpMainThreadTasks();
+void pumpMainThreadTasks(const Context& ctx);  // T175.3 drains ctx's own queue
 
 // 🎯T109 Hit-target export surface (built-in `hit_targets` state slice).
 //
@@ -137,5 +156,6 @@ void pumpMainThreadTasks();
 // in release builds.
 void setHitTargetSurfacePts(float width, float height);
 void setExtraHitTargets(nlohmann::json targetsArray);
+void setExtraHitTargets(const Context& ctx, nlohmann::json targetsArray);  // T175.2
 
 } // namespace ge::appchannel

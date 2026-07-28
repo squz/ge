@@ -263,3 +263,109 @@ TEST_CASE("🎯T175.1 resolveSessionParam: sole-session default, explicit id, am
     CHECK(det::resolveSessionParam(json{{"session", b.sessionId()}}) == b.sessionId());
     CHECK_THROWS(det::resolveSessionParam(json{{"session", 0xFFFFFF}}));  // unknown id
 }
+
+// ── 🎯T175.2/3/4/10 per-session isolation ───────────────────────────
+
+namespace {
+// Session-addressed variant: pump the addressed session's queue.
+json invokePumpedCtx(const std::string& name, const json& params, const ge::Context& ctx) {
+    json               out;
+    std::exception_ptr err;
+    std::atomic<bool>  done{false};
+    std::thread worker([&] {
+        try {
+            out = det::invokeMethodForTest(name, params);
+        } catch (...) {
+            err = std::current_exception();
+        }
+        done = true;
+    });
+    while (!done) ac::pumpMainThreadTasks(ctx);
+    worker.join();
+    if (err) std::rethrow_exception(err);
+    return out;
+}
+}  // namespace
+
+TEST_CASE("🎯T175.2/3/10: two sessions hold distinct slices, share defaults, pause independently") {
+    det::resetAppChannelStateForTest();
+    REQUIRE(ge::liveSessionIds().empty());
+
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+
+    ac::registerStateSlice(a, "who", [] { return json{{"i", "A"}}; });
+    ac::registerStateSlice(b, "who", [] { return json{{"i", "B"}}; });
+    ac::registerStateSlice("shared", [] { return json{{"d", 1}}; });  // defaults
+
+    // Same slice name, different sessions, different answers — the
+    // second registration no longer overwrites the first (T175.2), and
+    // each runs via its own session's task queue (T175.3).
+    CHECK(invokePumpedCtx("state_query",
+                          json{{"slice", "who"}, {"session", a.sessionId()}}, a) ==
+          json{{"i", "A"}});
+    CHECK(invokePumpedCtx("state_query",
+                          json{{"slice", "who"}, {"session", b.sessionId()}}, b) ==
+          json{{"i", "B"}});
+
+    // Defaults fall through per key for any session.
+    CHECK(invokePumpedCtx("state_query",
+                          json{{"slice", "shared"}, {"session", b.sessionId()}}, b) ==
+          json{{"d", 1}});
+
+    // Pause means ONE session (T175.10).
+    det::invokeMethodForTest("pause", json{{"session", a.sessionId()}});
+    CHECK(ac::applyTimeControl(a, 0.016f) == 0.0f);
+    CHECK(ac::applyTimeControl(b, 0.016f) == doctest::Approx(0.016f));
+
+    // Ambiguity: two live sessions, none named.
+    CHECK_THROWS(det::invokeMethodForTest("pause", json::object()));
+
+    det::resetAppChannelStateForTest();
+}
+
+TEST_CASE("🎯T175.4: perf counters are per-session") {
+    det::resetAppChannelStateForTest();
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ac::perfEmit(a, "c", 1.0);
+    ac::perfEmit(b, "c", 2.0);
+    CHECK(det::perfCountersSnapshotForTest(a) == json{{"c", 1.0}});
+    CHECK(det::perfCountersSnapshotForTest(b) == json{{"c", 2.0}});
+    det::resetAppChannelStateForTest();
+}
+
+TEST_CASE("🎯T175.2: hit_targets surface comes from the addressed session's Context; extras overlay") {
+    det::resetAppChannelStateForTest();
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");  // 64pt surface
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    ac::setExtraHitTargets(b, json::array({{{"id", "b_only"},
+                                            {"kind", "region"},
+                                            {"enabled", true},
+                                            {"bbox", {8, 8, 16, 16}}}}));
+
+    ge::Button btn;
+    btn.id = "shared_btn";
+    btn.setHitRect(ge::Rect{16, 16, 32, 32});
+    ge::publishHitTarget(&btn);
+
+    const json qa = invokePumpedCtx(
+        "state_query", json{{"slice", "hit_targets"}, {"session", a.sessionId()}}, a);
+    const json qb = invokePumpedCtx(
+        "state_query", json{{"slice", "hit_targets"}, {"session", b.sessionId()}}, b);
+
+    bool aHasExtra = false, bHasExtra = false, aNormOk = false;
+    for (const auto& t : qa["targets"]) {
+        if (t.value("id", "") == "b_only") aHasExtra = true;
+        if (t.value("id", "") == "shared_btn" && t.contains("bbox_norm"))
+            aNormOk = t["bbox_norm"][0].get<double>() == doctest::Approx(16.0 / 64.0);
+    }
+    for (const auto& t : qb["targets"])
+        if (t.value("id", "") == "b_only") bHasExtra = true;
+    CHECK(!aHasExtra);  // b's extras are b's own
+    CHECK(bHasExtra);
+    CHECK(aNormOk);     // normalised against session a's 64pt Context surface
+
+    ge::unpublishHitTarget(&btn);
+    det::resetAppChannelStateForTest();
+}

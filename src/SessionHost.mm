@@ -139,7 +139,7 @@ void DirectLoop::step() {
         // onto the game thread (state_query / save_state / restore_state),
         // so they see a consistent snapshot. No-op when no channel is
         // active.
-        ge::appchannel::pumpMainThreadTasks();
+        ge::appchannel::pumpMainThreadTasks(host.context());  // T175.3 session-exact
         // 🎯T109 Full-surface pts for hit_targets center_norm / bbox_norm.
         {
             const ge::Rect full = host.context().fullRectInPts();
@@ -200,7 +200,7 @@ void DirectLoop::step() {
         // stepped frame, or dt×speed otherwise.
         if (rc.onUpdate) {
             ge::guardCallback("onUpdate", [&] {  // 🎯T136
-                rc.onUpdate(ge::appchannel::applyTimeControl(dt));
+                rc.onUpdate(ge::appchannel::applyTimeControl(host.context(), dt));  // T175.10
             });
         }
 

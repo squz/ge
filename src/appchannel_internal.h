@@ -12,6 +12,10 @@
 
 #include <nlohmann/json.hpp>
 
+namespace ge {
+class Context;  // T175 session-scoped test hooks
+}
+
 namespace ge::appchannel::detail {
 
 // Build the `hello` message's `slices` array from registered (name, example)
@@ -75,6 +79,7 @@ bool hasMethodForTest(const std::string& name);
 // calls this after its active() gate, so tests lock the shipped math.
 nlohmann::json perfAccumulate(float frameMs);
 nlohmann::json perfCountersSnapshotForTest();
+nlohmann::json perfCountersSnapshotForTest(const Context& ctx);  // T175.4
 
 // Reset every session-varying app-channel global (slices, serializers, hit
 // surface/extras, time control, perf window, task queue) to construction
