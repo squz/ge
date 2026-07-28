@@ -55,4 +55,30 @@ nlohmann::json buildHitTargetsPayload(
     const std::vector<HitTargetExport>& items,
     const nlohmann::json& extras = nlohmann::json::array());
 
+// ── 🎯T175.12 characterization hooks ────────────────────────────────
+// Drive registered app-channel handlers without a socket, so the surfaces
+// the T175 session-scoping graph rescopes are locked by tests first.
+// Debug builds only (like the rest of the app-channel).
+
+// Ensure builtins are registered, look up `name`, and invoke it. Handlers
+// that marshal via runOnGameThread BLOCK until pumpMainThreadTasks() runs —
+// invoke those from a worker thread and pump from the test's main thread
+// (that blocking is itself characterized behaviour). Throws on unknown name;
+// handler Errors propagate.
+nlohmann::json invokeMethodForTest(const std::string& name,
+                                   const nlohmann::json& params);
+bool hasMethodForTest(const std::string& name);
+
+// The perf-window arithmetic behind perfTick, channel-independent:
+// accumulate one frame; returns the samples object (frame_ms + counters)
+// when the window elapsed and resets it, else null. Production perfTick
+// calls this after its active() gate, so tests lock the shipped math.
+nlohmann::json perfAccumulate(float frameMs);
+nlohmann::json perfCountersSnapshotForTest();
+
+// Reset every session-varying app-channel global (slices, serializers, hit
+// surface/extras, time control, perf window, task queue) to construction
+// state. Test isolation only.
+void resetAppChannelStateForTest();
+
 } // namespace ge::appchannel::detail

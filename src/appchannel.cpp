@@ -915,21 +915,30 @@ void perfEmit(const std::string& name, double value) {
     g_perfCounters[name] = value;
 }
 
+namespace detail {
+// 🎯T175.12 The window arithmetic, channel-independent so tests lock the
+// shipped math. Returns the samples object when the window elapsed
+// (resetting it), else null.
+nlohmann::json perfAccumulate(float frameMs) {
+    std::lock_guard<std::mutex> lk(g_perfMu);
+    g_perfAccumMs += frameMs;
+    g_perfFrames  += 1;
+    if (g_perfAccumMs < kPerfWindowMs) return nullptr;  // inside the window
+    nlohmann::json samples = nlohmann::json::object();
+    samples["frame_ms"] = g_perfAccumMs / float(g_perfFrames);
+    for (const auto& kv : g_perfCounters) samples[kv.first] = kv.second;
+    g_perfAccumMs = 0.0f;
+    g_perfFrames  = 0;
+    return samples;
+}
+}  // namespace detail
+
 void perfTick(float frameMs) {
     if (!Channel::instance().active()) return;  // nothing to push to
     // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
     // rides as just another sample alongside the consumer's perfEmit counters.
-    nlohmann::json samples = nlohmann::json::object();
-    {
-        std::lock_guard<std::mutex> lk(g_perfMu);
-        g_perfAccumMs += frameMs;
-        g_perfFrames  += 1;
-        if (g_perfAccumMs < kPerfWindowMs) return;  // still inside the window
-        samples["frame_ms"] = g_perfAccumMs / float(g_perfFrames);
-        for (const auto& kv : g_perfCounters) samples[kv.first] = kv.second;
-        g_perfAccumMs = 0.0f;
-        g_perfFrames  = 0;
-    }
+    nlohmann::json samples = detail::perfAccumulate(frameMs);
+    if (samples.is_null()) return;  // still inside the window
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     Channel::instance().push("perf", nlohmann::json{
@@ -1117,6 +1126,57 @@ void setExtraHitTargets(nlohmann::json targetsArray) {
     if (!targetsArray.is_array()) return;
     g_extraHitTargets = std::move(targetsArray);
 }
+
+// ── 🎯T175.12 characterization hooks (see appchannel_internal.h) ─────
+namespace detail {
+
+nlohmann::json invokeMethodForTest(const std::string& name,
+                                   const nlohmann::json& params) {
+    ensureHitTargetsSliceRegistered();
+    registerBuiltins();
+    auto it = handlers().find(name);
+    if (it == handlers().end())
+        throw std::runtime_error("invokeMethodForTest: no such method: " + name);
+    return it->second(params);
+}
+
+bool hasMethodForTest(const std::string& name) {
+    registerBuiltins();
+    return handlers().find(name) != handlers().end();
+}
+
+nlohmann::json perfCountersSnapshotForTest() {
+    std::lock_guard<std::mutex> lk(g_perfMu);
+    nlohmann::json out = nlohmann::json::object();
+    for (const auto& kv : g_perfCounters) out[kv.first] = kv.second;
+    return out;
+}
+
+void resetAppChannelStateForTest() {
+    {
+        std::lock_guard<std::mutex> lk(g_perfMu);
+        g_perfCounters.clear();
+        g_perfAccumMs = 0.0f;
+        g_perfFrames  = 0;
+    }
+    g_slices.clear();
+    g_sliceExamples.clear();
+    g_stateSaver    = nullptr;
+    g_stateRestorer = nullptr;
+    g_hitSurfaceW = 0.f;
+    g_hitSurfaceH = 0.f;
+    g_extraHitTargets = nlohmann::json::array();
+    g_hitTargetsSliceRegistered = false;
+    g_tcPaused.store(false);
+    g_tcSpeed.store(1.0f);
+    g_tcStepFrames.store(0);
+    {
+        std::lock_guard<std::mutex> lk(g_taskMu);
+        g_tasks.clear();
+    }
+}
+
+}  // namespace detail
 
 #else  // NDEBUG — feature compiled out entirely.
 
