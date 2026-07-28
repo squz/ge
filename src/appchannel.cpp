@@ -298,7 +298,10 @@ private:
             {"id", nextId_++},
             {"method", "hello"},
             {"params", {{"app_name", app_}, {"app_version", ver_},
-                        {"methods", methods}, {"slices", slices}}}});
+                        {"methods", methods}, {"slices", slices},
+                        // 🎯T175.1 live session ids, so spyder can list and
+                        // address sessions in this process.
+                        {"sessions", ge::liveSessionIds()}}}});
 
         for (;;) {
             nlohmann::json msg;
@@ -1126,6 +1129,28 @@ void setExtraHitTargets(nlohmann::json targetsArray) {
     if (!targetsArray.is_array()) return;
     g_extraHitTargets = std::move(targetsArray);
 }
+
+// ── 🎯T175.1 session addressing (see appchannel_internal.h) ──────────
+namespace detail {
+
+uint32_t resolveSessionParam(const nlohmann::json& params) {
+    const auto live = ge::liveSessionIds();
+    if (params.is_object() && params.contains("session")) {
+        if (!params["session"].is_number_unsigned())
+            throw Error{-32602, "session: must be an unsigned session id"};
+        const uint32_t id = params["session"].get<uint32_t>();
+        for (uint32_t l : live)
+            if (l == id) return id;
+        throw Error{-32602, "session: no live session with id " + std::to_string(id)};
+    }
+    if (live.size() == 1) return live.front();
+    if (live.empty()) throw Error{-32000, "no live session"};
+    throw Error{-32602,
+                "ambiguous: " + std::to_string(live.size()) +
+                    " live sessions — name one with {\"session\": <id>}"};
+}
+
+}  // namespace detail
 
 // ── 🎯T175.12 characterization hooks (see appchannel_internal.h) ─────
 namespace detail {

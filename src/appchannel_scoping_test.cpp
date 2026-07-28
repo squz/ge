@@ -225,3 +225,41 @@ TEST_CASE("cmdstream LiveCapture: set / read-back / clear (the draw path's CPU-v
     ge::cmdstream::setLiveCapture(nullptr);
     CHECK(ge::cmdstream::liveCapture() == nullptr);
 }
+
+// ── 🎯T175.1 session identity + RPC addressing ──────────────────────
+
+TEST_CASE("🎯T175.1 session ids: unique, shared by copies, registry tracks lifetime") {
+    const auto baseline = ge::liveSessionIds().size();
+    {
+        ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+        ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+        CHECK(a.sessionId() != b.sessionId());
+
+        ge::Context aCopy = a;  // shared M — same session
+        CHECK(aCopy.sessionId() == a.sessionId());
+
+        const auto live = ge::liveSessionIds();
+        CHECK(live.size() == baseline + 2);
+
+        auto got = ge::sessionById(a.sessionId());
+        REQUIRE(got.has_value());
+        CHECK(got->sessionId() == a.sessionId());
+    }
+    // Both sessions died with their last Context copy.
+    CHECK(ge::liveSessionIds().size() == baseline);
+    CHECK(!ge::sessionById(0xFFFFFFu).has_value());
+}
+
+TEST_CASE("🎯T175.1 resolveSessionParam: sole-session default, explicit id, ambiguity + unknown errors") {
+    REQUIRE(ge::liveSessionIds().empty());  // test isolation precondition
+    CHECK_THROWS(det::resolveSessionParam(json::object()));  // no session at all
+
+    ge::Context a(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    CHECK(det::resolveSessionParam(json::object()) == a.sessionId());  // sole default
+    CHECK(det::resolveSessionParam(json{{"session", a.sessionId()}}) == a.sessionId());
+
+    ge::Context b(64, 64, ge::DeviceClass::Desktop, ":memory:", "");
+    CHECK_THROWS(det::resolveSessionParam(json::object()));  // ambiguous, unnamed
+    CHECK(det::resolveSessionParam(json{{"session", b.sessionId()}}) == b.sessionId());
+    CHECK_THROWS(det::resolveSessionParam(json{{"session", 0xFFFFFF}}));  // unknown id
+}

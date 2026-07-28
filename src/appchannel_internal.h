@@ -81,4 +81,13 @@ nlohmann::json perfCountersSnapshotForTest();
 // state. Test isolation only.
 void resetAppChannelStateForTest();
 
+// ── 🎯T175.1 session addressing ─────────────────────────────────────
+// Resolve an RPC's optional {"session": <id>} param to a live session id.
+// Absent param: the sole live session (the overwhelmingly common case —
+// direct mode, and stream mode under T163 process-per-session). Throws a
+// JSON-RPC Error when the named id isn't live, when no session exists, or
+// when several exist and none was named. The one resolver every
+// session-addressed dev RPC shares (T175.2/3/4/9/10).
+uint32_t resolveSessionParam(const nlohmann::json& params);
+
 } // namespace ge::appchannel::detail
