@@ -27,6 +27,7 @@
 #include <ge/button.h>
 #include <ge/hint.h>       // 🎯T170 gesture-hint timeline (data-only tier)
 #include <ge/hint_hand.h>  // 🎯T170 default SDF hand renderer
+#include <ge/hint_input.h>  // 🎯T177 hint-driven synthetic touch
 #include <ge/iap.h>
 #include <ge/ortho.h>
 #include <ge/sprite.h>
@@ -121,6 +122,10 @@ struct State {
     };
     std::vector<HintRipple> ripples;
     ge::Rect                hintAreaPts{};
+    // 🎯T177 HINT_DRIVE=1: the hint ALSO drives synthetic touch through
+    // the production event path (opt-in — presentation alone is default).
+    bool                    hintDrive = false;
+    ge::hint::InputDriver   hintDriver;
     ge::Sprite              ringSprite;
     ge::SpriteBatch         ringBatch;
 };
@@ -450,6 +455,7 @@ int main(int argc, char* argv[]) {
         // playfield until quit. Contact ripples (ring tier) spawn from the
         // tag callback — the exact moment the finger meets the glass.
         if (const char* hk = std::getenv("HINT")) {
+            state.hintDrive = std::getenv("HINT_DRIVE") != nullptr;
             state.hint = std::make_unique<ge::hint::Player>(hintKindFromName(hk));
             const char* hs   = std::getenv("HINT_STYLE");
             state.hintRing   = hs && std::strcmp(hs, "ring") == 0;
@@ -524,10 +530,29 @@ int main(int argc, char* argv[]) {
         }
 
         return {
-            .onUpdate = [&](float dt) {
+            .onUpdate = [&, ctx](float dt) {  // ctx by value: outlives the factory (T177)
                 // 🎯T170 advance the hint timeline + the ring tier's ripples.
                 if (state.hint) {
                     state.hint->update(dt);
+                    // 🎯T177 drive tier: same timeline, second sink. With
+                    // HINT=tap HINT_DRIVE=1 aim at the title banner and the
+                    // synthetic tap presses the real reset Button.
+                    if (state.hintDrive && !state.hintAreaPts.empty()) {
+                        if (!state.titleBannerPts.empty() &&
+                            state.hint->kind() == ge::hint::Kind::Tap &&
+                            state.hint->time() < dt * 1.5f) {
+                            // Re-aim each loop at the banner's live center
+                            // (unit coords of the hint area).
+                            const auto c = state.titleBannerPts.center();
+                            ge::hint::Params hp;
+                            hp.from = {(c.x - state.hintAreaPts.x) / state.hintAreaPts.w,
+                                       (c.y - state.hintAreaPts.y) / state.hintAreaPts.h};
+                            state.hint = std::make_unique<ge::hint::Player>(
+                                ge::hint::Kind::Tap, hp);
+                            state.hint->update(dt);
+                        }
+                        state.hintDriver.update(ctx, *state.hint, state.hintAreaPts);
+                    }
                     for (auto& r : state.ripples) r.age += dt;
                     std::erase_if(state.ripples,
                                   [](const State::HintRipple& r) { return r.age > 0.8f; });
