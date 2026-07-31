@@ -5,6 +5,7 @@
 // invariants for every built-in gesture. Pure math, no GPU / sokol.
 
 #include <ge/hint.h>
+#include <ge/hint_hand.h>
 
 #include <doctest.h>
 
@@ -312,4 +313,281 @@ TEST_CASE("default player is inert and safe") {
     Player p;
     p.update(0.016f);
     CHECK(p.pointers().empty());
+}
+
+// ── 🎯T179 multi-segment authoring ──────────────────────────────────
+
+TEST_CASE("T179: Player from multi-waypoint contact clip stays in contact across the chain") {
+    // A→B→A→B→A wiggle: one continuous contact, no intermediate lifts.
+    const la::float2 A{0.40f, 0.55f};
+    const la::float2 B{0.60f, 0.45f};
+    la::float2 wps[] = {A, B, A, B, A};
+    PhaseTiming timing;
+    timing.approach = 0.20f;
+    timing.pressIn  = 0.05f;
+    timing.stroke   = 1.20f;
+    timing.hold     = 0.02f;
+    timing.pressOut = 0.10f;
+    timing.exit     = 0.25f;
+
+    Clip clip = makeContactClip(wps, timing, Ease::Linear);
+    Params params = noLoop();
+    Player p(clip, params);
+
+    // Exactly one approach fade-in and one exit: opacity rises once, falls once.
+    int contactEdges = 0;
+    bool wasContact  = false;
+    bool sawA = false, sawB = false;
+    std::vector<la::float2> contactPath;
+    const float end = p.duration() + 0.1f;
+    for (float t = 0; t < end; t += kStep) {
+        p.update(kStep);
+        const PointerState& s = p.pointers()[0];
+        if (s.contact != wasContact) {
+            if (s.contact) ++contactEdges;
+            wasContact = s.contact;
+        }
+        if (s.contact) {
+            contactPath.push_back(s.pos);
+            if (la::length(s.pos - A) < 0.03f) sawA = true;
+            if (la::length(s.pos - B) < 0.03f) sawB = true;
+        }
+    }
+    // One contact onset for the whole chain (not N flourishes).
+    CHECK(contactEdges == 1);
+    CHECK(sawA);
+    CHECK(sawB);
+    REQUIRE(contactPath.size() > 10);
+
+    // Path visits waypoints in order: near A, then B, then A, …
+    auto near = [](la::float2 p, la::float2 t) { return la::length(p - t) < 0.04f; };
+    size_t idx = 0;
+    auto advanceTo = [&](la::float2 target) {
+        while (idx < contactPath.size() && !near(contactPath[idx], target)) ++idx;
+        return idx < contactPath.size();
+    };
+    CHECK(advanceTo(A));
+    CHECK(advanceTo(B));
+    CHECK(advanceTo(A));
+    CHECK(advanceTo(B));
+    CHECK(advanceTo(A));
+
+    // Tag order: one contact, one apex, one release.
+    Player p2(clip, params);
+    auto fired = play(p2);
+    REQUIRE(fired.size() == 3);
+    CHECK(fired[0].tag == tag::contact);
+    CHECK(fired[1].tag == tag::apex);
+    CHECK(fired[2].tag == tag::release);
+}
+
+TEST_CASE("T179: phase durations are independently tunable") {
+    la::float2 wps[] = {{0.3f, 0.7f}, {0.7f, 0.3f}};
+
+    PhaseTiming base;
+    base.approach = 0.40f;
+    base.pressIn  = 0.10f;
+    base.stroke   = 0.80f;
+    base.hold     = 0.05f;
+    base.pressOut = 0.15f;
+    base.exit     = 0.40f;
+
+    PhaseTiming snappyStroke = base;
+    snappyStroke.stroke      = 0.30f;  // only stroke shrinks
+
+    Clip cBase   = makeContactClip(wps, base, Ease::Linear);
+    Clip cSnappy = makeContactClip(wps, snappyStroke, Ease::Linear);
+
+    // Contact tag time is approach+pressIn — unchanged when only stroke changes.
+    REQUIRE(cBase.tags.size() >= 1);
+    REQUIRE(cSnappy.tags.size() >= 1);
+    CHECK(cBase.tags[0].t == doctest::Approx(cSnappy.tags[0].t).epsilon(0.001));
+    CHECK(cBase.tags[0].tag == tag::contact);
+
+    // Release comes earlier on the snappy clip by ~the stroke delta.
+    auto releaseT = [](const Clip& c) {
+        for (const auto& e : c.tags)
+            if (e.tag == tag::release) return e.t;
+        return -1.f;
+    };
+    float rBase   = releaseT(cBase);
+    float rSnappy = releaseT(cSnappy);
+    CHECK(rBase > 0);
+    CHECK(rSnappy > 0);
+    CHECK(rBase - rSnappy == doctest::Approx(base.stroke - snappyStroke.stroke).epsilon(0.02));
+
+    // Approach wall-time: first time opacity reaches ~1 should match for both
+    // (independent of stroke).
+    auto approachWall = [](const Clip& c) {
+        Params params;
+        params.loop = false;
+        Player p(c, params);
+        for (float t = 0; t < p.duration(); t += kStep) {
+            p.update(kStep);
+            if (p.pointers()[0].opacity >= 0.99f) return p.time();
+        }
+        return -1.f;
+    };
+    float a0 = approachWall(cBase);
+    float a1 = approachWall(cSnappy);
+    CHECK(a0 > 0);
+    CHECK(a1 > 0);
+    CHECK(a0 == doctest::Approx(a1).epsilon(0.02));
+}
+
+TEST_CASE("T179: every built-in Kind is expressible via the public authoring path") {
+    // makeClip routes through public builders; Player(Clip) must fire the
+    // same tag order/monotonic times as Player(Kind).
+    for (Kind kind : {Kind::Tap, Kind::DoubleTap, Kind::LongPress, Kind::Swipe, Kind::Drag,
+                      Kind::PinchZoom, Kind::PinchRotate}) {
+        CAPTURE(int(kind));
+        Params params = noLoop();
+        Clip   clip   = makeClip(kind, params);
+
+        Player viaKind(kind, params);
+        Player viaClip(clip, params);
+
+        auto tagsKind = play(viaKind);
+        auto tagsClip = play(viaClip);
+        REQUIRE(tagsKind.size() == tagsClip.size());
+        REQUIRE(tagsKind.size() == clip.tags.size());
+        for (size_t i = 0; i < tagsKind.size(); ++i) {
+            CHECK(tagsKind[i].tag == tagsClip[i].tag);
+            CHECK(tagsKind[i].t == doctest::Approx(tagsClip[i].t).epsilon(0.01));
+            CHECK(tagsClip[i].tag == clip.tags[i].tag);
+            // Monotonic tag times within each player.
+            if (i > 0) CHECK(tagsClip[i].t >= tagsClip[i - 1].t);
+        }
+    }
+}
+
+TEST_CASE("T179: multi-waypoint net-zero path starts and ends at the same contact pos") {
+    // yourworld2 3× wiggle: A→B→A→B→A is net-zero by construction.
+    const la::float2 A{0.46f, 0.54f};
+    const la::float2 B{0.58f, 0.47f};
+    la::float2 wps[] = {A, B, A, B, A};
+    PhaseTiming timing;
+    timing.stroke = 0.90f;
+    Clip clip = makeContactClip(wps, timing, Ease::InOut);
+
+    Params params = noLoop();
+    Player p(clip, params);
+    la::float2 first{-1, -1}, last{-1, -1};
+    const float end = p.duration();
+    for (float t = 0; t < end; t += kStep) {
+        p.update(kStep);
+        const PointerState& s = p.pointers()[0];
+        if (s.contact) {
+            if (first.x < 0) first = s.pos;
+            last = s.pos;
+        }
+    }
+    CHECK(first.x == doctest::Approx(A.x).epsilon(0.02));
+    CHECK(first.y == doctest::Approx(A.y).epsilon(0.02));
+    CHECK(last.x == doctest::Approx(A.x).epsilon(0.02));
+    CHECK(last.y == doctest::Approx(A.y).epsilon(0.02));
+}
+
+// ── 🎯T180 pointing-hand articulation ───────────────────────────────
+
+TEST_CASE("T180: contact tip of layout equals the supplied pointer tip") {
+    const la::float2 tip{120.f, 340.f};
+    const float      S = 100.f;
+    auto layout = layoutPointingHand(tip, S, /*press=*/1.f, /*bodyHome=*/tip);
+    CHECK(layout.tip.x == doctest::Approx(tip.x));
+    CHECK(layout.tip.y == doctest::Approx(tip.y));
+    // Index distal starts at local (0,0) → world tip after xform.
+    REQUIRE(!layout.capsules.empty());
+    bool foundTip = false;
+    for (const Capsule& c : layout.capsules) {
+        if (c.chain != 1) continue;
+        if (la::length(c.a - tip) < 0.5f || la::length(c.b - tip) < 0.5f) foundTip = true;
+    }
+    CHECK(foundTip);
+}
+
+TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
+    const float      S    = 100.f;
+    const la::float2 home{200.f, 200.f};
+    auto rest = layoutPointingHand(home, S, 1.f, home);
+
+    const la::float2 smallTip = home + la::float2{6.f, 0.f};  // 0.06 S < softReach
+    auto moved = layoutPointingHand(smallTip, S, 1.f, home);
+
+    const float tipDisp  = la::length(smallTip - home);
+    const float palmDisp = la::length(moved.palmCentroid - rest.palmCentroid);
+    CHECK(tipDisp > 0.f);
+    // Finger/wrist dominate: palm moves much less than the tip.
+    CHECK(palmDisp < tipDisp * 0.35f);
+}
+
+TEST_CASE("T180: large tip delta moves the palm bodily") {
+    const float      S    = 100.f;
+    const la::float2 home{200.f, 200.f};
+    auto rest = layoutPointingHand(home, S, 1.f, home);
+
+    const la::float2 largeTip = home + la::float2{80.f, 0.f};  // 0.80 S > hardReach
+    auto moved = layoutPointingHand(largeTip, S, 1.f, home);
+
+    const float tipDisp  = la::length(largeTip - home);
+    const float palmDisp = la::length(moved.palmCentroid - rest.palmCentroid);
+    // Bodily regime: palm tracks a large fraction of the tip travel.
+    CHECK(palmDisp > tipDisp * 0.70f);
+}
+
+TEST_CASE("T180: intermediate amplitudes blend continuously (no step)") {
+    const float      S    = 100.f;
+    const la::float2 home{200.f, 200.f};
+    auto rest = layoutPointingHand(home, S, 1.f, home);
+
+    // Sample palm displacement vs tip offset magnitude; successive samples
+    // must not jump by more than a small fraction of S (continuous blend).
+    float prevPalm = 0.f;
+    float prevTip  = 0.f;
+    float maxJump  = 0.f;
+    for (int i = 0; i <= 40; ++i) {
+        float tipOff = float(i) / 40.f * 0.90f * S;  // 0 → 0.9 S
+        auto L = layoutPointingHand(home + la::float2{tipOff, 0.f}, S, 1.f, home);
+        float palmOff = la::length(L.palmCentroid - rest.palmCentroid);
+        if (i > 0) {
+            float dPalm = palmOff - prevPalm;
+            float dTip  = tipOff - prevTip;
+            // Palm path derivative vs tip offset — no discontinuous leap.
+            if (dTip > 1e-4f) maxJump = std::max(maxJump, std::fabs(dPalm));
+            CHECK(dPalm >= -0.5f);  // palm shouldn't reverse sharply
+        }
+        prevPalm = palmOff;
+        prevTip  = tipOff;
+    }
+    // Per-step palm change is bounded (continuous); 40 steps over 0.9S →
+    // a hard switch would show a single step ≈ full palm travel (~0.9S).
+    CHECK(maxJump < 0.25f * S);
+}
+
+TEST_CASE("T180: over-reach increases wrist pivot rather than pure pan") {
+    const float      S    = 100.f;
+    const la::float2 home{200.f, 200.f};
+    PointingLayoutParams p;
+    p.softReach = 0.10f;
+    p.hardReach = 0.55f;
+    p.fingerMax = 0.22f;
+
+    // Hold bodyHome fixed and push tip past fingerMax with bodyT still low
+    // (offset just above soft, but we'll force large residual by fixing home
+    // after a small body follow). Use a moderate offset that leaves residual.
+    // Force bodyT ~ 0 by using soft threshold high, fingerMax low:
+    p.softReach = 0.50f;
+    p.hardReach = 0.90f;
+    p.fingerMax = 0.15f;
+
+    auto atRest = layoutPointingHand(home, S, 1.f, home, nullptr, p);
+    CHECK(std::fabs(atRest.wristAngle) < 0.05f);
+
+    const la::float2 farTip = home + la::float2{0.f, 50.f};  // 0.5 S residual
+    auto over = layoutPointingHand(farTip, S, 1.f, home, nullptr, p);
+    CHECK(std::fabs(over.wristAngle) > 0.15f);
+
+    // Tip still pinned.
+    CHECK(over.tip.x == doctest::Approx(farTip.x));
+    CHECK(over.tip.y == doctest::Approx(farTip.y));
 }
