@@ -5658,3 +5658,42 @@ targets:
     - design-discussion
     origin: manual
     discovered: 2026-06-03
+
+  T179:
+    name: Games can author multi-segment hint gestures with per-phase timing
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A Player can be constructed from a caller-supplied Clip (the header already advertises Clip as the seam for 'future custom/authored gestures', but no such constructor exists), or an equivalent authoring entry point
+    - A gesture can carry multiple waypoints within a single contact phase — e.g. a wiggle that strokes A→B→A→B→A without lifting — so a repeated motion is one continuous gesture, not N clips with N approach/exit flourishes
+    - 'Phase durations are independently tunable (approach, stroke, lift, exit): Params.speed scales the whole timeline uniformly today, so a snappier stroke necessarily means a clipped, unreadable approach'
+    - Built-in Kinds are expressible through the same authoring API (no privileged internal path)
+    - 'yourworld2''s onboarding uses it: a symmetric 3× wiggle that returns the globe home by construction, with no game-side restore glide'
+    context: '2026-07-31 yourworld2 T73 review. Kind::Drag is a single A→B stroke (src/hint.cpp makeStroke: approach 0.45s, stroke 1.0s, lift, exit; total 2.15s). A 3× wiggle is not expressible: Clip/Key/Track are public but Player only has Player(Kind, Params) — there is no Player(Clip). Chaining three Drag players would fade the hand in and out three times. Tag: yourworld2-audit.'
+    tags:
+    - yourworld2-audit
+    - hint
+    origin: manual
+    discovered: 2026-07-31
+    achieved: 2026-07-31
+
+  T180:
+    name: The SDF hint hand articulates instead of translating rigidly
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Small-amplitude pointer motion is expressed by the fingertip and wrist, not by sliding the whole hand: the palm stays anchored while the index finger extends/flexes to reach the pointer position'
+    - Larger strokes still move the hand bodily, with a continuous blend between the two regimes (no visible switch-over)
+    - Where the hand cannot articulate far enough, it pivots about the wrist rather than panning, so the gesture still reads as a finger action
+    - The pointer position the renderer draws contact at remains exactly the position an InputDriver injects (T177 must not drift)
+    - Look parameters stay tweak-tunable under hint.*
+    context: '2026-07-31 yourworld2 T73 review (user): "I''d prefer the finger do the wiggling, not the whole hand. If that''s too tricky, at the very least the hand should pivot, not pan back and forth." The hand is derived from the gesture skeleton per frame in the fragment shader, so articulation belongs there; today a 12%-of-rect stroke slides the entire hand rigidly, which reads as dragging a cursor rather than a finger gesture. Tag: yourworld2-audit.'
+    tags:
+    - yourworld2-audit
+    - hint
+    - render
+    origin: manual
+    discovered: 2026-07-31
+    achieved: 2026-07-31
