@@ -50,11 +50,13 @@ struct Capsule {
 
 // Articulation thresholds as fractions of hand size.
 // soft→hard: continuous blend from finger/wrist-dominated to bodily follow.
-// fingerMax: residual reach before the hand pivots about the wrist.
+// fingerMax: residual (tip − bodyOrigin)/S above which the hand pivots about
+// the wrist. Must sit *below* the peak residual in the soft→hard band so the
+// pivot regime is reachable with the shipped defaults (not only when retuned).
 struct PointingLayoutParams {
-    float softReach = 0.10f;
-    float hardReach = 0.55f;
-    float fingerMax = 0.22f;
+    float softReach = 0.08f;
+    float hardReach = 0.65f;
+    float fingerMax = 0.12f;
 };
 
 struct PointingLayout {

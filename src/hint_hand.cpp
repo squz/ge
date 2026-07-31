@@ -41,10 +41,12 @@ tweak::Tweak<float> tweakStrokeW{"hint.stroke_w", 0.008f};
 tweak::Tweak<float> tweakStrokeFade{"hint.stroke_fade", 0.040f};
 tweak::Tweak<float> tweakHoverScale{"hint.hover_scale", 0.10f};
 
-// 🎯T180 articulation (fractions of hand size)
-tweak::Tweak<float> tweakArticSoft{"hint.artic_soft", 0.10f};
-tweak::Tweak<float> tweakArticHard{"hint.artic_hard", 0.55f};
-tweak::Tweak<float> tweakArticFingerMax{"hint.artic_finger_max", 0.22f};
+// 🎯T180 articulation (fractions of hand size). fingerMax sits below the
+// peak residual in the soft→hard band so over-reach pivot is reachable
+// with defaults (not only when thresholds are retuned).
+tweak::Tweak<float> tweakArticSoft{"hint.artic_soft", 0.08f};
+tweak::Tweak<float> tweakArticHard{"hint.artic_hard", 0.65f};
+tweak::Tweak<float> tweakArticFingerMax{"hint.artic_finger_max", 0.12f};
 
 constexpr int kMaxCaps = 24;  // must match u_caps_* array size in ge_hint.glsl
 
@@ -176,6 +178,11 @@ PointingLayout layoutPointingHand(la::float2 tip,
     const float hover = 1.0f + tweakHoverScale.get() * (1.0f - press);
     const float s     = S * hover;
 
+    // Local wrist joint (hand units, tip at origin, +y into the palm).
+    constexpr la::float2 kWrist{0.040f, 0.280f};
+    // Rest "into-hand" direction from tip (local +y-ish down-right).
+    constexpr la::float2 kRestIntoHand{0.12f, 0.55f};
+
     la::float2 delta = tip - bodyHome;
     float      mag   = la::length(delta);
     float      bodyT = smoothstep01(params.softReach, params.hardReach, mag / S);
@@ -184,7 +191,7 @@ PointingLayout layoutPointingHand(la::float2 tip,
     la::float2 origin = bodyHome + delta * bodyT;
     if (outBodyHome) *outBodyHome = origin;
 
-    // Finger residual the articulation must cover.
+    // Finger residual the articulation must cover after body follow.
     la::float2 finger = tip - origin;
     float      fLen   = la::length(finger);
     float      maxF   = params.fingerMax * S;
@@ -192,8 +199,6 @@ PointingLayout layoutPointingHand(la::float2 tip,
     // Wrist pivot when residual exceeds finger reach — rotate about the
     // local wrist so the gesture reads as a finger action, not a pan.
     float wristAng = 0.0f;
-    // Rest "into-hand" direction from tip (local +y-ish down-right).
-    constexpr la::float2 kRestIntoHand{0.12f, 0.55f};
     if (fLen > maxF && fLen > 1e-6f) {
         la::float2 want = finger / fLen;
         la::float2 rest = kRestIntoHand / la::length(kRestIntoHand);
@@ -207,13 +212,18 @@ PointingLayout layoutPointingHand(la::float2 tip,
     // bodyHome-tip so the palm stays at bodyHome while the tip is pinned.
     la::float2 bodyShift = origin - tip;
 
+    // Rotate local about the wrist, then subtract the rotated tip so local
+    // (0,0) always maps to world `tip` — even when wristAng ≠ 0. Without
+    // this cancel, rotating (0,0) about kWrist drifts the contact point.
+    auto rotLocal = [&](la::float2 local) -> la::float2 {
+        return kWrist + rot2(local - kWrist, wristAng);
+    };
+    const la::float2 tipLocal = rotLocal({0.f, 0.f});
+
     auto xform = [&](float lx, float ly, int chain) -> la::float2 {
-        la::float2 local{lx, ly};
-        // Rotate about local wrist so overflow pivots rather than pans.
-        constexpr la::float2 kWrist{0.040f, 0.280f};
-        la::float2 rotated = kWrist + rot2(local - kWrist, wristAng);
+        la::float2 rotated = rotLocal({lx, ly});
         float w = followWeight(chain, ly);
-        return tip + rotated * s + bodyShift * w;
+        return tip + (rotated - tipLocal) * s + bodyShift * w;
     };
 
     const float tipSquash = 1.0f + 0.30f * press;
@@ -227,8 +237,8 @@ PointingLayout layoutPointingHand(la::float2 tip,
             {xform(ax, ay, chain), xform(bx, by, chain), r * s, chain});
     };
 
-    // Index (chain 1): distal starts at local tip (0,0) so contact tip
-    // identity holds after xform (followWeight(1,0)==0 → pure tip pin).
+    // Index (chain 1): distal starts at local tip (0,0). After xform the
+    // world endpoint is exactly `tip` (followWeight(1,0)==0 and tipLocal cancel).
     cap(0.000f, 0.000f, 0.022f, 0.175f, 0.050f * tipSquash, 1);
     cap(0.022f, 0.175f, 0.058f, 0.330f, 0.056f, 1);
     // Palm mass (chain 0): ONE fat angled capsule.

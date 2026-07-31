@@ -490,20 +490,47 @@ TEST_CASE("T179: multi-waypoint net-zero path starts and ends at the same contac
 
 // ── 🎯T180 pointing-hand articulation ───────────────────────────────
 
-TEST_CASE("T180: contact tip of layout equals the supplied pointer tip") {
-    const la::float2 tip{120.f, 340.f};
-    const float      S = 100.f;
-    auto layout = layoutPointingHand(tip, S, /*press=*/1.f, /*bodyHome=*/tip);
-    CHECK(layout.tip.x == doctest::Approx(tip.x));
-    CHECK(layout.tip.y == doctest::Approx(tip.y));
-    // Index distal starts at local (0,0) → world tip after xform.
-    REQUIRE(!layout.capsules.empty());
-    bool foundTip = false;
-    for (const Capsule& c : layout.capsules) {
+namespace {
+
+// Closest chain-1 capsule endpoint to `tip` — the drawn contact geometry.
+// Must equal the supplied tip (InputDriver injects the same PointerState.pos).
+float indexDistalError(const PointingLayout& L, la::float2 tip) {
+    float best = 1e9f;
+    for (const Capsule& c : L.capsules) {
         if (c.chain != 1) continue;
-        if (la::length(c.a - tip) < 0.5f || la::length(c.b - tip) < 0.5f) foundTip = true;
+        best = std::min(best, la::length(c.a - tip));
+        best = std::min(best, la::length(c.b - tip));
     }
-    CHECK(foundTip);
+    return best;
+}
+
+}  // namespace
+
+TEST_CASE("T180: contact tip of layout equals the supplied pointer tip") {
+    const float S = 100.f;
+    // Rigid rest (bodyHome == tip).
+    {
+        const la::float2 tip{120.f, 340.f};
+        auto layout = layoutPointingHand(tip, S, /*press=*/1.f, /*bodyHome=*/tip);
+        CHECK(layout.tip.x == doctest::Approx(tip.x));
+        CHECK(layout.tip.y == doctest::Approx(tip.y));
+        CHECK(indexDistalError(layout, tip) < 0.5f);
+    }
+    // Under forced wrist pivot the *capsule geometry* must still pin tip —
+    // layout.tip alone is insufficient (it is assigned, not computed).
+    {
+        PointingLayoutParams p;
+        p.softReach = 0.50f;  // suppress body follow
+        p.hardReach = 0.95f;
+        p.fingerMax = 0.10f;  // low → residual exceeds max quickly
+        const la::float2 home{200.f, 200.f};
+        const la::float2 tip  = home + la::float2{0.f, 45.f};
+        auto layout = layoutPointingHand(tip, S, 1.f, home, nullptr, p);
+        REQUIRE(std::fabs(layout.wristAngle) > 0.15f);  // pivot is active
+        CHECK(layout.tip.x == doctest::Approx(tip.x));
+        CHECK(layout.tip.y == doctest::Approx(tip.y));
+        CHECK(indexDistalError(layout, tip) < 0.5f);
+    }
 }
 
 TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
@@ -511,7 +538,7 @@ TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
     const la::float2 home{200.f, 200.f};
     auto rest = layoutPointingHand(home, S, 1.f, home);
 
-    const la::float2 smallTip = home + la::float2{6.f, 0.f};  // 0.06 S < softReach
+    const la::float2 smallTip = home + la::float2{5.f, 0.f};  // 0.05 S < softReach
     auto moved = layoutPointingHand(smallTip, S, 1.f, home);
 
     const float tipDisp  = la::length(smallTip - home);
@@ -519,6 +546,7 @@ TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
     CHECK(tipDisp > 0.f);
     // Finger/wrist dominate: palm moves much less than the tip.
     CHECK(palmDisp < tipDisp * 0.35f);
+    CHECK(indexDistalError(moved, smallTip) < 0.5f);
 }
 
 TEST_CASE("T180: large tip delta moves the palm bodily") {
@@ -533,6 +561,7 @@ TEST_CASE("T180: large tip delta moves the palm bodily") {
     const float palmDisp = la::length(moved.palmCentroid - rest.palmCentroid);
     // Bodily regime: palm tracks a large fraction of the tip travel.
     CHECK(palmDisp > tipDisp * 0.70f);
+    CHECK(indexDistalError(moved, largeTip) < 0.5f);
 }
 
 TEST_CASE("T180: intermediate amplitudes blend continuously (no step)") {
@@ -542,43 +571,46 @@ TEST_CASE("T180: intermediate amplitudes blend continuously (no step)") {
 
     // Sample palm displacement vs tip offset magnitude; successive samples
     // must not jump by more than a small fraction of S (continuous blend).
+    // Palm path may non-monotonically wiggle under wrist pivot — that is fine;
+    // a hard switch would produce a single step on the order of full palm travel.
     float prevPalm = 0.f;
-    float prevTip  = 0.f;
     float maxJump  = 0.f;
     for (int i = 0; i <= 40; ++i) {
         float tipOff = float(i) / 40.f * 0.90f * S;  // 0 → 0.9 S
         auto L = layoutPointingHand(home + la::float2{tipOff, 0.f}, S, 1.f, home);
         float palmOff = la::length(L.palmCentroid - rest.palmCentroid);
-        if (i > 0) {
-            float dPalm = palmOff - prevPalm;
-            float dTip  = tipOff - prevTip;
-            // Palm path derivative vs tip offset — no discontinuous leap.
-            if (dTip > 1e-4f) maxJump = std::max(maxJump, std::fabs(dPalm));
-            CHECK(dPalm >= -0.5f);  // palm shouldn't reverse sharply
-        }
+        if (i > 0) maxJump = std::max(maxJump, std::fabs(palmOff - prevPalm));
         prevPalm = palmOff;
-        prevTip  = tipOff;
+        CHECK(indexDistalError(L, home + la::float2{tipOff, 0.f}) < 0.5f);
     }
-    // Per-step palm change is bounded (continuous); 40 steps over 0.9S →
-    // a hard switch would show a single step ≈ full palm travel (~0.9S).
+    // 40 steps over 0.9S: hard switch ≈ 0.9S in one step; smooth blend ≪ that.
     CHECK(maxJump < 0.25f * S);
 }
 
 TEST_CASE("T180: over-reach increases wrist pivot rather than pure pan") {
     const float      S    = 100.f;
     const la::float2 home{200.f, 200.f};
-    PointingLayoutParams p;
-    p.softReach = 0.10f;
-    p.hardReach = 0.55f;
-    p.fingerMax = 0.22f;
 
-    // Hold bodyHome fixed and push tip past fingerMax with bodyT still low
-    // (offset just above soft, but we'll force large residual by fixing home
-    // after a small body follow). Use a moderate offset that leaves residual.
-    // Force bodyT ~ 0 by using soft threshold high, fingerMax low:
+    // Default params must be able to reach the pivot regime (not only when
+    // soft/hard/fingerMax are retuned inconsistently).
+    {
+        float maxAng = 0.f;
+        for (int i = 0; i <= 40; ++i) {
+            float tipOff = float(i) / 40.f * 0.50f * S;  // 0 → 0.5 S
+            auto L = layoutPointingHand(home + la::float2{0.f, tipOff}, S, 1.f, home);
+            maxAng = std::max(maxAng, std::fabs(L.wristAngle));
+            // Geometry pin holds across the whole sweep.
+            CHECK(indexDistalError(L, home + la::float2{0.f, tipOff}) < 0.5f);
+        }
+        CHECK(maxAng > 0.15f);
+    }
+
+    // Forced pivot: palm rotation absorbs excess rather than pure translation
+    // of every capsule by the same vector.
+    PointingLayoutParams p;
     p.softReach = 0.50f;
-    p.hardReach = 0.90f;
-    p.fingerMax = 0.15f;
+    p.hardReach = 0.95f;
+    p.fingerMax = 0.10f;
 
     auto atRest = layoutPointingHand(home, S, 1.f, home, nullptr, p);
     CHECK(std::fabs(atRest.wristAngle) < 0.05f);
@@ -586,8 +618,11 @@ TEST_CASE("T180: over-reach increases wrist pivot rather than pure pan") {
     const la::float2 farTip = home + la::float2{0.f, 50.f};  // 0.5 S residual
     auto over = layoutPointingHand(farTip, S, 1.f, home, nullptr, p);
     CHECK(std::fabs(over.wristAngle) > 0.15f);
+    CHECK(indexDistalError(over, farTip) < 0.5f);
 
-    // Tip still pinned.
-    CHECK(over.tip.x == doctest::Approx(farTip.x));
-    CHECK(over.tip.y == doctest::Approx(farTip.y));
+    // Pure pan would move every palm endpoint by (farTip - home). Under pivot
+    // the palm centroid motion is not identical to that vector.
+    la::float2 purePanPalm = atRest.palmCentroid + (farTip - home);
+    float panErr = la::length(over.palmCentroid - purePanPalm);
+    CHECK(panErr > 2.0f);  // pivot moved palm off the pure-pan locus
 }
