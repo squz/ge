@@ -68,22 +68,23 @@ struct PointingLayoutParams {
 
 struct PointingLayout {
     std::vector<Capsule> capsules;
-    la::float2           tip{};            // always equals the supplied tip (pts)
+    la::float2           tip{};            // drawn contact on rest-length arc (pts)
     la::float2           palmCentroid{};   // pts
+    la::float2           wristPts{};       // fixed pivot on the glass (pts)
     float                wristAngle = 0;   // radians; 0 = no pivot
 };
 
-// Place a pointing hand whose contact tip is exactly `tip` in **screen
-// pts** (same value InputDriver injects after unit→areaPts mapping).
+// Place a pointing hand in **screen pts** (unit→areaPts; never world).
 //
-// `restTip` is the screen-space rest contact (where the tip sat when
-// the finger was idle). It does **not** drift with the pointer — the
-// wrist stays put on the glass; motion is pivot only. Pass the previous
-// frame's rest for continuous play; pass `tip` for a rigid first sample.
-// When `outRestTip` is non-null it receives the same rest (unchanged).
+// `tip` is the desired aim (pointer path). The silhouette stays at rest
+// proportions and pivots about a fixed screen wrist — the drawn tip
+// rides the rest-length arc toward `tip` (subtle; no finger stretch to
+// force an exact pin). `layout.tip` is the drawn contact, not a stretched
+// chase of `tip`.
 //
-// |tip − restTip| aims the silhouette about the fixed screen wrist so
-// the gesture reads as a finger on glass, never a panning cursor.
+// `restTip` is the rest contact on the glass. It does not drift. Pass the
+// previous frame's rest for continuous play; pass `tip` for a rigid first
+// sample. When `outRestTip` is non-null it receives the same rest.
 PointingLayout layoutPointingHand(la::float2 tip,
                                   float handSize,
                                   float press,

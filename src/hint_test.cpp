@@ -492,43 +492,78 @@ TEST_CASE("T179: multi-waypoint net-zero path starts and ends at the same contac
 
 namespace {
 
-// Closest chain-1 capsule endpoint to `tip` — the drawn contact geometry.
-// Must equal the supplied tip (InputDriver injects the same PointerState.pos).
-float indexDistalError(const PointingLayout& L, la::float2 tip) {
+// Drawn index distal (chain-1 endpoint closest to layout.tip).
+float indexDistalError(const PointingLayout& L) {
     float best = 1e9f;
     for (const Capsule& c : L.capsules) {
         if (c.chain != 1) continue;
-        best = std::min(best, la::length(c.a - tip));
-        best = std::min(best, la::length(c.b - tip));
+        best = std::min(best, la::length(c.a - L.tip));
+        best = std::min(best, la::length(c.b - L.tip));
     }
     return best;
 }
 
+// Tip → palm span (hand "reach" in pts). Must stay near rest under pivot.
+float tipToPalm(const PointingLayout& L) {
+    return la::length(L.tip - L.palmCentroid);
+}
+
 }  // namespace
 
-TEST_CASE("T180: contact tip of layout equals the supplied pointer tip") {
-    const float S = 100.f;
-    // Rigid rest (restTip == tip), all in screen pts.
-    {
-        const la::float2 tip{120.f, 340.f};
-        auto layout = layoutPointingHand(tip, S, /*press=*/1.f, /*restTip=*/tip);
-        CHECK(layout.tip.x == doctest::Approx(tip.x));
-        CHECK(layout.tip.y == doctest::Approx(tip.y));
-        CHECK(indexDistalError(layout, tip) < 0.5f);
-    }
-    // Under wrist pivot the *capsule geometry* must still pin tip —
-    // layout.tip alone is insufficient (it is assigned, not computed).
-    {
-        PointingLayoutParams p;
-        p.fingerMax = 0.05f;  // soft-start well below residual
-        const la::float2 rest{200.f, 200.f};
-        const la::float2 tip  = rest + la::float2{0.f, 45.f};
-        auto layout = layoutPointingHand(tip, S, 1.f, rest, nullptr, p);
-        REQUIRE(std::fabs(layout.wristAngle) > 0.15f);  // pivot is active
-        CHECK(layout.tip.x == doctest::Approx(tip.x));
-        CHECK(layout.tip.y == doctest::Approx(tip.y));
-        CHECK(indexDistalError(layout, tip) < 0.5f);
-    }
+TEST_CASE("T180: at rest, drawn tip matches rest contact") {
+    const float      S   = 100.f;
+    const la::float2 tip{120.f, 340.f};
+    auto layout = layoutPointingHand(tip, S, /*press=*/1.f, /*restTip=*/tip);
+    CHECK(layout.tip.x == doctest::Approx(tip.x));
+    CHECK(layout.tip.y == doctest::Approx(tip.y));
+    CHECK(indexDistalError(layout) < 0.5f);
+}
+
+TEST_CASE("T180: rest proportions preserved under large aim (no finger stretch)") {
+    const float      S    = 100.f;
+    const la::float2 rest{200.f, 200.f};
+    auto atRest = layoutPointingHand(rest, S, 1.f, rest);
+    const float restReach = tipToPalm(atRest);
+
+    // Aim well off rest — old tip-pin stretch made the finger ~3× the hand.
+    const la::float2 aim = rest + la::float2{80.f, 0.f};
+    auto moved = layoutPointingHand(aim, S, 1.f, rest);
+    REQUIRE(std::fabs(moved.wristAngle) > 0.15f);
+
+    const float reach = tipToPalm(moved);
+    // Rest proportions: reach must stay within ~15% of the rest pose.
+    CHECK(reach == doctest::Approx(restReach).epsilon(0.15));
+    // Drawn tip is on the rest-length arc, not stretched to `aim`.
+    CHECK(la::length(moved.tip - aim) > 1.0f);
+    CHECK(indexDistalError(moved) < 0.5f);
+}
+
+TEST_CASE("T180: pivot is at the wrist heel, not mid-hand") {
+    const float      S    = 100.f;
+    const la::float2 rest{200.f, 200.f};
+    auto atRest = layoutPointingHand(rest, S, 1.f, rest);
+
+    PointingLayoutParams p;
+    p.fingerMax = 0.05f;
+    const la::float2 aim = rest + la::float2{0.f, 50.f};
+    auto moved = layoutPointingHand(aim, S, 1.f, rest, nullptr, p);
+    REQUIRE(std::fabs(moved.wristAngle) > 0.15f);
+
+    // Wrist is fixed on the glass across the aim.
+    CHECK(moved.wristPts.x == doctest::Approx(atRest.wristPts.x));
+    CHECK(moved.wristPts.y == doctest::Approx(atRest.wristPts.y));
+
+    // Anatomical: tip is far from wrist; palm centroid is close to wrist
+    // (heel of palm). Mid-hand pivot would put palm roughly halfway tip↔wrist.
+    const float tipR  = la::length(moved.tip - moved.wristPts);
+    const float palmR = la::length(moved.palmCentroid - moved.wristPts);
+    CHECK(tipR > 0.45f * S);          // tip well out from wrist
+    CHECK(palmR < 0.35f * tipR);      // palm hugs the wrist, not mid-span
+
+    // Under pure rotation about wrist, |tip−W| and |palm−W| stay constant.
+    CHECK(tipR == doctest::Approx(la::length(atRest.tip - atRest.wristPts)).epsilon(0.02));
+    CHECK(palmR ==
+          doctest::Approx(la::length(atRest.palmCentroid - atRest.wristPts)).epsilon(0.02));
 }
 
 TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
@@ -542,10 +577,8 @@ TEST_CASE("T180: small tip delta keeps palm nearly anchored") {
     const float tipDisp  = la::length(smallTip - rest);
     const float palmDisp = la::length(moved.palmCentroid - atRest.palmCentroid);
     CHECK(tipDisp > 0.f);
-    // Small residual is finger stretch: palm must not track the tip.
     CHECK(palmDisp < tipDisp * 0.75f);
     CHECK(std::fabs(moved.wristAngle) < 0.20f);  // soft-start, not full aim
-    CHECK(indexDistalError(moved, smallTip) < 0.5f);
 }
 
 TEST_CASE("T180: large tip delta does not pan the palm bodily") {
@@ -558,11 +591,8 @@ TEST_CASE("T180: large tip delta does not pan the palm bodily") {
 
     const float tipDisp  = la::length(largeTip - rest);
     const float palmDisp = la::length(moved.palmCentroid - atRest.palmCentroid);
-    // No bodily follow: palm must not track the tip travel (would be ~tipDisp).
-    // Wrist pivot may arc the palm a bit about the fixed screen wrist.
     CHECK(palmDisp < tipDisp * 0.45f);
     CHECK(std::fabs(moved.wristAngle) > 0.15f);
-    CHECK(indexDistalError(moved, largeTip) < 0.5f);
 }
 
 TEST_CASE("T180: restTip does not drift with the tip (screen anchor)") {
@@ -580,7 +610,6 @@ TEST_CASE("T180: intermediate amplitudes blend continuously (no step)") {
     const la::float2 rest{200.f, 200.f};
     auto atRest = layoutPointingHand(rest, S, 1.f, rest);
 
-    // Wrist angle and palm path must change smoothly with tip residual.
     float prevAng  = 0.f;
     float prevPalm = 0.f;
     float maxJumpA = 0.f;
@@ -595,24 +624,22 @@ TEST_CASE("T180: intermediate amplitudes blend continuously (no step)") {
         }
         prevAng  = L.wristAngle;
         prevPalm = palmOff;
-        CHECK(indexDistalError(L, rest + la::float2{tipOff, 0.f}) < 0.5f);
+        CHECK(indexDistalError(L) < 0.5f);
     }
-    CHECK(maxJumpA < 0.35f);       // no hard angle snap
-    CHECK(maxJumpP < 0.25f * S);   // no full-palm pan step
+    CHECK(maxJumpA < 0.35f);
+    CHECK(maxJumpP < 0.25f * S);
 }
 
 TEST_CASE("T180: residual aims about the wrist rather than pure pan") {
     const float      S    = 100.f;
     const la::float2 rest{200.f, 200.f};
 
-    // Default params must produce a real pivot under a mid stroke.
     {
         float maxAng = 0.f;
         for (int i = 0; i <= 40; ++i) {
-            float tipOff = float(i) / 40.f * 0.50f * S;  // 0 → 0.5 S
+            float tipOff = float(i) / 40.f * 0.50f * S;
             auto L = layoutPointingHand(rest + la::float2{0.f, tipOff}, S, 1.f, rest);
             maxAng = std::max(maxAng, std::fabs(L.wristAngle));
-            CHECK(indexDistalError(L, rest + la::float2{0.f, tipOff}) < 0.5f);
         }
         CHECK(maxAng > 0.15f);
     }
@@ -623,14 +650,11 @@ TEST_CASE("T180: residual aims about the wrist rather than pure pan") {
     auto atRest = layoutPointingHand(rest, S, 1.f, rest, nullptr, p);
     CHECK(std::fabs(atRest.wristAngle) < 0.05f);
 
-    const la::float2 farTip = rest + la::float2{0.f, 50.f};  // 0.5 S residual
+    const la::float2 farTip = rest + la::float2{0.f, 50.f};
     auto over = layoutPointingHand(farTip, S, 1.f, rest, nullptr, p);
     CHECK(std::fabs(over.wristAngle) > 0.15f);
-    CHECK(indexDistalError(over, farTip) < 0.5f);
 
-    // Pure pan would move every palm endpoint by (farTip - rest). Under pivot
-    // the palm centroid motion is not identical to that vector.
     la::float2 purePanPalm = atRest.palmCentroid + (farTip - rest);
     float panErr = la::length(over.palmCentroid - purePanPalm);
-    CHECK(panErr > 2.0f);  // pivot moved palm off the pure-pan locus
+    CHECK(panErr > 2.0f);
 }
