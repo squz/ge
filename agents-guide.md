@@ -252,6 +252,36 @@ static tweak::Tweak<float> speed("buggy.speed", 5.0f);
 Specialized variants: `EnumTweak` (dropdown), `Vec2Tweak`, `AxisTweak`, `Color`. Use
 `tweak::loadOverrides(db)` at startup to reapply saved values.
 
+### Multi-segment hint authoring — `include/ge/hint.h` (🎯T179)
+
+Build a `Clip` with independent phase timings, then play it:
+
+```cpp
+const ge::la::float2 A{0.46f, 0.54f}, B{0.58f, 0.47f};
+const ge::la::float2 wps[] = {A, B, A, B, A};   // 3× wiggle, net-zero
+ge::hint::PhaseTiming timing;
+timing.approach = 0.25f;
+timing.stroke   = 0.90f;   // whole chain; approach is NOT scaled by this
+timing.exit     = 0.30f;
+ge::hint::Params p;
+p.loop = true;
+ge::hint::Player player(
+    ge::hint::makeContactClip(wps, timing, ge::hint::Ease::InOut), p);
+```
+
+Contact stays true for the whole waypoint chain (one approach/exit, not N
+flourishes). Built-in `Kind`s route through the same builders; `Player(Kind)`
+remains a thin wrapper. Stock phase defaults match pre-T179 Drag.
+
+### Pointing-hand articulation — `include/ge/hint_hand.h` (🎯T180)
+
+`drawHand` articulates the SDF pointing hand: small tip motion is finger/
+wrist, large strokes move the hand bodily, over-reach pivots about the wrist.
+Contact tip stays exactly `PointerState.pos` (InputDriver injects the same
+value). Pure layout is testable via `layoutPointingHand(...)`. Tweaks under
+`hint.artic_soft`, `hint.artic_hard`, `hint.artic_finger_max` (fractions of
+hand size); look knobs remain `hint.hand_size_pt`, `hint.outline_w`, etc.
+
 ### Hint-driven input — `include/ge/hint_input.h` (🎯T177)
 
 Opt-in second consumer of a `hint::Player` timeline: synthetic SDL finger

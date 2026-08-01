@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // 🎯T170 Gesture-hint service — skeletal gesture timelines with event tags.
+// 🎯T179 Multi-segment authoring + per-phase timing.
 //
 // Games hint touch gestures (tap, swipe, pinch, …) with an animated hand.
 // This header is the rendering-agnostic core: a gesture compiles into a
@@ -18,6 +19,11 @@
 // baked — a swipe hint can run from *this* card to *that* slot. Motion is
 // interpolated continuously, so it samples at whatever rate the display
 // runs (ProMotion-friendly); nothing is quantized to authored frames.
+//
+// Authoring (🎯T179): build a `Clip` with `makeContactClip` (multi-waypoint
+// continuous contact, independent phase timings) or the other public clip
+// builders, then `Player(clip, params)`. Built-in `Kind`s route through
+// the same builders — there is no private-only stock path.
 //
 // Tracks are deliberately a variant (`Track::Payload`): pointer tracks
 // today, a device-pose track (🎯T170.1 — tilt-the-phone hints) joins the
@@ -82,6 +88,8 @@ struct DevicePose {
 //                            (from,to) out to from/to (zoom-in visual).
 //   PinchRotate:             fingers orbit the midpoint of (from,to),
 //                            starting at from/to.
+// For Player(Clip, …) the clip already bakes positions; only speed/loop/
+// loopGap from Params apply.
 struct Params {
     la::float2 from{0.5f, 0.6f};
     la::float2 to{0.5f, 0.4f};
@@ -91,8 +99,6 @@ struct Params {
 };
 
 // ── Clip: the compiled timeline ─────────────────────────────────────
-// Consumers normally construct a Player directly from (Kind, Params);
-// Clip is exposed for tests and future custom/authored gestures.
 
 enum class Ease { Step, Linear, InOut, Out, In };
 
@@ -124,7 +130,36 @@ struct Clip {
     std::vector<TagEvent> tags;             // ascending t
 };
 
-// Compile a built-in gesture into a clip. Exposed for tests.
+// ── 🎯T179 Authoring ────────────────────────────────────────────────
+// Phase durations in seconds at Params.speed == 1. Each stage is
+// independently tunable — snappier strokes no longer force a clipped
+// approach. Defaults match the pre-T179 Drag choreography.
+
+struct PhaseTiming {
+    float approach = 0.35f;  // fade-in approach to the first waypoint
+    float pressIn  = 0.10f;  // approach end → contact (press 0→1)
+    float stroke   = 1.00f;  // total contact-chain motion time (0 = stationary)
+    float hold     = 0.05f;  // dwell at last waypoint before lift
+    float pressOut = 0.15f;  // contact ends, press relaxes 1→0
+    float exit     = 0.50f;  // fade-out after the finger is up
+};
+
+// Continuous multi-waypoint contact stroke. `waypoints` must be non-empty.
+// Contact stays true for the whole chain (A→B→A→…); one approach fade-in
+// and one exit fade-out wrap the chain — no intermediate lifts.
+// Emits contact / apex (when there is motion) / release tags.
+Clip makeContactClip(std::span<const la::float2> waypoints,
+                     PhaseTiming timing = {},
+                     Ease strokeEase = Ease::InOut);
+
+// Public stock builders — same path `makeClip` uses (no private-only route).
+Clip makeTapClip(la::float2 at, PhaseTiming timing = {});
+Clip makeDoubleTapClip(la::float2 at, PhaseTiming timing = {});
+Clip makeLongPressClip(la::float2 at, PhaseTiming timing = {});
+Clip makePinchZoomClip(la::float2 a, la::float2 b, PhaseTiming timing = {});
+Clip makePinchRotateClip(la::float2 a, la::float2 b, PhaseTiming timing = {});
+
+// Compile a built-in gesture into a clip (routes through the public builders).
 Clip makeClip(Kind kind, const Params& params);
 
 // ── Player ──────────────────────────────────────────────────────────
@@ -133,6 +168,9 @@ class Player {
 public:
     Player() = default;
     Player(Kind kind, Params params = {});
+    // Play a caller-supplied clip (🎯T179). Params.speed / loop / loopGap
+    // apply; from/to are ignored (already baked into the clip).
+    explicit Player(Clip clip, Params params = {});
 
     // Advance the timeline. Fires onTag for every tag whose time was
     // crossed this step, in order. dt is wall-clock seconds.
@@ -156,6 +194,8 @@ public:
     float time() const { return t_; }
     // Clip duration in seconds at the configured speed (excludes loopGap).
     float duration() const;
+    // The compiled timeline (for tests / inspection).
+    const Clip& clip() const { return clip_; }
 
 private:
     void  sample();
