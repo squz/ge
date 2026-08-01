@@ -2,7 +2,7 @@
 
 **Pre-1.0 stability tracking for the `ge` engine.**
 
-Snapshot as of: **v0.90.0** (thread-safe text rasterisation on FreeType's documented contract — 🎯T176: any-thread `rasterizeTextToPixels`, public `spriteFromRgba`; hint-driven synthetic touch — 🎯T177: `ge::hint::InputDriver`, one timeline drives hand and production input, strictly opt-in).
+Snapshot as of: **v0.91.0** (multi-segment hint authoring 🎯T179 + articulating SDF hand 🎯T180).
 
 ---
 
