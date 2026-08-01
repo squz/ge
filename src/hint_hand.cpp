@@ -177,8 +177,15 @@ PointingLayout layoutPointingHand(la::float2 tip,
     const float hover = 1.0f + tweakHoverScale.get() * (1.0f - press);
     const float s     = S * hover;
 
-    // Local wrist joint (hand units, tip at origin, +y into the palm).
-    constexpr la::float2 kWrist{0.040f, 0.280f};
+    // Local joints in hand units (tip at origin, +y into the palm).
+    //
+    // Palm capsule runs ~y=0.455→0.570 (r≈0.19). The old pivot at y=0.28
+    // sat at the finger/palm junction (mid-hand) and read as spinning
+    // about the middle of the hand. Anatomical wrist is the *heel* of
+    // the palm — just past the proximal palm end.
+    constexpr la::float2 kPalmA{0.125f, 0.455f};
+    constexpr la::float2 kPalmB{0.205f, 0.570f};
+    constexpr la::float2 kWrist{0.18f, 0.72f};  // heel of palm / wrist crease
 
     // Rest contact on the screen; wrist is fixed in pts for the gesture.
     // Rest tip never drifts — pan would reintroduce the cursor look.
@@ -206,37 +213,32 @@ PointingLayout layoutPointingHand(la::float2 tip,
         wristAng *= ramp;
     }
 
-    // Rigid rotate about fixed screen wrist — palm orbits the wrist only.
-    auto placeRigid = [&](float lx, float ly) -> la::float2 {
+    // Rigid rotate about fixed screen wrist — rest proportions, no stretch.
+    // Drawn tip rides the rest-length arc; we deliberately do *not* elongate
+    // the index to chase the pointer (subtle aim is enough for the eye).
+    auto place = [&](float lx, float ly) -> la::float2 {
         return W + rot2(la::float2{lx, ly} - kWrist, wristAng) * s;
     };
-    // Tip of the rigid pose (may miss `tip` when residual ≠ rest radius).
-    const la::float2 tipRigid = placeRigid(0.f, 0.f);
-    // Finger-only correction so contact matches PointerState (T177); palm
-    // keeps the pure wrist orbit (followWeight→1 absorbs none of the delta).
-    const la::float2 tipFix = tip - tipRigid;
-
-    auto xform = [&](float lx, float ly, int chain) -> la::float2 {
-        float fingerT = 1.0f - followWeight(chain, ly);  // 1 at tip, 0 at palm
-        return placeRigid(lx, ly) + tipFix * fingerT;
-    };
+    const la::float2 tipDrawn = place(0.f, 0.f);
+    (void)wantLen;  // direction used via wristAng; length stays rest
 
     const float tipSquash = 1.0f + 0.30f * press;
     PointingLayout layout;
-    layout.tip        = tip;
+    layout.tip        = tipDrawn;
+    layout.wristPts   = W;
     layout.wristAngle = wristAng;
     layout.capsules.reserve(8);
 
     auto cap = [&](float ax, float ay, float bx, float by, float r, int chain) {
         layout.capsules.push_back(
-            {xform(ax, ay, chain), xform(bx, by, chain), r * s, chain});
+            {place(ax, ay), place(bx, by), r * s, chain});
     };
 
-    // Index (chain 1): distal at local tip (0,0) → screen `tip` after tipFix.
+    // Index (chain 1): distal at local tip (0,0) → tipDrawn on the rest arc.
     cap(0.000f, 0.000f, 0.022f, 0.175f, 0.050f * tipSquash, 1);
     cap(0.022f, 0.175f, 0.058f, 0.330f, 0.056f, 1);
     // Palm mass (chain 0): ONE fat angled capsule.
-    cap(0.125f, 0.455f, 0.205f, 0.570f, 0.190f, 0);
+    cap(kPalmA.x, kPalmA.y, kPalmB.x, kPalmB.y, 0.190f, 0);
     // Curled fingers (chains 2..4)
     cap(0.195f, 0.345f, 0.255f, 0.385f, 0.062f, 2);
     cap(0.265f, 0.430f, 0.320f, 0.470f, 0.056f, 3);
@@ -252,7 +254,7 @@ PointingLayout layoutPointingHand(la::float2 tip,
         palmSum += (c.a + c.b) * 0.5f;
         ++palmN;
     }
-    layout.palmCentroid = palmN > 0 ? palmSum / float(palmN) : tip;
+    layout.palmCentroid = palmN > 0 ? palmSum / float(palmN) : tipDrawn;
 
     return layout;
 }
