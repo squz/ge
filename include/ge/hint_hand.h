@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // 🎯T170 Default gesture-hint renderer — the SDF outline hand.
-// 🎯T180 Pointing-hand articulation (finger/wrist vs bodily translate).
+// 🎯T180 Pointing-hand articulation — wrist pivot only (no bodily pan).
 //
 // One call per frame draws ge's built-in white-fill / black-outline /
 // sticker-halo cartoon hand for a playing `ge::hint::Player`. The hand
@@ -48,40 +48,47 @@ struct Capsule {
     int        chain  = 0;  // 0 = palm, 1..5 = digit
 };
 
-// Articulation thresholds as fractions of hand size.
-// soft→hard: continuous blend from finger/wrist-dominated to bodily follow.
-// fingerMax: residual (tip − bodyOrigin)/S above which the hand pivots about
-// the wrist. Must sit *below* the peak residual in the soft→hard band so the
-// pivot regime is reachable with the shipped defaults (not only when retuned).
+// Articulation knobs as fractions of hand size.
+//
+// All positions are **screen points** (UI pts) — the same space as
+// real touches after unit→areaPts mapping. Touches never live in
+// 3D/world space; the hand pivots on the glass.
+//
+// Palm anchors at the rest wrist (from `restTip`); tip residual aims
+// the silhouette by wrist pivot only (no pan of the whole hand).
+// `fingerMax` is the soft-start radius (fraction of S). softReach /
+// hardReach are kept for ABI/tweak compatibility but ignored.
 struct PointingLayoutParams {
-    float softReach = 0.08f;
-    float hardReach = 0.65f;
-    float fingerMax = 0.12f;
+    float softReach = 0.08f;   // unused (legacy; no bodily follow)
+    float hardReach = 0.65f;   // unused (legacy; no bodily follow)
+    // Soft-start radius: tip residual below this is mostly finger stretch
+    // (palm stays); above it the wrist pivot ramps to full aim.
+    float fingerMax = 0.22f;
 };
 
 struct PointingLayout {
     std::vector<Capsule> capsules;
-    la::float2           tip{};            // always equals the supplied tip
-    la::float2           palmCentroid{};
+    la::float2           tip{};            // always equals the supplied tip (pts)
+    la::float2           palmCentroid{};   // pts
     float                wristAngle = 0;   // radians; 0 = no pivot
 };
 
-// Place a pointing hand whose contact tip is exactly `tip` (same value
-// InputDriver injects as PointerState.pos, after the game maps unit→pts).
+// Place a pointing hand whose contact tip is exactly `tip` in **screen
+// pts** (same value InputDriver injects after unit→areaPts mapping).
 //
-// `bodyHome` is the world-space rest attachment (where the tip sits when
-// the finger is at rest length). Pass the previous frame's updated home
-// for continuous articulation; pass `tip` for a rigid first sample.
-// When `outBodyHome` is non-null it receives the home for the next frame.
+// `restTip` is the screen-space rest contact (where the tip sat when
+// the finger was idle). It does **not** drift with the pointer — the
+// wrist stays put on the glass; motion is pivot only. Pass the previous
+// frame's rest for continuous play; pass `tip` for a rigid first sample.
+// When `outRestTip` is non-null it receives the same rest (unchanged).
 //
-// Small |tip − bodyHome|: palm stays put, finger/wrist reach.
-// Large offset: palm translates with the tip (bodily regime).
-// Past fingerMax: wrist pivots rather than panning the silhouette.
+// |tip − restTip| aims the silhouette about the fixed screen wrist so
+// the gesture reads as a finger on glass, never a panning cursor.
 PointingLayout layoutPointingHand(la::float2 tip,
                                   float handSize,
                                   float press,
-                                  la::float2 bodyHome,
-                                  la::float2* outBodyHome = nullptr,
+                                  la::float2 restTip,
+                                  la::float2* outRestTip = nullptr,
                                   PointingLayoutParams params = {});
 
 // Draw the default hand for `player` into the active render pass.

@@ -3,14 +3,14 @@
 //
 // 🎯T170 SDF hand renderer — capsule skeleton on the CPU, implicit
 // outline in the fragment shader (see src/render/shaders/ge_hint.glsl).
-// 🎯T180 Pointing-hand articulation: small motion is finger/wrist,
-// large motion is bodily translate, overflow pivots about the wrist.
+// 🎯T180 Pointing-hand articulation (screen pts only): fixed wrist on
+// the glass; tip residual pivots the silhouette about that wrist.
+// Touches and PointerState live in UI/screen space after unit→areaPts —
+// never 3D/world space. Chain ids group capsules for the shader's
+// interior separator strokes: 0 = palm, 1..5 = individual digits.
 //
-// The hand models below are parameter tables in "hand units" (fingertip
-// at the origin, +y down, the hand mass hanging below-right), scaled by
-// the tweakable hand size and emitted in point space. Chain ids group
-// capsules for the shader's interior separator strokes: 0 = palm,
-// 1..5 = individual digits.
+// Local hand model is in "hand units" (fingertip at origin, +y down,
+// mass hanging below-right), scaled by hand size into screen pts.
 
 #include <ge/hint_hand.h>
 
@@ -41,12 +41,11 @@ tweak::Tweak<float> tweakStrokeW{"hint.stroke_w", 0.008f};
 tweak::Tweak<float> tweakStrokeFade{"hint.stroke_fade", 0.040f};
 tweak::Tweak<float> tweakHoverScale{"hint.hover_scale", 0.10f};
 
-// 🎯T180 articulation (fractions of hand size). fingerMax sits below the
-// peak residual in the soft→hard band so over-reach pivot is reachable
-// with defaults (not only when thresholds are retuned).
+// 🎯T180 articulation. soft/hard are legacy (bodily follow removed);
+// fingerMax is the wrist soft-start radius as a fraction of hand size.
 tweak::Tweak<float> tweakArticSoft{"hint.artic_soft", 0.08f};
 tweak::Tweak<float> tweakArticHard{"hint.artic_hard", 0.65f};
-tweak::Tweak<float> tweakArticFingerMax{"hint.artic_finger_max", 0.12f};
+tweak::Tweak<float> tweakArticFingerMax{"hint.artic_finger_max", 0.22f};
 
 constexpr int kMaxCaps = 24;  // must match u_caps_* array size in ge_hint.glsl
 
@@ -155,14 +154,14 @@ void pinchHand(std::vector<Capsule>& out, la::float2 q0, la::float2 q1, float S,
     cap(q1 + (shoulderT - q1) * 0.55f, shoulderT, 0.066f, 5);
 }
 
-// Body-home state per Player (two hands can draw in one frame).
-struct BodyHomeState {
-    la::float2 home{};
+// Screen-space rest tip per Player (fixed on the glass across frames).
+struct RestTipState {
+    la::float2 restPts{};
     bool       primed = false;
 };
 
-std::unordered_map<const Player*, BodyHomeState>& bodyHomes() {
-    static std::unordered_map<const Player*, BodyHomeState> m;
+std::unordered_map<const Player*, RestTipState>& restTips() {
+    static std::unordered_map<const Player*, RestTipState> m;
     return m;
 }
 
@@ -171,8 +170,8 @@ std::unordered_map<const Player*, BodyHomeState>& bodyHomes() {
 PointingLayout layoutPointingHand(la::float2 tip,
                                   float handSize,
                                   float press,
-                                  la::float2 bodyHome,
-                                  la::float2* outBodyHome,
+                                  la::float2 restTip,
+                                  la::float2* outRestTip,
                                   PointingLayoutParams params) {
     const float S     = std::max(handSize, 1e-3f);
     const float hover = 1.0f + tweakHoverScale.get() * (1.0f - press);
@@ -180,50 +179,46 @@ PointingLayout layoutPointingHand(la::float2 tip,
 
     // Local wrist joint (hand units, tip at origin, +y into the palm).
     constexpr la::float2 kWrist{0.040f, 0.280f};
-    // Rest "into-hand" direction from tip (local +y-ish down-right).
-    constexpr la::float2 kRestIntoHand{0.12f, 0.55f};
 
-    la::float2 delta = tip - bodyHome;
-    float      mag   = la::length(delta);
-    float      bodyT = smoothstep01(params.softReach, params.hardReach, mag / S);
+    // Rest contact on the screen; wrist is fixed in pts for the gesture.
+    // Rest tip never drifts — pan would reintroduce the cursor look.
+    if (outRestTip) *outRestTip = restTip;
+    (void)params.softReach;
+    (void)params.hardReach;
 
-    // Origin of the rest skeleton (local tip attachment) after bodily follow.
-    la::float2 origin = bodyHome + delta * bodyT;
-    if (outBodyHome) *outBodyHome = origin;
+    // Screen-space wrist under the rest pose (tip at restTip).
+    const la::float2 W = restTip + kWrist * s;
 
-    // Finger residual the articulation must cover after body follow.
-    la::float2 finger = tip - origin;
-    float      fLen   = la::length(finger);
-    float      maxF   = params.fingerMax * S;
+    // Aim rest tip→wrist toward the live tip, about that fixed screen wrist.
+    const la::float2 restFromW = restTip - W;  // = -kWrist * s
+    const la::float2 wantFromW = tip - W;
+    const float      restLen   = la::length(restFromW);
+    const float      wantLen   = la::length(wantFromW);
+    const float      fLen      = la::length(tip - restTip);
+    const float      maxF      = std::max(params.fingerMax, 0.0f) * S;
 
-    // Wrist pivot when residual exceeds finger reach — rotate about the
-    // local wrist so the gesture reads as a finger action, not a pan.
     float wristAng = 0.0f;
-    if (fLen > maxF && fLen > 1e-6f) {
-        la::float2 want = finger / fLen;
-        la::float2 rest = kRestIntoHand / la::length(kRestIntoHand);
-        wristAng = std::atan2(want.y, want.x) - std::atan2(rest.y, rest.x);
-        // Soft-clip: grow smoothly past the threshold rather than a hard snap.
-        float over = std::clamp((fLen - maxF) / std::max(maxF, 1e-3f), 0.0f, 2.0f);
-        wristAng *= smoothstep01(0.0f, 1.0f, over);
+    if (restLen > 1e-6f && wantLen > 1e-6f) {
+        wristAng = std::atan2(wantFromW.y, wantFromW.x) -
+                   std::atan2(restFromW.y, restFromW.x);
+        // Soft-start over the first fingerMax·S of tip residual on the glass.
+        float ramp = maxF > 1e-6f ? smoothstep01(0.0f, maxF, fLen) : 1.0f;
+        wristAng *= ramp;
     }
 
-    // bodyShift applied to palm-heavy points: when bodyT=0 this equals
-    // bodyHome-tip so the palm stays at bodyHome while the tip is pinned.
-    la::float2 bodyShift = origin - tip;
-
-    // Rotate local about the wrist, then subtract the rotated tip so local
-    // (0,0) always maps to world `tip` — even when wristAng ≠ 0. Without
-    // this cancel, rotating (0,0) about kWrist drifts the contact point.
-    auto rotLocal = [&](la::float2 local) -> la::float2 {
-        return kWrist + rot2(local - kWrist, wristAng);
+    // Rigid rotate about fixed screen wrist — palm orbits the wrist only.
+    auto placeRigid = [&](float lx, float ly) -> la::float2 {
+        return W + rot2(la::float2{lx, ly} - kWrist, wristAng) * s;
     };
-    const la::float2 tipLocal = rotLocal({0.f, 0.f});
+    // Tip of the rigid pose (may miss `tip` when residual ≠ rest radius).
+    const la::float2 tipRigid = placeRigid(0.f, 0.f);
+    // Finger-only correction so contact matches PointerState (T177); palm
+    // keeps the pure wrist orbit (followWeight→1 absorbs none of the delta).
+    const la::float2 tipFix = tip - tipRigid;
 
     auto xform = [&](float lx, float ly, int chain) -> la::float2 {
-        la::float2 rotated = rotLocal({lx, ly});
-        float w = followWeight(chain, ly);
-        return tip + (rotated - tipLocal) * s + bodyShift * w;
+        float fingerT = 1.0f - followWeight(chain, ly);  // 1 at tip, 0 at palm
+        return placeRigid(lx, ly) + tipFix * fingerT;
     };
 
     const float tipSquash = 1.0f + 0.30f * press;
@@ -237,8 +232,7 @@ PointingLayout layoutPointingHand(la::float2 tip,
             {xform(ax, ay, chain), xform(bx, by, chain), r * s, chain});
     };
 
-    // Index (chain 1): distal starts at local tip (0,0). After xform the
-    // world endpoint is exactly `tip` (followWeight(1,0)==0 and tipLocal cancel).
+    // Index (chain 1): distal at local tip (0,0) → screen `tip` after tipFix.
     cap(0.000f, 0.000f, 0.022f, 0.175f, 0.050f * tipSquash, 1);
     cap(0.022f, 0.175f, 0.058f, 0.330f, 0.056f, 1);
     // Palm mass (chain 0): ONE fat angled capsule.
@@ -271,12 +265,14 @@ void drawHand(const Context& ctx, const Player& player, const Rect& areaPts) {
     for (const PointerState& s : ps) opacity = std::min(opacity, s.opacity);
     // Fully faded (loop gap / finished) — draw nothing at all; drop artic state.
     if (opacity <= 0.003f) {
-        bodyHomes().erase(&player);
+        restTips().erase(&player);
         return;
     }
 
     if (!ensureState()) return;
 
+    // Gesture unit space → screen pts. Same map InputDriver uses — both
+    // hand art and synthetic touches live on the glass, never in world.
     auto toPts = [&](la::float2 u) {
         return la::float2{areaPts.x + u.x * areaPts.w, areaPts.y + u.y * areaPts.h};
     };
@@ -290,17 +286,18 @@ void drawHand(const Context& ctx, const Player& player, const Rect& areaPts) {
                   std::max(ps[0].press, ps[1].press));
     } else {
         la::float2 tip = toPts(ps[0].pos);
-        auto&      bh  = bodyHomes()[&player];
-        if (!bh.primed) {
-            bh.home   = tip;
-            bh.primed = true;
+        auto&      rs  = restTips()[&player];
+        if (!rs.primed) {
+            rs.restPts = tip;
+            rs.primed  = true;
         }
         PointingLayoutParams ap;
         ap.softReach = tweakArticSoft.get();
         ap.hardReach = tweakArticHard.get();
         ap.fingerMax = tweakArticFingerMax.get();
-        auto layout  = layoutPointingHand(tip, S, ps[0].press, bh.home, &bh.home, ap);
-        caps         = std::move(layout.capsules);
+        auto layout =
+            layoutPointingHand(tip, S, ps[0].press, rs.restPts, &rs.restPts, ap);
+        caps = std::move(layout.capsules);
     }
 
     if (caps.size() > size_t(kMaxCaps)) {
