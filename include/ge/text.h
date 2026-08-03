@@ -39,8 +39,9 @@ struct TextPixels {
 //             premultiplied: `out_rgb = color.rgb * alpha * glyph_alpha`,
 //             `out_a       = color.a * glyph_alpha`.
 //
-// Single line; no wrapping or kerning. Basic ASCII Latin; behavior for
-// codepoints > 127 depends on the font's glyph coverage.
+// Single line; no wrapping or kerning. Input is UTF-8 (multi-byte
+// sequences decode to Unicode codepoints before FreeType). Glyph
+// coverage for non-ASCII still depends on the font.
 //
 // Empty TextPixels on failure with a logged error.
 TextPixels rasterizeTextToPixels(const std::string& text,
