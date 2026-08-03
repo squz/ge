@@ -77,6 +77,33 @@ TEST_CASE("rasterizeTextToPixels: empty string returns null") {
     CHECK(px.isNull());
 }
 
+// UTF-8 multi-byte must become one FreeType codepoint — not Latin-1 per byte
+// (which rendered "Réunion" as "RÃ©union" / Ã + © for U+00E9).
+TEST_CASE("rasterizeTextToPixels: UTF-8 multi-byte is one glyph not Latin-1 bytes") {
+    ge::FontRef font;
+    try { font = ge::resolveFont("system:sans-serif"); }
+    catch (const std::exception&) { return; }
+
+    const std::string e = "e";
+    const std::string eAcute = "\xc3\xa9";  // UTF-8 é (U+00E9)
+    const std::string mojibake = "\xc3\x83\xc2\xa9";  // Ã© if double-encoded nonsense
+
+    ge::TextPixels pxE = ge::rasterizeTextToPixels(e, font, 24.0f, {1, 1, 1, 1});
+    ge::TextPixels pxA = ge::rasterizeTextToPixels(eAcute, font, 24.0f, {1, 1, 1, 1});
+    if (pxE.isNull() || pxA.isNull()) return;
+
+    // One codepoint ≈ one letter width, not two (C3 + A9 as separate glyphs).
+    CHECK(pxA.width < pxE.width * 1.85f);
+    CHECK(pxA.width > pxE.width * 0.4f);
+
+    // "Réunion" (7 letters) must be closer to "Reunion" than to 8-glyph mojibake width.
+    ge::TextPixels reu = ge::rasterizeTextToPixels("R\xc3\xa9union", font, 24.0f, {1, 1, 1, 1});
+    ge::TextPixels reuAscii = ge::rasterizeTextToPixels("Reunion", font, 24.0f, {1, 1, 1, 1});
+    if (reu.isNull() || reuAscii.isNull()) return;
+    CHECK(std::abs(reu.width - reuAscii.width) < reuAscii.width * 0.35f);
+    (void)mojibake;
+}
+
 // ── 🎯T176 concurrency ──────────────────────────────────────────────
 // TSan is not wired into this build lane (documented CI-infeasibility per
 // the T176 acceptance), so this exercises the contract directly: many

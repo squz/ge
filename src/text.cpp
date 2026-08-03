@@ -85,6 +85,44 @@ void doneFace(FT_Face face) {
 
 namespace {
 
+// Decode next UTF-8 codepoint from [p, end). Advances p. On invalid sequence
+// skips one byte and yields U+FFFD. Returns false at end of string.
+// Iterating raw bytes as Latin-1 made "Réunion" draw as "RÃ©union" (C3 A9).
+bool nextUtf8(const char*& p, const char* end, FT_ULong& cp) {
+    if (p >= end) return false;
+    const auto u = [](char c) { return static_cast<unsigned char>(c); };
+    unsigned char c0 = u(*p);
+    if (c0 < 0x80) {
+        cp = c0;
+        ++p;
+        return true;
+    }
+    if ((c0 & 0xE0) == 0xC0 && p + 1 < end && (u(p[1]) & 0xC0) == 0x80) {
+        cp = (FT_ULong(c0 & 0x1F) << 6) | FT_ULong(u(p[1]) & 0x3F);
+        p += 2;
+        return true;
+    }
+    if ((c0 & 0xF0) == 0xE0 && p + 2 < end &&
+        (u(p[1]) & 0xC0) == 0x80 && (u(p[2]) & 0xC0) == 0x80) {
+        cp = (FT_ULong(c0 & 0x0F) << 12) | (FT_ULong(u(p[1]) & 0x3F) << 6) |
+             FT_ULong(u(p[2]) & 0x3F);
+        p += 3;
+        return true;
+    }
+    if ((c0 & 0xF8) == 0xF0 && p + 3 < end &&
+        (u(p[1]) & 0xC0) == 0x80 && (u(p[2]) & 0xC0) == 0x80 &&
+        (u(p[3]) & 0xC0) == 0x80) {
+        cp = (FT_ULong(c0 & 0x07) << 18) | (FT_ULong(u(p[1]) & 0x3F) << 12) |
+             (FT_ULong(u(p[2]) & 0x3F) << 6) | FT_ULong(u(p[3]) & 0x3F);
+        p += 4;
+        return true;
+    }
+    // Invalid lead / truncated trail: skip one byte so we do not stall.
+    cp = 0xFFFD;
+    ++p;
+    return true;
+}
+
 TextPixels rasterizeTextFace(const std::string& text,
                              FT_Face face,
                              float sizePt,
@@ -103,8 +141,11 @@ TextPixels rasterizeTextFace(const std::string& text,
     int maxAscent    = 0;
     int maxDescent   = 0;
 
-    for (unsigned char ch : text) {
-        FT_UInt glyphIdx = FT_Get_Char_Index(face, static_cast<FT_ULong>(ch));
+    const char* p = text.data();
+    const char* end = text.data() + text.size();
+    FT_ULong cp = 0;
+    while (nextUtf8(p, end, cp)) {
+        FT_UInt glyphIdx = FT_Get_Char_Index(face, cp);
         err = FT_Load_Glyph(face, glyphIdx, FT_LOAD_RENDER);
         if (err != 0) continue;
 
@@ -135,8 +176,9 @@ TextPixels rasterizeTextFace(const std::string& text,
 
     int penX = 0;
 
-    for (unsigned char ch : text) {
-        FT_UInt glyphIdx = FT_Get_Char_Index(face, static_cast<FT_ULong>(ch));
+    p = text.data();
+    while (nextUtf8(p, end, cp)) {
+        FT_UInt glyphIdx = FT_Get_Char_Index(face, cp);
         err = FT_Load_Glyph(face, glyphIdx, FT_LOAD_RENDER);
         if (err != 0) {
             penX += static_cast<int>(sizeFixed >> 6) / 2;
