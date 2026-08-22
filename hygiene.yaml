@@ -1,0 +1,622 @@
+# hygiene.yaml — declared, drift-validated hygiene posture for ge.
+# Schema reference: the `hygiene` skill (~/.claude/skills/hygiene/SKILL.md).
+# Validate with `/hygiene`; aggregate the fleet with `/hygiene fleet`. Tracks
+# steady-state ("we maintain X"), the complement to bullseye's aspirational
+# targets ("achieve X").
+#
+# ge is a C++20 engine library (sokol_gfx + SDL3) consumed as a git submodule.
+# Tests and the 24-cell matrix run on the laptop; the only always-on GitHub
+# Actions workflow is verify-prebuilds.yml. release.yml is a consumer-game
+# template whose jobs are disabled (`if: false`). homebrew_tap: disabled.
+# Tiers are PER DIMENSION (schema v1): a dimension's held tier is the highest T
+# such that every item in it with tier <= T is satisfied. `floors` is the
+# per-dimension ratchet (below floor => DRIFT); `aspires` is the gap horizon;
+# `enforce` is intent-only and does not affect tiers.
+
+schema_version: 1
+
+repo: ge
+aspires: 3
+floors:            # per-dimension held-tier ratchet; below floor => DRIFT
+  correctness: 2   # local doctest + matrix + bullseye oracles; no PR unit-test CI
+  security: 2      # vendored pins + Gemfile.lock; scanners are T3
+  quality: 0       # no clang-format / clang-tidy / CI lint
+  deps: 2          # Gemfile.lock + submodule pins; no Dependabot
+  release: 2       # tagged library releases + release-surface oracle; GHA game jobs disabled
+  governance: 2    # Apache-2 LICENSE, README, .gitignore, NOTICES.md, squash-only
+  build: 2         # Makefile + C++20 + prebuild-verify CI
+  docs: 2          # README + AGENTS.md + STABILITY.md; no docs-in-CI
+  perf: 0          # no benchmark suite
+  vcs: 2           # Git LFS for archives + committed scripts/hooks
+  agent: 2         # AGENTS.md + CLAUDE.md + bullseye.yaml
+
+tiers:
+  1: baseline    # LICENSE + README + .gitignore; tests build & run
+  2: maintained  # full matrix, examples run, lint/format, release + governance
+  3: hardened    # formal specs, security scanning, SBOM/signing, fuzzing, perf
+
+items:
+
+  # ============================== CORRECTNESS =============================
+  - id: correctness.unit-tests
+    dim: correctness
+    desc: Hermetic doctest suite is invocable via Makefile (`make unit-test` → bin/ge-test)
+    state: present
+    cadence: continuous
+    enforce: blocking
+    tier: 1
+    evidence: {file: {path: Module.mk, matches: '(?m)^unit-test:'}}
+
+  - id: correctness.bullseye-oracles
+    dim: correctness
+    desc: Standing /cv invariants — ruby, python, dispatch-null-safe, release-surface
+    state: present
+    cadence: continuous
+    enforce: blocking
+    tier: 2
+    evidence: {make_target: bullseye}
+
+  - id: correctness.dispatch-null-safe
+    dim: correctness
+    desc: Sokol dispatch teardown forwarders are NULL-safe when no backend is bound
+    state: present
+    cadence: continuous
+    enforce: blocking
+    tier: 2
+    evidence: {make_target: dispatch-null-safety-test}
+
+  - id: correctness.ruby-tooling
+    dim: correctness
+    desc: Ruby regression tests for the iOS xcodeproj generator (build_project.rb)
+    state: present
+    cadence: continuous
+    enforce: warning
+    tier: 2
+    evidence: {make_target: ruby-test}
+
+  - id: correctness.python-prebuilds
+    dim: correctness
+    desc: Python tests for the prebuilt-staleness verifier
+    state: present
+    cadence: continuous
+    enforce: warning
+    tier: 2
+    evidence: {make_target: python-test}
+
+  - id: correctness.matrix
+    dim: correctness
+    desc: 24-cell e2e matrix (`make check`) covering desktop / iOS / Android dist+player
+    state: present
+    cadence: periodic:on-demand
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: Module.mk, matches: '(?m)^check matrix-test:'}}
+
+  - id: correctness.sample
+    dim: correctness
+    desc: In-tree sample/tiltbuggy is the canonical consumer proving ground
+    state: present
+    cadence: once-must-hold
+    enforce: informational
+    tier: 2
+    evidence: {file: {path: sample/tiltbuggy/Makefile}}
+
+  - id: correctness.smoke
+    dim: correctness
+    desc: Device smoke script (spyder deploy / launch / crash-scan) exists
+    state: present
+    cadence: periodic:on-demand
+    enforce: informational
+    tier: 2
+    evidence: {file: {path: tools/smoke-test.sh}}
+
+  - id: correctness.pr-ci
+    dim: correctness
+    desc: Per-PR GitHub Actions workflow that runs unit-test / dispatch-null-safe
+    state: planned
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: >-
+      doctest and dispatch-null-safety-test run on the laptop via `make bullseye`.
+      verify-prebuilds.yml hashes prebuilts only; no unit-test CI job
+      (entropy audit ENT-003).
+    evidence: {absent: {file: {path: .github/workflows/ci.yml}}}
+
+  - id: correctness.windows
+    dim: correctness
+    desc: Windows CI / Windows product target
+    state: skipped
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: >-
+      Engine ships Apple (Metal), Android (Vulkan/GLES3), and web (WebGL2).
+      No Windows product surface.
+    evidence:
+      {absent: {file: {path: .github/workflows/verify-prebuilds.yml, matches: 'windows-latest'}}}
+
+  - id: correctness.fuzzing
+    dim: correctness
+    desc: Fuzz harnesses over the wire protocol / cmdstream parsers
+    state: planned
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: Parsers are unit-tested from fixtures; no make fuzz target or CI fuzz job.
+    evidence: {absent: {make_target: fuzz}}
+
+  - id: correctness.tlc
+    dim: correctness
+    desc: Live TLC of engine invariants in CI
+    state: skipped
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: >-
+      formal/Ged* models the removed ged daemon (Plateau P / T145). Dead
+      auxiliary; not a live engine invariant and not wired in Actions.
+    evidence: {absent: {ci_job: "verify-prebuilds.yml#tlc"}}
+
+  # =========================== SECURITY / SUPPLY ==========================
+  - id: security.vendor-pin
+    dim: security
+    desc: Third-party C/C++ is vendored as git submodules (pinned SHAs in the tree)
+    state: present
+    cadence: per-release
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: .gitmodules, matches: 'vendor/github.com/'}}
+
+  - id: security.gem-lock
+    dim: security
+    desc: Gemfile.lock pins fastlane / xcodeproj for reproducible ship runs
+    state: present
+    cadence: per-release
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: Gemfile.lock}}
+
+  - id: security.actions-perms
+    dim: security
+    desc: "release.yml declares an explicit permissions block (contents: write)"
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence:
+      {file: {path: .github/workflows/release.yml, matches: '(?m)^permissions:'}}
+
+  - id: security.secret-scan-github
+    dim: security
+    desc: GitHub secret scanning is enabled on the repository
+    state: planned
+    cadence: continuous
+    enforce: blocking
+    tier: 3
+    reason: GitHub secret_scanning.status is disabled on squz/ge.
+    evidence:
+      {absent: {gh_setting: {key: security_and_analysis.secret_scanning.status, equals: enabled}}}
+
+  - id: security.push-protection
+    dim: security
+    desc: GitHub secret-scanning push protection is enabled
+    state: planned
+    cadence: continuous
+    enforce: blocking
+    tier: 3
+    reason: Push protection is disabled; same as secret scanning.
+    evidence:
+      {absent: {gh_setting: {key: security_and_analysis.secret_scanning_push_protection.status, equals: enabled}}}
+
+  - id: security.gitleaks
+    dim: security
+    desc: gitleaks (or equivalent) scanner in-repo / in Actions
+    state: planned
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: No in-tree gitleaks config or CI job; GitHub native scanning is also off.
+    evidence: {absent: {scanner: {tool: gitleaks}}}
+
+  - id: security.dep-vuln-scan
+    dim: security
+    desc: Vulnerability scanning of vendored C/C++ and Ruby gems
+    state: planned
+    cadence: periodic:30d
+    enforce: warning
+    tier: 3
+    reason: Submodules and Gemfile.lock are pinned but no osv-scanner / bundler-audit job runs.
+    evidence: {absent: {scanner: {tool: osv-scanner}}}
+
+  - id: security.sast-codeql
+    dim: security
+    desc: CodeQL static analysis for C++
+    state: planned
+    cadence: continuous
+    enforce: warning
+    tier: 3
+    reason: No CodeQL workflow; local gates are doctest + dispatch-null-safety-test.
+    evidence: {absent: {ci_job: "verify-prebuilds.yml#codeql"}}
+
+  - id: security.signed-releases
+    dim: security
+    desc: Release artifacts carry provenance / are signed (cosign/sigstore)
+    state: skipped
+    cadence: per-release
+    enforce: informational
+    tier: 3
+    reason: >-
+      ge is a library consumed as a git submodule (homebrew_tap: disabled).
+      There is no CI-built binary to sign; consumers ship their own apps.
+    evidence: {absent: {ci_step: {workflow: release.yml, name: Sign}}}
+
+  # ============================== CODE QUALITY ============================
+  - id: quality.format
+    dim: quality
+    desc: clang-format (or equivalent) config and a format-check make/CI gate
+    state: planned
+    cadence: continuous
+    enforce: warning
+    tier: 3
+    reason: No .clang-format at repo root and no format-check target or CI step.
+    evidence: {absent: {file: {path: .clang-format}}}
+
+  - id: quality.lint
+    dim: quality
+    desc: clang-tidy / cppcheck static analysis in CI
+    state: planned
+    cadence: continuous
+    enforce: warning
+    tier: 3
+    reason: No .clang-tidy and no lint make target or Actions job.
+    evidence: {absent: {file: {path: .clang-tidy}}}
+
+  # =========================== DEPENDENCY HEALTH ==========================
+  - id: deps.lockfile
+    dim: deps
+    desc: Gemfile.lock committed for the Ruby ship/xcodeproj toolchain
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: Gemfile.lock}}
+
+  - id: deps.submodules
+    dim: deps
+    desc: C/C++ third-party code is git submodules under vendor/github.com/
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: .gitmodules}}
+
+  - id: deps.dependabot
+    dim: deps
+    desc: Dependabot (or equivalent) keeps Actions and Ruby gems current
+    state: planned
+    cadence: periodic:30d
+    enforce: informational
+    tier: 3
+    reason: No .github/dependabot.yml; GitHub Dependabot security updates are disabled.
+    evidence: {absent: {file: {path: .github/dependabot.yml}}}
+
+  # ========================== RELEASE & VERSIONING =======================
+  - id: release.tags
+    dim: release
+    desc: Engine is versioned with annotated vMAJOR.MINOR.0 git tags
+    state: present
+    cadence: per-release
+    enforce: blocking
+    tier: 2
+    evidence:
+      command: git describe --tags --abbrev=0 | grep -Eq '^v[0-9]+\.[0-9]+\.0$'
+
+  - id: release.surface
+    dim: release
+    desc: NDEBUG strips app-channel; default sample link dead-strips stream/encode
+    state: present
+    cadence: per-release
+    enforce: blocking
+    tier: 2
+    evidence: {make_target: release-surface-test}
+
+  - id: release.stability
+    dim: release
+    desc: STABILITY.md catalogues the public surface for the current tag
+    state: present
+    cadence: per-release
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: STABILITY.md, matches: 'v0\.[0-9]+\.0'}}
+
+  - id: release.consumer-template
+    dim: release
+    desc: "Consumer-game GHA release workflow template exists (jobs disabled with if: false)"
+    state: present
+    cadence: once-must-hold
+    enforce: informational
+    tier: 2
+    evidence:
+      {file: {path: .github/workflows/release.yml, matches: '(?m)^\s+if: false'}}
+
+  - id: release.homebrew
+    dim: release
+    desc: Published to a Homebrew tap on release
+    state: skipped
+    cadence: per-release
+    enforce: informational
+    tier: 3
+    reason: >-
+      homebrew_tap: disabled — ge is a library consumed via git submodule;
+      no binary to ship through brew.
+    evidence: {absent: {ci_job: "release.yml#homebrew"}}
+
+  - id: release.changelog
+    dim: release
+    desc: A maintained CHANGELOG records user-visible changes per release
+    state: planned
+    cadence: per-release
+    enforce: warning
+    tier: 3
+    reason: History lives in git + GitHub release notes + /ge:release-notes; no CHANGELOG.md.
+    evidence: {absent: {file: {path: CHANGELOG.md}}}
+
+  # ============================ GOVERNANCE / META ========================
+  - id: governance.license
+    dim: governance
+    desc: Apache-2.0 LICENSE present
+    state: present
+    cadence: once-must-hold
+    enforce: blocking
+    tier: 1
+    evidence: {file: {path: LICENSE, matches: 'Apache License'}}
+
+  - id: governance.readme
+    dim: governance
+    desc: README present and current
+    state: present
+    cadence: once-must-hold
+    enforce: blocking
+    tier: 1
+    evidence: {file: {path: README.md}}
+
+  - id: governance.gitignore
+    dim: governance
+    desc: .gitignore covers build/, bin/, compile_commands.json, fastlane residue
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: .gitignore}}
+
+  - id: governance.squash-only
+    dim: governance
+    desc: Repo is squash-merge only, with delete-branch-on-merge
+    state: enforced
+    cadence: once-must-hold
+    enforce: blocking
+    tier: 2
+    evidence: {gh_setting: {key: allow_merge_commit, equals: false}}
+
+  - id: governance.notices
+    dim: governance
+    desc: NOTICES.md attributes bundled third-party libraries (including Triangle)
+    state: present
+    cadence: per-release
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: NOTICES.md, matches: 'Third-Party Notices'}}
+
+  - id: governance.security-md
+    dim: governance
+    desc: SECURITY.md documents the vulnerability-disclosure process
+    state: planned
+    cadence: once-must-hold
+    enforce: informational
+    tier: 3
+    reason: Public repo without a published disclosure policy.
+    evidence: {absent: {file: {path: SECURITY.md}}}
+
+  - id: governance.codeowners
+    dim: governance
+    desc: CODEOWNERS file present
+    state: planned
+    cadence: once-must-hold
+    enforce: informational
+    tier: 3
+    reason: Single-owner repo; no CODEOWNERS.
+    evidence: {absent: {file: {path: .github/CODEOWNERS}}}
+
+  # ================================= BUILD ===============================
+  - id: build.makefile
+    dim: build
+    desc: Root Makefile proxies sample/tiltbuggy and hosts engine-maintainer targets
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: Makefile, matches: 'SAMPLE'}}
+
+  - id: build.cxx20
+    dim: build
+    desc: Engine compile flags pin C++20 (`ge/CXXFLAGS_BASE`)
+    state: present
+    cadence: once-must-hold
+    enforce: informational
+    tier: 2
+    evidence: {file: {path: Module.mk, matches: 'ge/CXXFLAGS_BASE = -std=c[+][+]20'}}
+
+  - id: build.prebuilt-verify
+    dim: build
+    desc: Prebuilt archive hashes are verified in CI on PR and master
+    state: enforced
+    cadence: continuous
+    enforce: blocking
+    tier: 2
+    evidence: {ci_job: verify-prebuilds.yml#verify}
+
+  - id: build.prebuild
+    dim: build
+    desc: make prebuild cooks platform static archives into prebuilt/
+    state: present
+    cadence: per-release
+    enforce: warning
+    tier: 2
+    evidence: {make_target: prebuild}
+
+  - id: build.cook-manifest
+    dim: build
+    desc: Each prebuilt platform ships cook.json + manifest.json identity files
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: prebuilt/ios-arm64/cook.json}}
+
+  - id: build.incremental-deps
+    dim: build
+    desc: Engine object .d files are -include'd so header edits rebuild dependents
+    state: planned
+    cadence: continuous
+    enforce: warning
+    tier: 3
+    reason: >-
+      Module.mk -includes APP_OBJ .d files only. Engine/test/vendor .d include
+      is the entropy-audit ENT-001 gap (🎯T100 set-aside).
+    evidence: {absent: {file: {path: Module.mk, matches: '-include \$\(ge/OBJ:\.o=\.d\)'}}}
+
+  # ============================ DOCUMENTATION ============================
+  - id: docs.readme
+    dim: docs
+    desc: Root README documents architecture, quick start, and Module.mk integration
+    state: present
+    cadence: once-must-hold
+    enforce: blocking
+    tier: 1
+    evidence: {file: {path: README.md}}
+
+  - id: docs.agents
+    dim: docs
+    desc: AGENTS.md is the canonical engine/developer guide
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: AGENTS.md}}
+
+  - id: docs.agents-guide
+    dim: docs
+    desc: agents-guide.md documents the app-channel and state-slice surface
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: agents-guide.md}}
+
+  - id: docs.stability
+    dim: docs
+    desc: STABILITY.md catalogues the public interaction surface
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: STABILITY.md}}
+
+  - id: docs.claude
+    dim: docs
+    desc: CLAUDE.md imports AGENTS.md and records homebrew_tap / profile directives
+    state: present
+    cadence: once-must-hold
+    enforce: informational
+    tier: 2
+    evidence: {file: {path: CLAUDE.md, matches: 'homebrew_tap: disabled'}}
+
+  - id: docs.ci
+    dim: docs
+    desc: Docs / markdown-link check in CI
+    state: planned
+    cadence: continuous
+    enforce: informational
+    tier: 3
+    reason: Docs are not built or link-checked in Actions (entropy audit ENT-002).
+    evidence: {absent: {ci_step: {workflow: verify-prebuilds.yml, name: Docs}}}
+
+  - id: docs.todo
+    dim: docs
+    desc: docs/TODO.md exists as the repo TODO sink
+    state: skipped
+    cadence: once-must-hold
+    enforce: informational
+    tier: 3
+    reason: Global convention bans docs/TODO.md; followable work lives in bullseye.yaml.
+    evidence: {absent: {file: {path: docs/TODO.md}}}
+
+  # ============================== PERFORMANCE ===========================
+  - id: perf.benchmarks
+    dim: perf
+    desc: Benchmark suite exists and is invocable (`make bench`)
+    state: planned
+    cadence: per-release
+    enforce: informational
+    tier: 3
+    reason: >-
+      No make bench target. math_bench.md is gitignored local residue, not a
+      committed suite. Perf HUD (🎯T173) is a runtime overlay, not a bench gate.
+    evidence: {absent: {make_target: bench}}
+
+  # ============================== VCS / HISTORY =========================
+  - id: vcs.lfs
+    dim: vcs
+    desc: Prebuilt and vendor static libraries are tracked via Git LFS
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: .gitattributes, matches: 'filter=lfs'}}
+
+  - id: vcs.pre-commit-hook
+    dim: vcs
+    desc: Committed scripts/hooks/pre-commit gates LFS pointers and prebuilt freshness
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: scripts/hooks/pre-commit, matches: 'verify-prebuilds'}}
+
+  - id: vcs.pre-push-hook
+    dim: vcs
+    desc: Committed scripts/hooks/pre-push chains git lfs pre-push
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 2
+    evidence: {file: {path: scripts/hooks/pre-push, matches: 'git lfs pre-push'}}
+
+  # =================== AGENT-READINESS / ONBOARDING ====================
+  - id: agent.agents-md
+    dim: agent
+    desc: AGENTS.md present (shared multi-tool instruction file)
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: AGENTS.md}}
+
+  - id: agent.claude-md
+    dim: agent
+    desc: CLAUDE.md present (Claude adapter over AGENTS.md)
+    state: present
+    cadence: once-must-hold
+    enforce: warning
+    tier: 1
+    evidence: {file: {path: CLAUDE.md}}
+
+  - id: agent.bullseye
+    dim: agent
+    desc: bullseye.yaml present (convergence targets discoverable)
+    state: present
+    cadence: once-must-hold
+    enforce: informational
+    tier: 2
+    evidence: {file: {path: bullseye.yaml}}
