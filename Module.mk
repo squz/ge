@@ -202,7 +202,7 @@ ge/SQLITE_OBJ = $(BUILD_DIR)/ge/vendor/sqlite3.o
 #
 # LICENCE WARNING: Triangle is NOT permissively licensed. Commercial
 # distribution requires direct arrangement with Jonathan Shewchuk
-# (jrs@cs.berkeley.edu). See NOTICES.md "Triangle (J. R. Shewchuk)"
+# (jrs@cs.berkeley.edu). See NOTICE "Triangle (J. R. Shewchuk)"
 # for the full terms and the three options if you're shipping a paid
 # product. Safe default for commercial builds: do not reference
 # $(ge/TRIANGLE_OBJ) anywhere in your Makefile.

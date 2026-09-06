@@ -255,7 +255,7 @@ Engine-internal variables use the `ge/` prefix. These are read-only — the pare
 | `ge/LIB` | Static library path (`$(BUILD_DIR)/libge.a`) |
 | `ge/SDL_LIBS` | SDL3 static libraries (SDL3, SDL3_image, SDL3_ttf, freetype, harfbuzz, etc.) |
 | `ge/TEST_SRC`, `ge/TEST_OBJ` | Unit test sources and objects |
-| `ge/TRIANGLE_OBJ` | Triangle library object — **opt-in; not linked into `libge.a`**. Commercial builds should not reference this without first reading NOTICES.md's Triangle section (restrictive license; commercial distribution requires arrangement with the author). |
+| `ge/TRIANGLE_OBJ` | Triangle library object — **opt-in; not linked into `libge.a`**. Commercial builds should not reference this without first reading NOTICE's Triangle section (restrictive license; commercial distribution requires arrangement with the author). |
 | (player) | owned by spyder — not a ge product |
 
 ### Shared Variables
@@ -750,7 +750,7 @@ ge has a small, unified surface for "rasterize/load → texture → draw". One `
 - **`ge::imageFromSurface(SDL_Surface*)`** (🎯T57, `<ge/png.h>`) — same post-load path as `loadImage` but starts from an in-memory `SDL_Surface*`. Useful for surfaces that don't come from a file (procedural bitmaps, in-process SVG rasterization output, asset data fetched over the wire). *Takes ownership* of the surface — destroys it before returning. `nullptr` input is safe (returns null `Sprite`).
 - **`ge::rasterizeText(text, font, sizePt, color)`** (`<ge/text.h>`) — single-line text via FreeType. `font` is a `FontRef` from `ge::resolveFont`. Premul output. Single line / no wrapping today.
 
-ge ships [lunasvg](https://github.com/sammycage/lunasvg) (with its bundled plutovg) as the canonical SVG rasterizer. SDL_image's built-in nanosvg path can't render text or `clipPath`; ge bypasses it. See [NOTICES.md](NOTICES.md) for the license chain (lunasvg + plutovg + FreeType-derived raster code + stb_*).
+ge ships [lunasvg](https://github.com/sammycage/lunasvg) (with its bundled plutovg) as the canonical SVG rasterizer. SDL_image's built-in nanosvg path can't render text or `clipPath`; ge bypasses it. See [NOTICE](NOTICE) for the license chain (lunasvg + plutovg + FreeType-derived raster code + stb_*).
 
 **Lunasvg features supported:** path, rect, circle, ellipse, polygon, polyline; fills (solid, linearGradient, radialGradient, pattern); strokes; clipPath; mask; gradients; opacity; nested groups; transforms; `<text>` (basic); CSS via `applyStyleSheet`; CSS selectors via `querySelectorAll`; hit testing via `elementFromPoint`. **Not** a SVG 2 / animation engine — no SMIL, no scripting.
 

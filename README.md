@@ -83,7 +83,7 @@ Vendored under `vendor/` (submodules / amalgams):
 - [SDL3](https://libsdl.org/) + SDL3_image + SDL3_ttf
 - [spdlog](https://github.com/gabime/spdlog), [linalg.h](https://github.com/sgorsten/linalg), [doctest](https://github.com/doctest/doctest)
 - [lunasvg](https://github.com/sammycage/lunasvg) (SVG), box2d (optional consumer), sqlite/sqlpipe
-- [Triangle](https://www.cs.cmu.edu/~quake/triangle.html) — **opt-in only**; not linked into `libge.a`. Non-commercial license — see [`NOTICES.md`](NOTICES.md)
+- [Triangle](https://www.cs.cmu.edu/~quake/triangle.html) — **opt-in only**; not linked into `libge.a`. Non-commercial license — see [`NOTICE`](NOTICE)
 
 ## Structure
 
@@ -143,4 +143,4 @@ Details: `AGENTS.md` (iOS orientation lock).
 ## License
 
 See individual files and `vendor/` for license terms. Engine code is Apache-2.0
-unless noted. Triangle is not linked into `libge.a` by default — see `NOTICES.md`.
+unless noted. Triangle is not linked into `libge.a` by default — see `NOTICE`.
