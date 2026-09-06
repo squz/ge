@@ -1,0 +1,10 @@
+agreement/grip_front@10: 0.01
+agreement/grip_rear@10: 0.008
+agreement/spinning@30: 0.14
+distributional/speed@90/ks: 0.08600000000000001
+distributional/spin@90/ks: 0.07600000000000001
+missing: 0
+per_step/angle@1/p99: 0.0039200906624354825
+per_step/angle@3/p99: 0.026866122048410438
+per_step/pos@1/p99: 0.006043687515183678
+per_step/pos@3/p99: 0.0349561267391518

@@ -1,0 +1,80 @@
+# TiltBuggy differential-harness instance — 🎯T137 oracle on the reusable
+# template (~/think/differential-harness). Reference: the 2013 Chipmunk car
+# (../oracle.cpp, extracted verbatim from ViewController.mm). Port: the box2d
+# Scene. Identical seeded gravity tapes; divergence reported per horizon.
+name: tiltbuggy
+
+reference:
+  run: [./build/ref]
+  # A ratchet tightening must cite one of these — the reference's structure,
+  # never a constant in Scene.cpp tuned until the number shrank.
+  sources:
+    - ../oracle.cpp
+    - /Users/marcelo/work/marcelocantos.com/unwisegames/tiltbuggy/TiltBuggy/ViewController.mm
+port:
+  run: [./build/port]
+
+# The original harness's Scenario: start pose uniform in the arena, gravity
+# (device tilt) redrawn every 30 frames with |g| ∈ [0, 100].
+tape:
+  builtin: piecewise-vector
+  fields: [gx, gy]
+  hold: 30
+  magnitude: [0, 100]
+  init:
+    - {name: x,     uniform: [-7, 7]}
+    - {name: y,     uniform: [-7, 7]}
+    - {name: angle, uniform: [-3.141592653589793, 3.141592653589793]}
+
+fields:
+  - {name: pos,        metric: euclid, of: [x, y]}
+  - {name: angle,      metric: angle,  unit: deg}
+  - {name: speed,      metric: abs}
+  - {name: spin,       metric: abs}
+  - {name: grip_front, metric: exact}
+  - {name: grip_rear,  metric: exact}
+  - {name: spinning,   metric: exact}
+primary: angle
+horizons: [1, 3, 10, 30, 60, 90]
+seeds: 500
+ticks: 90
+
+# Lyapunov-bounded (oracle-first rule 7): pairwise bounds only at h ≤ 3 —
+# the per-step floor (damper operator + solver coupling). Beyond that the
+# intentionally unstable reverse-fishtail dynamics amplify any per-step
+# error exponentially, so long horizons are gated on population-level
+# agreement: both cars spin in the same scenarios, and the speed/spin
+# distributions match.
+acceptance:
+  lyapunov_horizon: 3
+  per_step:
+    - {field: pos,   horizon: 1, percentile: 99, max: 0.02}     # m
+    - {field: angle, horizon: 1, percentile: 99, max: 0.0175}   # rad (1°)
+    - {field: pos,   horizon: 3, percentile: 99, max: 0.08}
+    - {field: angle, horizon: 3, percentile: 99, max: 0.07}
+  agreement:
+    - {field: spinning,   horizon: 30, tolerance: 0, max_disagree: 0.20}
+    - {field: grip_front, horizon: 10, tolerance: 0, max_disagree: 0.10}
+    - {field: grip_rear,  horizon: 10, tolerance: 0, max_disagree: 0.10}
+  distributional:
+    - {field: speed, horizon: 90, ks_max: 0.15}
+    - {field: spin,  horizon: 90, ks_max: 0.15}
+  max_missing: 0
+  # Goodhart guard (SPEC.md §7). Chipmunk 6.2.1 and box2d v3 are different
+  # solvers in different languages of arithmetic; a bit-identical sample would
+  # mean the port is delegating, not agreeing. The guard separates "≈0" from
+  # "1", so the limit is an order of magnitude above the observed floor
+  # (0.0092 — scenarios where a quantity is legitimately zero on both sides:
+  # a car at rest, an unrotated chassis) and far below the 1.0 a delegating
+  # port produces. It is not a precision instrument and must not be tuned.
+  independence:
+    max_identical: 0.05
+    min_response: 1.0
+  ratchet:
+    file: baseline.yaml
+    tolerance: 0.05
+
+plants:
+  - {name: axis-swap, env: {DH_PLANT: axis-swap}}
+  - {name: substep-8, env: {DH_PLANT: substep-8}}
+  - {name: pose-lag,  env: {DH_PLANT: pose-lag}}

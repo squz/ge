@@ -41,3 +41,16 @@ update-baselines:
 	    $(ge)/tools/matrix-cell.sh android-emu-tablet-dist
 
 include fixtures/render.mk
+
+# ── Differential oracle (🎯T137 physics parity) ─────────────────────
+#
+# Fast local check: drives the 2013 Chipmunk reference and the box2d Scene
+# through identical seeded gravity tapes and gates on Lyapunov-bounded
+# acceptance + a provenance-guarded ratchet (oracle/dh/harness.yaml). Needs
+# the vendored Chipmunk 6.2.1 source (oracle/dh/Makefile CM=) and `dh` from
+# ~/think/differential-harness. `selftest` proves the oracle still catches
+# the planted structural bugs.
+.PHONY: oracle-check
+oracle-check:
+	$(MAKE) -C oracle/dh check selftest
+
