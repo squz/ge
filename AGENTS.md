@@ -174,8 +174,6 @@ $(APP): $(OBJ) $(ge/LIB)
 	@mkdir -p $(@D)
 	$(CXX) $(OBJ) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
-player: $(ge/PLAYER)
-
 $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -c $< -o $@
@@ -405,7 +403,7 @@ sourceSets {
 | Path | How the flag is applied |
 |------|-------------------------|
 | **Game consumers** (tiltbuggy, multimaze2, …) | `include("${GE_ROOT}/cmake/android-arm64.cmake")` appends `-Wl,-z,max-page-size=16384` to `CMAKE_SHARED_LINKER_FLAGS` before `add_library(main SHARED …)` and before SDL `add_subdirectory()`. |
-| **Brokered player** (`tools/android/`) | **Does not** include `android-arm64.cmake` (lean CMake — no libge.a). The **same** `string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")` lives **inline** at the top of `tools/android/app/src/main/cpp/CMakeLists.txt`, **before** `add_subdirectory(SDL)`. Gradle also uses `ANDROID_STL=c++_static` so NDK `libc++_shared.so` is not packaged (that prebuilt is 4 KB under NDK r27). |
+| **Brokered player** (spyder repo — the player Android tree lives in the spyder repo) | **Does not** include `android-arm64.cmake` (lean CMake — no libge.a). The **same** `string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")` lives **inline** at the top of the player's `app/src/main/cpp/CMakeLists.txt` (spyder repo — it lives in the spyder repo, not ge), **before** `add_subdirectory(SDL)`. Gradle also uses `ANDROID_STL=c++_static` so NDK `libc++_shared.so` is not packaged (that prebuilt is 4 KB under NDK r27). |
 
 Do **not** "simplify" the player CMake by dropping that flag, or the Pixel "ELF alignment check failed" dialog returns (regressed 2026-07-11 and 2026-07-14 when the player path was rebuilt from master without the flag).
 
@@ -414,7 +412,7 @@ Do **not** "simplify" the player CMake by dropping that flag, or the Pixel "ELF 
 **Verify** after any Android player or consumer APK build:
 
 ```bash
-# Player APK (from tools/android/):
+# Player APK (built in the spyder repo, which is where the player lives):
 ./check-16kb.sh app/build/outputs/apk/debug/app-debug.apk
 
 # Any .so:
@@ -447,11 +445,6 @@ $(APP): $(APP_OBJ) $(ge/LIB)
 
 The `FRAMEWORKS` variable should include VideoToolbox, CoreMedia, CoreVideo, Metal, QuartzCore, and Foundation on macOS/iOS.
 
-Link the player:
-
-```makefile
-player: $(ge/PLAYER)
-```
 
 ## Module Structure
 
@@ -459,10 +452,7 @@ player: $(ge/PLAYER)
 |-----------|----------|
 | `include/` | Public headers (one per class) |
 | `src/` | Implementation files + test files (`*_test.cpp`) |
-| `tools/` | Player entry point (`player.cpp`), capture backend (`player_capture_apple.mm`) |
-| `tools/ios/` | iOS player: Xcode project, build scripts (player port dormant — 🎯T34) |
-| `tools/android/` | Android player: Gradle project (player port dormant — 🎯T34) |
-| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | Former bgfx rendering libraries (vendored; retained as historical reference — migrated to sokol_gfx in 🎯T38) |
+| `tools/` | Engine tools: matrix-cell harness, smoke-test, platform init scripts, prebuild scripts, check scripts. The player is **not** here — it lives in the spyder repo. |
 | `vendor/` | Other third-party dependencies: spdlog, linalg.h, earcut.hpp, doctest, Triangle, asio, SQLite3 |
 
 **Note:** SQLite3 is compiled into `libge.a` (from the vendored amalgamation `vendor/src/sqlite3.c`). Do not add `-lsqlite3` to link lines — it's already included.
@@ -485,7 +475,6 @@ player: $(ge/PLAYER)
 | `ge/src/VideoDecoder_apple.mm` | H.264 decoding via VideoToolbox |
 | `ge/src/audio.cpp` | `ge::audio` — device registry + pause/resume state machine (🎯T7) |
 | `ge/src/audio_apple.mm` | iOS AVAudioSession interruption + route-change observers (🎯T43) |
-| `ge/tools/player_capture_apple.mm` | Player screen capture backend (Apple) |
 
 ## H.264 Streaming Protocol
 
@@ -516,7 +505,7 @@ Server → player:        MessageHeader{kAspectLockMagic} + AspectLock (optional
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `kProtocolVersion` | 6 | Protocol version for compatibility checking |
+| `kProtocolVersion` | 9 | Protocol version for compatibility checking |
 | `kMaxMessageSize` | 512 MB | Maximum single message size |
 | `kDeviceInfoMagic` | `0x53503244` | "SP2D" — player → server: player dimensions/class |
 | `kSdlEventMagic` | `0x53503249` | "SP2I" — player → server: SDL input event |
@@ -1243,7 +1232,7 @@ player code back into ge.
 
 ### Modifying the streaming protocol
 
-Protocol changes require updating both `SessionHost.mm` (server side) and `player.cpp` (player side) in lockstep. Bump `kProtocolVersion` in `Protocol.h` when making breaking changes.
+Protocol changes require updating both `SessionHost.mm` (server side) and the player (spyder repo, `player/`) in lockstep. Bump `kProtocolVersion` in `Protocol.h` when making breaking changes.
 
 ### Adding a new public API class
 
@@ -1296,7 +1285,7 @@ ge/tools/smoke-test.sh --device platform=ios-sim,model=ipad \
 
 # Deploy Android APK
 ge/tools/smoke-test.sh --device platform=android-emu \
-    --install ge/tools/android/app/build/outputs/apk/debug/app-debug.apk
+    --install <spyder-checkout>/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Without `--install`, the script checks passively (is the app installed? is it in the foreground?). **Always prefer `--install`** after a rebuild to avoid debugging stale binaries.

@@ -40,13 +40,10 @@ If unsure, ask before creating: see `CLAUDE.md` §"When to change what" for the 
 | `src/` | Engine implementation (platform-neutral) |
 | `src/render/` | `DirectRenderHost` — SDL window + Metal/Vulkan surface for direct mode |
 | `src/bridge/` | `ServerWireBridge` + `PlayerWireBridge` — H.264 encode/decode pipeline |
-| `tools/` | Player binary, matrix-cell harness, smoke-test, platform init scripts |
+| `tools/` | Matrix-cell harness, smoke-test, platform init scripts (the player lives in the spyder repo) |
 | `tools/ios-template/` | iOS CMake/Xcode template (source of truth for `make ge/ios-init`) |
 | `tools/android-template/` | Android Gradle template (source of truth for `make ge/android-init`) |
-| `tools/ios/` | ge player iOS Xcode project |
-| `tools/android/` | ge player Android Gradle project |
 | `sample/tiltbuggy/` | In-tree sample app — canonical test vehicle for `make check` |
-| `vendor/github.com/bkaradzic/{bgfx,bx,bimg}/` | Former bgfx libraries (vendored; retained as historical reference — migrated to sokol_gfx in 🎯T38) |
 
 ### Key interfaces
 

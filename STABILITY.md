@@ -102,7 +102,7 @@ All public API lives under `include/ge/*.h`.
 
 ### Protocol types and constants (`wire::`)
 
-- `wire::kProtocolVersion = 7` (`uint16_t`). **Fluid**. Bumped on breaking change.
+- `wire::kProtocolVersion = 9` (`uint16_t`). **Fluid**. Bumped on breaking change.
 - `wire::kMaxMessageSize = 512 * 1024 * 1024`. **Stable**.
 - All 11 message magic constants (`kDeviceInfoMagic` … `kSessionConfigMagic`) — listed under **Wire + stream-relay API surface** below. **Fluid** collectively; new message types added with features.
 - `wire::DeviceInfo`, `wire::SafeAreaUpdate`, `wire::AspectLock`, `wire::SessionConfig`, `wire::MessageHeader` — POD struct layouts documented under **Wire + stream-relay API surface**. **Stable** for layout; **Fluid** for field set.
@@ -224,7 +224,7 @@ All namespaced `ge/`; read-only from the consumer.
 | | `ge/BOX2D_OBJ` | **Stable** |
 | | `ge/TRIANGLE_OBJ` | **Fluid** |
 | Shaders | `ge/SHADER_DIR`, sokol-shdc outputs under `$(BUILD_DIR)/…/shaders` | **Stable** / **Needs review** |
-| Binaries | `ge/PLAYER` (`bin/player`) | **Stable** |
+| Binaries | ~~`ge/PLAYER`~~ | **Removed** — the player lives in the spyder repo; `make player` in ge exits 1 |
 | | `ge/IMGDIFF` (`bin/imgdiff`) | **Fluid** |
 | Test matrix | `ge/CELLS`, `ge/CHECK_CELLS` | **Stable** |
 | | `ge/CHECK_EXCLUDE_PATTERNS` | **Fluid** (internal) |
@@ -279,7 +279,7 @@ desktop-{dist,player}
 
 ### Wire protocol version
 
-- `wire::kProtocolVersion = 7` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change. v7 adds `DeviceInfo.capabilities`, `SessionConfig.transport`, and `kCommandStreamMagic` (`SP2S`).
+- `wire::kProtocolVersion = 9` (stream relay is spyder; protocol version is owned by ge `Protocol.h`). **Stable** within 0.x; bumped on breaking structural change. v7 added `DeviceInfo.capabilities`, `SessionConfig.transport`, and `kCommandStreamMagic` (`SP2S`).
 - Little-endian byte order (static-asserted).
 - Max frame: `kMaxMessageSize = 512 MB` (ge `kMaxMessageSize` is the wire limit).
 

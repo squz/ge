@@ -2,7 +2,12 @@
 
 **Decision:** Migrate to sokol_gfx, deferred. Reversed 2026-05-04.
 
-**Status:** bgfx remains in use. Migration deferred until esfera2, multimaze2, and yourworld2 have all shipped — mid-flight renderer migration would destabilise active release branches. See "Reversal (2026-05-04)" below for the trigger and "When to start" for the unblocking conditions.
+**Status (superseded):** this document is historical. The migration to sokol_gfx
+has since happened (🎯T38); the bgfx vendor tree is gone from the repo. The
+paragraph below records the 2026-05-04 state and is retained for the rationale
+only.
+
+**Historical status (2026-05-04):** bgfx remains in use. Migration deferred until esfera2, multimaze2, and yourworld2 have all shipped — mid-flight renderer migration would destabilise active release branches. See "Reversal (2026-05-04)" below for the trigger and "When to start" for the unblocking conditions.
 
 ---
 
