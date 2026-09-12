@@ -1,0 +1,21 @@
+name: Engine unit tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prebuilt manifest
+        run: python3 tools/test_verify_prebuilds.py
+      - name: Dispatch null-safety
+        run: make dispatch-null-safety-test
+      - name: Engine doctest suite
+        run: make unit-test
