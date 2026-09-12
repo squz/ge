@@ -386,14 +386,17 @@ private:
         std::vector<std::pair<std::string, nlohmann::json>> sliceList(
             sliceUnion.begin(), sliceUnion.end());
         nlohmann::json slices = detail::buildSliceDescriptors(sliceList);
+        nlohmann::json helloParams{
+            {"app_name", app_}, {"app_version", ver_},
+            {"methods", methods}, {"slices", slices},
+            // 🎯T175.1 live session ids, so spyder can list and
+            // address sessions in this process.
+            {"sessions", ge::liveSessionIds()},
+        };
         sendFrame(nlohmann::json{
             {"id", nextId_++},
             {"method", "hello"},
-            {"params", {{"app_name", app_}, {"app_version", ver_},
-                        {"methods", methods}, {"slices", slices},
-                        // 🎯T175.1 live session ids, so spyder can list and
-                        // address sessions in this process.
-                        {"sessions", ge::liveSessionIds()}}}});
+            {"params", detail::applyHelloPairingToken(std::move(helloParams))}});
 
         for (;;) {
             nlohmann::json msg;

@@ -6,6 +6,7 @@
 // header: lives in src/, included only by appchannel.cpp and appchannel_test.cpp.
 #pragma once
 
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,6 +43,22 @@ struct MethodAdvert {
     std::string doc;
 };
 nlohmann::json buildMethodDescriptors(const std::vector<MethodAdvert>& methods);
+
+// Spyder F2: non-loopback app-channel binds mint SPYDER_APP_CHANNEL_TOKEN
+// and reject Hello without it. Copy the env into hello params when set;
+// omit the field when unset so loopback Hello stays token-free.
+//
+// Inline so appchannel_test.cpp can compile as a standalone oracle
+// without linking libge (this worktree's vendor submodules are empty).
+inline std::string resolvePairingToken() {
+    if (const char* e = std::getenv("SPYDER_APP_CHANNEL_TOKEN"); e && *e) return e;
+    return {};
+}
+inline nlohmann::json applyHelloPairingToken(nlohmann::json params) {
+    if (auto t = resolvePairingToken(); !t.empty())
+        params["token"] = std::move(t);
+    return params;
+}
 
 // 🎯T109 One exportable hit target (pure DTO for tests + encoder).
 struct HitTargetExport {

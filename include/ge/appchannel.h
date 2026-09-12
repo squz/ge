@@ -7,8 +7,10 @@
 //
 // Activated when SPYDER_APP_CHANNEL is set to "host:port" (🎯T119; spyder's
 // launch_app / deploy_app inject it). On connect the app sends a `hello`
-// request advertising its app_name / app_version and the method names it has
-// handlers for, and awaits spyder's {spyder_version, accepted_methods} before
+// request advertising its app_name / app_version, the method names it has
+// handlers for, and Hello.token from SPYDER_APP_CHANNEL_TOKEN when spyder
+// minted a pairing secret (required on physical-device LAN binds after
+// spyder F2). Awaits spyder's {spyder_version, accepted_methods} before
 // the channel is live.
 //
 // Wire format (spyder T75): length-prefixed frames — [4-byte LE length]
