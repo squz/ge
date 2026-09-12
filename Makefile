@@ -21,7 +21,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
         python-test dispatch-null-safety-test release-surface-test \
-        docs-identity-test \
+        docs-identity-test incremental-deps-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
         prebuild-libge-android-arm64 \
@@ -49,7 +49,7 @@ cell.%:
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
 bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test \
-          docs-identity-test
+          docs-identity-test incremental-deps-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
@@ -94,6 +94,10 @@ release-surface-test:
 # version, retired player/vendor paths).
 docs-identity-test:
 	@tools/check-docs-identity.py
+
+# 🎯T100: engine -MMD .d files are -included; a public-header touch rebuilds.
+incremental-deps-test:
+	@tools/check-incremental-deps.sh
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #

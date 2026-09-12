@@ -1316,6 +1316,9 @@ ge/ci-init:
 
 # ── End of 🎯T64.* ship substrate ─────────────────────────────────────────
 
-# Dep-file include for the app's own objects. Engine object .d files are
-# already picked up by their own implicit pattern-rule dep tracking.
--include $(APP_OBJ:.o=.d)
+# Header deps from -MMD -MP. GNU Make 3.81 does not consume .d files
+# implicitly; without these -include lines a public-header edit leaves
+# stale engine/test objects (🎯T100 / T97 stale-link).
+-include $(ge/OBJ:.o=.d) $(ge/TEST_OBJ:.o=.d) $(APP_DEBUG_OBJ:.o=.d) \
+         $(APP_OBJ:.o=.d) $(ge/VENDOR_CPP_OBJ:.o=.d) \
+         $(ge/LUNASVG_OBJ:.o=.d) $(ge/PLUTOVG_OBJ:.o=.d)
