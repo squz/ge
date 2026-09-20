@@ -65,26 +65,23 @@ fi
 # see it. Committing the ledger on a feature branch is fine and is NOT blocked
 # — it reaches master when the branch does.
 #
-# Skipped in a consumer's submodule checkout (no ledger, or no master branch).
-if [[ -f "$REPO_ROOT/bullseye.yaml" ]] \
-   && git rev-parse --verify --quiet refs/heads/master >/dev/null \
+# Delegates to the same check `make ledger-check` runs, rather than restating
+# the rule: a second copy of this logic would drift, and the copy that drifted
+# first would be the one tolerating a stale-but-landed ledger, turning every
+# long-lived checkout unable to commit the moment master moves.
+#
+# Skipped when the ledger is staged (it is riding this commit, as intended),
+# and in any checkout without the script — e.g. a consumer's ge submodule.
+if [[ -x "$REPO_ROOT/tools/check-ledger-parity.sh" ]] \
    && ! git diff --cached --name-only | grep -qx 'bullseye\.yaml'; then
-  work_blob="$(git hash-object "$REPO_ROOT/bullseye.yaml")"
-  head_blob="$(git rev-parse --verify --quiet HEAD:bullseye.yaml || true)"
-  base_blob="$(git rev-parse --verify --quiet master:bullseye.yaml || true)"
-  if [[ "$work_blob" != "$head_blob" && "$work_blob" != "$base_blob" ]]; then
+  if ! "$REPO_ROOT/tools/check-ledger-parity.sh" >/dev/null 2>&1; then
+    "$REPO_ROOT/tools/check-ledger-parity.sh" >&2 || true
     {
-      echo "error: bullseye.yaml holds a filing that exists in no commit,"
-      echo "       and this commit does not include it."
+      echo "This commit does not include bullseye.yaml, so that filing would be"
+      echo "left behind in the working copy — invisible to every other checkout."
       echo ""
-      echo "  Committing around it leaves that target invisible to every other"
-      echo "  checkout — which is how the ledger forked four times on 2026-09-21."
-      echo ""
-      echo "  Land it first:   make ledger-land"
-      echo "  Or include it:   git add bullseye.yaml"
-      echo "  Or discard it:   git checkout master -- bullseye.yaml"
-      echo ""
-      echo "  Details:         tools/check-ledger-parity.sh"
+      echo "  Include it:  git add bullseye.yaml"
+      echo "  Or land it:  make ledger-land"
     } >&2
     exit 1
   fi

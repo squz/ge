@@ -28,6 +28,9 @@
 #     because this repo's lifecycle rule is that the ledger rides the commit
 #     that changes it, and reaches master when that branch does
 #   - a checkout already at parity          (working == master)  → fine
+#   - an un-refreshed copy of a state master ALREADY had          → fine,
+#     reported as stale. Without this, every long-lived checkout starts
+#     failing the moment master moves, and the check gets ignored.
 #
 # A branch whose ledger is committed but not yet on master gets a WARNING,
 # not a failure: it is visible in git and recoverable, unlike the working-copy
@@ -42,7 +45,8 @@ LEDGER="bullseye.yaml"
 BASE="${GE_LEDGER_BASE:-master}"
 
 TMP_BASE="$(mktemp)"; TMP_MINE="$(mktemp)"; TMP_THEIRS="$(mktemp)"
-trap 'rm -f "$TMP_BASE" "$TMP_MINE" "$TMP_THEIRS"' EXIT
+TMP_HIST="$(mktemp)"; TMP_BLOBS="$(mktemp)"
+trap 'rm -f "$TMP_BASE" "$TMP_MINE" "$TMP_THEIRS" "$TMP_HIST" "$TMP_BLOBS"' EXIT
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -74,6 +78,25 @@ if [[ "$work_blob" == "$head_blob" ]]; then
   echo "  it reaches $BASE when this branch does. Not a fork."
   exit 0
 fi
+
+# STALE, not forked: this exact content is a state $BASE already had, so it
+# reached everyone once and simply has not been refreshed since. Erroring here
+# would fire on every long-lived checkout the moment $BASE moves, and a check
+# that cries wolf is one people learn to bypass — which is the failure this
+# whole target exists to prevent. Reported, not failed.
+# Materialised rather than piped straight into `grep -q`: -q exits on the
+# first match and SIGPIPEs `git cat-file` upstream, and under `pipefail` the
+# pipeline then reports that killed stage's failure — so a successful match
+# read as "not found". Exactly the class of pipeline-status bug that makes a
+# gate lie, in miniature.
+git rev-list "$BASE" -- "$LEDGER" | sed "s|\$|:$LEDGER|" > "$TMP_HIST"
+git cat-file --batch-check='%(objectname)' < "$TMP_HIST" > "$TMP_BLOBS" 2>/dev/null || true
+if grep -qx "$work_blob" "$TMP_BLOBS"; then
+  echo "ℹ ledger here is an older state of $BASE (stale, not forked)."
+  echo "  Refresh before filing:  git checkout $BASE -- $LEDGER"
+  exit 0
+fi
+
 
 # Working-copy-only content: the lethal shape.
 branch="$(git symbolic-ref --quiet --short HEAD || echo 'detached HEAD')"
