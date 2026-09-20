@@ -83,9 +83,10 @@ fi
 # initialised. A consumer CI that checks ge out with `submodules: true`
 # (NOT recursive) has ge but none of its vendor trees -- that was the
 # whole point of shipping prebuilt archives (T71). Since Phase 1 no
-# longer commits archives, such a checkout can neither cook nor fetch
-# until release-asset download lands (T181.1 / T181.2). Say so plainly
-# instead of dying inside prebuild.sh on the first missing source.
+# longer commits archives, and the source-only doctrine rules out ever
+# publishing them, a non-recursive checkout simply cannot build: there
+# is nothing to fetch and nothing to cook from. Say so plainly instead
+# of dying inside prebuild.sh on the first missing source.
 # `git submodule status` prefixes an uninitialised entry with '-'.
 if git -C "$GE_ROOT" submodule status --recursive 2>/dev/null \
    | grep -q '^-'; then
@@ -98,8 +99,9 @@ if git -C "$GE_ROOT" submodule status --recursive 2>/dev/null \
     echo "  # Full checkout (developer / co-dev):"
     echo "  git -C $GE_ROOT submodule update --init --recursive"
     echo ""
-    echo "  # Consumer CI: check ge out recursively, or wait for release-asset"
-    echo "  # download (🎯T181.1 / 🎯T181.2) and pin an exact ge release tag."
+    echo "  # Consumer CI: check ge out recursively too —"
+    echo "  #   actions/checkout with submodules: recursive"
+    echo "  # ge prebuilts are cooked from source, never downloaded."
     echo ""
     echo "See docs/vendor-prebuilds.md."
   } >&2

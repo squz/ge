@@ -159,9 +159,19 @@ guard, so a missing project still fails immediately rather than after a
 full cook. `GE_SKIP_ENSURE_PREBUILT=1` opts out and will happily link a
 stale tree.
 
-The first build on a fresh clone therefore pays a full co-cook. Caching
-that (Actions cache, or downloading a tagged release's archives — 🎯T181.1
-/ 🎯T181.2) is the follow-up, not a prerequisite.
+The first build on a fresh clone therefore pays a full co-cook, and
+consumer CI must check ge out **recursively** so the vendor sources are
+present to cook from.
+
+**There is no download path, by decision.** Publishing archives as
+GitHub Release assets and resolving them from an exact tag were once
+planned as 🎯T181.1 / 🎯T181.2; both were cancelled on 2026-09-20 in
+favour of source-only. With a handful of developers barely touching
+these trees, a per-consumer cook is cheaper than operating a release-
+asset pipeline and a version-pinned resolver — and it removes the
+release pointer from the ingest path entirely, so a game never waits on
+a ge tag to pick up engine changes. Revisit only if a full cook stops
+being affordable.
 
 Checkout ge with `submodules: true` (not recursive) for headers +
 cook/manifest text only.
