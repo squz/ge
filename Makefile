@@ -68,6 +68,7 @@ ruby-test:
 # verifier (🎯T78). Runs in ~1s; wired into `bullseye` for the same
 # reason as ruby-test.
 python-test:
+	@python3 tools/test_verify_manifest.py
 	@python3 tools/test_verify_prebuilds.py
 
 # 🎯T140/T141: the sokol dispatch shim's teardown forwarders (sg_isvalid /

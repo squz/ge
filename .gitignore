@@ -48,3 +48,21 @@ tools/android/.idea/
 # Old ged dashboard SPA leftovers (ged removed Plateau P / T145)
 web/node_modules/
 web/
+
+# Local GE/vendor static libs — cook with make prebuild; do not commit
+prebuilt/**/*.a
+prebuilt/**/*.so
+prebuilt/**/*.dylib
+prebuilt/**/*.o
+prebuilt/**/*.lib
+prebuilt/**/*.dll
+prebuilt/**/*.exe
+**/libge.a
+vendor/**/*.a
+bin/*/shaderc
+*.jar
+# ...but the Gradle wrapper jar is a build input consumers need:
+# tools/init-android.sh copies gradle/ wholesale, so a missing jar
+# leaves `make ge/android-init` scaffolding a project whose ./gradlew
+# cannot start. 54 KB plain blob; never was a cook output.
+!**/gradle-wrapper.jar
