@@ -19,16 +19,20 @@ set -euo pipefail
 GE_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$GE_ROOT"
 
+# shellcheck source=tools/android-ndk.sh
+source "$GE_ROOT/tools/android-ndk.sh"
+
 # Pin the same NDK major the consumer fleet links with (🎯T103).
 GE_ANDROID_NDK_MAJOR="${GE_ANDROID_NDK_MAJOR:-27}"
 if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
   NDK="$ANDROID_NDK_HOME"
 else
-  NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/"$GE_ANDROID_NDK_MAJOR".*/ 2>/dev/null | sort -V | tail -1)"
-  NDK="${NDK%/}"
+  NDK="$(ge_android_ndk_dir "$GE_ANDROID_NDK_MAJOR" || true)"
 fi
-[[ -d "${NDK:-}" ]] || { echo "error: Android NDK r$GE_ANDROID_NDK_MAJOR not found" >&2; exit 1; }
-HOST="$(ls "$NDK/toolchains/llvm/prebuilt" | head -1)"
+[[ -n "${NDK:-}" ]] || { echo "error: no Android NDK r$GE_ANDROID_NDK_MAJOR is installed" >&2; exit 1; }
+[[ -d "$NDK" ]] || { ge_android_ndk_explain_unusable "Android NDK r$GE_ANDROID_NDK_MAJOR" "$NDK"; exit 1; }
+HOST="$(ge_android_ndk_host "$NDK" || true)"
+[[ -n "$HOST" ]] || { echo "error: NDK at $NDK has no usable llvm toolchain" >&2; exit 1; }
 CC="$NDK/toolchains/llvm/prebuilt/$HOST/bin/clang"
 SYSROOT="$NDK/toolchains/llvm/prebuilt/$HOST/sysroot"
 

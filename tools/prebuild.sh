@@ -83,6 +83,11 @@ fi
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
+# NDK discovery lives in one place so every Android entry point resolves the
+# toolchain the same way (🎯T191).
+# shellcheck source=tools/android-ndk.sh
+source "$GE_ROOT/tools/android-ndk.sh"
+
 # Debug and release prebuilts are separate trees so a debug cook never
 # overwrites the optimised archives consumers ship / CI verifies.
 if [[ "$DEBUG" -eq 1 ]]; then
@@ -207,23 +212,30 @@ case "$PLATFORM" in
       # Highest installed NDK whose MAJOR matches the pin, so an
       # incidentally-newer NDK on the build machine can't leak forward-
       # incompatible symbols into the shipped prebuilt.
-      NDK="$(ls -d "$HOME"/Library/Android/sdk/ndk/"$GE_ANDROID_NDK_MAJOR".*/ 2>/dev/null | sort -V | tail -1)"
-      NDK="${NDK%/}"
+      NDK="$(ge_android_ndk_dir "$GE_ANDROID_NDK_MAJOR" || true)"
     fi
-    if [[ -z "${NDK:-}" || ! -d "$NDK" ]]; then
-      echo "error: Android NDK r$GE_ANDROID_NDK_MAJOR not found." >&2
+    if [[ -z "${NDK:-}" ]]; then
+      echo "error: no Android NDK r$GE_ANDROID_NDK_MAJOR is installed." >&2
       echo "  Install it under ~/Library/Android/sdk/ndk/ (e.g. r$GE_ANDROID_NDK_MAJOR.x), or set" >&2
       echo "  ANDROID_NDK_HOME to an r$GE_ANDROID_NDK_MAJOR toolchain. The prebuilt's libc++ ABI" >&2
       echo "  must be no newer than any consumer's NDK (🎯T100)." >&2
+      exit 1
+    fi
+    if [[ ! -d "$NDK" ]]; then
+      # Distinct from "not installed": something handed us a path we cannot
+      # use, and saying "install the NDK" would send the reader hunting for a
+      # toolchain that is already on disk (🎯T191).
+      ge_android_ndk_explain_unusable "Android NDK r$GE_ANDROID_NDK_MAJOR" "$NDK"
       exit 1
     fi
     # Pin write-manifest.py (called below) to the SAME NDK so the manifest
     # records exactly what built the archive — no independent re-derivation
     # that could pick a different (newer) NDK than this build used.
     export ANDROID_NDK_HOME="$NDK"
-    NDK_HOST="$(ls "$NDK/toolchains/llvm/prebuilt" 2>/dev/null | head -1)"
+    NDK_HOST="$(ge_android_ndk_host "$NDK" || true)"
     if [[ -z "$NDK_HOST" ]]; then
-      echo "error: no llvm host triple under $NDK/toolchains/llvm/prebuilt." >&2
+      echo "error: NDK at $NDK has no usable llvm toolchain." >&2
+      echo "  Looked for */bin/clang under $NDK/toolchains/llvm/prebuilt." >&2
       exit 1
     fi
     NDK_BIN="$NDK/toolchains/llvm/prebuilt/$NDK_HOST/bin"

@@ -207,9 +207,18 @@ build_image_ttf_ios() {
 build_sdl_android() {
   local ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
   if [[ -z "$ndk" ]]; then
-    local cand
-    cand="$(ls -d "$HOME/Library/Android/sdk/ndk"/* 2>/dev/null | sort -V | tail -1 || true)"
-    ndk="$cand"
+    # Any installed major will do here (SDL has no libc++ ABI pin of its
+    # own), so scan the whole ndk/ directory by glob — never by parsing `ls`,
+    # whose output carries ANSI escapes on a colourised host (🎯T191).
+    local d
+    local cands=()
+    for d in "$HOME"/Library/Android/sdk/ndk/*/; do
+      [[ -d "$d" ]] || continue
+      cands+=("${d%/}")
+    done
+    if [[ ${#cands[@]} -gt 0 ]]; then
+      ndk="$(printf '%s\n' "${cands[@]}" | sort -V | tail -1)"
+    fi
   fi
   if [[ -z "$ndk" || ! -d "$ndk" ]]; then
     echo "WARN: no Android NDK; skipping android-arm64 libSDL3.a (consumers build SDL from submodule)"

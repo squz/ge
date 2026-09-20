@@ -20,7 +20,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
-        python-test dispatch-null-safety-test release-surface-test \
+        python-test dispatch-null-safety-test release-surface-test ndk-discovery-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
         prebuild-libge-android-arm64 \
@@ -47,7 +47,7 @@ cell.%:
 # Standing invariants for /cv. Exit 0 means all green; non-zero means a
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
-bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test
+bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test ndk-discovery-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
@@ -88,6 +88,12 @@ dispatch-null-safety-test:
 # sample link dead-strips stream/encode symbols.
 release-surface-test:
 	@tools/check-release-surface.sh
+
+# 🎯T191/🎯T186: Android toolchain paths come from globs, not from parsing
+# `ls`, so a colourised host cannot break the cook. Sub-second; wired into
+# `bullseye` so a reintroduced `$(ls …)` capture is caught at /cv time.
+ndk-discovery-test:
+	@tools/test-android-ndk.sh
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #
