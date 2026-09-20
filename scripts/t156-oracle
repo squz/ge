@@ -122,8 +122,14 @@ run_stream() { # name script extra-player-flags...
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=
-    local latest
-    latest=$(ls -t "$EVIDENCE"/s[0-9]*.trace 2>/dev/null | head -1)
+    # Newest trace by mtime, via glob + bash's -nt — not `ls -t`, whose output
+    # carries ANSI escapes on a colourised host and yields an unusable path
+    # (🎯T191/🎯T186).
+    local latest="" f
+    for f in "$EVIDENCE"/s[0-9]*.trace; do
+        [ -f "$f" ] || continue
+        if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then latest="$f"; fi
+    done
     [ -n "$latest" ] && mv "$latest" "$EVIDENCE/$name-stream.trace"
 }
 

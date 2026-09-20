@@ -35,6 +35,21 @@ fi
 source "${SCRIPT_DIR}/worktree.sh"
 source "${SCRIPT_DIR}/manifest.sh"
 
+# first_ipa <dir> — the .ipa fastlane just wrote, by glob rather than by
+# parsing `ls`. macOS ls honours CLICOLOR_FORCE=1 even into a pipe, so
+# `$(ls "$dir"/*.ipa | head -1)` hands back a path with ANSI escapes in it and
+# the upload fails on a file that is plainly there (🎯T191/🎯T186). Prints
+# nothing when the directory holds no .ipa, exactly as the old capture did.
+first_ipa() {
+    local f
+    for f in "$1"/*.ipa; do
+        [ -f "$f" ] || continue
+        printf '%s\n' "$f"
+        return 0
+    done
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -161,7 +176,7 @@ if [ "${lane}" = "alpha" ]; then
     fi
 
     echo "ship/release: uploading to TestFlight (internal)..."
-    local_ipa="$(ls "${ipa_dir}"/*.ipa 2>/dev/null | head -1)"
+    local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
         bundle exec fastlane upload_testflight \
@@ -214,7 +229,7 @@ if [ "${lane}" = "beta" ]; then
             type:"appstore"
     )
 
-    local_ipa="$(ls "${ipa_dir}"/*.ipa 2>/dev/null | head -1)"
+    local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
         bundle exec fastlane upload_testflight \
@@ -283,7 +298,7 @@ if [ "${lane}" = "release" ]; then
             type:"appstore"
     )
 
-    local_ipa="$(ls "${ipa_dir}"/*.ipa 2>/dev/null | head -1)"
+    local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
         bundle exec fastlane upload_testflight \

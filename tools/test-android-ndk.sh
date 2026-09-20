@@ -27,7 +27,6 @@ pass() { echo "  ✓ $*"; }
 # Wraps every line of the real ls in SGR escapes, which is what macOS ls does
 # under CLICOLOR_FORCE=1 and what GNU ls does under --color=always.
 shim="$(mktemp -d)"
-trap 'rm -rf "$shim"' EXIT
 cat > "$shim/ls" <<'SHIM'
 #!/bin/bash
 /bin/ls "$@" | while IFS= read -r line; do printf '\033[1m\033[36m%s\033[39;49m\033[0m\n' "$line"; done
@@ -80,9 +79,63 @@ else
   echo "  ⚠ no r$major NDK installed — resolver assertions skipped" >&2
 fi
 
+# ── 1b. The empty and half-installed cases, under real bash 3.2 ──────────
+# Two holes this closes, both raised against the first cut of this file:
+#
+#   * `#!/usr/bin/env bash` picks Homebrew's bash 5 on a dev Mac, so nothing
+#     above ever ran on the 3.2.57 that macOS actually ships — the exact
+#     invisibility bash.md warns about. These cases re-exec under /bin/bash.
+#   * The resolvers were only ever exercised on a host WITH an NDK. The
+#     no-NDK path is the one that leaves the candidate array empty, and an
+#     empty array under `set -u` is bash 3.2's classic trap.
+#
+# Asserting /bin/bash really is 3.x first, because a version check that
+# silently passes on bash 5 would make this whole section vacuous.
+bash32_version="$(/bin/bash -c 'echo "$BASH_VERSION"')"
+case "$bash32_version" in
+  3.*) pass "/bin/bash is $bash32_version (3.2 trap is actually exercised)" ;;
+  *)   fail "/bin/bash is $bash32_version, not 3.x — the bash 3.2 cases below prove nothing" ;;
+esac
+
+fixture="$(mktemp -d)"
+trap 'rm -rf "$shim" "$fixture"' EXIT
+mkdir -p "$fixture/empty-home"
+# A half-installed NDK: the directory and the host triple exist, the clang
+# does not. ge must call that "no usable toolchain", not hand back a path
+# that dies at exec time.
+mkdir -p "$fixture/half-home/Library/Android/sdk/ndk/27.9.99/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+
+if /bin/bash -euo pipefail -c '
+  set -euo pipefail
+  source "$1/tools/android-ndk.sh"
+
+  HOME="$2/empty-home"
+  if ge_android_ndk_dir 27 > "$2/out" 2>&1; then
+    echo "FAIL: ge_android_ndk_dir succeeded with no NDK installed"; exit 1
+  fi
+  if [ -s "$2/out" ]; then
+    echo "FAIL: ge_android_ndk_dir printed something with no NDK installed"; exit 1
+  fi
+
+  HOME="$2/half-home"
+  ndk="$(ge_android_ndk_dir 27)"
+  [ "$ndk" = "$2/half-home/Library/Android/sdk/ndk/27.9.99" ] || {
+    echo "FAIL: half-installed NDK resolved to [$ndk]"; exit 1
+  }
+  if ge_android_ndk_host "$ndk" > "$2/out" 2>&1; then
+    echo "FAIL: ge_android_ndk_host accepted a triple with no runnable clang"; exit 1
+  fi
+  exit 0
+' _ "$GE_ROOT" "$fixture"; then
+  pass "bash 3.2: empty and half-installed NDK trees resolve cleanly under set -u"
+else
+  fail "bash 3.2: resolvers misbehave on an empty or half-installed NDK tree"
+fi
+
 # ── 2. No Android script builds a path out of `ls` again ─────────────────
 # Runs everywhere, NDK or not: this is the part that catches a reintroduction.
-for f in tools/prebuild.sh tools/vkprobe/build-cli.sh tools/rebuild-sdl-prebuilts.sh tools/android-ndk.sh; do
+for f in tools/prebuild.sh tools/vkprobe/build-cli.sh tools/rebuild-sdl-prebuilts.sh \
+         tools/android-ndk.sh tools/ship/release.sh scripts/t156-oracle; do
   # Strip whole-line comments first — this very rule is described in prose in
   # tools/android-ndk.sh, and a doc mention is not a defect.
   if sed 's/^[[:space:]]*#.*//' "$f" | grep -nE '\$\((ls|/bin/ls)[[:space:]]'; then
