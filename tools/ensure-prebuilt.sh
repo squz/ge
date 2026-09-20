@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Phase 1 LFS exit: archives are local-only — cook here; do not git add prebuilt/**/*.a.
 # Ensure prebuilt/<platform>/ (or prebuilt/<platform>-debug/) matches the
 # working tree before a mobile link.
 #
@@ -8,7 +9,7 @@
 # platform: ios-arm64 | ios-arm64-simulator | android-arm64
 # --debug / GE_PREBUILD_DEBUG=1 → prebuilt/<platform>-debug/
 #
-# If the platform's manifest is already fresh (tools/verify-prebuilds.py),
+# If the platform's manifest is already fresh (tools/verify-manifest.py),
 # exit 0. Otherwise run a *full* prebuild of every archive in the tree.
 # Partial (--libge-only) cooks are gone: they left libge ahead of vendor
 # libs and caused the 2026-07 Android sqldeep SIGSEGV.
@@ -63,7 +64,11 @@ fi
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
-VERIFY=(python3 "$GE_ROOT/tools/verify-prebuilds.py" --platform "$PREBUILT_KEY")
+# Staleness oracle: "were these archives cooked from the sources on disk
+# now?" NOT tools/verify-prebuilds.py, which after the Phase 1 LFS exit
+# answers the unrelated "are binaries tracked in git?" and takes no
+# arguments -- passing --platform to it made this gate a silent no-op.
+VERIFY=(python3 "$GE_ROOT/tools/verify-manifest.py" --platform "$PREBUILT_KEY")
 
 if "${VERIFY[@]}" >/dev/null 2>&1 \
    && python3 "$GE_ROOT/tools/verify-cook.py" "prebuilt/$PREBUILT_KEY" >/dev/null 2>&1; then
@@ -72,6 +77,33 @@ if "${VERIFY[@]}" >/dev/null 2>&1 \
 fi
 if "${VERIFY[@]}" >/dev/null 2>&1; then
   echo "ge: prebuilt/$PREBUILT_KEY cook.json does not match archives — full recook"
+fi
+
+# Cooking compiles vendor sources, so ge's own submodules must be
+# initialised. A consumer CI that checks ge out with `submodules: true`
+# (NOT recursive) has ge but none of its vendor trees -- that was the
+# whole point of shipping prebuilt archives (T71). Since Phase 1 no
+# longer commits archives, such a checkout can neither cook nor fetch
+# until release-asset download lands (T181.1 / T181.2). Say so plainly
+# instead of dying inside prebuild.sh on the first missing source.
+# `git submodule status` prefixes an uninitialised entry with '-'.
+if git -C "$GE_ROOT" submodule status --recursive 2>/dev/null \
+   | grep -q '^-'; then
+  {
+    echo "error: cannot cook prebuilt/$PREBUILT_KEY — ge's vendor submodules are not initialised."
+    echo ""
+    echo "Archives are no longer committed (Phase 1 LFS exit), so they have to be"
+    echo "cooked from vendor sources. Pick one:"
+    echo ""
+    echo "  # Full checkout (developer / co-dev):"
+    echo "  git -C $GE_ROOT submodule update --init --recursive"
+    echo ""
+    echo "  # Consumer CI: check ge out recursively, or wait for release-asset"
+    echo "  # download (🎯T181.1 / 🎯T181.2) and pin an exact ge release tag."
+    echo ""
+    echo "See docs/vendor-prebuilds.md."
+  } >&2
+  exit 1
 fi
 
 echo "ge: prebuilt/$PREBUILT_KEY is stale — full prebuild of every archive…"

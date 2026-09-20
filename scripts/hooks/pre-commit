@@ -2,9 +2,9 @@
 # Pre-commit hook for ge.
 # Activated by: git config core.hooksPath scripts/hooks
 #
-# 1) Always: reject staged binary paths that have filter=lfs but whose
-#    index blob is not an LFS pointer (would bloat the git object store).
-# 2) When prebuilt inputs change: run tools/verify-prebuilds.py.
+# Phase 1 LFS exit:
+# 1) Reject staging prebuilt/vendor binary cook outputs (do not commit archives).
+# 2) When relevant paths change, run tools/verify-prebuilds.py tip-tree gate.
 #
 # Bypass for an unrelated change:  git commit --no-verify
 #
@@ -15,66 +15,56 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# ── 1. Git LFS: staged files with filter=lfs must be pointers ─────────────
-# Covers new prebuilt/**/*.a, vendor .a, jars, etc. once .gitattributes
-# routes them through LFS. A missing git-lfs clean filter is the usual
-# failure mode (full archive committed as a plain blob).
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
 
-lfs_bad=()
+# ── 1. Reject staged binary cook outputs ──────────────────────────────────
+bin_bad=()
 for path in "${staged[@]}"; do
-  # Renames: check the destination path only.
-  filter="$(git check-attr filter -- "$path" | awk -F': ' '{print $NF}')"
-  if [[ "$filter" != "lfs" ]]; then
-    continue
+  base="${path##*/}"
+  if [[ "$path" == prebuilt/* && "$base" == *.a ]]; then
+    bin_bad+=("$path"); continue
   fi
-  # Index blob must start with the LFS pointer header (small text file).
-  if ! git cat-file -p ":$path" 2>/dev/null | head -c 100 | grep -q '^version https://git-lfs.github.com/spec/v1'; then
-    lfs_bad+=("$path")
+  if [[ "$path" == vendor/* && "$base" == *.a ]]; then
+    bin_bad+=("$path"); continue
+  fi
+  if [[ "$base" == libge.a ]]; then
+    bin_bad+=("$path"); continue
+  fi
+  if [[ "$path" == prebuilt/* || "$path" == vendor/* ]]; then
+    case "$base" in
+      *.so|*.dylib|*.o|*.lib|*.dll|*.exe) bin_bad+=("$path"); continue ;;
+    esac
+  fi
+  if [[ "$base" == *.jar && "$path" != *gradle-wrapper.jar ]]; then
+    bin_bad+=("$path"); continue
+  fi
+  if [[ "$path" == bin/*/shaderc ]]; then
+    bin_bad+=("$path"); continue
   fi
 done
 
-if ((${#lfs_bad[@]} > 0)); then
+if ((${#bin_bad[@]} > 0)); then
   {
-    echo "error: staged file(s) are LFS-tracked but not LFS pointers:"
-    for p in "${lfs_bad[@]}"; do
-      size="$(git cat-file -s ":$p" 2>/dev/null || echo '?')"
-      echo "  $p  (index blob ~${size} bytes)"
+    echo "error: do not commit prebuilt/binary cook outputs (Phase 1 LFS exit):"
+    for p in "${bin_bad[@]}"; do
+      echo "  $p"
     done
     echo ""
-    echo "Fix: install git-lfs, then re-stage:"
-    echo "  git lfs install"
-    echo "  git lfs track   # confirm patterns in .gitattributes"
-    echo "  git add --renormalize -- ${lfs_bad[*]}"
-    echo ""
-    echo "Never commit large .a/.so/.jar as plain git blobs."
+    echo "Cook locally with \`make prebuild\` / ensure-prebuilt; leave archives untracked."
+    echo "See docs/vendor-prebuilds.md."
   } >&2
   exit 1
 fi
 
-# ── 2. Prebuilt freshness (only when relevant paths are staged) ───────────
+# ── 2. Tip-tree gate when attributes/ignore/verify paths touch ────────────
 RELEVANT_PATTERNS=(
-  '^src/'
-  '^include/'
-  '^vendor/src/'
-  '^vendor/include/'
-  '^headers/'
-  '^tools/player_orientation_ios\.mm'
-  '^tools/prebuild\.sh'
-  '^tools/lift-headers\.sh'
-  '^tools/write-manifest\.py'
-  '^tools/verify-prebuilds\.py'
-  '^\.gitmodules$'
   '^prebuilt/'
+  '^\.gitattributes$'
+  '^\.gitignore$'
+  '^tools/verify-prebuilds\.py'
+  '^scripts/hooks/pre-commit$'
+  '^\.github/workflows/verify-prebuilds\.yml$'
 )
-
-# Submodule SHA bumps (gitlink) under vendor/github.com/.
-for path in "${staged[@]}"; do
-  if [[ "$path" == vendor/github.com/* ]] && \
-     [[ "$(git ls-files --stage -- "$path" 2>/dev/null | awk '{print $1}')" == "160000" ]]; then
-    RELEVANT_PATTERNS+=('^'"$(printf '%s' "$path" | sed 's/[.\\\\\\/]/\\\\&/g')"'$')
-  fi
-done
 
 relevant=false
 for path in "${staged[@]}"; do

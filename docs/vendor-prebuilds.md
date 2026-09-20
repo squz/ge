@@ -1,66 +1,57 @@
 # Prebuilds
 
-ge ships prebuilt static libs and lifted public headers for vendor
-dependencies **plus libge itself** so consumer apps' CI
-doesn't need to recursively initialize ge's submodules and doesn't
-need to recompile ge from sources.
+ge cooks prebuilt static libs and lifts public headers for vendor
+dependencies **plus libge itself** so local and CI builds can link without
+recompiling every vendor source on every iteration.
 
-The artefacts:
+**Phase 1 LFS exit (2026-09):** prebuilt **archives are a local cache only**.
+They are **not** committed to git / Git LFS. Cook on your machine (or in CI)
+with `make prebuild` / `tools/ensure-prebuilt.sh`. Do **not**
+`git add prebuilt/**/*.a`.
 
-- **`ge/prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64,web-wasm}/lib<name>.a`**
-  — optimised static libs for box2d, lunasvg_ge, plutovg_ge, sqlite3_ge, lz4_ge,
-  liteparser, and **ge**, tracked via Git LFS.
-- **`ge/prebuilt/<platform>-debug/`** — same archives cooked with **`-g -O2
-  -fno-omit-frame-pointer`** (symbols + release-class optimisation). Not
-  `-O0`: that can hide optimised-only bugs. Override with `GE_PREBUILD_OPT=0`
-  only when you explicitly want a no-opt cook. Built with
-  `tools/prebuild.sh --debug <platform>` or `make prebuild-android-arm64-debug`.
-  Android `assembleDebug` selects this tree via `cmake/android-arm64.cmake`.
-- **`ge/headers/<dep>/include/`** — lifted public-header subset of
-  each header-providing submodule (bgfx, bx, bimg, box2d, lunasvg,
-  plutovg, liteparser, sdl3 — SDL3 core + freetype, spdlog, asio),
-  committed as regular git files. ~14 MB total.
+What still lives in git:
+
+- **`prebuilt/<platform>/cook.json`** and **`manifest.json`** — cook identity
+  + staleness metadata (plain text).
+- **`headers/<dep>/include/`** — lifted public-header subset (~14 MB), plain
+  files.
+
+Local artefacts (gitignored):
+
+- **`prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64,web-wasm}/lib*.a`**
+- **`prebuilt/<platform>-debug/`** — same archives with **`-g -O2
+  -fno-omit-frame-pointer`**. Built with `tools/prebuild.sh --debug
+  <platform>` or `make prebuild-android-arm64-debug`. Android
+  `assembleDebug` selects the debug tree via `cmake/android-arm64.cmake`.
 
 The `_ge` suffix on lunasvg, plutovg, sqlite3, lz4 avoids name clashes
 with SDL3's bundled plutosvg/plutovg and any system-installed sqlite3.
 
 The Apple iOS xcodeproj generator
-(`ge/tools/ios-build/build_project.rb`) wires both into the project it
-emits — header search paths point at `ge/headers/<dep>/include/`, the
-linker pulls `-l<lib>` out of `ge/prebuilt/ios-arm64/`. The consumer's
-xcodeproj compiles only the game's own sources plus
-`src/iap_apple.swift` (the Swift StoreKit-2 bridge — kept inline
-because Swift integration with a static lib still needs the
-consumer's bridging-header config).
+(`ge/tools/ios-build/build_project.rb`) wires headers + local prebuilt
+dirs into the project it emits. The consumer's xcodeproj compiles the
+game's own sources plus `src/iap_apple.swift`.
 
 ## Why this exists
 
 Before T71, multimaze2's GHA workflow checked out ge with
-`submodules: recursive`, which pulled ~150 MB of nested vendor
-repos (bgfx + dependencies are by far the biggest). The same vendor
-sources were then recompiled from scratch on every CI run because GHA
-caches don't carry .o files across runs cleanly. Per-run cost was
-~$0.50 and ~4 minutes of wall time, mostly spent on work that produces
-the same .a files every time.
+`submodules: recursive`, which pulled ~150 MB of nested vendor repos and
+recompiled them every CI run. T71 moved vendor compilation to a cook
+keyed off submodule SHAs. Archives were temporarily shipped via Git LFS;
+that path is retired because Squz org LFS quota was exhausted by
+historical cook OIDs.
 
-T71 moves the vendor compilation to a one-shot local-laptop step keyed
-off the vendor submodule SHAs. The .a files land in the ge repo via
-LFS, the headers land as regular files. Consumer CI checks out ge with
-`submodules: true` (NOT recursive) and never touches ge's submodules.
+Today: cook locally (or cache in Actions as a follow-up). Consumer CI
+should **not** LFS-smudge ge archives.
 
 ## Debug prebuilts (native stepping)
 
-Release trees: `-O2`, no DWARF. Debug trees: **`-g -O2`** (same opt class as
-release so Heisenbugs still fire under AS/lldb), separate directory so a
-debug cook never clobbers shippable archives:
-
 ```bash
-# Full cook: every .a under prebuilt/android-arm64-debug/ with -g -O2
 tools/prebuild.sh --debug android-arm64
 # or
 make prebuild-android-arm64-debug
 
-# True no-opt (only if you know you want it — can hide -O2 bugs):
+# True no-opt (only if you know you want it):
 GE_PREBUILD_OPT=0 tools/prebuild.sh --debug android-arm64
 ```
 
@@ -70,205 +61,134 @@ GE_PREBUILD_OPT=0 tools/prebuild.sh --debug android-arm64
 
 ### Co-cook is mandatory (no partial refresh)
 
-Partial `--libge-only` cooks are **gone** (`prebuild.sh` accepts the flag
-only to print a deprecation and still full-cooks). Every run rebuilds
-**all** archives under the same flags. That costs more when only ge
-sources change; it is the reliability trade-off.
+Partial `--libge-only` cooks are **gone**. Every run rebuilds **all**
+archives under the same flags.
 
-What went wrong (2026-07 Android sqldeep SEGV):
-
-1. Refresh preferred `--libge-only` → new `libge.a`, reused old vendor `.a`.
-2. Manifest verify still passed (vendor *source* hashes unchanged).
-3. New sqlpipe walked an AST from old `libliteparser` → SIGSEGV.
-
-Hard gates (not guidelines) — **same tool on both platforms**:
+Hard gates:
 
 - **Always full cook** — `prebuild.sh` never reuses vendor archives.
 - **Separate trees** — `prebuilt/<platform>/` vs `prebuilt/<platform>-debug/`.
 - **`cook.json`** — SHA-256 of every `.a` from that cook.
-- **`tools/verify-cook.py`** — single verifier used everywhere:
-  - Android: `cmake/android-arm64.cmake` `FATAL_ERROR` if cook mismatches
-  - iOS: Xcode **"Verify prebuilt cook"** script phase (generated by
-    `tools/ios-build/build_project.rb`) fails the build if cook mismatches
-    for `ios-arm64` or `ios-arm64-simulator` (selected via `PLATFORM_NAME`)
-  - `ensure-prebuilt.sh` — full recook when manifest or cook is stale
+- **`tools/verify-cook.py`** — link-time *integrity* verifier: do the `.a`
+  on disk match `cook.json`? (Android cmake FATAL_ERROR; iOS Xcode "Verify
+  prebuilt cook" script phase; `ensure-prebuilt.sh`).
+- **`tools/verify-manifest.py`** — the *staleness* oracle: were these
+  archives cooked from the sources on disk now? Checks the manifest's
+  recorded script hashes, submodule SHAs, input hashes and the Android NDK
+  pin (🎯T100). This is what `ensure-prebuilt.sh` consults before declaring
+  a tree fresh.
+
+Three separate questions, three tools — do not merge them again:
+
+| Question | Tool |
+|---|---|
+| Were these archives cooked from *these* sources? | `verify-manifest.py` |
+| Do the archives on disk match the cook that produced them? | `verify-cook.py` |
+| Is anyone committing binaries to git? | `verify-prebuilds.py` |
+
+Only scripts that can change **archive bytes** (`prebuild.sh`,
+`lift-headers.sh`) are recorded in the manifest's `scripts` set. Verifiers
+and `write-manifest.py` are deliberately excluded — listing them made
+"we changed how we check" mean "every consumer rebuilds everything".
 
 ## Refresh workflow
 
-When you want to bump a vendor submodule SHA (e.g. updating bgfx to a
-new upstream commit), you re-cook the prebuilts:
-
 ```bash
-# 1. Bump the submodule.
+# 1. Bump a vendor submodule (example).
 cd ge/vendor/github.com/bkaradzic/bgfx
 git fetch && git checkout <new-sha>
 cd ../../../../..
 
-# 2. Re-prebuild + re-lift. Both targets are idempotent and overwrite
-#    their output dirs.
+# 2. Re-prebuild + re-lift locally (do NOT commit .a files).
 make prebuild
 make ge/lift-headers
 
-# 3. Commit the bump + the refreshed artefacts in one go.
-git add vendor/github.com/bkaradzic/bgfx prebuilt/ headers/
-git commit -m "bgfx: bump to <new-sha>; refresh prebuilts + headers"
+# 3. Commit submodule bump + headers + cook/manifest text only.
+git add vendor/github.com/bkaradzic/bgfx headers/ \
+  prebuilt/**/cook.json prebuilt/**/manifest.json
+git commit -m "bgfx: bump to <new-sha>; refresh headers + cook manifests"
+# Never: git add prebuilt/**/*.a
 ```
 
 Both scripts assume submodules are initialized
-(`git submodule update --init --recursive`). `make prebuild` fans out
-all three platforms in parallel, and each platform script compiles
-independent source files in parallel internally.
-
-For ordinary ge source/header edits, prefer the mobile package path
-(`make ge/ios` / `ge/ios-device` / `ge/android`) so `ensure-prebuilt.sh`
-decides whether a full co-cook is needed. Do **not** hand-refresh a
-single archive into `prebuilt/` — `verify-cook.py` will refuse to link.
+(`git submodule update --init --recursive`). For ordinary ge source
+edits, prefer `make ge/ios` / `ge/ios-device` / `ge/android` so
+`ensure-prebuilt.sh` full-cooks when stale.
 
 ## Android NDK ABI pin (🎯T100)
 
-The `android-arm64` prebuilt is **pinned to NDK r27** and must stay no
-newer than the oldest NDK any consumer links with.
+The `android-arm64` prebuilt must stay on **NDK r27** (or ≤ every
+consumer's NDK). Static archives bake libc++ exception-ABI references;
+a newer cook NDK than the consumer breaks the final link.
 
-`libge.a` is a static archive: it bakes in *references* to libc++
-runtime symbols (`std::exception_ptr` machinery, `__cxa_*` exception
-ABI) but not their definitions — those come from the consumer's NDK
-libc++ at the final `libmain.so` link. libc++ evolves its exception
-ABI across releases; NDK r27 (Clang 18) lacks symbols that NDK r28+
-(Clang 19/21) emit, e.g.:
+- `tools/prebuild.sh` — `GE_ANDROID_NDK_MAJOR` (default `27`)
+- Manifest `toolchain.ndk_path` records the cook NDK; link-time
+  `verify-cook.py` / cmake gates still apply locally.
 
-- `__cxa_init_primary_exception`
-- `std::exception_ptr::__from_native_exception_pointer(void*)`
-
-If the prebuilt is compiled with a *newer* NDK than the consumer ships,
-the consumer's older libc++abi can't resolve those references and the
-Android link dies:
-
-```
-ld.lld: error: undefined symbol: __cxa_init_primary_exception
->>> referenced by DirectRenderHost.mm
-```
-
-This bit multimaze2 (which pins NDK r27) when a v0.50.0 prebuilt was
-re-cooked on a laptop that had also installed NDK r29 — the bug 🎯T100
-fixed.
-
-**The rule: build the prebuilt with an NDK ≤ every consumer's NDK.**
-Building older is forward-compatible (a newer consumer NDK provides a
-superset of symbols); building newer is not. The pin lives in two
-places, cross-referenced:
-
-- `tools/prebuild.sh` — `GE_ANDROID_NDK_MAJOR` (default `27`) selects the
-  highest installed NDK whose major matches the pin, ignoring an
-  incidentally-newer NDK on the build machine. It then exports
-  `ANDROID_NDK_HOME` so `write-manifest.py` records the same toolchain.
-- `tools/verify-prebuilds.py` — `ANDROID_NDK_MAJOR_PIN` (`27`) asserts the
-  committed manifest's recorded NDK major equals the pin, so a prebuilt
-  cooked with the wrong NDK is caught in CI / pre-commit, not at a
-  consumer's link step.
-
-**Bumping the pin** (once the whole consumer fleet has moved to a newer
-NDK): change `GE_ANDROID_NDK_MAJOR` in `tools/prebuild.sh` *and*
-`ANDROID_NDK_MAJOR_PIN` in `tools/verify-prebuilds.py` together, re-cook
-`android-arm64`, and confirm a consumer still links.
+**Bumping the pin:** change `GE_ANDROID_NDK_MAJOR` in `tools/prebuild.sh`
+(and any pin asserts), re-cook locally, confirm consumers still link.
 
 ## Why submodules are kept
 
-The submodules under `ge/vendor/github.com/<org>/<repo>/` remain in
-`.gitmodules` and are the source of truth for *what version* of each
-vendor we ship. Bumping a submodule SHA is the canonical mechanism for
-upgrades. The prebuilt .a files are *derived artefacts*, not the
-source.
+Submodules under `ge/vendor/github.com/<org>/<repo>/` remain the source
+of truth for vendor versions. Prebuilt `.a` files are **derived local
+artefacts**, not the source of truth in git.
 
-Developers who edit ge itself can usually choose one of two local
-iteration paths:
+Local iteration:
 
-- **`make ge/ios` / `ge/ios-device` / `ge/android` auto-refresh** —
-  Module.mk runs `tools/ensure-prebuilt.sh` first. If the platform
-  manifest or `cook.json` is stale, make runs a **full co-cook** of
-  every archive before xcodebuild/gradle. Link-time `verify-cook.py`
-  then refuses a mixed tree even if Make was skipped.
-- iOS project generator `engine_mode: :source` — compile ge sources
-  directly into a local app target while still linking vendor prebuilts
-  (those vendor archives still go through the cook gate). Keep
-  `engine_mode: :prebuilt` for release/CI projects.
+- **`make ge/ios` / `ge/ios-device` / `ge/android`** — `ensure-prebuilt.sh`
+  full-cooks when manifest/cook is stale.
+- iOS `engine_mode: :source` — compile ge sources into the app while
+  still linking vendor prebuilts (cook gate still applies).
 
-Escape hatch (do not use casually): `GE_SKIP_ENSURE_PREBUILT=1 make ge/ios`
-skips the check and will happily link a stale libge.a.
+Escape hatch: `GE_SKIP_ENSURE_PREBUILT=1 make ge/ios` skips the check
+(do not use casually).
 
-Consumer CI doesn't recursively initialize ge's submodules, and doesn't
-need to.
+## Consumer CI
 
-## CI savings
+Do **not** enable LFS smudge for ge prebuilts — there is nothing behind
+those pointers any more.
 
-Measured on `multimaze2` `ios-testflight.yml`, macos-15 runner.
+Consumers need no per-app change. `make ge/ios`, `ge/ios-device`,
+`ge/ios-release`, `ge/ios-device-release`, `ge/android`,
+`ge/android-release` and `ge/android-bundle` all run
+`tools/ensure-prebuilt.sh` for the platform they link (🎯T181.3), so a
+fresh clone with an empty `prebuilt/` tree cooks once and then builds.
+That check sits *after* each target's `ios/` / `android/` scaffolding
+guard, so a missing project still fails immediately rather than after a
+full cook. `GE_SKIP_ENSURE_PREBUILT=1` opts out and will happily link a
+stale tree.
 
-| Step | Pre-T71 ([26387615058](https://github.com/squz/multimaze2/actions/runs/26387615058)) | Phase 1: vendor lift ([26401589693](https://github.com/squz/multimaze2/actions/runs/26401589693)) | Phase 2: +libge ([26419057104](https://github.com/squz/multimaze2/actions/runs/26419057104)) |
-|---|---|---|---|
-| Init submodules | 97 s (recursive) | 8 s (top-level only) | 8 s |
-| ship-alpha `match` | 2 s | 3 s | 3 s |
-| ship-alpha `gym` | 92 s | 127 s | **61 s** |
-| ship-alpha `pilot` | 22 s | 0 s (dry-run) | 0 s (dry-run) |
-| Other | ~20 s | ~28 s | ~17 s |
-| **Total** | **233 s (3:53)** | 166 s (2:46) | **89 s (1:29)** |
+The first build on a fresh clone therefore pays a full co-cook. Caching
+that (Actions cache, or downloading a tagged release's archives — 🎯T181.1
+/ 🎯T181.2) is the follow-up, not a prerequisite.
 
-Δ vs pre-T71: **−144 s, −62%**. Per-run cost ~$0.50 → ~$0.19.
-
-Two structural wins:
-
-1. **Submodule init: 12× faster** (97 s → 8 s). Consumer no longer
-   pulls ~150 MB of nested vendor repos; just ge itself + ge's
-   prebuilt .a files via LFS smudge.
-2. **`gym` 33% faster than pre-T71** (92 s → 61 s) once libge is also
-   prebuilt. Phase 1 alone (vendor prebuilts only) had `gym` going the
-   wrong way (+35 s); the libge prebuild swamps that and then some.
-   The original +35 s in Phase 1 was probably just runner variance
-   (compile-time variation between runs on the macos-15 image), not
-   structural — it disappeared cleanly in Phase 2.
-
-The pre-T71 baseline included the TestFlight upload step (`pilot`);
-Phase 1 and Phase 2 measurements set `dry_run=true` to skip it
-without consuming TestFlight build slots
-(`SHIP_DRY_RUN=1` env-var hook in `tools/ship/release.sh`).
+Checkout ge with `submodules: true` (not recursive) for headers +
+cook/manifest text only.
 
 ## Things this does *not* do
 
-- **No CI-side prebuild job**. The prebuild runs only on Marcelo's
-  laptop. A future target may add a GHA workflow that produces and
-  commits prebuilts when a vendor submodule SHA changes or ge sources
-  are edited; for now, manual.
-- **No prebuilt Swift bridge**. `src/iap_apple.swift` still compiles
-  in the consumer's xcodeproj because the bridging-header config is a
-  per-target Xcode setting. Trivial cost (one Swift file, ~2 s).
+- **No committing archives** — gitignore + pre-commit + CI reject `.a`.
+- **No history rewrite in Phase 1** — tip drops tracked binaries; Phase 2
+  (`git filter-repo` + GitHub Support LFS purge) is a separate cutover.
+- **No CI-side prebuild job yet** — cook remains laptop/CI-local for now.
+- **No prebuilt Swift bridge** — `src/iap_apple.swift` still compiles in
+  the consumer xcodeproj.
 
 ## Layout
 
 ```
 ge/
-├── prebuilt/{ios-arm64,ios-arm64-simulator,android-arm64,web-wasm}/
-│   ├── libge.a             8.9 MB
-│   ├── libsqlite3_ge.a     1.5 MB
-│   ├── libbox2d.a          490 KB
-│   ├── liblunasvg_ge.a     392 KB
-│   ├── libplutovg_ge.a     302 KB
-│   ├── libliteparser.a     297 KB
-│   └── liblz4_ge.a         76 KB
-├── headers/                                  (all plain files)
-│   ├── bgfx/include/bgfx/…
-│   ├── bx/include/{bx,compat,tinystl}/…
-│   ├── bimg/include/bimg/…
-│   ├── box2d/include/box2d/…
-│   ├── lunasvg/include/lunasvg.h
-│   ├── plutovg/include/plutovg.h
-│   ├── liteparser/include/{arena,liteparser,parse}.h
-│   ├── sdl3/include/{SDL3,freetype,ft2build.h,…}
-│   ├── spdlog/include/spdlog/…
-│   └── asio/include/asio/…
+├── prebuilt/<platform>/          (local .a gitignored; cook.json + manifest.json tracked)
+├── headers/                      (plain files in git)
 └── tools/
     ├── prebuild.sh
-    └── lift-headers.sh
+    ├── ensure-prebuilt.sh        (cooks when stale; wired into every mobile target)
+    ├── verify-manifest.py        (staleness: sources ↔ manifest)
+    ├── verify-cook.py            (integrity: archives ↔ cook.json)
+    └── verify-prebuilds.py       (rejects committed binaries)
 ```
 
-LFS routing is in `ge/.gitattributes` (`*.a`, `prebuilt/**/*.a`, plus
-`.so`/`.dylib`/`.jar`/`.o`/`.lib`/`.dll`/`.exe`). `cook.json` /
-`manifest.json` under `prebuilt/` stay plain text. `scripts/hooks/pre-commit`
-rejects any staged LFS path whose index blob is not an LFS pointer.
+`.gitattributes` keeps `prebuilt/**/cook.json` and `manifest.json` as
+text. Binary LFS rules are gone. `scripts/hooks/pre-commit` rejects
+staging `prebuilt/**/*.a` (and related patterns).

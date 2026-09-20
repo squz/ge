@@ -43,10 +43,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Only scripts whose contents can change the *archive bytes* belong here.
+# A change to one of these makes every cooked .a suspect, so the manifest
+# records their hashes and tools/verify-manifest.py forces a recook.
+#
+# Deliberately excluded, because editing them cannot alter a cooked
+# archive and listing them made "we changed how we describe or check the
+# cook" mean "every consumer rebuilds everything":
+#   - tools/verify-prebuilds.py  (are binaries tracked in git?)
+#   - tools/verify-cook.py       (does cook.json match the .a on disk?)
+#   - tools/write-manifest.py    (this file — emits metadata, not archives;
+#                                 schema changes are guarded by "version")
 SCRIPTS_TO_HASH_COMMON = [
     "tools/lift-headers.sh",
-    "tools/write-manifest.py",
-    "tools/verify-prebuilds.py",
     "tools/prebuild.sh",
 ]
 SUPPORTED_BASE_PLATFORMS = ("ios-arm64", "ios-arm64-simulator", "android-arm64")
