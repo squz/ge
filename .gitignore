@@ -61,4 +61,3 @@ prebuilt/**/*.exe
 vendor/**/*.a
 bin/*/shaderc
 *.jar
-!**/gradle-wrapper.jar
