@@ -4,6 +4,7 @@
 #
 # Phase 1 LFS exit:
 # 1) Reject staging prebuilt/vendor binary cook outputs (do not commit archives).
+# 1b) Refuse a commit that leaves an unlanded bullseye.yaml filing behind (🎯T200).
 # 2) When relevant paths change, run tools/verify-prebuilds.py tip-tree gate.
 #
 # Bypass for an unrelated change:  git commit --no-verify
@@ -54,6 +55,39 @@ if ((${#bin_bad[@]} > 0)); then
     echo "See docs/vendor-prebuilds.md."
   } >&2
   exit 1
+fi
+
+# ── 1b. Intent ledger: a filing must not be left behind (🎯T200) ──────────
+# This repo's lifecycle rule is that the ledger rides the commit that changes
+# it. What this catches is committing other work while a freshly filed target
+# sits unstaged in the working copy: it then exists in no commit at all, and
+# the next agent's `bullseye` mints the same ids against a copy that cannot
+# see it. Committing the ledger on a feature branch is fine and is NOT blocked
+# — it reaches master when the branch does.
+#
+# Skipped in a consumer's submodule checkout (no ledger, or no master branch).
+if [[ -f "$REPO_ROOT/bullseye.yaml" ]] \
+   && git rev-parse --verify --quiet refs/heads/master >/dev/null \
+   && ! git diff --cached --name-only | grep -qx 'bullseye\.yaml'; then
+  work_blob="$(git hash-object "$REPO_ROOT/bullseye.yaml")"
+  head_blob="$(git rev-parse --verify --quiet HEAD:bullseye.yaml || true)"
+  base_blob="$(git rev-parse --verify --quiet master:bullseye.yaml || true)"
+  if [[ "$work_blob" != "$head_blob" && "$work_blob" != "$base_blob" ]]; then
+    {
+      echo "error: bullseye.yaml holds a filing that exists in no commit,"
+      echo "       and this commit does not include it."
+      echo ""
+      echo "  Committing around it leaves that target invisible to every other"
+      echo "  checkout — which is how the ledger forked four times on 2026-09-21."
+      echo ""
+      echo "  Land it first:   make ledger-land"
+      echo "  Or include it:   git add bullseye.yaml"
+      echo "  Or discard it:   git checkout master -- bullseye.yaml"
+      echo ""
+      echo "  Details:         tools/check-ledger-parity.sh"
+    } >&2
+    exit 1
+  fi
 fi
 
 # ── 2. Tip-tree gate when attributes/ignore/verify paths touch ────────────

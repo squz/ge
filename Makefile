@@ -20,6 +20,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # Specific targets the delegator should proxy. `check` is the big one:
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
+        ledger-check ledger-land \
         python-test dispatch-null-safety-test release-surface-test ndk-discovery-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
@@ -88,6 +89,35 @@ dispatch-null-safety-test:
 # sample link dead-strips stream/encode symbols.
 release-surface-test:
 	@tools/check-release-surface.sh
+
+# 🎯T200: the intent ledger must not live only in a working copy.
+#
+# `bullseye` writes bullseye.yaml into whatever checkout it is pointed at, so
+# a filing is silent and invisible the instant it is written. 🎯T188 wrote the
+# rule into AGENTS.md and it held for under an hour — three actors re-forked
+# the ledger the same evening, one of them the PO who wrote the rule, and two
+# of them filed the same defect minutes apart because neither filing was
+# visible to the other. Documentation was already tried; this is the part that
+# cannot be forgotten.
+#
+# Deliberately its own target rather than folded into the dirty-tree check
+# above: that check fails on *any* uncommitted file, so in a checkout carrying
+# unrelated WIP it is permanently red and says nothing about the ledger. A
+# signal that is always on is one nobody reads — which is exactly how tonight's
+# fork stayed invisible.
+#
+# The prerequisite is declared on its own line (Make accumulates prerequisites
+# across declarations) so wiring this in does not edit the `bullseye` recipe
+# body, which has a long-lived WIP branch against it.
+bullseye: ledger-check
+
+ledger-check:
+	@tools/check-ledger-parity.sh
+
+# The remedy the check points at. A loud refusal with no cheap way out is one
+# people learn to bypass.
+ledger-land:
+	@tools/land-ledger.sh
 
 # 🎯T191/🎯T186: Android toolchain paths come from globs, not from parsing
 # `ls`, so a colourised host cannot break the cook. Sub-second; wired into
