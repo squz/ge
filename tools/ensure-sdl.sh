@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cook vendor/sdl3/lib/<platform>/*.a on demand, the way
-# tools/ensure-prebuilt.sh cooks prebuilt/<platform>/ (🎯T190 / 🎯T185).
+# tools/ensure-prebuilt.sh cooks prebuilt/<platform>/ (🎯T190 / 🎯T195).
 #
 # Usage:
 #   tools/ensure-sdl.sh <platform>

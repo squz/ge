@@ -8,7 +8,7 @@
 #   platform: macos-arm64 | ios-arm64 | ios-arm64-simulator | android-arm64
 #             | xcframeworks | all        (default: all)
 #
-# 🎯T190 / 🎯T185: the platform argument exists so tools/ensure-sdl.sh can cook
+# 🎯T190 / 🎯T195: the platform argument exists so tools/ensure-sdl.sh can cook
 # exactly the leg a link needs. A macOS-only consumer should not also pay for
 # iOS device, iOS simulator, Android and the xcframeworks.
 #

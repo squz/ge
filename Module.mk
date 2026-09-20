@@ -78,7 +78,7 @@ ge/PLUTOSVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutosvg.a
 ge/PLUTOVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutovg.a
 ge/SDL_LIBS = $(ge/SDL3_LIB) $(ge/SDL3_IMAGE_LIB) $(ge/SDL3_TTF_LIB) $(ge/FREETYPE_LIB) $(ge/HARFBUZZ_LIB) $(ge/PLUTOSVG_LIB) $(ge/PLUTOVG_LIB)
 
-# 🎯T190 / 🎯T185 — cook the vendor SDL archives on demand.
+# 🎯T190 / 🎯T195 — cook the vendor SDL archives on demand.
 #
 # Phase 1 of the LFS exit (97f244c) deleted every vendor/sdl3/lib/**/*.a and
 # put nothing in their place: prebuilt/ gained tools/ensure-prebuilt.sh, this

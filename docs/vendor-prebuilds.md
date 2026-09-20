@@ -212,7 +212,7 @@ Consumers need no per-app change. `make ge/ios`, `ge/ios-device`,
 `tools/ensure-prebuilt.sh` for the platform they link (🎯T181.3), so a
 fresh clone with an empty `prebuilt/` tree cooks once and then builds.
 Plain `make` (the desktop leg) cooks `vendor/sdl3/lib/macos-arm64` the same
-way, through `tools/ensure-sdl.sh` (🎯T190 / 🎯T185) — see "Two archive trees,
+way, through `tools/ensure-sdl.sh` (🎯T190 / 🎯T195) — see "Two archive trees,
 two cooks" above.
 That check sits *after* each target's `ios/` / `android/` scaffolding
 guard, so a missing project still fails immediately rather than after a
