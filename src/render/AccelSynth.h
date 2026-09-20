@@ -53,6 +53,7 @@
 #endif
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 
@@ -125,6 +126,15 @@ public:
     }
 
     void setEmit(std::function<void(const SDL_Event&)> fn) { emit_ = std::move(fn); }
+
+    // 🎯T198 clock seam. The ease in update() decays on wall-clock dt, so two
+    // runs of the same input script are never bit-equal: microseconds of
+    // scheduler jitter are enough to separate them at tilt magnitude 100.
+    // Parity oracles that compare traces across entry points (direct vs SP2I
+    // loopback) install a deterministic tick source, so the only thing left
+    // that can differ is the marshalling they exist to test. Production
+    // leaves this unset and reads SDL's performance counter.
+    void setTickSource(std::function<uint64_t()> fn) { tick_ = std::move(fn); }
 
     // 🎯T156.2: arm-on-primary is a declared fact of the virtual device
     // (touch-first, no accelerometer), supplied by the construction site.
@@ -236,14 +246,14 @@ public:
             const char* env = std::getenv("GE_ACCELSYNTH_AUTODRIVE");
             if (env && env[0] == '1') {
                 autodriveActive_ = true;
-                autodriveStartNs_ = SDL_GetPerformanceCounter();
+                autodriveStartNs_ = nowTicks();
                 SPDLOG_INFO("AccelSynth: GE_ACCELSYNTH_AUTODRIVE active");
             }
         }
         if (autodriveActive_) {
             const uint64_t freq = SDL_GetPerformanceFrequency();
             const float elapsed =
-                float(SDL_GetPerformanceCounter() - autodriveStartNs_) /
+                float(nowTicks() - autodriveStartNs_) /
                 float(freq);
             if (elapsed < 2.0f) {
                 tilt_.x = 100.f;
@@ -257,7 +267,7 @@ public:
             SPDLOG_INFO("AccelSynth: GE_ACCELSYNTH_AUTODRIVE drive complete, easing");
         }
         if (easing_) {
-            const uint64_t now = SDL_GetPerformanceCounter();
+            const uint64_t now = nowTicks();
             if (lastTickNs_ == 0) {
                 lastTickNs_ = now;
                 emitSensorFromTilt();
@@ -296,6 +306,10 @@ public:
     }
 
 private:
+    uint64_t nowTicks() const {
+        return tick_ ? tick_() : SDL_GetPerformanceCounter();
+    }
+
     static bool isShiftKey(const SDL_Event& e) {
         if (e.key.scancode == SDL_SCANCODE_LSHIFT ||
             e.key.scancode == SDL_SCANCODE_RSHIFT)
@@ -402,6 +416,7 @@ private:
     int surfaceH_ = 0;
     bool surfacePinned_ = false;
     std::function<void(const SDL_Event&)> emit_;
+    std::function<uint64_t()> tick_;
     bool armOnPrimary_ = false;
     bool autodriveChecked_ = false;
     bool autodriveActive_ = false;

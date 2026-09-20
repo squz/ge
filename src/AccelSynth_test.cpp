@@ -121,6 +121,16 @@ SDL_Event fingerDown(float x, float y) {
     return e;
 }
 
+SDL_Event fingerUp(float x, float y) {
+    SDL_Event e{};
+    e.type = SDL_EVENT_FINGER_UP;
+    e.tfinger.x = x;
+    e.tfinger.y = y;
+    e.tfinger.dx = 0.f;
+    e.tfinger.dy = 0.f;
+    return e;
+}
+
 SDL_Event fingerMotion(float x, float y, float dx, float dy) {
     SDL_Event e{};
     e.type = SDL_EVENT_FINGER_MOTION;
@@ -188,6 +198,16 @@ AuthorityTrace driveAuthorityScript(bool wireStyle,
     AccelSynth synth;
     synth.setArmOnPrimary(armOnPrimary);
     synth.setSurfacePixels(1000, 1000);
+    // 🎯T198: the ease decays on wall-clock dt, so two runs of the same script
+    // drift apart by however much the two loops differed in real time — a few
+    // microseconds of scheduler jitter is enough to break the comparison at
+    // tilt magnitude 100, which made this oracle fail ~2.5% of idle runs and
+    // far more under load. Drive a synthetic 60 Hz clock so each trace is a
+    // function of the input alone, and the marshalling path is the only
+    // variable left for these cases to measure.
+    uint64_t ticks = 0;
+    const uint64_t kFrameTicks = SDL_GetPerformanceFrequency() / 60;
+    synth.setTickSource([&ticks] { return ticks; });
     AuthorityTrace t;
     synth.setEmit([&](const SDL_Event& e) {
         REQUIRE(e.type == SDL_EVENT_SENSOR_UPDATE);
@@ -212,12 +232,19 @@ AuthorityTrace driveAuthorityScript(bool wireStyle,
     };
     for (const auto& e : gesture) deliver(e);
     for (int i = 0; i < holdFrames; ++i) {
+        ticks += kFrameTicks;
         synth.update();
         t.tiltX.push_back(synth.current().x);
     }
     if (easeFrames > 0) {
-        deliver(keyShift(false));
+        // 🎯T198: release the way we armed. A Shift key-up leaves a
+        // finger-armed synth armed (handle() only reacts to a shiftKey_
+        // transition, and primaryDown_ is still true), so the armOnPrimary
+        // case used to spend its "ease" frames holding at full tilt and never
+        // exercised the decay it was written to compare.
+        deliver(armOnPrimary ? fingerUp(0.40f, 0.5f) : keyShift(false));
         for (int i = 0; i < easeFrames; ++i) {
+            ticks += kFrameTicks;
             synth.update();
             t.tiltX.push_back(synth.current().x);
         }
@@ -570,6 +597,15 @@ TEST_CASE("T156.6: loopback gravity trace equals direct for hold-left script") {
     // Left hold → positive gx (emit convention).
     CHECK(direct.gravity.front().first > 0.f);
 
+    // 🎯T198 guard on the synthetic clock: it must actually advance, or the
+    // two traces would agree trivially and this oracle would measure nothing.
+    // The ease decays by exp(-(1/60)/kTau) per frame, so ten ease frames must
+    // collapse the tilt well below the -100 hold value while staying above
+    // the snap-to-zero deadzone.
+    REQUIRE(direct.tiltX.size() == 30);
+    CHECK(std::fabs(direct.tiltX.back()) < 25.f);
+    CHECK(std::fabs(direct.tiltX.back()) > 1.f);
+
     // Persist real numeric traces when T156_SCRATCH is set (verification plan).
     if (const char* dir = scratchDir()) {
         writeParityJson((std::string(dir) + "/parity-direct.json").c_str(),
@@ -611,6 +647,15 @@ TEST_CASE("T156.6: finger-arm dual-path trace equality (no Shift)") {
     REQUIRE_FALSE(direct.gravity.empty());
     CHECK(direct.tiltX[0] == doctest::Approx(-100.f));
     CHECK(direct.gravity.front().first > 0.f); // left → positive gx
+
+    // 🎯T198 guard on the synthetic clock: it must actually advance, or the
+    // two traces would agree trivially and this oracle would measure nothing.
+    // The finger lift disarms the synth (driveAuthorityScript releases the way
+    // it armed), so ten ease frames must collapse the tilt well below the -100
+    // hold value while staying above the snap-to-zero deadzone.
+    REQUIRE(direct.tiltX.size() == 30);
+    CHECK(std::fabs(direct.tiltX.back()) < 25.f);
+    CHECK(std::fabs(direct.tiltX.back()) > 1.f);
 }
 
 // SP2I round-trip preserves SDL_Event payload (marshalling integrity).
