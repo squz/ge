@@ -69,8 +69,27 @@ Hard gates:
 - **Always full cook** — `prebuild.sh` never reuses vendor archives.
 - **Separate trees** — `prebuilt/<platform>/` vs `prebuilt/<platform>-debug/`.
 - **`cook.json`** — SHA-256 of every `.a` from that cook.
-- **`tools/verify-cook.py`** — link-time verifier (Android cmake FATAL_ERROR;
-  iOS Xcode "Verify prebuilt cook" script phase; `ensure-prebuilt.sh`).
+- **`tools/verify-cook.py`** — link-time *integrity* verifier: do the `.a`
+  on disk match `cook.json`? (Android cmake FATAL_ERROR; iOS Xcode "Verify
+  prebuilt cook" script phase; `ensure-prebuilt.sh`).
+- **`tools/verify-manifest.py`** — the *staleness* oracle: were these
+  archives cooked from the sources on disk now? Checks the manifest's
+  recorded script hashes, submodule SHAs, input hashes and the Android NDK
+  pin (🎯T100). This is what `ensure-prebuilt.sh` consults before declaring
+  a tree fresh.
+
+Three separate questions, three tools — do not merge them again:
+
+| Question | Tool |
+|---|---|
+| Were these archives cooked from *these* sources? | `verify-manifest.py` |
+| Do the archives on disk match the cook that produced them? | `verify-cook.py` |
+| Is anyone committing binaries to git? | `verify-prebuilds.py` |
+
+Only scripts that can change **archive bytes** (`prebuild.sh`,
+`lift-headers.sh`) are recorded in the manifest's `scripts` set. Verifiers
+and `write-manifest.py` are deliberately excluded — listing them made
+"we changed how we check" mean "every consumer rebuilds everything".
 
 ## Refresh workflow
 
@@ -127,10 +146,22 @@ Escape hatch: `GE_SKIP_ENSURE_PREBUILT=1 make ge/ios` skips the check
 
 ## Consumer CI
 
-Do **not** enable LFS smudge for ge prebuilts. Options:
+Do **not** enable LFS smudge for ge prebuilts — there is nothing behind
+those pointers any more.
 
-1. Cook in CI (`make prebuild` with the right SDK/NDK), or
-2. Restore archives from an Actions cache / artefact (follow-up).
+Consumers need no per-app change. `make ge/ios`, `ge/ios-device`,
+`ge/ios-release`, `ge/ios-device-release`, `ge/android`,
+`ge/android-release` and `ge/android-bundle` all run
+`tools/ensure-prebuilt.sh` for the platform they link (🎯T181.3), so a
+fresh clone with an empty `prebuilt/` tree cooks once and then builds.
+That check sits *after* each target's `ios/` / `android/` scaffolding
+guard, so a missing project still fails immediately rather than after a
+full cook. `GE_SKIP_ENSURE_PREBUILT=1` opts out and will happily link a
+stale tree.
+
+The first build on a fresh clone therefore pays a full co-cook. Caching
+that (Actions cache, or downloading a tagged release's archives — 🎯T181.1
+/ 🎯T181.2) is the follow-up, not a prerequisite.
 
 Checkout ge with `submodules: true` (not recursive) for headers +
 cook/manifest text only.
@@ -152,8 +183,9 @@ ge/
 ├── headers/                      (plain files in git)
 └── tools/
     ├── prebuild.sh
-    ├── ensure-prebuilt.sh        (local cook when stale; do not commit outputs)
-    ├── verify-cook.py            (link-time archive↔cook gate)
+    ├── ensure-prebuilt.sh        (cooks when stale; wired into every mobile target)
+    ├── verify-manifest.py        (staleness: sources ↔ manifest)
+    ├── verify-cook.py            (integrity: archives ↔ cook.json)
     └── verify-prebuilds.py       (rejects committed binaries)
 ```
 

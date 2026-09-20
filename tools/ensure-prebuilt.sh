@@ -79,6 +79,33 @@ if "${VERIFY[@]}" >/dev/null 2>&1; then
   echo "ge: prebuilt/$PREBUILT_KEY cook.json does not match archives — full recook"
 fi
 
+# Cooking compiles vendor sources, so ge's own submodules must be
+# initialised. A consumer CI that checks ge out with `submodules: true`
+# (NOT recursive) has ge but none of its vendor trees -- that was the
+# whole point of shipping prebuilt archives (T71). Since Phase 1 no
+# longer commits archives, such a checkout can neither cook nor fetch
+# until release-asset download lands (T181.1 / T181.2). Say so plainly
+# instead of dying inside prebuild.sh on the first missing source.
+# `git submodule status` prefixes an uninitialised entry with '-'.
+if git -C "$GE_ROOT" submodule status --recursive 2>/dev/null \
+   | grep -q '^-'; then
+  {
+    echo "error: cannot cook prebuilt/$PREBUILT_KEY — ge's vendor submodules are not initialised."
+    echo ""
+    echo "Archives are no longer committed (Phase 1 LFS exit), so they have to be"
+    echo "cooked from vendor sources. Pick one:"
+    echo ""
+    echo "  # Full checkout (developer / co-dev):"
+    echo "  git -C $GE_ROOT submodule update --init --recursive"
+    echo ""
+    echo "  # Consumer CI: check ge out recursively, or wait for release-asset"
+    echo "  # download (🎯T181.1 / 🎯T181.2) and pin an exact ge release tag."
+    echo ""
+    echo "See docs/vendor-prebuilds.md."
+  } >&2
+  exit 1
+fi
+
 echo "ge: prebuilt/$PREBUILT_KEY is stale — full prebuild of every archive…"
 tools/prebuild.sh "${PREBUILD_FLAGS[@]}" "$PLATFORM"
 

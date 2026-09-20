@@ -659,6 +659,25 @@ $(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS) $(ge/TILEPACKWRITER_OBJ) $(
 	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB) \
 	    $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
+# ── Prebuilt freshness gate (🎯T181.3) ─────────────────────────────
+#
+# Archives are a local cache, not committed (Phase 1 LFS exit). Every
+# consumer target that links them cooks first, so a fresh clone with an
+# empty prebuilt/ tree still builds. Without this the cook gates
+# (cmake/android-arm64.cmake, the iOS "Verify prebuilt cook" phase) just
+# fail the build with no archives to check.
+#
+# GE_SKIP_ENSURE_PREBUILT=1 skips it and will happily link a stale tree.
+define ge/ensure-prebuilt
+@if [ "$(GE_SKIP_ENSURE_PREBUILT)" = "1" ]; then \
+    echo "ge: GE_SKIP_ENSURE_PREBUILT=1 — skipping prebuilt freshness check"; \
+else \
+    $(ge)/tools/ensure-prebuilt.sh $(1); \
+fi
+endef
+
+
+
 # ────────────────────────────────────────────────
 # Mobile targets
 #
@@ -687,6 +706,7 @@ ge/ios: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,ios-arm64-simulator)
 	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -702,6 +722,7 @@ ge/android: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_
 	    echo "android/ not found — run 'make ge/android-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,--debug android-arm64)
 	cd android && ./gradlew assembleDebug
 	@echo "APK: android/app/build/outputs/apk/debug/app-debug.apk"
 
@@ -866,6 +887,7 @@ ge/ios-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,ios-arm64-simulator)
 	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -885,6 +907,7 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,ios-arm64)
 	bundle exec ruby ios/project.rb
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -907,6 +930,7 @@ ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    echo "ios/ not found — run 'make ge/ios-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,ios-arm64)
 	@if [ "$(REGISTER_DEVICES)" = "1" ]; then \
 	    $(MAKE) ge/ios-register-devices; \
 	fi
@@ -948,6 +972,7 @@ ge/android-release: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_
 	    echo "android/ not found — run 'make ge/android-init APP_ID=... APP_NAME=...' first"; \
 	    exit 1; \
 	fi
+	$(call ge/ensure-prebuilt,android-arm64)
 	cd android && ./gradlew assembleRelease
 	@echo "APK: android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
@@ -957,6 +982,7 @@ ge/android-release: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_
 # See docs/android-release.md.
 .PHONY: ge/android-bundle
 ge/android-bundle: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_GLES) $(ge/RENDER_SHADERS_GLES)
+	$(call ge/ensure-prebuilt,android-arm64)
 	@$(ge)/tools/android-with-upload-key.sh --require ./gradlew :app:bundleRelease
 	@echo "AAB: android/app/build/outputs/bundle/release/app-release.aab"
 
