@@ -48,7 +48,16 @@ cell.%:
 # Standing invariants for /cv. Exit 0 means all green; non-zero means a
 # violation. Stdout is relayed verbatim to the agent. Ignores untracked
 # files so the user's WIP notes don't trip the check.
-bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test ndk-discovery-test
+#
+# 🎯T198: `unit-test` is a prerequisite so a red doctest suite on master
+# cannot sit unnoticed. It went unnoticed once already — the T156.6 parity
+# oracle was failing intermittently while agents cited green gates that ran
+# downstream of it. CI is not the right home for this one: the unit suite
+# needs a macOS runner (10x minute multiplier) and a from-source SDL cook,
+# which release.yml already defers for cost, so the gate rides the local
+# standing path that /cv actually runs. Incremental after the first build.
+bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test ndk-discovery-test \
+          unit-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
 	  || { echo "✗ uncommitted changes to tracked files"; \
