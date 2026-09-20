@@ -78,6 +78,27 @@ ge/PLUTOSVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutosvg.a
 ge/PLUTOVG_LIB = $(ge)/vendor/sdl3/lib/macos-arm64/libplutovg.a
 ge/SDL_LIBS = $(ge/SDL3_LIB) $(ge/SDL3_IMAGE_LIB) $(ge/SDL3_TTF_LIB) $(ge/FREETYPE_LIB) $(ge/HARFBUZZ_LIB) $(ge/PLUTOSVG_LIB) $(ge/PLUTOVG_LIB)
 
+# 🎯T190 / 🎯T185 — cook the vendor SDL archives on demand.
+#
+# Phase 1 of the LFS exit (97f244c) deleted every vendor/sdl3/lib/**/*.a and
+# put nothing in their place: prebuilt/ gained tools/ensure-prebuilt.sh, this
+# set gained nothing. A consumer with zero archives could build iOS and
+# Android and then died on the desktop link with seven
+# "no such file or directory". These rules give the desktop (and iOS) legs
+# the same cook-what-you-link contract.
+#
+# Make runs the recipe once per missing archive, and under -j concurrently;
+# ensure-sdl.sh takes a mutex and fast-exits when the set is already there,
+# so one cook serves all seven.
+$(ge)/vendor/sdl3/lib/macos-arm64/lib%.a:
+	@$(ge)/tools/ensure-sdl.sh macos-arm64
+
+$(ge)/vendor/sdl3/lib/ios-arm64/lib%.a:
+	@$(ge)/tools/ensure-sdl.sh ios-arm64
+
+$(ge)/vendor/sdl3/lib/ios-arm64-simulator/lib%.a:
+	@$(ge)/tools/ensure-sdl.sh ios-arm64-simulator
+
 # macOS frameworks needed by any ge desktop app (SDL3 + sokol/Metal + VideoToolbox +
 # CoreMotion). Apps can extend via FRAMEWORKS += ... after the include.
 ge/FRAMEWORKS = \
@@ -368,7 +389,7 @@ run-server: server
 	GE_SERVER=$${GE_SERVER:-127.0.0.1:3030} ./bin/$(APP_NAME)-server
 
 # Default link rule. Parent can override by declaring its own $(APP) rule.
-$(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
+$(APP): $(APP_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS) $(ge/SDL_LIBS)
 	@mkdir -p $(@D)
 	$(CXX) $(APP_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
@@ -600,7 +621,7 @@ ge/ICON_GEN = bin/ge-icon-gen
 .PHONY: ge/icon-gen
 ge/icon-gen: $(ge/ICON_GEN)
 
-$(ge/ICON_GEN): $(ge)/tools/icon-gen.cpp $(ge/LIB)
+$(ge/ICON_GEN): $(ge)/tools/icon-gen.cpp $(ge/LIB) $(ge/SDL_LIBS)
 	@mkdir -p $(@D)
 	$(CXX) -std=c++20 -O2 $(ge/INCLUDES) $< $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
@@ -654,7 +675,7 @@ unit-test: $(ge/TEST_BIN)
 # TilePackFormat_test.cpp calls ge::cookTilePack() (tools/TilePackWriter.cpp,
 # 🎯T168.1 — not part of libge.a), so its object and astcenc (the encoder it
 # calls into for astc4x4 planes) join the normal test link line.
-$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB)
+$(ge/TEST_BIN): $(ge/TEST_OBJ) $(ge/LIB) $(APP_LIBS) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB) $(ge/SDL_LIBS)
 	@mkdir -p $(@D)
 	$(CXX) $(ge/TEST_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/TILEPACKWRITER_OBJ) $(ge/ASTCENC_LIB) \
 	    $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
@@ -674,6 +695,15 @@ define ge/ensure-prebuilt
 else \
     $(ge)/tools/ensure-prebuilt.sh $(1); \
 fi
+endef
+
+# The iOS lanes link vendor/sdl3/lib/<platform> through xcodebuild's
+# LIBRARY_SEARCH_PATHS (tools/ios-build/build_project.rb), not through make
+# prerequisites, so they ask for the cook explicitly — same shape as
+# ge/ensure-prebuilt above. Android needs none: cmake/android-arm64.cmake
+# builds SDL from the submodule with add_subdirectory.
+define ge/ensure-sdl
+@$(ge)/tools/ensure-sdl.sh $(1)
 endef
 
 
@@ -707,6 +737,7 @@ ge/ios: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    exit 1; \
 	fi
 	$(call ge/ensure-prebuilt,ios-arm64-simulator)
+	$(call ge/ensure-sdl,ios-arm64-simulator)
 	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -868,7 +899,7 @@ ge/CXXFLAGS_DEBUG = -std=c++20 -O0 -g -DDEBUG $(ge/INCLUDES)
 .PHONY: ge/debug
 ge/debug: $(APP_DEBUG)
 
-$(APP_DEBUG): $(APP_DEBUG_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS)
+$(APP_DEBUG): $(APP_DEBUG_OBJ) $(APP_SHADERS) $(ge/RENDER_SHADERS) $(ge/LIB) $(APP_LIBS) $(ge/SDL_LIBS)
 	@mkdir -p $(@D)
 	$(CXX) $(APP_DEBUG_OBJ) $(APP_LIBS) $(ge/LIB) $(ge/SDL_LIBS) $(FRAMEWORKS) -o $@
 
@@ -888,6 +919,7 @@ ge/ios-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    exit 1; \
 	fi
 	$(call ge/ensure-prebuilt,ios-arm64-simulator)
+	$(call ge/ensure-sdl,ios-arm64-simulator)
 	bundle exec ruby ios/project.rb --simulator
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -908,6 +940,7 @@ ge/ios-device-release: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    exit 1; \
 	fi
 	$(call ge/ensure-prebuilt,ios-arm64)
+	$(call ge/ensure-sdl,ios-arm64)
 	bundle exec ruby ios/project.rb
 	cd ios && xcodebuild \
 	    -project $(APP_BIN_NAME).xcodeproj -scheme $(APP_BIN_NAME) \
@@ -931,6 +964,7 @@ ge/ios-device: $(APP_SHADERS) $(ge/RENDER_SHADERS)
 	    exit 1; \
 	fi
 	$(call ge/ensure-prebuilt,ios-arm64)
+	$(call ge/ensure-sdl,ios-arm64)
 	@if [ "$(REGISTER_DEVICES)" = "1" ]; then \
 	    $(MAKE) ge/ios-register-devices; \
 	fi

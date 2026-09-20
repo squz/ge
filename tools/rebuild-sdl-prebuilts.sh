@@ -2,9 +2,58 @@
 # Rebuild vendor/sdl3 static libs (and iOS xcframeworks) from the SDL submodule.
 # Run from ge repo root after: git -C vendor/github.com/libsdl-org/SDL checkout release-X.Y.Z
 #
-# Platforms: macos-arm64, ios-arm64, ios-arm64-simulator, android-arm64 (SDL core only on Android).
-# Also rebuilds SDL_image (release-3.4.4) + SDL_ttf (vendored) for Apple platforms.
+# Usage:
+#   tools/rebuild-sdl-prebuilts.sh [platform ...]
+#
+#   platform: macos-arm64 | ios-arm64 | ios-arm64-simulator | android-arm64
+#             | xcframeworks | all        (default: all)
+#
+# 🎯T190 / 🎯T185: the platform argument exists so tools/ensure-sdl.sh can cook
+# exactly the leg a link needs. A macOS-only consumer should not also pay for
+# iOS device, iOS simulator, Android and the xcframeworks.
+#
+# Also rebuilds SDL_image (release-3.4.4) + SDL_ttf (vendored) for Apple
+# platforms. Android gets SDL core only (consumers build the rest from the
+# submodule via cmake add_subdirectory).
 set -euo pipefail
+
+usage() {
+  echo "usage: $0 [platform ...]" >&2
+  echo "  platform: macos-arm64 | ios-arm64 | ios-arm64-simulator | android-arm64" >&2
+  echo "            | xcframeworks | all   (default: all)" >&2
+}
+
+WANT_MACOS=0
+WANT_IOS=0
+WANT_IOSSIM=0
+WANT_ANDROID=0
+WANT_XCF=0
+
+# bash 3.2 (macOS) expands an empty array under `set -u` as unbound, so drive
+# the loop off "$@" and seed it with the default instead of building an array.
+if [[ $# -eq 0 ]]; then
+  set -- all
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    all)
+      WANT_MACOS=1; WANT_IOS=1; WANT_IOSSIM=1; WANT_ANDROID=1; WANT_XCF=1 ;;
+    macos-arm64)         WANT_MACOS=1 ;;
+    ios-arm64)           WANT_IOS=1 ;;
+    ios-arm64-simulator) WANT_IOSSIM=1 ;;
+    android-arm64)       WANT_ANDROID=1 ;;
+    # An xcframework lipos both iOS slices, so it implies both.
+    xcframeworks)        WANT_IOS=1; WANT_IOSSIM=1; WANT_XCF=1 ;;
+    -h|--help)           usage; exit 0 ;;
+    *)
+      echo "error: unknown platform '$arg'" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
 
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
@@ -265,32 +314,49 @@ rebuild_xcframeworks() {
 }
 
 # ── main ────────────────────────────────────────────────────────────
-mkdir -p "$VENDOR/sdl3/lib/macos-arm64" \
-         "$VENDOR/sdl3/lib/ios-arm64" \
-         "$VENDOR/sdl3/lib/ios-arm64-simulator" \
-         "$VENDOR/sdl3/lib/android-arm64"
+if [[ "$WANT_MACOS" -eq 1 ]]; then
+  mkdir -p "$VENDOR/sdl3/lib/macos-arm64"
+  echo "==> macOS SDL (+ install prefix for image/ttf)"
+  install_sdl_macos_prefix
+  build_image_ttf_macos
+fi
 
-echo "==> macOS SDL (+ install prefix for image/ttf)"
-install_sdl_macos_prefix
-build_image_ttf_macos
+if [[ "$WANT_IOS" -eq 1 ]]; then
+  mkdir -p "$VENDOR/sdl3/lib/ios-arm64"
+  echo "==> iOS device SDL"
+  build_sdl_apple ios ios-arm64
+fi
+if [[ "$WANT_IOSSIM" -eq 1 ]]; then
+  mkdir -p "$VENDOR/sdl3/lib/ios-arm64-simulator"
+  echo "==> iOS simulator SDL"
+  build_sdl_apple iossim ios-arm64-simulator
+fi
 
-echo "==> iOS device SDL"
-build_sdl_apple ios ios-arm64
-echo "==> iOS simulator SDL"
-build_sdl_apple iossim ios-arm64-simulator
+if [[ "$WANT_IOS" -eq 1 || "$WANT_IOSSIM" -eq 1 ]]; then
+  clone_or_checkout "$BUILD/sdl3_image-src" https://github.com/libsdl-org/SDL_image.git "$SDL_IMAGE_TAG"
+  clone_or_checkout "$BUILD/sdl3_ttf-src" https://github.com/libsdl-org/SDL_ttf.git "$SDL_TTF_TAG"
+fi
+if [[ "$WANT_IOS" -eq 1 ]]; then
+  echo "==> iOS device image/ttf"
+  build_image_ttf_ios ios-arm64
+fi
+if [[ "$WANT_IOSSIM" -eq 1 ]]; then
+  echo "==> iOS simulator image/ttf"
+  build_image_ttf_ios ios-arm64-simulator
+fi
 
-clone_or_checkout "$BUILD/sdl3_image-src" https://github.com/libsdl-org/SDL_image.git "$SDL_IMAGE_TAG"
-clone_or_checkout "$BUILD/sdl3_ttf-src" https://github.com/libsdl-org/SDL_ttf.git "$SDL_TTF_TAG"
+if [[ "$WANT_ANDROID" -eq 1 ]]; then
+  mkdir -p "$VENDOR/sdl3/lib/android-arm64"
+  build_sdl_android
+fi
 
-echo "==> iOS device image/ttf"
-build_image_ttf_ios ios-arm64
-echo "==> iOS simulator image/ttf"
-build_image_ttf_ios ios-arm64-simulator
-
-build_sdl_android
-rebuild_xcframeworks
+if [[ "$WANT_XCF" -eq 1 ]]; then
+  rebuild_xcframeworks
+fi
 
 echo ""
 echo "Done. Next: tools/lift-headers.sh && make prebuild"
-echo "Version check:"
-strings "$VENDOR/sdl3/lib/macos-arm64/libSDL3.a" | grep -E 'SDL-3\.[0-9]' | head -3 || true
+if [[ "$WANT_MACOS" -eq 1 ]]; then
+  echo "Version check:"
+  strings "$VENDOR/sdl3/lib/macos-arm64/libSDL3.a" | grep -E 'SDL-3\.[0-9]' | head -3 || true
+fi

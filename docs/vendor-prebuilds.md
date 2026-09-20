@@ -32,6 +32,63 @@ The Apple iOS xcodeproj generator
 dirs into the project it emits. The consumer's xcodeproj compiles the
 game's own sources plus `src/iap_apple.swift`.
 
+## Two archive trees, two cooks
+
+`prebuilt/` is ge's own archives (libge, box2d, lunasvg_ge, sqlite3_ge, …).
+`vendor/sdl3/lib/<platform>/` is a **separate** tree holding SDL3 and its
+dependency chain:
+
+```
+libSDL3.a  libSDL3_image.a  libSDL3_ttf.a
+libfreetype.a  libharfbuzz.a  libplutosvg.a  libplutovg.a
+```
+
+Both are local caches, never committed, and each has its own cook:
+
+| Tree | Cook | Wired into |
+|---|---|---|
+| `prebuilt/<platform>/` | `tools/prebuild.sh` via `tools/ensure-prebuilt.sh` | the mobile targets |
+| `vendor/sdl3/lib/<platform>/` | `tools/rebuild-sdl-prebuilts.sh` via `tools/ensure-sdl.sh` | the desktop link rules + the iOS lanes |
+
+**How a desktop consumer obtains SDL3 / freetype / harfbuzz / plutosvg /
+plutovg:** it does not obtain them — it cooks them, and it does so without
+being asked to. `ge/SDL_LIBS` is a prerequisite of every desktop link rule in
+`Module.mk` (`$(APP)`, `$(APP_DEBUG)`, `$(ge/TEST_BIN)`, `$(ge/ICON_GEN)`), and
+a pattern rule under `vendor/sdl3/lib/macos-arm64/` answers a missing archive by
+running `tools/ensure-sdl.sh macos-arm64`. So `make` at a consumer root, in a
+recursive clone with no archives anywhere, compiles the app, cooks SDL from the
+submodule, and links. There is no separate step and no hand-run script.
+
+`ensure-sdl.sh` fast-exits when the platform's whole set is present, so the
+check is free on every subsequent build. Make asks for it once per missing
+archive and, under `-j`, concurrently, so the script takes a `mkdir` mutex
+under `build/` — the first caller cooks, the rest wait and then find the
+archives in place. `GE_ENSURE_SDL_LOCK_TIMEOUT` (seconds, default 1800)
+bounds that wait.
+
+`tools/rebuild-sdl-prebuilts.sh` takes the platforms to cook as arguments —
+`macos-arm64`, `ios-arm64`, `ios-arm64-simulator`, `android-arm64`,
+`xcframeworks`, or `all` (the default, and what it always did before). A
+macOS-only consumer therefore pays for macOS only, not for two iOS slices,
+Android and the xcframeworks as well.
+
+iOS links this tree through xcodebuild's `LIBRARY_SEARCH_PATHS`
+(`tools/ios-build/build_project.rb`), not through make prerequisites, so
+`ge/ios`, `ge/ios-release`, `ge/ios-device` and `ge/ios-device-release` call
+`ensure-sdl.sh` explicitly, next to their `ensure-prebuilt.sh` call. Android
+needs neither: `cmake/android-arm64.cmake` builds SDL3 / SDL3_image / SDL3_ttf
+from the submodule with `add_subdirectory`.
+
+**Staleness is not tracked here.** `ensure-sdl.sh` asks only "is the archive
+there?", where `ensure-prebuilt.sh` asks the much stronger "was it cooked from
+the sources on disk now?" (`verify-manifest.py` + `verify-cook.py`). After
+bumping the SDL submodule, re-cook by hand:
+
+```bash
+rm -rf vendor/sdl3/lib/macos-arm64      # or the whole lib/ tree
+tools/rebuild-sdl-prebuilts.sh macos-arm64
+```
+
 ## Why this exists
 
 Before T71, multimaze2's GHA workflow checked out ge with
@@ -154,6 +211,9 @@ Consumers need no per-app change. `make ge/ios`, `ge/ios-device`,
 `ge/android-release` and `ge/android-bundle` all run
 `tools/ensure-prebuilt.sh` for the platform they link (🎯T181.3), so a
 fresh clone with an empty `prebuilt/` tree cooks once and then builds.
+Plain `make` (the desktop leg) cooks `vendor/sdl3/lib/macos-arm64` the same
+way, through `tools/ensure-sdl.sh` (🎯T190 / 🎯T185) — see "Two archive trees,
+two cooks" above.
 That check sits *after* each target's `ios/` / `android/` scaffolding
 guard, so a missing project still fails immediately rather than after a
 full cook. `GE_SKIP_ENSURE_PREBUILT=1` opts out and will happily link a
@@ -190,10 +250,13 @@ cook/manifest text only.
 ```
 ge/
 ├── prebuilt/<platform>/          (local .a gitignored; cook.json + manifest.json tracked)
+├── vendor/sdl3/lib/<platform>/   (local .a gitignored; SDL3 + freetype/harfbuzz/plutosvg/plutovg)
 ├── headers/                      (plain files in git)
 └── tools/
     ├── prebuild.sh
     ├── ensure-prebuilt.sh        (cooks when stale; wired into every mobile target)
+    ├── rebuild-sdl-prebuilts.sh  (the vendor SDL cook; takes platforms as arguments)
+    ├── ensure-sdl.sh             (cooks when missing; wired into the desktop link + iOS lanes)
     ├── verify-manifest.py        (staleness: sources ↔ manifest)
     ├── verify-cook.py            (integrity: archives ↔ cook.json)
     └── verify-prebuilds.py       (rejects committed binaries)
