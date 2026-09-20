@@ -11,9 +11,7 @@
   },
   "scripts": {
     "tools/lift-headers.sh": "18b34b4df311ac9eb1b8c60a7cd9f0da6ebfe93200c8e541ef7770f7f976aee5",
-    "tools/prebuild.sh": "4af1208cf0a326b4cd120c0b48dd8192572ea5a0ce1163db67c18d235a485b46",
-    "tools/verify-prebuilds.py": "44c681b4bb61cd0831db8b92fefdb0d3b3d8205b2baa217253703c5f6a8e6be1",
-    "tools/write-manifest.py": "cbc39db9c959b281678d4c172cbe1294b640f8713137af91129ea5ae81e24f72"
+    "tools/prebuild.sh": "4af1208cf0a326b4cd120c0b48dd8192572ea5a0ce1163db67c18d235a485b46"
   },
   "submodule_shas": {
     "vendor/github.com/ARM-software/astc-encoder": "701503966b1ac2ebd2616cba94adee5ae8ba6363",

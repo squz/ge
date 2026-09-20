@@ -1,5 +1,5 @@
-# Phase 1 LFS exit: archives are local-only — cook here; do not git add prebuilt/**/*.a.
 #!/usr/bin/env bash
+# Phase 1 LFS exit: archives are local-only — cook here; do not git add prebuilt/**/*.a.
 # Ensure prebuilt/<platform>/ (or prebuilt/<platform>-debug/) matches the
 # working tree before a mobile link.
 #
@@ -9,7 +9,7 @@
 # platform: ios-arm64 | ios-arm64-simulator | android-arm64
 # --debug / GE_PREBUILD_DEBUG=1 → prebuilt/<platform>-debug/
 #
-# If the platform's manifest is already fresh (tools/verify-prebuilds.py),
+# If the platform's manifest is already fresh (tools/verify-manifest.py),
 # exit 0. Otherwise run a *full* prebuild of every archive in the tree.
 # Partial (--libge-only) cooks are gone: they left libge ahead of vendor
 # libs and caused the 2026-07 Android sqldeep SIGSEGV.
@@ -64,7 +64,11 @@ fi
 GE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$GE_ROOT"
 
-VERIFY=(python3 "$GE_ROOT/tools/verify-prebuilds.py" --platform "$PREBUILT_KEY")
+# Staleness oracle: "were these archives cooked from the sources on disk
+# now?" NOT tools/verify-prebuilds.py, which after the Phase 1 LFS exit
+# answers the unrelated "are binaries tracked in git?" and takes no
+# arguments -- passing --platform to it made this gate a silent no-op.
+VERIFY=(python3 "$GE_ROOT/tools/verify-manifest.py" --platform "$PREBUILT_KEY")
 
 if "${VERIFY[@]}" >/dev/null 2>&1 \
    && python3 "$GE_ROOT/tools/verify-cook.py" "prebuilt/$PREBUILT_KEY" >/dev/null 2>&1; then

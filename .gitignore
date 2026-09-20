@@ -61,3 +61,8 @@ prebuilt/**/*.exe
 vendor/**/*.a
 bin/*/shaderc
 *.jar
+# ...but the Gradle wrapper jar is a build input consumers need:
+# tools/init-android.sh copies gradle/ wholesale, so a missing jar
+# leaves `make ge/android-init` scaffolding a project whose ./gradlew
+# cannot start. 54 KB plain blob; never was a cook output.
+!**/gradle-wrapper.jar
