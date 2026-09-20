@@ -73,6 +73,33 @@ Do **not** interrupt for "should I run tests?", "is the binary up?", or "what is
 
 After a device smoke script passes and a visual question remains, state what already passed, then ask one concrete question.
 
+### The intent ledger has one writer: master's `bullseye.yaml` (🎯T188)
+
+ge is worked from many worktrees at once, and every one of them carries its
+own `bullseye.yaml`. Bullseye mints ids against **the copy it is pointed at**,
+so two agents filing from two checkouts on the same day allocate the *same*
+id to different targets, and a frontier read from a stale copy offers work the
+owner has already cancelled. That happened on 2026-09-20: the id 🎯T185 named
+two unrelated targets, and the primary checkout's frontier still advertised
+🎯T181.1 (Mode A publish) as ready three weeks after the owner cancelled it.
+
+Rules:
+
+- **`master:bullseye.yaml` is the ledger.** Any other copy is a working draft
+  until it lands there.
+- **File and read from a checkout whose `bullseye.yaml` matches master**, or
+  land your ledger change on master in the same session that files it. Do not
+  leave a filed target sitting uncommitted in a worktree.
+- **Use the id the tool returns.** Never predict the next id by reading the
+  file — another worktree may be minting the same one right now.
+- **Ledger writes are tool-only** (`bullseye commit` / `bullseye apply`, or the
+  bullseye MCP tools). Do not hand-edit `bullseye.yaml`. After resolving a
+  genuine merge conflict in it by hand, run
+  `bullseye commit --op rehash --reason "..."` so the banner hash matches.
+- Git merges this file cleanly: target bodies auto-merge and only the banner
+  `content_hash` conflicts. A fork of the ledger is a merge, not a rewrite —
+  keep both sides' attestations verbatim.
+
 ## Consumer DX contract
 
 Games that consume ge (esfera2, multimaze2, yourworld2, …) should keep their
