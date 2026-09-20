@@ -157,6 +157,13 @@ every game repo inherits them without per-repo setup:
 | `MATCH_PASSWORD` | Match passphrase (same as your shell env var) |
 | `PLAY_SERVICE_ACCOUNT_JSON` | Google Play service account JSON, base64-encoded |
 
+Android upload-key signing (keystore mint, `make ge/android-bundle`, Play
+App Signing) is documented in [`android-release.md`](android-release.md).
+The Play Console first session (create app, listing, IAP, compliance) is
+[`play-console.md`](play-console.md). Additional org secrets for signing
+the AAB before `supply`: `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`.
+
 ### Required variables
 
 | Variable | Description |

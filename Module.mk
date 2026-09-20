@@ -951,6 +951,15 @@ ge/android-release: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_
 	cd android && ./gradlew assembleRelease
 	@echo "APK: android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
+# Signed Play App Bundle. Laptop: materializes the upload key from the
+# macOS keychain (ANDROID_KEYSTORE_KEYCHAIN_ACCOUNT). CI: ANDROID_KEYSTORE_PATH
+# at a runner temp file. Never falls back to the debug keystore.
+# See docs/android-release.md.
+.PHONY: ge/android-bundle
+ge/android-bundle: $(ge/APP_SHADERS_SPIRV) $(ge/RENDER_SHADERS_SPIRV) $(ge/APP_SHADERS_GLES) $(ge/RENDER_SHADERS_GLES)
+	@$(ge)/tools/android-with-upload-key.sh --require ./gradlew :app:bundleRelease
+	@echo "AAB: android/app/build/outputs/bundle/release/app-release.aab"
+
 # ────────────────────────────────────────────────
 # End-to-end test matrix
 # ────────────────────────────────────────────────

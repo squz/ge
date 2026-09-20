@@ -2784,6 +2784,220 @@ targets:
     - docs
     origin: subdivide(🎯T181)
     discovered: 2026-07-31
+  T182:
+    name: The 2026-08-22 entropy-audit findings are represented as follow-up targets
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    attestation: Analysed docs/audits/entropy-audit-2026-08-22.md and filed 11 ENT findings as children T182.1–T182.11 of T182.
+    acceptance:
+    - Each ENT-* heading in docs/audits/entropy-audit-2026-08-22.md has a follow-up child target tagged with that ENT id
+    - Each child is a desired-state assertion with testable acceptance drawn from the finding's verification
+    - bullseye query --view validate reports no errors after filing
+    context: |-
+      Campaign analysis of docs/audits/entropy-audit-2026-08-22.md. Filing the children is the analysis; remediations live on the children. sqldeep was excluded (already filed).
+
+      Achieved 2026-08-22: Analysed docs/audits/entropy-audit-2026-08-22.md and filed 11 ENT findings as children T182.1–T182.11 of T182.
+    tags:
+    - entropy-audit
+    - analysis
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+    achieved: 2026-08-22
+  T182.1:
+    name: Engine `.d` files are written and then ignored (🎯T100 still open)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Fable’s `touch include/ge/sprite.h && make` recipe; must rebuild `sprite.o` and relink `libge.a`.
+    - 'ENT-001 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-001 (P1). Status: observed fact. A public-header layout/signature change recompiles consumer TUs (their `.d` *is* included) against a stale `libge.a`. Result is ODR/ABI mismatch or a false-green `unit-test` binary. Prebuilds (`tools/prebuild.sh`) compile from scratch, so CI hash-verify does not see this class of bug. Remediation: Replace the false comment with `-include` of `$(ge/OBJ:.o=.d) $(ge/TEST_OBJ:.o=.d) $(APP_DEBUG_OBJ:.o=.d)` and the vendor groups that pass `-MMD -MP`. Add a regression: touch a header used by an engine TU + a test, `make unit-test` without `clean`, assert the engine `.o`… Blast: Every desktop consumer incremental `make` / `make unit-test`. Mobile prebuilts unaffected. Silent memory corruption if layouts change and still link. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-001
+    - p1
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.10:
+    name: TextureEncoder `downscale2x` still divides by `n` with empty-source guard
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`ge::textureToFile(..., width=0, height=4)` throws; UBSan clean.'
+    - 'ENT-010 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-010 (P3). Status: observed fact (code); inference (needs a 0-width input). Degenerate PNG/cook input → SIGFPE in the cook tool, not the game. Remediation: Reject `width<=0 || height<=0` at `textureToFile`; `n = max(n,1)` as belt. Blast: Asset pipeline / CI cook, not runtime. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-010
+    - p3
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.11:
+    name: Duplicate `WebSocketClient.h` is consistent across its writers
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`git grep WebSocketClient.h` only `include/ge/`.'
+    - 'ENT-011 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-011 (P3). Status: observed fact. Two headers for one type; the stale copy can be re-included by accident (`"WebSocketClient.h"` from `src/`). Remediation: Delete `src/WebSocketClient.h`. Blast: Wire/server builds only. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-011
+    - p3
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.2:
+    name: Agent-facing docs and the stability catalogue disagree with the compile graph
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Grep gate: `rg ''ge/PLAYER|tools/player.cpp|kProtocolVersion \\| 6'' AGENTS.md STABILITY.md agents-guide.md` empty; `rg ''kProtocolVersion = 9'' STABILITY.md`.'
+    - 'ENT-002 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-002 (P1). Status: observed fact. Agents (and humans) load AGENTS.md first. A protocol bump or player bugfix will be applied to the wrong tree and the wrong version. The stability catalogue cannot audit breaking changes if it pins v7 while the header is v9. This is one domain fact (wire + player ownership) with four authorities. Remediation: One pass over AGENTS.md / STABILITY.md / agents-guide.md / device-api.md: delete `ge/PLAYER` and `player.cpp` instructions; set catalogue version to 9; tombstone `docs/rendering-library-choice.md` as historical. Keep a single “player lives in spyder” paragraph. Blast: Every consumer integration, every protocol change, every agent session in this repo. Spyder coupling is protocol-only; a v6 client against a v9 header is a handshake reject. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-002
+    - p1
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.3:
+    name: GitHub CI does run the test oracles the Makefile already has
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - A PR that breaks `nullsafe_test.c` must fail CI; today it would not if prebuilt hashes are unchanged (that file is under `tools/sokol-dispatch/`, **not** in verify-prebuilds `paths:`).
+    - 'ENT-003 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-003 (P1). Status: observed fact. The shipped-path correctness net for C++ is optional and laptop-only. Prebuilt hash equality is necessary and insufficient. A regression in `Rect` / `hint` / IAP stub can land if `libge.a` is recooked. Remediation: Add a GHA job on ubuntu or macos that runs `python3 tools/test_verify_prebuilds.py`, `make dispatch-null-safety-test`, and (macos) `make unit-test`. Leave `release.yml` disabled until T181/ship, but do not leave correctness un-gated. Blast: All consumers of a merged `master` / tag. Pre-1.0 (STABILITY.md) does not make this acceptable for an engine. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-003
+    - p1
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.4:
+    name: Android SokolContext lifecycle is implemented and never called
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - 'Log line `SokolContext: foregrounded (Vulkan)` after bg→fg on a VK device; no SURFACE_LOST spam'
+    - AVD cell or spyder smoke
+    - 'ENT-004 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-004 (P2). Status: observed fact (unwired); inference (driver crash); needs verification…. The backend’s documented contract (idle GPU, drop swapchain, recreate on foreground, skip draws while `paused`) is dead code. OUT_OF_DATE self-heal covers rotation/resize; it does not run `vkDeviceWaitIdle` before the `ANativeWindow` dies, and it does not handle `VK_ERROR_SURFACE_LOST_KHR`. Remediation: Replace the two TODOs with `i_->sokolCtx->onBackground/onForeground()`; consider `paused()` true on Android while backgrounded so SessionHost skips the render bracket. Delete “when the parallel agent lands”. Blast: Android Vulkan devices on background/rotate/foreground. GLES path is milder (no swapchain object). Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-004
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.5:
+    name: Dispatch shim NULL-safety is teardown-only
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Unbound `sg_setup`/`sg_begin_pass` must not SIGSEGV.
+    - 'ENT-005 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-005 (P2). Status: observed fact. The Fable crash (dtor after failed VK bind) is closed. Any other `sg_*` on the unbound table (failed GLES init that still submits, a future capture/trace hook, T109 instrumentation) is still a NULL deref. The generator knows how to emit guards and chooses not to for the rest. Remediation: Default every generated forwarder to NULL-safe (no-op / zero return) *or* install a default abort-with-log table at process start. Extend `nullsafe_test.c` to call `sg_begin_pass` unbound. Blast: Android backend selection failure paths beyond the two teardown symbols; future shim users. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-005
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.6:
+    name: Public `Model.h` does compile; bgfx-era types remain in the API folder
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`clang++ -fsyntax-only -Iinclude include/ge/Model.h` fails today; after removal, AGENTS.md must not name `Model.h`.'
+    - 'ENT-006 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-006 (P2). Status: observed fact. Public headers and AGENTS.md describe types the library does not build. Consumers (or agents) who follow the catalogue get a missing header. Case-insensitive FS hides the Texture collision until a Linux CI appears. Remediation: Remove or quarantine `Model.h` / `Model.cpp` / unused `SdlContext.cpp` (keep Android if JNI window helper is live). Drop the AGENTS.md Model bullet or retarget it at `ModelFormat.h`. Blast: Anyone including `Model.h`; Linux case-sensitive builds; license/docs for FFmpeg (see ENT-009). Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-006
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.7:
+    name: TLA+ specs still model the deleted `ged` daemon
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`make` / CI / bullseye must not imply TLC of ged is a ge gate unless the spec’s constants match live code.'
+    - 'ENT-007 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-007 (P2). Status: observed fact. A standing formal oracle for the wrong process. Running TLC here cannot decide spyder session invariants and will not fail when ge’s wire session code regresses. Looks like coverage; is archaeology. Remediation: Move to `docs/historical/formal-ged/` or rewrite against `ServerSession.mm` / spyder (owner call). Do not leave live `formal/` names implying current enforcement. Blast: Anyone citing `formal/` as session-lifecycle evidence; confusion with spyder’s session model (🎯T163 multi-session). Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-007
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.8:
+    name: '`recordPresent()` runs even when `endFrame` presented nothing'
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - Stub a nil-drawable frame under `renderWhenStateChanges`; `framesPresented()` must stay flat and the trigger must remain true.
+    - 'ENT-008 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-008 (P2). Status: observed fact (code); inference (on-demand stuck frame). 🎯T131.4/T131.5 treat `framesPresented()` as ground truth and the generation baseline as “this State was drawn.” A skipped present still consumes the dirty generation → on-demand idles on a stale framebuffer. Remediation: `SokolContext::endFrame()` returns bool; gate `recordPresent()` on it. Optionally return a no-op `Pass` when beginFrame opened nothing. Blast: Render-on-demand consumers (`sample/tiltbuggy` `RENDER_ON_DEMAND=1`, menus using `renderWhenStateChanges`). Tools that trust `frames_presented`. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-008
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T182.9:
+    name: NOTICES.md claims Android compiles FFmpeg `VideoDecoder_ffmpeg.cpp`; the compile list does
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - '`nm` / cook manifest of `prebuilt/android-arm64/libge.a` has no `avcodec` symbols; NOTICES matches.'
+    - 'ENT-009 in docs/audits/entropy-audit-2026-08-22.md is closed: the evidence cited there no longer reproduces on the shipped path'
+    context: 'Entropy-audit ENT-009 (P2). Status: observed fact. License inventory and the actual link graph disagree. Either ge still ships static FFmpeg (and the manifest is wrong — LGPL gap) or it does not (and NOTICES over-claims, plus dead decoder TUs). Remediation: Align NOTICES with `ge-sources.mk`. If ffmpeg is unused, stop vendoring prebuilt `.a` for it or mark “reference only” like the FFmpeg submodule sentence already does for source. Blast: Distribution/license review; Android stream decode if someone assumes MediaCodec/FFmpeg is in `libge.a`. Report: docs/audits/entropy-audit-2026-08-22.md.'
+    tags:
+    - entropy-audit
+    - ent-009
+    - p2
+    origin: entropy-audit 2026-08-22
+    discovered: 2026-08-22
+  T183:
+    name: Ship Make invokes spyder fastlane (no MATCH_PASSWORD in parent)
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - make ship-* / testflight / playstore call spyder fastlane --studio squz (or STUDIO=squz) instead of bundle exec fastlane
+    - Parent Make/shell env never exports MATCH_PASSWORD; spyder secret missing --for is used as preflight
+    - 'Contract: github.com/marcelocantos/spyder docs/ship-front-door.md §8.1 (🎯T133.7)'
+    origin: manual
+    discovered: 2026-08-25
+  T184:
+    name: android-upload-keychain mint succeeds on macOS (mktemp empty-file + set -u trap)
+    status: converging
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - ANDROID_KEYSTORE_KEYCHAIN_ACCOUNT=<studio> ./ge/tools/android-upload-keychain.sh mint creates a PKCS12 via keytool on macOS (mktemp -t leaves an empty file; keytool -genkeypair must not be pointed at that empty file).
+    - A failed mint still wipes the temp path; the EXIT trap does not trip set -u on an unbound local tmp.
+    - The script still refuses to overwrite an existing play-upload / <account> item unless ANDROID_KEYSTORE_KEYCHAIN_REPLACE=1.
+    context: 'Surfaced from multimaze2 T70.3 (2026-08-26). make android-upload-key-mint execs this script via ../ge. keytool error: "Keystore file exists, but is empty" because mktemp -t creates the file; then trap ''wipe_file "$tmp"'' unbound-variable under set -u when cmd_mint returns. Fix applied in-tree: rm -f after mktemp; PLAY_UPLOAD_TMP global for the trap.'
+    tags:
+    - android
+    - signing
+    - keychain
+    - multimaze-audit
+    origin: multimaze-audit T70.3
+    discovered: 2026-08-26
   T19:
     name: 'render-engine-bridge-split branch can be merged: the full mobile matrix of automated + device smokes runs clean'
     status: achieved
@@ -4447,9 +4661,35 @@ targets:
     - convergence
     origin: manual
     discovered: 2026-05-13
+  T64.8:
+    name: ge documents the Play Console first-session and Android upload-key ship path for every consumer
+    status: achieved
+    value: 0.0
+    cost: 0.0
+    attestation: 'Rewrote ge/tools/android-upload-keychain.sh (mint/export/status/fingerprint), android-with-upload-key.sh (temp PKCS12 + wipe), generate-android-upload-keystore.sh as mint alias, make ge/android-bundle --require, and docs/android-release.md + play-console.md + AGENTS.md. Service is play-upload; account is caller STUDIO. No persistent .jks. Smoke: mint/export refuse without account; --require refuses without path or account.'
+    acceptance:
+    - 'ge/docs/play-console.md documents the studio-agnostic Play Console first session: account type (org vs personal closed-test clock), create app, listing asset rules, IAP product registration, compliance questionnaires, and what agents must not do.'
+    - ge/docs/android-release.md documents upload-key mint into the macOS keychain, secrets policy (no persistent .jks), CI temp-file injection, make ge/android-bundle, Play App Signing enrollment, Internal Testing upload, and upload-key rotation.
+    - ge/tools/android-upload-keychain.sh mints/exports the upload key using keychain service play-upload and caller-supplied ANDROID_KEYSTORE_KEYCHAIN_ACCOUNT; generate-android-upload-keystore.sh is a mint alias. The private key is not written to a persistent filesystem path.
+    - Consuming games keep only identity, SKUs, listing copy, store assets, and the organisation slug (STUDIO); they do not re-host the generic process.
+    context: |-
+      Surfaced 2026-08-25 from multimaze2's Play ship. Engine-owned ship process lives in standalone ge.
+
+      2026-08-25: Persistent store corrected from ANDROID_KEYSTORE_PATH / a .jks on disk to the macOS keychain. Service is the kind of secret (play-upload); account is the organisation slug supplied by the game. Gradle still sees a wiped temp PKCS12.
+
+      Achieved 2026-08-25: Rewrote ge/tools/android-upload-keychain.sh (mint/export/status/fingerprint), android-with-upload-key.sh (temp PKCS12 + wipe), generate-android-upload-keystore.sh as mint alias, make ge/android-bundle --require, and docs/android-release.md + play-console.md + AGENTS.md. Service is play-upload; account is caller STUDIO. No persistent .jks. Smoke: mint/export refuse without account; --require refuses without path or account.
+    tags:
+    - android
+    - play-console
+    - docs
+    - ship
+    - multimaze-audit
+    origin: multimaze2 Play ship 2026-08-25
+    discovered: 2026-08-25
+    achieved: 2026-08-25
   T65:
     name: Cross-platform IAP via ge::iap — games introduce paid unlocks in under ten lines
-    status: identified
+    status: converging
     value: 0.0
     cost: 0.0
     acceptance:
@@ -4458,6 +4698,8 @@ targets:
     - Tiltbuggy ships a `pro` non-consumable that unlocks visible content as the proving ground
     - Studio-wide sandbox tester / license tester pool is documented in ge/docs/iap-testing.md with credentials in the shared password manager
     context: 'Engine-level abstraction over StoreKit 2 (iOS) and Play Billing 7+ (Android). Consumer game registers products by local ID, queries owned() at O(1) against a cache, calls buy() with a result callback. ge prepends bundle ID to form platform SKUs so the same string registered in App Store Connect / Play Console is also what the game writes. Three backends select at init from env var: Stub (CI), Local (.storekit / android.test.* for fast iteration), Platform (real stores). Modern frameworks return signature-verified transactions; ge writes only verified entitlements to a platform-native cache (Keychain / EncryptedSharedPreferences). Server-side receipt validation is intentionally not in scope at v1 — for paid one-shot unlocks against casual game audiences, the JWS verification floor is enough, and the threat model doesn''t justify running a validation server. Subscriptions, server validation, and pending-purchase handling are explicitly deferred until a real game needs them.'
+    depends_on:
+    - T65.8
     tags:
     - iap
     - storekit
@@ -4622,6 +4864,24 @@ targets:
     - proving-ground
     origin: manual
     discovered: 2026-05-17
+  T65.8:
+    name: IapBridge fires the buy callback when the user cancels the Play Billing sheet
+    status: identified
+    value: 0.0
+    cost: 0.0
+    acceptance:
+    - IapBridge.onPurchasesUpdated invokes the native buy callback on BillingClient.BillingResponseCode.USER_CANCELED (and other terminal non-success codes), not only on OK.
+    - ge::iap::buy's Result callback runs with ok=false and a cancelled/failed error so the consumer can clear in-flight purchase UI.
+    - Cancel does not grant or persist an entitlement.
+    - 'Verified from a debug or license-tester Android build: dismiss the Play sheet → callback fires in-process; no sticky Purchasing… state remains.'
+    context: Surfaced 2026-08-26 by multimaze2 🎯T18 audit (tag multimaze-audit). IapBridge.onPurchasesUpdated currently returns without nativeOnPurchaseUpdate on USER_CANCELED, so MultiMaze's sticky "Purchasing…" toast can linger until the player leaves and re-enters the levels screen. Workaround exists (navigate away); this is UX polish, not a T18 ship-blocker. File lives in standalone ge — not the multimaze2 submodule snapshot.
+    tags:
+    - iap
+    - play-billing
+    - android
+    - multimaze-audit
+    origin: multimaze-audit
+    discovered: 2026-08-26
   T66:
     name: ge installs a cross-platform spdlog sink so SPDLOG_INFO surfaces uniformly on iOS, Android, and desktop
     status: achieved
