@@ -62,7 +62,9 @@ target track.
 **Adding a new game**: register the SKUs (`com.squz.<game>.<sku>`) in
 Play Console → <app> → Monetize → Products → In-app products (or
 Subscriptions). License testers work against any registered SKU
-automatically; no per-game tester setup.
+automatically; no per-game tester setup. First-session Console
+walkthrough (create app, listing, product activation, Internal
+testing): [`play-console.md`](play-console.md).
 
 ## TestFlight / Play Internal — production-grade with free purchases
 
