@@ -100,6 +100,25 @@ Rules:
   `content_hash` conflicts. A fork of the ledger is a merge, not a rewrite —
   keep both sides' attestations verbatim.
 
+**The rules above are enforced, not merely stated (🎯T200).** They were
+written here on 2026-09-21 and held for under an hour — three actors re-forked
+the ledger the same evening, one of them the product owner who had just
+attested the fork was closed, and two of them filed the *same* defect minutes
+apart because neither filing was visible to the other. Assume you will forget
+this page too:
+
+| Mechanism | Catches |
+|---|---|
+| `make ledger-check` (a prerequisite of `make bullseye`, so `/cv` runs it) | A filing left in a working copy. Needs no commit — which is what the 2026-09-21 case needed, since none of the three re-forkers committed anything. |
+| `scripts/hooks/pre-commit` | Committing other work while an unlanded filing sits unstaged. |
+| `bullseye` itself (`code=unsafe_repo`) | A write into a detached-HEAD checkout. Already upstream; the two above cover the named-branch case it misses. |
+| `make ledger-land` | The remedy — forwards this checkout's ledger onto master from any worktree, without checking master out or disturbing any working tree. |
+
+A checkout sitting at an older commit, and a feature branch carrying its own
+filings, both pass: the ledger riding the commit that changes it is the
+documented lifecycle, and a check that cries wolf is a check people bypass.
+The one hard failure is ledger content that exists in **no commit at all**.
+
 ## Consumer DX contract
 
 Games that consume ge (esfera2, multimaze2, yourworld2, …) should keep their
