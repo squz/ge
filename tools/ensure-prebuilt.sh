@@ -1,3 +1,4 @@
+# Phase 1 LFS exit: archives are local-only — cook here; do not git add prebuilt/**/*.a.
 #!/usr/bin/env bash
 # Ensure prebuilt/<platform>/ (or prebuilt/<platform>-debug/) matches the
 # working tree before a mobile link.

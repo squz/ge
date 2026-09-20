@@ -48,3 +48,17 @@ tools/android/.idea/
 # Old ged dashboard SPA leftovers (ged removed Plateau P / T145)
 web/node_modules/
 web/
+
+# Local GE/vendor static libs — cook with make prebuild; do not commit
+prebuilt/**/*.a
+prebuilt/**/*.so
+prebuilt/**/*.dylib
+prebuilt/**/*.o
+prebuilt/**/*.lib
+prebuilt/**/*.dll
+prebuilt/**/*.exe
+**/libge.a
+vendor/**/*.a
+bin/*/shaderc
+*.jar
+!**/gradle-wrapper.jar

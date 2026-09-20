@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
-"""Verify prebuilt/<platform>/manifest.json files match the working tree.
+"""Reject committed prebuilt binary artefacts (Phase 1 LFS exit).
 
-By default checks every manifest under prebuilt/*/manifest.json. Pass
-`--platform ios-arm64` (or `android-arm64`) to scope the check to one
-platform.
+Prebuilt static libs are a **local cache** produced by `make prebuild` /
+`tools/ensure-prebuilt.sh`. They must not be committed. This verifier
+fails if any tracked path matches the binary globs that used to go
+through Git LFS.
 
-Exit 0 if all input hashes, prebuilt .a hashes, script hashes, and
-submodule SHAs match the manifest. Exit 1 with a per-file diagnostic
-otherwise — pointing the developer at `make prebuild` (or a single
-platform, e.g. `make prebuild-ios-arm64`) and/or `make ge/lift-headers`.
+cook.json / manifest.json under prebuilt/ may remain as plain text; they
+are not checked here for freshness (local cook + verify-cook.py handle
+that at link time).
 
 Used by:
-- `scripts/hooks/pre-commit` — local fast check before push.
-- `.github/workflows/verify-prebuilds.yml` — authoritative CI gate on
-  PRs that touch source / vendor / scripts / submodule pointers /
-  prebuilt artefacts.
-
-Runs on Linux + macOS. No xcrun / clang needed — just hashes files.
-On CI, runs against a checkout WITHOUT submodule init (cheaper) and
-WITHOUT LFS materialised for the prebuilts/ tree (the .a hash comes
-from the committed LFS pointer's payload, materialised via `git lfs
-pull --include='prebuilt/**' --exclude=''` if a deep check is wanted;
-by default the verifier checks the working-tree file as-is).
+- `scripts/hooks/pre-commit` — reject staging binaries before commit.
+- `.github/workflows/verify-prebuilds.yml` — CI tip-tree gate.
 
 Copyright 2026 Marcelo Cantos
 SPDX-License-Identifier: Apache-2.0
@@ -29,246 +20,76 @@ SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 
-# Allow tests to point the verifier at a temp-dir fake repo via env var.
-# Falls back to the script's parent's parent (the ge repo root) for
-# normal invocation.
 REPO_ROOT = Path(
     os.environ.get("GE_REPO_ROOT") or Path(__file__).resolve().parent.parent
 ).resolve()
-SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 
-# Android NDK ABI floor (🎯T100). The android-arm64 prebuilt must be built
-# with an NDK whose major version is no newer than the oldest NDK any
-# consumer links with — otherwise libge.a references libc++ exception-ABI
-# symbols the consumer's older runtime can't resolve. Keep in sync with
-# GE_ANDROID_NDK_MAJOR in tools/prebuild.sh.
-ANDROID_NDK_MAJOR_PIN = "27"
-
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+# Paths that must never be tracked after Phase 1 stop-publish.
+FORBIDDEN_SUFFIXES = (
+    ".a",
+    ".so",
+    ".dylib",
+    ".o",
+    ".lib",
+    ".dll",
+    ".exe",
+    ".jar",
+)
 
 
-def is_lfs_pointer(path: Path) -> bool:
-    """A file that is still an LFS pointer (not smudged) starts with the
-    distinctive `version https://git-lfs.github.com/spec/v1` marker and
-    is small (~130 bytes). Detect so we can skip hashing prebuilt .a
-    files when CI didn't pull LFS — that's expected for the cheap path."""
-    try:
-        if path.stat().st_size > 4096:
-            return False
-        with open(path, "rb") as f:
-            head = f.read(64)
-        return head.startswith(b"version https://git-lfs.github.com/spec/")
-    except OSError:
-        return False
-
-
-def load_submodule_status() -> dict[str, str]:
-    """Returns {submodule_path: committed_sha}. Reads `git submodule
-    status` which only needs the superproject's git data — submodules
-    don't need to be initialised."""
+def tracked_files() -> list[str]:
     out = subprocess.check_output(
-        ["git", "submodule", "status"], cwd=REPO_ROOT, text=True
+        ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
+        text=False,
     )
-    shas: dict[str, str] = {}
-    for line in out.splitlines():
-        m = re.match(r"^[ \-+U]([0-9a-f]+)\s+(\S+)", line)
-        if m:
-            shas[m.group(2)] = m.group(1)
-    return shas
+    if not out:
+        return []
+    return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
-def verify_manifest(manifest_path: Path) -> tuple[list[str], int, dict[str, int]]:
-    """Verify a single platform's manifest. Returns (errors, skipped_lfs,
-    counts)."""
-    errors: list[str] = []
-    skipped_lfs = 0
-
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-
-    if manifest.get("version") not in SUPPORTED_MANIFEST_VERSIONS:
-        errors.append(
-            f"unsupported manifest version {manifest.get('version')}"
-            f" (verifier accepts {sorted(SUPPORTED_MANIFEST_VERSIONS)})"
-        )
-        return errors, skipped_lfs, {}
-
-    # 1) scripts — controlling shell + python scripts.
-    for rel, expected in manifest.get("scripts", {}).items():
-        p = REPO_ROOT / rel
-        if not p.exists():
-            errors.append(f"missing script: {rel}")
-            continue
-        actual = sha256_file(p)
-        if actual != expected:
-            errors.append(f"script changed: {rel}")
-
-    # 2) submodule SHAs — from `git submodule status`, no init needed.
-    #
-    # Two-way check (🎯T78): the manifest must reference every submodule
-    # currently in the tree AND every submodule it references must still
-    # exist. Without the converse check, a PR could add a new submodule
-    # (e.g. swapping bgfx for sokol) and forget to refresh the manifest;
-    # the verifier would silently pass on a stale build state.
-    actual_shas = load_submodule_status()
-    manifest_shas = manifest.get("submodule_shas", {})
-    for rel, expected in manifest_shas.items():
-        actual = actual_shas.get(rel)
-        if actual is None:
-            errors.append(f"submodule not configured: {rel}")
-        elif actual != expected:
-            errors.append(
-                f"submodule SHA changed: {rel}\n"
-                f"    expected {expected[:12]}\n"
-                f"    actual   {actual[:12]}"
-            )
-    for rel in actual_shas:
-        if rel not in manifest_shas:
-            errors.append(f"submodule not in manifest: {rel}")
-
-    # 3) prebuilt .a files — skip if still LFS pointers (CI cheap path).
-    #
-    # Two-way check (🎯T78): the manifest must reference every .a in
-    # prebuilt/<platform>/. A new .a appearing without a manifest refresh
-    # means the build was rerun in a way that produced new artefacts but
-    # the hashes weren't re-recorded — stale state by another name.
-    manifest_prebuilts = manifest.get("prebuilts", {})
-    for rel, expected in manifest_prebuilts.items():
-        p = REPO_ROOT / rel
-        if not p.exists():
-            errors.append(f"missing prebuilt: {rel}")
-            continue
-        if is_lfs_pointer(p):
-            skipped_lfs += 1
-            continue
-        actual = sha256_file(p)
-        if actual != expected:
-            errors.append(f"prebuilt changed: {rel}")
-    platform_dir = manifest_path.parent
-    for a in sorted(platform_dir.glob("*.a")):
-        rel = a.relative_to(REPO_ROOT).as_posix()
-        if rel not in manifest_prebuilts:
-            errors.append(f"prebuilt not in manifest: {rel}")
-
-    # 4) inputs.
-    for rel, expected in manifest.get("inputs", {}).items():
-        p = REPO_ROOT / rel
-        if not p.exists():
-            errors.append(f"missing input: {rel}")
-            continue
-        actual = sha256_file(p)
-        if actual != expected:
-            errors.append(f"input changed: {rel}")
-
-    # 5) Android NDK ABI pin (🎯T100). The android-arm64 prebuilt must be
-    # built with the pinned NDK major; a newer one bakes in libc++
-    # exception-ABI symbols (__cxa_init_primary_exception, ...) that
-    # consumers on the pinned NDK can't resolve at link time. Derive the
-    # build NDK's major from the recorded toolchain path and compare.
-    if manifest_path.parent.name == "android-arm64":
-        ndk_path = manifest.get("toolchain", {}).get("ndk_path", "")
-        ndk_major = Path(ndk_path).name.split(".", 1)[0] if ndk_path else ""
-        if ndk_major != ANDROID_NDK_MAJOR_PIN:
-            errors.append(
-                f"android-arm64 prebuilt built with NDK r{ndk_major or '?'}, "
-                f"expected r{ANDROID_NDK_MAJOR_PIN} (🎯T100). Rebuild with: "
-                f"GE_ANDROID_NDK_MAJOR={ANDROID_NDK_MAJOR_PIN} "
-                f"tools/prebuild.sh android-arm64"
-            )
-
-    counts = {
-        "scripts":   len(manifest.get("scripts", {})),
-        "submods":   len(manifest.get("submodule_shas", {})),
-        "prebuilts": len(manifest.get("prebuilts", {})),
-        "inputs":    len(manifest.get("inputs", {})),
-    }
-    return errors, skipped_lfs, counts
+def is_forbidden(path: str) -> bool:
+    # Keep gradle-wrapper.jar if present (plain blob / regenerated locally).
+    if path.endswith("gradle-wrapper.jar"):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    if name == "shaderc" and path.startswith("bin/"):
+        return True
+    lower = path.lower()
+    if lower.endswith(FORBIDDEN_SUFFIXES):
+        # Focus on prebuilt/vendor cook outputs + stray root libs; also
+        # catch any remaining LFS-era jars (e.g. formal/tla2tools.jar).
+        if (
+            path.startswith("prebuilt/")
+            or path.startswith("vendor/")
+            or name == "libge.a"
+            or lower.endswith(".jar")
+            or path.startswith("bin/")
+        ):
+            return True
+    return False
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument(
-        "--platform",
-        default=None,
-        help="Scope check to one platform directory (e.g. ios-arm64, "
-             "android-arm64). Default: every prebuilt/*/manifest.json.",
-    )
-    args = parser.parse_args()
-
-    if args.platform:
-        manifests = [REPO_ROOT / f"prebuilt/{args.platform}/manifest.json"]
-    else:
-        manifests = sorted((REPO_ROOT / "prebuilt").glob("*/manifest.json"))
-
-    if not manifests:
-        print(
-            "error: no prebuilt/*/manifest.json found. "
-            "Run `make prebuild` to generate them.",
-            file=sys.stderr,
-        )
+    bad = sorted(p for p in tracked_files() if is_forbidden(p))
+    if bad:
+        print("ERROR: committed prebuilt/binary artefacts found (Phase 1 LFS exit).", file=sys.stderr)
+        print("", file=sys.stderr)
+        for p in bad[:80]:
+            print(f"  {p}", file=sys.stderr)
+        if len(bad) > 80:
+            print(f"  ... and {len(bad) - 80} more", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Prebuilts are local-only. Cook with `make prebuild`; do not git add archives.", file=sys.stderr)
+        print("See docs/vendor-prebuilds.md.", file=sys.stderr)
         return 1
 
-    all_errors: list[tuple[str, str]] = []
-    total_skipped_lfs = 0
-    total_counts = {"scripts": 0, "submods": 0, "prebuilts": 0, "inputs": 0}
-    platforms_checked: list[str] = []
-
-    for manifest_path in manifests:
-        platform = manifest_path.parent.name
-        if not manifest_path.exists():
-            all_errors.append((platform, f"manifest missing: {manifest_path.relative_to(REPO_ROOT)}"))
-            continue
-        errors, skipped_lfs, counts = verify_manifest(manifest_path)
-        platforms_checked.append(platform)
-        total_skipped_lfs += skipped_lfs
-        for k, v in counts.items():
-            total_counts[k] += v
-        for e in errors:
-            all_errors.append((platform, e))
-
-    if all_errors:
-        print("ERROR: prebuilt artefacts are stale.", file=sys.stderr)
-        print("", file=sys.stderr)
-        for platform, e in all_errors[:40]:
-            print(f"  [{platform}] {e}", file=sys.stderr)
-        if len(all_errors) > 40:
-            print(f"  ... and {len(all_errors) - 40} more", file=sys.stderr)
-        print("", file=sys.stderr)
-        print("Fix on a Mac with iOS SDK and Android NDK:", file=sys.stderr)
-        print("  git submodule update --init --recursive", file=sys.stderr)
-        print("  make prebuild  # fans out to all platforms in parallel", file=sys.stderr)
-        print("  make ge/lift-headers  # if headers/ subtree drifted", file=sys.stderr)
-        print("  git add prebuilt/ headers/ vendor/github.com/", file=sys.stderr)
-        print("  git commit --amend --no-edit", file=sys.stderr)
-        print("", file=sys.stderr)
-        print("To bypass for an unrelated commit:  git commit --no-verify", file=sys.stderr)
-        return 1
-
-    plats = ", ".join(platforms_checked)
-    print(
-        f"prebuilts ok ({plats}): "
-        f"{total_counts['scripts']} scripts, "
-        f"{total_counts['submods']} submodules, "
-        f"{total_counts['prebuilts']} prebuilts, "
-        f"{total_counts['inputs']} inputs"
-        + (f" ({total_skipped_lfs} prebuilt LFS pointers skipped)" if total_skipped_lfs else "")
-    )
+    print("prebuilts ok: no committed prebuilt/**/*.a (or related binary patterns)")
     return 0
 
 
