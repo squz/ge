@@ -75,9 +75,28 @@ fi
 
 mkdir -p "$GE_ROOT/build"
 LOCK="$GE_ROOT/build/.ensure-sdl-$PLATFORM.lock"
+LOCK_PID_FILE="$LOCK/pid"
 LOCK_TIMEOUT="${GE_ENSURE_SDL_LOCK_TIMEOUT:-1800}"
+
+# 🎯T201: a cook killed mid-flight (SIGKILL, OOM, ctrl-C) leaves $LOCK behind
+# with nothing to remove it — every later invocation then waited out the
+# full $LOCK_TIMEOUT (30 minutes) before failing. The holder writes its own
+# pid into $LOCK/pid right after acquiring; a waiter that finds the lock
+# held by a pid that is no longer running knows the lock is stale (the
+# holder cannot possibly still be cooking) and reclaims it immediately
+# instead of waiting. A lock directory with no pid file yet is a holder
+# mid-way through acquiring — not stale — and is still subject to the
+# ordinary timeout.
 waited=0
 until mkdir "$LOCK" 2>/dev/null; do
+  if [[ -f "$LOCK_PID_FILE" ]]; then
+    holder_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$holder_pid" ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
+      echo "ge: $LOCK held by dead pid $holder_pid — reclaiming stale lock" >&2
+      rm -rf "$LOCK"
+      continue
+    fi
+  fi
   if [[ "$waited" -ge "$LOCK_TIMEOUT" ]]; then
     echo "error: timed out after ${LOCK_TIMEOUT}s waiting for $LOCK" >&2
     echo "       A previous cook may have been killed; remove that directory." >&2
@@ -89,7 +108,8 @@ until mkdir "$LOCK" 2>/dev/null; do
   sleep 2
   waited=$((waited + 2))
 done
-trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+echo "$$" > "$LOCK_PID_FILE"
+trap 'rm -rf "$LOCK" 2>/dev/null || true' EXIT
 
 # Re-check: whoever held the lock may have cooked exactly what we wanted.
 STILL_MISSING="$(missing)"

@@ -144,6 +144,15 @@ install_sdl_macos_prefix() {
 
 clone_or_checkout() {
   local dir="$1" url="$2" tag="$3"
+  # 🎯T201: a cook killed mid-clone can leave $dir/.git half-written (e.g. a
+  # stale config.lock or no reachable HEAD). The next cook then finds
+  # "$dir/.git" present, tries to fetch/checkout against it, and fails with
+  # "could not lock config file" / "Unable to read current working
+  # directory" instead of just re-cloning. Detect that and start clean.
+  if [[ -d "$dir/.git" ]] && ! git -C "$dir" rev-parse --verify -q HEAD >/dev/null; then
+    echo "ge: $dir looks like a half-written clone (no reachable HEAD) — removing and re-cloning" >&2
+    rm -rf "$dir"
+  fi
   if [[ ! -d "$dir/.git" ]]; then
     git clone --branch "$tag" --depth 1 --recurse-submodules "$url" "$dir"
   else
