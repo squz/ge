@@ -1261,11 +1261,13 @@ endef
 #   make ge/ci-init                         # copy GHA release workflow into game repo
 #
 # Override knobs (set in your game Makefile before the -include $(ge)/Module.mk):
+#   STUDIO             — Spyder credential studio. Default: squz.
 #   SHIP_SCHEME        — Xcode scheme (e.g. MultiMaze2). Default: $(APP_DISPLAY_NAME).
 #   SHIP_BUILD_DIR     — Where worktrees and IPAs land. Default: build/ship.
 #   SHIP_CLEAN_DAYS    — Prune worktrees older than N days. Default: 14.
 #   GHA_WORKFLOW_DEST  — Where ge/ci-init copies the workflow. Default: .github/workflows.
 
+STUDIO          ?= squz
 SHIP_SCHEME     ?= $(APP_DISPLAY_NAME)
 SHIP_BUILD_DIR  ?= build/ship
 SHIP_CLEAN_DAYS ?= 14
@@ -1279,12 +1281,14 @@ GHA_WORKFLOW_DEST ?= .github/workflows
 ge/SHIP_PATH = $(PATH):/usr/bin:/bin:/usr/sbin:/sbin
 
 # ── ship-preflight ─────────────────────────────────────────────────────────
-# Standalone pre-build gate: git clean? env vars set? match works?
+# Standalone pre-build gate: git clean? configuration and secrets ready? readonly match works?
 
 .PHONY: ship-preflight
 ship-preflight:
-	SHIP_SCHEME=$(SHIP_SCHEME) \
-	APP_ID=$(APP_ID) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
 	    $(ge)/tools/ship/preflight.sh \
 	    --lane $(if $(LANE),$(LANE),alpha) \
 	    $(if $(VERSION),--version $(VERSION),)
@@ -1309,16 +1313,26 @@ SHIP_PROJECT ?= ios/build/xcode/$(SHIP_SCHEME).xcodeproj
 
 # `ios` is the consumer's CMake-Xcode codegen target (defined in their
 # Makefile, e.g. `cd ios && cmake -G Xcode -B build/xcode ...`). ge's
-# ship-* lanes depend on it so the .xcodeproj exists at SHIP_PROJECT
-# before gym tries to read it. If the consumer has a hand-written
+# ship-* lanes invoke it after checking secrets and confirmation, so the
+# .xcodeproj exists at SHIP_PROJECT before gym tries to read it. If the consumer has a hand-written
 # .xcodeproj (no codegen needed), they can stub `ios:` as a no-op.
 
 .PHONY: ship-alpha
-ship-alpha: ios
+ship-alpha:
 	PATH=$(ge/SHIP_PATH) \
-	SHIP_SCHEME=$(SHIP_SCHEME) \
-	SHIP_PROJECT=$(SHIP_PROJECT) \
-	APP_ID=$(APP_ID) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
+	    $(ge)/tools/ship/release.sh --check-only --lane alpha
+	$(MAKE) ios
+	PATH=$(ge/SHIP_PATH) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
 	    $(ge)/tools/ship/release.sh --lane alpha
 
 # ── ship-beta ──────────────────────────────────────────────────────────────
@@ -1326,13 +1340,23 @@ ship-alpha: ios
 # VERSION is required: `make ship-beta VERSION=0.31.0`
 
 .PHONY: ship-beta
-ship-beta: ios
+ship-beta:
 	@if [ -z "$(VERSION)" ]; then \
 	    echo "Usage: make ship-beta VERSION=0.31.0"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
-	SHIP_SCHEME=$(SHIP_SCHEME) \
-	SHIP_PROJECT=$(SHIP_PROJECT) \
-	APP_ID=$(APP_ID) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
+	    $(ge)/tools/ship/release.sh --check-only --lane beta --version $(VERSION)
+	$(MAKE) ios
+	PATH=$(ge/SHIP_PATH) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
 	    $(ge)/tools/ship/release.sh --lane beta --version $(VERSION)
 
 # ── ship-release ───────────────────────────────────────────────────────────
@@ -1341,16 +1365,26 @@ ship-beta: ios
 # VERSION is required: `make ship-release VERSION=0.31.0 CONFIRM=1`
 
 .PHONY: ship-release
-ship-release: ios
+ship-release:
 	@if [ -z "$(VERSION)" ]; then \
 	    echo "Usage: make ship-release VERSION=0.31.0 CONFIRM=1"; exit 1; fi
 	@if [ -z "$(CONFIRM)" ] || [ "$(CONFIRM)" != "1" ]; then \
 	    echo "ERROR: make ship-release requires CONFIRM=1."; \
 	    echo "  make ship-release VERSION=$(VERSION) CONFIRM=1"; exit 1; fi
 	PATH=$(ge/SHIP_PATH) \
-	SHIP_SCHEME=$(SHIP_SCHEME) \
-	SHIP_PROJECT=$(SHIP_PROJECT) \
-	APP_ID=$(APP_ID) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
+	    $(ge)/tools/ship/release.sh --check-only --lane release --version $(VERSION) --confirm
+	$(MAKE) ios
+	PATH=$(ge/SHIP_PATH) \
+	STUDIO="$(STUDIO)" \
+	SHIP_SCHEME="$(SHIP_SCHEME)" \
+	SHIP_PROJECT="$(SHIP_PROJECT)" \
+	APP_ID="$(APP_ID)" \
+	APPLE_TEAM_ID="$(APPLE_TEAM_ID)" \
 	    $(ge)/tools/ship/release.sh --lane release --version $(VERSION) --confirm
 
 # ── ship-clean ─────────────────────────────────────────────────────────────

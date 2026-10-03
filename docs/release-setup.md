@@ -2,8 +2,8 @@
 
 This is the **one-time setup** a new engineer or a fresh machine needs before
 running any of the `make ship-*` lanes (🎯T64.2). After this, day-to-day
-shipping is `bundle exec fastlane match appstore --readonly` (resolved
-automatically by the ship lanes), no prompts, no per-game cert dance.
+shipping uses `spyder fastlane --studio squz -- sync_certs` (readonly,
+also called by the build lane). Spyder injects credentials into its child only.
 
 > **Studio scope.** ge is studio-agnostic. This document uses the **squz**
 > studio as the worked example (cert repo `squz/certs`, Apple Team
@@ -33,24 +33,29 @@ automatically by the ship lanes), no prompts, no per-game cert dance.
 5. Note the **Key ID** (shown in the row) and the **Issuer ID** (shown
    at the top of the Keys page; same for everyone on the team).
 
-## Step 2 — Shell environment
+## Step 2 — Studio secrets and app configuration
 
-Add to your shell profile (`~/.zshrc` or equivalent):
+Install a signed spyder with the [ship front door](https://github.com/marcelocantos/spyder/blob/master/docs/ship-front-door.md)
+and follow its interactive import flow on the developer machine:
 
 ```sh
-export APP_STORE_CONNECT_API_KEY_KEY_ID="<your KEYID from Step 1>"
-export APP_STORE_CONNECT_API_KEY_ISSUER_ID="<the issuer UUID>"
-export APP_STORE_CONNECT_API_KEY_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_KEY_ID}.p8"
-
-# Match passphrase — paste from 1Password ("squz / match passphrase").
-export MATCH_PASSWORD="<passphrase>"
-
-# Per-game: the Xcode scheme name (e.g. "MultiMaze2"). Set in the game's
-# .zshrc or in the Makefile as SHIP_SCHEME := MyGame.
-export SHIP_SCHEME="<your Xcode scheme>"
+spyder secret import --studio squz
+spyder secret missing --studio squz --for match
+spyder secret missing --studio squz --for pilot
+spyder secret missing --studio squz --for deliver
 ```
 
-Reload your shell or `source ~/.zshrc`.
+The import flow absorbs credentials into the studio keychain envelope. Do not
+export `MATCH_PASSWORD` or ASC credentials in shell profiles or Makefiles, or
+print secrets to verify them. Remove old exports from shell profiles. ge neither
+reads the key nor constructs credential JSON; spyder owns child-only injection.
+Missing-secret checks return exit 20 when required material is absent.
+
+Set non-secret app metadata in the consuming Makefile: `SHIP_SCHEME`, `APP_ID`,
+`APPLE_TEAM_ID`, and optionally `SHIP_PROJECT`. `STUDIO` defaults to `squz`;
+override it with `make ship-alpha STUDIO=your-studio`. The project defaults to
+`ios/build/xcode/$(SHIP_SCHEME).xcodeproj` and is passed as a fastlane `project:`
+argument because spyder filters the parent environment.
 
 ## Step 3 — Ruby + fastlane
 
@@ -66,9 +71,8 @@ Homebrew: `brew install ruby` and add `/opt/homebrew/opt/ruby/bin` to your
 ## Step 4 — Verify match
 
 ```sh
-bundle exec fastlane sync_certs
-# Should resolve and install certs silently. If it prompts for a password,
-# double-check MATCH_PASSWORD and the squz/certs SSH key.
+spyder fastlane --studio squz -- sync_certs
+# Readonly certificate/profile resolution. No certificate creation or rotation.
 ```
 
 ## Step 4b — Enroll a new test device (🎯T110, optional)
@@ -112,20 +116,20 @@ Claude Code sessions.
 When you add a new game (e.g. `com.squz.mynewgame`):
 
 ```sh
-bundle exec fastlane rotate_certs app_identifier:com.squz.mynewgame
+spyder fastlane --studio squz --confirm -- rotate_certs app_identifier:com.squz.mynewgame
 ```
 
 This mints a new Distribution cert + App Store provisioning profile in the
 `squz/certs` repo. Both engineers' laptops pick it up on the next
-`sync_certs` / `bundle exec fastlane match appstore --readonly` call.
+`spyder fastlane --studio squz -- sync_certs` call.
 
 ## Cert rotation
 
 When a Distribution cert expires or is revoked:
 
 ```sh
-bundle exec fastlane match nuke distribution   # revoke + delete from ASC + repo
-bundle exec fastlane rotate_certs app_identifier:com.squz.<game> type:appstore
+spyder fastlane --studio squz --confirm -- match nuke distribution   # revoke + delete from ASC + repo
+spyder fastlane --studio squz --confirm -- rotate_certs app_identifier:com.squz.<game> type:appstore
 ```
 
 Note: `match nuke` is irreversible. Re-running `rotate_certs` after a
@@ -144,25 +148,19 @@ copied into each game repo via `make ge/ci-init`. The workflow is tag-triggered:
 | `v*` | Android → Play Production; iOS → (laptop, see below) |
 | `v*-beta.*` | Android → Play Internal + Closed Beta |
 
-### Required secrets
+### Runner credentials
 
-Configure these at the **organisation level** (squz or minicadesmobile) so
-every game repo inherits them without per-repo setup:
+The disabled iOS job is not ready to enable on a stock hosted runner. Provision
+signed spyder and the runner's studio envelope through an approved setup first;
+then use the same missing-secret checks and Make targets as a laptop. Do not
+restore parent-shell ASC or match exports. Runner provisioning is a separate
+integration task, not implemented by this template.
 
-| Secret | Description |
-|---|---|
-| `ASC_API_KEY_ID` | App Store Connect API Key ID (from Step 1 above) |
-| `ASC_API_ISSUER_ID` | App Store Connect Issuer ID |
-| `ASC_API_KEY` | Contents of the `.p8` key file, base64-encoded: `base64 -i AuthKey_XXXXX.p8` |
-| `MATCH_PASSWORD` | Match passphrase (same as your shell env var) |
-| `PLAY_SERVICE_ACCOUNT_JSON` | Google Play service account JSON, base64-encoded |
-
-Android upload-key signing (keystore mint, `make ge/android-bundle`, Play
-App Signing) is documented in [`android-release.md`](android-release.md).
-The Play Console first session (create app, listing, IAP, compliance) is
-[`play-console.md`](play-console.md). Additional org secrets for signing
-the AAB before `supply`: `ANDROID_KEYSTORE_BASE64`,
-`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`.
+The existing Android CI path is a separate migration surface. Android signing
+is documented in [`android-release.md`](android-release.md), and Play Console
+setup in [`play-console.md`](play-console.md). Consumer `testflight` / `playstore`
+targets and spyder's custom-lane policy need separate acceptance; this ge change
+does not certify those paths.
 
 ### Required variables
 
@@ -176,15 +174,9 @@ Set these at the org level for defaults, override at the repo level for per-game
 ### iOS: why laptop-only for now
 
 macOS GitHub Actions runners cost ~10× more than Linux runners. The iOS
-workflow job is scaffolded (secrets + steps documented) but disabled via
-`if: false`. Enabling it requires:
-
-1. Remove the `if: false` line from the `ios:` job in the workflow file.
-2. Confirm the org-level secrets listed above are set.
-3. Push a tag.
-
-Estimated migration time: ~30 minutes. Do it when macOS runner costs are
-acceptable or when the team grows beyond one laptop.
+workflow job remains disabled. Enabling it requires runner provisioning above,
+validation of the consumer targets, and owner approval for publication. Removing
+`if: false` alone is insufficient.
 
 ### One-time: copy the workflow into a game repo
 
@@ -194,3 +186,17 @@ make ge/ci-init
 # Copies .github/workflows/release.yml from ge into the game repo.
 # Idempotent — safe to re-run after ge submodule updates.
 ```
+
+## Ship checks and remaining acceptance
+
+Each ship lane checks `match` and `pilot` secrets before code generation,
+manifests, tags, pushes, worktrees or builds; release also checks `deliver`.
+Alpha with `SHIP_DRY_RUN=1` only needs `match` and builds without uploading.
+`make ship-preflight LANE=release VERSION=1.2.3` additionally checks repository
+cleanliness, app configuration, readonly `sync_certs`, and an optional Xcode pin.
+Release requires `CONFIRM=1`; ge forwards `--confirm` to spyder for submission.
+
+Spyder must correctly classify `submit_release` and `upload_testflight external:true`
+before full T183 acceptance. That policy change is owned by spyder. The hermetic
+ge oracle (`python3 tools/ship/test_ship.py`) tests invocation and refusal behavior;
+it does not access real secrets, sign, publish, or establish store acceptance.

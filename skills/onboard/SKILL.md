@@ -71,34 +71,21 @@ You need a `.p8` API key to ship without interactive Apple ID login.
 3. Download the `.p8` file. Save it to `~/.fastlane/asc_key.p8`.
 4. Note the **Key ID** and **Issuer ID** from the same page.
 
-Set environment variables (add to `~/.zshenv` or `~/.zprofile` for persistence):
+## Step 6: Import studio secrets through spyder
+
+Install signed spyder and follow its interactive credential import flow:
 
 ```bash
-export ASC_KEY_ID="<Key ID>"
-export ASC_ISSUER_ID="<Issuer ID>"
-export ASC_KEY_FILEPATH=~/.fastlane/asc_key.p8
+spyder secret import --studio squz
+spyder secret missing --studio squz --for match
+spyder secret missing --studio squz --for pilot
 ```
 
-Verify: `echo $ASC_KEY_ID` prints your key ID (not empty).
-
-## Step 6: Set up match passphrase
-
-ge-consumer projects use `fastlane match` for certificate/profile management.
-The match repo is encrypted; you need the passphrase.
-
-Get the passphrase from 1Password:
-
-```bash
-op read "op://squz/fastlane-match-passphrase/password"
-```
-
-Set it as an environment variable (add to `~/.zshenv`):
-
-```bash
-export MATCH_PASSWORD="<passphrase from 1Password>"
-```
-
-Verify: `echo $MATCH_PASSWORD` prints the passphrase (not empty).
+Use the team's approved secret source for the match passphrase. Never ask the
+engineer to paste credentials into chat, export `MATCH_PASSWORD` / ASC secrets
+in a shell profile, or print a secret as verification. Spyder injects credentials
+only into its fastlane child. Remove legacy shell exports. See
+[release setup](../../docs/release-setup.md) for metadata and studio selection.
 
 ## Step 7: Install the ge Claude Code plugin
 
@@ -122,7 +109,7 @@ Verify: `ls ~/.claude/plugins/ge` prints the ge directory contents.
 
 ```bash
 cd ~/work/github.com/squz/<game>
-bundle exec fastlane match appstore --readonly
+spyder fastlane --studio squz -- sync_certs
 ```
 
 This should download and install the App Store distribution certificate and
@@ -130,8 +117,7 @@ provisioning profile without modifying the match repo.
 
 If this fails:
 - **"passphrase incorrect"** — re-check Step 6.
-- **"certificate not found"** — you may need `bundle exec fastlane match appstore`
-  (without `--readonly`) to generate initial certs. Only an existing team member
+- **"certificate not found"** — ask the team to provision certificates through its approved rotation flow. Only an existing team member
   with write access to the match repo can do this.
 - **"repo access denied"** — check SSH key access to the match Git repo (ask
   the team for the repo URL if you don't have it).
@@ -166,9 +152,9 @@ Claude Code and choose "alpha" to push a TestFlight build.
 **`make ship-preflight` says "No rule to make target"**
 The game repo hasn't wired T64.2 make rules yet. Speak to the lead engineer.
 
-**`bundle exec fastlane match appstore --readonly` hangs**
-fastlane is waiting for interactive Apple ID login. Ensure `ASC_KEY_ID`,
-`ASC_ISSUER_ID`, and `ASC_KEY_FILEPATH` are set and the `.p8` file exists.
+**`spyder fastlane --studio squz -- sync_certs` hangs**
+Check `spyder secret missing --studio squz --for match` and the signed spyder
+installation. Do not bypass the wrapper or export credentials to diagnose it.
 
 **`git submodule update --init --recursive` fails**
 Ensure you have SSH access to `squz/ge` (the engine is a private submodule).

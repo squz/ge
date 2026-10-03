@@ -4,7 +4,7 @@
 # Orchestrates a full ship build:
 #   1. Creates a worktree at the given tag (🎯T64.4 isolation).
 #   2. Writes the build manifest into the worktree (🎯T64.5 provenance).
-#   3. Runs `bundle exec fastlane build_ipa` inside the worktree.
+#   3. Runs `spyder fastlane build_ipa` inside the worktree.
 #
 # On success, removes the worktree and prints the IPA path.
 # On failure, leaves the worktree for inspection and exits non-zero.
@@ -14,10 +14,6 @@
 #
 # Required env:
 #   SHIP_SCHEME — Xcode scheme to build (e.g. "MultiMaze2")
-#   APP_STORE_CONNECT_API_KEY_KEY_ID
-#   APP_STORE_CONNECT_API_KEY_ISSUER_ID
-#   APP_STORE_CONNECT_API_KEY_KEY_PATH
-#   MATCH_PASSWORD
 
 set -euo pipefail
 
@@ -34,6 +30,7 @@ fi
 source "${SCRIPT_DIR}/worktree.sh"
 # shellcheck source=tools/ship/manifest.sh
 source "${SCRIPT_DIR}/manifest.sh"
+source "${SCRIPT_DIR}/spyder.sh"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -63,10 +60,8 @@ fi
 
 # Validate required env vars.
 : "${SHIP_SCHEME:?SHIP_SCHEME env var must be set to the Xcode scheme name}"
-: "${APP_STORE_CONNECT_API_KEY_KEY_ID:?}"
-: "${APP_STORE_CONNECT_API_KEY_ISSUER_ID:?}"
-: "${APP_STORE_CONNECT_API_KEY_KEY_PATH:?}"
-: "${MATCH_PASSWORD:?}"
+
+ship_check_secrets match
 
 ipa_output_dir="${output_dir}/${tag}"
 mkdir -p "${ipa_output_dir}"
@@ -105,11 +100,11 @@ ship_manifest_write "${tag}" "${lane}" "${SHIP_WORKTREE_DIR}"
 echo "ship/build: running fastlane build_ipa (scheme=${SHIP_SCHEME}, lane=${lane})..."
 (
     cd "${REPO_ROOT}"
-    # PATH prefix: ensure macOS's system rsync (not Homebrew 3.x) is used
-    # by xcodebuild's codesign workflow — a known incompatibility.
-    PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}" \
+    # Preserve the toolchain PATH; Fastfile supplies the system-rsync shim.
+    PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
     SHIP_OUTPUT_DIR="${ipa_output_dir}" \
-    bundle exec fastlane build_ipa \
+    ship_fastlane build_ipa \
+        project:"${SHIP_PROJECT:-ios/build/xcode/${SHIP_SCHEME}.xcodeproj}" \
         scheme:"${SHIP_SCHEME}" \
         output_dir:"${ipa_output_dir}" \
         type:"appstore"

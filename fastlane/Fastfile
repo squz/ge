@@ -15,7 +15,9 @@
 #   upload_testflight  — upload a built IPA to TestFlight
 #   submit_release     — submit the latest TestFlight build for App Store review
 #
-# Env vars expected (consuming game's Makefile / shell profile sets):
+# Non-secret app metadata comes from the consumer; ASC/MATCH credentials below
+# are injected only into this child by spyder fastlane (not parent shell exports).
+# Env vars expected:
 #   APP_ID                                  com.squz.<game>
 #   APPLE_TEAM_ID                           10-char Apple developer team ID
 #   APP_STORE_CONNECT_API_KEY_KEY_ID        ASC API key ID

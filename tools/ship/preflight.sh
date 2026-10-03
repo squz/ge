@@ -3,15 +3,16 @@
 #
 # Verifies that the environment is ready for a ship before any build begins.
 # Exits 0 + prints "READY" if every check passes.
-# Exits 1 + prints "BLOCKED: <reason list>" if any check fails.
+# Configuration failures exit 1 with BLOCKED reasons. Spyder failures preserve
+# its exit code (20 for missing secrets).
 #
 # Checks performed:
 #   1. Git working tree is clean (no uncommitted changes).
 #   2. ge submodule is clean and on master (for library releases).
-#   3. Required environment variables are set.
+#   3. Non-secret app configuration and spyder secret availability.
 #   4. For versioned lanes (beta / release): VERSION format matches
 #      MAJOR.MINOR.PATCH.
-#   5. fastlane match appstore --readonly succeeds without prompting.
+#   5. spyder fastlane sync_certs (readonly) succeeds without prompting.
 #   6. (Optional, when XCODE_VERSION_PIN is set) Installed Xcode matches pin.
 #
 # Usage:
@@ -21,6 +22,7 @@
 # VERSION is required for beta and release lanes.
 
 set -uo pipefail
+source "$(dirname "$0")/spyder.sh"
 
 # REPO_ROOT must resolve to the CONSUMING project's root (where the
 # game's Gemfile, Matchfile, and ios/CMakeLists.txt live), not to ge's
@@ -101,10 +103,6 @@ fi
 # ---------------------------------------------------------------------------
 echo "preflight: checking required env vars..."
 required_vars=(
-    APP_STORE_CONNECT_API_KEY_KEY_ID
-    APP_STORE_CONNECT_API_KEY_ISSUER_ID
-    APP_STORE_CONNECT_API_KEY_KEY_PATH
-    MATCH_PASSWORD
     SHIP_SCHEME
     APP_ID
     APPLE_TEAM_ID
@@ -116,12 +114,6 @@ for var in "${required_vars[@]}"; do
         echo "  [PASS] ${var} set"
     fi
 done
-
-# Verify the .p8 key file actually exists.
-key_path="${APP_STORE_CONNECT_API_KEY_KEY_PATH:-}"
-if [ -n "${key_path}" ] && [ ! -f "${key_path}" ]; then
-    fail "ASC API key file not found at ${key_path}"
-fi
 
 # ---------------------------------------------------------------------------
 # Check 4: VERSION format for beta / release lanes
@@ -138,42 +130,6 @@ if [ "${lane}" = "beta" ] || [ "${lane}" = "release" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Check 5: fastlane match --readonly
-# ---------------------------------------------------------------------------
-echo "preflight: verifying fastlane match (--readonly)..."
-if ! command -v bundle >/dev/null 2>&1; then
-    fail "bundler not found — run 'bundle install' (see docs/release-setup.md)"
-else
-    # Pass the API key via fastlane's JSON-format key file. Match doesn't
-    # auto-read APP_STORE_CONNECT_API_KEY_KEY_PATH for the .p8 directly;
-    # it wants the JSON envelope. The envelope is constructed lazily here
-    # so consumers don't have to maintain a separate file (the data is
-    # all in env vars already).
-    api_key_json="${TMPDIR:-/tmp}/ship_preflight_api_key.$$.json"
-    trap 'rm -f "${api_key_json}"' EXIT
-    cat > "${api_key_json}" <<JSON
-{
-  "key_id": "${APP_STORE_CONNECT_API_KEY_KEY_ID}",
-  "issuer_id": "${APP_STORE_CONNECT_API_KEY_ISSUER_ID}",
-  "key": $(awk 'BEGIN{printf "\""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\\n",$0} END{printf "\""}' "${APP_STORE_CONNECT_API_KEY_KEY_PATH}"),
-  "duration": 1200,
-  "in_house": false
-}
-JSON
-    # `match` needs --app_identifier to know what cert to verify; without
-    # it, the readonly check fails silently against an empty Appfile.
-    # Consuming game's Makefile exports APP_ID (e.g. com.squz.multimaze)
-    # before invoking ship-preflight; we just forward it.
-    if ! (cd "${REPO_ROOT}" && bundle exec fastlane match appstore --readonly \
-          --app_identifier "${APP_ID}" \
-          --api_key_path "${api_key_json}" 2>&1); then
-        fail "fastlane match appstore --readonly --app_identifier ${APP_ID} failed — run 'bundle exec fastlane sync_certs --app_identifier ${APP_ID} --api_key_path \"${api_key_json}\"' to diagnose"
-    else
-        echo "  [PASS] fastlane match --readonly succeeded for ${APP_ID}"
-    fi
-fi
-
-# ---------------------------------------------------------------------------
 # Check 6: Xcode version pin (optional)
 # ---------------------------------------------------------------------------
 if [ -n "${XCODE_VERSION_PIN:-}" ]; then
@@ -184,6 +140,17 @@ if [ -n "${XCODE_VERSION_PIN:-}" ]; then
     else
         echo "  [PASS] Xcode ${installed_xcode} matches pin"
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 5: spyder availability, then readonly cert resolution.
+# Never invoke fastlane after a failed configuration or secret check.
+# ---------------------------------------------------------------------------
+ship_validate_lane "${lane}" "${version}" || fail "invalid lane/version"
+if [ ${#blocked_reasons[@]} -eq 0 ]; then
+    ship_check_lane_secrets "${lane}" || exit $?
+    (cd "${REPO_ROOT}" && ship_fastlane sync_certs app_identifier:"${APP_ID}") || exit $?
+    echo "  [PASS] readonly sync_certs succeeded"
 fi
 
 # ---------------------------------------------------------------------------

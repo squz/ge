@@ -20,7 +20,7 @@
 #   tools/ship/release.sh --lane release --version 0.31.0 --confirm
 #
 # Required env (see docs/release-setup.md):
-#   SHIP_SCHEME, APP_STORE_CONNECT_API_KEY_*, MATCH_PASSWORD
+#   SHIP_SCHEME; optional SHIP_PROJECT and STUDIO (default squz).
 
 set -euo pipefail
 
@@ -34,6 +34,7 @@ fi
 
 source "${SCRIPT_DIR}/worktree.sh"
 source "${SCRIPT_DIR}/manifest.sh"
+source "${SCRIPT_DIR}/spyder.sh"
 
 # first_ipa <dir> — the .ipa fastlane just wrote, by glob rather than by
 # parsing `ls`. macOS ls honours CLICOLOR_FORCE=1 even into a pipe, so
@@ -57,6 +58,7 @@ lane=""
 version=""
 confirm=false
 keep_worktree=false
+check_only=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -64,6 +66,7 @@ while [ $# -gt 0 ]; do
         --version)       version="${2:?}"; shift 2 ;;
         --confirm)       confirm=true; shift ;;
         --keep-worktree) keep_worktree=true; shift ;;
+        --check-only)    check_only=true; shift ;;
         *) echo "release.sh: unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -75,10 +78,17 @@ fi
 
 # Validate required env.
 : "${SHIP_SCHEME:?SHIP_SCHEME env var must be set to the Xcode scheme name}"
-: "${APP_STORE_CONNECT_API_KEY_KEY_ID:?}"
-: "${APP_STORE_CONNECT_API_KEY_ISSUER_ID:?}"
-: "${APP_STORE_CONNECT_API_KEY_KEY_PATH:?}"
-: "${MATCH_PASSWORD:?}"
+
+# Validate before manifests, code generation, tags, pushes, or worktrees.
+ship_validate_lane "${lane}" "${version}"
+if [ "${lane}" = release ] && [ "${confirm}" != true ]; then
+    echo "ERROR: make ship-release requires CONFIRM=1 (or release.sh --confirm)." >&2
+    exit 1
+fi
+ship_check_lane_secrets "${lane}"
+if [ "${check_only}" = true ]; then
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Helper: derive the next build number
@@ -163,7 +173,8 @@ if [ "${lane}" = "alpha" ]; then
         cd "${REPO_ROOT}"
         PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
-        bundle exec fastlane build_ipa \
+        ship_fastlane build_ipa \
+            project:"${SHIP_PROJECT:-ios/build/xcode/${SHIP_SCHEME}.xcodeproj}" \
             scheme:"${SHIP_SCHEME}" \
             output_dir:"${ipa_dir}" \
             type:"appstore"
@@ -179,7 +190,7 @@ if [ "${lane}" = "alpha" ]; then
     local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
-        bundle exec fastlane upload_testflight \
+        ship_fastlane upload_testflight \
             ipa:"${local_ipa}" \
             external:false
     )
@@ -223,7 +234,8 @@ if [ "${lane}" = "beta" ]; then
         cd "${REPO_ROOT}"
         PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
-        bundle exec fastlane build_ipa \
+        ship_fastlane build_ipa \
+            project:"${SHIP_PROJECT:-ios/build/xcode/${SHIP_SCHEME}.xcodeproj}" \
             scheme:"${SHIP_SCHEME}" \
             output_dir:"${ipa_dir}" \
             type:"appstore"
@@ -232,7 +244,7 @@ if [ "${lane}" = "beta" ]; then
     local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
-        bundle exec fastlane upload_testflight \
+        ship_fastlane upload_testflight \
             ipa:"${local_ipa}" \
             external:true
     )
@@ -292,7 +304,8 @@ if [ "${lane}" = "release" ]; then
         cd "${REPO_ROOT}"
         PATH="${PATH}:/usr/bin:/bin:/usr/sbin:/sbin" \
         SHIP_OUTPUT_DIR="${ipa_dir}" \
-        bundle exec fastlane build_ipa \
+        ship_fastlane build_ipa \
+            project:"${SHIP_PROJECT:-ios/build/xcode/${SHIP_SCHEME}.xcodeproj}" \
             scheme:"${SHIP_SCHEME}" \
             output_dir:"${ipa_dir}" \
             type:"appstore"
@@ -301,14 +314,14 @@ if [ "${lane}" = "release" ]; then
     local_ipa="$(first_ipa "${ipa_dir}")"
     (
         cd "${REPO_ROOT}"
-        bundle exec fastlane upload_testflight \
+        ship_fastlane upload_testflight \
             ipa:"${local_ipa}" \
             external:false
     )
 
     (
         cd "${REPO_ROOT}"
-        bundle exec fastlane submit_release
+        spyder fastlane --studio "${STUDIO}" --confirm -- submit_release
     )
 
     if [ "${keep_worktree}" = "false" ]; then
