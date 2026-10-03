@@ -19,7 +19,6 @@
 package ge;
 
 import android.app.Activity;
-import android.content.Context;
 import android.util.Log;
 
 import com.android.billingclient.api.AcknowledgePurchaseParams;
@@ -36,8 +35,10 @@ import com.android.billingclient.api.QueryPurchasesParams;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class IapBridge implements PurchasesUpdatedListener {
     private static final String TAG = "ge.iap";
@@ -47,6 +48,15 @@ public class IapBridge implements PurchasesUpdatedListener {
     // Cached ProductDetails for each SKU — needed to launch a billing
     // flow. Populated by querySkus().
     private final Map<String, ProductDetails> productsBySku = new HashMap<>();
+    // Failed updates carry no Purchase/SKU. Keep the launched request until
+    // its terminal update. Identity also protects a callback's reentrant retry
+    // from cleanup belonging to the previous launch.
+    private static final class PurchaseAttempt {
+        final String sku;
+        PurchaseAttempt(String sku) { this.sku = sku; }
+    }
+    private PurchaseAttempt activePurchase;
+    private final Set<String> deliveredPurchaseTokens = new HashSet<>();
 
     public IapBridge(Activity activity) {
         this.activity = activity;
@@ -91,7 +101,9 @@ public class IapBridge implements PurchasesUpdatedListener {
                 return;
             }
             for (ProductDetails pd : result) {
-                productsBySku.put(pd.getProductId(), pd);
+                synchronized (this) {
+                    productsBySku.put(pd.getProductId(), pd);
+                }
                 String price = "";
                 String currency = "";
                 if (pd.getOneTimePurchaseOfferDetails() != null) {
@@ -119,55 +131,100 @@ public class IapBridge implements PurchasesUpdatedListener {
                 return;
             }
             for (Purchase p : purchases) {
-                handlePurchase(p);
+                handlePurchase(p, true);
             }
             nativeOnRestoreFinished(true, "");
         });
     }
 
-    public boolean launchPurchase(String sku) {
+    public synchronized boolean launchPurchase(String sku) {
+        // Native rejects overlapping buys before registering their callbacks.
+        // Do not emit a SKU-only failure here: for the same SKU it would
+        // complete the original native callback instead of the rejected buy.
+        if (activePurchase != null) return false;
+        PurchaseAttempt attempt = new PurchaseAttempt(sku);
+        activePurchase = attempt;
         ProductDetails pd = productsBySku.get(sku);
         if (pd == null) {
-            nativeOnPurchaseUpdate(sku, false, "product not yet fetched from store");
+            failPurchase(attempt, "product not yet fetched from store");
             return false;
         }
-        BillingFlowParams.ProductDetailsParams pdp =
-                BillingFlowParams.ProductDetailsParams.newBuilder()
-                        .setProductDetails(pd)
-                        .build();
-        BillingFlowParams flow = BillingFlowParams.newBuilder()
-                .setProductDetailsParamsList(java.util.Collections.singletonList(pdp))
-                .build();
-        BillingResult br = client.launchBillingFlow(activity, flow);
+        BillingResult br;
+        try {
+            BillingFlowParams.ProductDetailsParams pdp =
+                    BillingFlowParams.ProductDetailsParams.newBuilder()
+                            .setProductDetails(pd)
+                            .build();
+            BillingFlowParams flow = BillingFlowParams.newBuilder()
+                    .setProductDetailsParamsList(java.util.Collections.singletonList(pdp))
+                    .build();
+            br = client.launchBillingFlow(activity, flow);
+        } catch (RuntimeException e) {
+            String message = e.getMessage();
+            failPurchase(attempt, message == null || message.trim().isEmpty()
+                    ? "purchase launch failed" : message);
+            return false;
+        }
         if (br.getResponseCode() != BillingClient.BillingResponseCode.OK) {
-            nativeOnPurchaseUpdate(sku, false, br.getDebugMessage());
+            failPurchase(attempt, purchaseError(br));
             return false;
         }
         return true;
     }
 
     @Override
-    public void onPurchasesUpdated(BillingResult br, List<Purchase> purchases) {
-        if (br.getResponseCode() != BillingClient.BillingResponseCode.OK || purchases == null) {
-            // User-cancelled and error states both reach here.
+    public synchronized void onPurchasesUpdated(BillingResult br, List<Purchase> purchases) {
+        if (br.getResponseCode() != BillingClient.BillingResponseCode.OK) {
+            failPurchase(activePurchase, purchaseError(br));
             return;
         }
-        for (Purchase p : purchases) handlePurchase(p);
+        if (purchases == null || purchases.isEmpty()) {
+            failPurchase(activePurchase, "store returned no purchases");
+            return;
+        }
+        for (Purchase p : purchases) handlePurchase(p, false);
     }
 
-    private void handlePurchase(Purchase p) {
+    private static String purchaseError(BillingResult br) {
+        if (br.getResponseCode() == BillingClient.BillingResponseCode.USER_CANCELED) {
+            return "cancelled";
+        }
+        String message = br.getDebugMessage();
+        return message == null || message.trim().isEmpty()
+                ? "purchase failed (billing response " + br.getResponseCode() + ")"
+                : message;
+    }
+
+    private void failPurchase(PurchaseAttempt attempt, String error) {
+        if (attempt == null || activePurchase != attempt) return;
+        activePurchase = null;
+        nativeOnPurchaseUpdate(attempt.sku, false, error);
+    }
+
+    private synchronized void handlePurchase(Purchase p, boolean restoring) {
         if (p.getPurchaseState() != Purchase.PurchaseState.PURCHASED) {
             // PENDING — slow payment methods. Surface as not-owned for
             // now; T65.5 cache work will add onPending handling.
             return;
         }
+        // A repeated successful update must not complete a retry launched by
+        // the previous callback. Restore still forwards every entitlement to
+        // the native cache's clear-then-populate walk.
+        String token = p.getPurchaseToken();
+        boolean duplicate = token != null && !token.isEmpty()
+                && !deliveredPurchaseTokens.add(token);
         // Signature verification is enforced by the Play Billing
         // library before delivering a Purchase here — additional
         // signature checks against the app's public key are
         // recommended but not added in this v1 path. Server-side
         // verification is the upgrade target when subscriptions ship.
         for (String sku : p.getProducts()) {
-            nativeOnPurchaseUpdate(sku, true, "");
+            if (restoring || !duplicate) {
+                if (activePurchase != null && activePurchase.sku.equals(sku)) {
+                    activePurchase = null;
+                }
+                nativeOnPurchaseUpdate(sku, true, "");
+            }
             // Acknowledge to prevent auto-refund after 3 days. Skip
             // for already-acknowledged purchases.
             if (!p.isAcknowledged()) {

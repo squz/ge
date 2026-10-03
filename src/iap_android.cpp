@@ -274,16 +274,26 @@ void AndroidStore::buy(const std::string& id, BuyCallback cb) {
     }
 
     std::string platformId;
+    std::string error;
     {
         std::lock_guard lock(mu);
         auto it = platformSkuByLocal.find(id);
         if (it == platformSkuByLocal.end()) {
-            Result r{.ok = false, .id = id, .error = "unknown product"};
-            if (cb) cb(std::move(r));
-            return;
+            error = "unknown product";
+        } else if (!pendingBuys.empty()) {
+            // Play has one active sheet and terminal errors carry no SKU.
+            // Reject before registering, including a second buy of the same
+            // product, so neither caller can steal the other's callback.
+            error = "purchase already in progress";
+        } else {
+            platformId = it->second;
+            pendingBuys.emplace(id, std::move(cb));
         }
-        platformId = it->second;
-        pendingBuys[id] = std::move(cb);
+    }
+    if (!error.empty()) {
+        // No user callback under mu: callers may query owned() or retry.
+        if (cb) cb({.ok = false, .id = id, .error = std::move(error)});
+        return;
     }
 
     jstring sku = env.env->NewStringUTF(platformId.c_str());

@@ -21,7 +21,7 @@ MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || ech
 # runs the 24-cell e2e matrix via the sample's Module.mk integration.
 .PHONY: all check matrix-test check-list unit-test init clean run bullseye ruby-test \
         ledger-check ledger-land \
-        python-test dispatch-null-safety-test release-surface-test ndk-discovery-test \
+        python-test dispatch-null-safety-test release-surface-test ndk-discovery-test iap-android-test \
         prebuild prebuild-ios-arm64 prebuild-ios-arm64-simulator prebuild-android-arm64 \
         prebuild-libge prebuild-libge-ios-arm64 prebuild-libge-ios-arm64-simulator \
         prebuild-libge-android-arm64 \
@@ -56,7 +56,7 @@ cell.%:
 # needs a macOS runner (10x minute multiplier) and a from-source SDL cook,
 # which release.yml already defers for cost, so the gate rides the local
 # standing path that /cv actually runs. Incremental after the first build.
-bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test ndk-discovery-test \
+bullseye: ruby-test python-test dispatch-null-safety-test release-surface-test ndk-discovery-test iap-android-test \
           unit-test
 	@git diff --quiet && git diff --cached --quiet \
 	  && echo "✓ no uncommitted changes to tracked files" \
@@ -133,6 +133,10 @@ ledger-land:
 # `bullseye` so a reintroduced `$(ls …)` capture is caught at /cv time.
 ndk-discovery-test:
 	@tools/test-android-ndk.sh
+
+# Production Java bridge + AndroidStore JNI lifecycle, with mocked Play Billing.
+iap-android-test:
+	@python3 tools/iap-android-test/run.py
 
 # ── Prebuilt static libs (🎯T73) ───────────────────────────────────
 #

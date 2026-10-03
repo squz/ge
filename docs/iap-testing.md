@@ -206,3 +206,45 @@ credentials into a repo, including ge.
 | Android "Authentication is required" loop | Google account not on the license tester list | Add the account in Play Console → Setup → License testing |
 | Android "Item not found" | SKU not registered in Play Console, OR app not uploaded to a track that the tester account can install | Register the SKU; upload at least one build to Internal Testing |
 | `owned()` returns false right after a successful `buy()` callback | Cache write hasn't completed yet | T65.5 makes this synchronous; if pre-T65.5, re-query after the next render frame |
+
+### Android cancellation regression (T65.8)
+
+From the engine root, `make iap-android-test` compiles the production
+`IapBridge.java` against Play Billing 7.1.1 and loads the production
+`iap_android.cpp` into a host JVM through the NDK JNI ABI. Mockito replaces
+BillingClient and Android framework objects; SDL bootstrap and logging are
+stubbed. Purchase routing, pending callbacks and entitlement state are production
+code. The test is also a prerequisite of `make bullseye`.
+
+Requires Python 3, a JDK 17+, a C++20 compiler, and an Android SDK/NDK.
+`ANDROID_HOME` and `ANDROID_NDK_HOME` override the default SDK discovery.
+The first run downloads checksum-pinned test dependencies into
+`build/iap-android-test/deps`; subsequent runs use that cache.
+
+The oracle covers cancellation with null purchases, terminal error fallback,
+empty OK responses, missing products, launch failure/exception, duplicate
+updates, pending purchases, success, restore reconciliation, and callback-driven
+retry. Both same-product and different-product overlapping buys fail immediately
+with `purchase already in progress`, leaving the original callback intact. State
+is released before calling the consumer; cancellation returns `cancelled` and
+does not credit an entitlement. Repeated success tokens are ignored for callback
+delivery but remain eligible for acknowledgement and restore reconciliation.
+
+Play's cancellation/error listener supplies neither a SKU nor a request ID.
+The bridge routes these results to its sole active attempt and ignores them
+when idle. It cannot distinguish a delayed error from an earlier sheet after a
+new sheet has started; this depends on Play's ordering. Attempt identity protects
+against cleanup from an earlier `launchBillingFlow` return erasing a retry.
+The existing deferred handling of `PENDING` purchases is unchanged.
+
+This synthetic oracle **does not satisfy real-device acceptance**. T65.8 remains
+open until a debug/license-tester consumer containing the engine change can:
+
+1. Open a real Play sheet for a registered product and dismiss it without buying.
+2. Record the in-process `Result{ok=false, error="cancelled"}` for the local ID.
+3. Show unchanged ownership and cleared “Purchasing…” UI.
+4. Open the sheet again to demonstrate retry, then dismiss it.
+
+Use the consumer's authorized license-tester setup, coordinate the build and
+deployment with its owner, and capture the callback log plus screenshots. An
+installed older consumer or injected Billing listener response is not acceptance.
