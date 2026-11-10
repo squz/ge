@@ -90,13 +90,25 @@ float applyTimeControl(float realDt);
 // sole live session (else the process-defaults store).
 float applyTimeControl(const Context& ctx, float realDt);
 
+// Nominal dt of one app_step frame. Fixed so a stepped run does not depend
+// on the wall gap between step commands.
+inline constexpr float kNominalStepDt = 1.0f / 60.0f;
+
+// True while the session is paused, including during app_step (step leaves
+// the session paused and only lends it kNominalStepDt frames). False in
+// real time, including a speed scale, and always false in release builds.
+bool timeControlEngaged();
+bool timeControlEngaged(const Context& ctx);
+
 // 🎯T92.4 Perf push. perfEmit records the latest value of a named custom
 // counter — consumers call it from the game thread (e.g. each frame). perfTick
 // is called once per frame by the SessionHost run loop with the real frame
 // time in ms; it pushes a {frame_ms, counters} `perf` message roughly once per
 // second (averaging frame_ms over the window). While the channel is active it
 // also samples ge::publishMemoryFootprint at most once a second, so the same
-// push carries mem_footprint_bytes and mem_footprint_peak_bytes. Both are
+// push carries mem_footprint_bytes and mem_footprint_peak_bytes. The gate
+// treats an unset stamp as due: subtracting steady_clock::time_point::min()
+// overflows and would otherwise never fire. Both are
 // no-ops when no channel is active and compiled out in release builds. The
 // push itself is enqueued on the channel's async sender, so the game thread
 // never blocks on the socket. The footprint queries themselves

@@ -65,8 +65,8 @@ constexpr std::size_t kMaxBody = 16u * 1024 * 1024;  // 16 MB per spyder spec
 // struct's members.)
 // A single stepped frame advances this much nominal time — fixed (not the
 // real wall-clock dt, which would be huge after a pause) so frame-stepping is
-// reproducible.
-constexpr float kStepDt = 1.0f / 60.0f;
+// reproducible. One constant with the header so hosts do not copy 1/60.
+constexpr float kStepDt = kNominalStepDt;
 
 constexpr float kPerfWindowMs = 1000.0f;  // ~1 s cadence
 
@@ -1024,6 +1024,13 @@ float applyTimeControl(const Context& ctx, float realDt) {
     return applyTimeControlFor(ctx.sessionId(), realDt);
 }
 
+bool timeControlEngaged() {
+    return scopedFor(lenientCurrentId())->tcPaused.load();
+}
+bool timeControlEngaged(const Context& ctx) {
+    return scopedFor(ctx.sessionId())->tcPaused.load();
+}
+
 void perfEmit(const std::string& name, double value) {
     auto sc = scopedFor(lenientCurrentId());  // T175.4
     std::lock_guard<std::mutex> lk(sc->perfMu);
@@ -1047,16 +1054,10 @@ nlohmann::json perfAccumulate(float frameMs) {
 void perfTick(float frameMs) {
     if (!Channel::instance().active()) return;  // nothing to push to
     // Footprint gauges, at most once a second, before the window snapshot
-    // so the perf push that closes this second carries them.
-    {
-        using clock = std::chrono::steady_clock;
-        static auto last = clock::time_point::min();
-        const auto now = clock::now();
-        if (now - last >= std::chrono::seconds(1)) {
-            last = now;
-            ge::publishMemoryFootprint();
-        }
-    }
+    // so the perf push that closes this second carries them. The gate
+    // lives in sampleMemoryFootprintIfDue: a static last =
+    // time_point::min() subtracted from now overflows and never fires.
+    ge::sampleMemoryFootprintIfDue();
     // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
     // rides as just another sample alongside the consumer's perfEmit counters.
     // mem_footprint_bytes and mem_footprint_peak_bytes are two of those.
@@ -1367,6 +1368,8 @@ bool active() { return false; }
 void flush(int) {}
 float applyTimeControl(float realDt) { return realDt; }
 float applyTimeControl(const Context&, float realDt) { return realDt; }
+bool timeControlEngaged() { return false; }
+bool timeControlEngaged(const Context&) { return false; }
 void perfEmit(const std::string&, double) {}
 void perfEmit(const Context&, const std::string&, double) {}
 void perfTick(float) {}

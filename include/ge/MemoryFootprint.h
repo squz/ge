@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 namespace ge {
@@ -39,5 +40,32 @@ uint64_t physicalFootprintPeakBytes();
 // perfTick. Release builds still update the peak; perfEmit is a no-op
 // there. Safe to call from the game thread.
 void publishMemoryFootprint();
+
+namespace detail {
+
+// Whether perfTick should publish a footprint sample at `now` given the
+// stamp of the previous publish (`last`).
+//
+// `time_point::min()` means "never sampled". Subtracting it from `now`
+// overflows steady_clock::duration (signed nanoseconds) to a large
+// negative value, so `now - last >= 1s` stays false for the life of the
+// process and the gauges never reach spyder. An unset stamp is due, and
+// this function does not subtract it.
+inline bool memoryFootprintSampleDue(
+    std::chrono::steady_clock::time_point now,
+    std::chrono::steady_clock::time_point last) {
+    if (last == std::chrono::steady_clock::time_point::min()) return true;
+    return now - last >= std::chrono::seconds(1);
+}
+
+}  // namespace detail
+
+// perfTick's once-a-second gate. Publishes on the first call and then at
+// most once a second. Returns true when this call published. The static
+// clock starts unset (time_point::min()).
+bool sampleMemoryFootprintIfDue();
+
+// Test isolation: put the sample clock back to "never sampled".
+void resetMemoryFootprintSampleClockForTest();
 
 }  // namespace ge

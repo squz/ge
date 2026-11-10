@@ -10,6 +10,7 @@
 #include <ge/metrics.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 
 #include "MemoryFootprint_internal.h"
@@ -73,6 +74,26 @@ void publishMemoryFootprint() {
     g.current = static_cast<double>(s.current);
     g.peak = static_cast<double>(peak);
     g.scope.endFrame();
+}
+
+namespace {
+
+std::chrono::steady_clock::time_point g_lastFootprintSample =
+    std::chrono::steady_clock::time_point::min();
+
+}  // namespace
+
+bool sampleMemoryFootprintIfDue() {
+    using clock = std::chrono::steady_clock;
+    const auto now = clock::now();
+    if (!detail::memoryFootprintSampleDue(now, g_lastFootprintSample)) return false;
+    g_lastFootprintSample = now;
+    publishMemoryFootprint();
+    return true;
+}
+
+void resetMemoryFootprintSampleClockForTest() {
+    g_lastFootprintSample = std::chrono::steady_clock::time_point::min();
 }
 
 }  // namespace ge

@@ -85,6 +85,23 @@ TEST_CASE("time-control RPCs drive applyTimeControl: pause holds, step advances 
     det::resetAppChannelStateForTest();
 }
 
+TEST_CASE("time control is engaged exactly while paused, including a step") {
+    det::resetAppChannelStateForTest();
+    CHECK_FALSE(ac::timeControlEngaged());
+
+    det::invokeMethodForTest("pause", json::object());
+    CHECK(ac::timeControlEngaged());
+
+    det::invokeMethodForTest("step", json{{"frames", 1}});
+    CHECK(ac::timeControlEngaged());
+    CHECK(ac::applyTimeControl(0.5f) == doctest::Approx(ac::kNominalStepDt));
+    CHECK(ac::timeControlEngaged());  // the lent frame does not resume
+
+    det::invokeMethodForTest("resume", json::object());
+    CHECK_FALSE(ac::timeControlEngaged());
+    det::resetAppChannelStateForTest();
+}
+
 TEST_CASE("state slices: registration, query via the game-thread marshal, unknown-slice error") {
     det::resetAppChannelStateForTest();
 
