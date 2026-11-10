@@ -1,6 +1,8 @@
 #include <doctest.h>
 #include <ge/DampedRotation.h>
 
+#include <cmath>
+
 TEST_CASE("DampedRotation starts at identity") {
     DampedRotation rot;
     auto q = rot.orientation();
@@ -113,4 +115,32 @@ TEST_CASE("velocity basis: Y-up horizontal drag yields Y-axis angular velocity")
     CHECK(v.y != doctest::Approx(0.0f));
     CHECK(v.x == doctest::Approx(0.0f));
     CHECK(v.z == doctest::Approx(0.0f));
+}
+
+// 1200 px/s * sensitivity 0.01 = 12 rad/s. The release window reports that
+// speed (displacement/dt), which a steady swipe's old EMA converged to.
+TEST_CASE("drag velocity matches the recent sample window") {
+    DampedRotation rot;
+    double t = 0;
+    for (int i = 0; i < 8; ++i) {
+        t += 1.0 / 60.0;
+        rot.updateVelocityFromDrag(1200.0f, 0.0f, 0.01f, float3{0, 0, 1}, float3{1, 0, 0}, t);
+    }
+    CHECK(rot.angularVelocity().z == doctest::Approx(12.0f).epsilon(0.02));
+    CHECK(rot.angularVelocity().x == doctest::Approx(0.0f));
+    CHECK(rot.angularVelocity().y == doctest::Approx(0.0f));
+}
+
+TEST_CASE("stationary sample a second later clears drag velocity") {
+    DampedRotation rot;
+    double t = 0;
+    for (int i = 0; i < 8; ++i) {
+        t += 1.0 / 60.0;
+        rot.updateVelocityFromDrag(1200.0f, 0.0f, 0.01f, float3{0, 0, 1}, float3{1, 0, 0}, t);
+    }
+    t += 1.0;
+    rot.updateVelocityFromDrag(0.0f, 0.0f, 0.01f, float3{0, 0, 1}, float3{1, 0, 0}, t);
+    CHECK(std::fabs(rot.angularVelocity().x) < 1e-3f);
+    CHECK(std::fabs(rot.angularVelocity().y) < 1e-3f);
+    CHECK(std::fabs(rot.angularVelocity().z) < 1e-3f);
 }

@@ -4,6 +4,7 @@
 
 #include <ge/DampedRotation.h>
 #include <SDL3/SDL_events.h>
+#include <chrono>
 #include <cmath>
 #include <functional>
 
@@ -45,6 +46,7 @@ public:
                 finger1Y_ = lastY_ = startY_ = e.tfinger.y;
                 accumX_ = accumY_ = 0.0f;
                 rotation_.setAngularVelocity({0, 0, 0});
+                resetDragClock();
                 return true;
             }
 
@@ -57,6 +59,7 @@ public:
                 lastY_ = startY_ = e.button.y;
                 accumX_ = accumY_ = 0.0f;
                 rotation_.setAngularVelocity({0, 0, 0});
+                resetDragClock();
                 return true;
             }
 
@@ -148,6 +151,7 @@ public:
                 }
                 if (inputSource_ != InputSource::Finger) return false;
                 if (e.tfinger.fingerID != finger1Id_) return false;
+                closeDragSample();
                 dragging_ = false;
                 inputSource_ = InputSource::None;
                 return true;
@@ -155,6 +159,7 @@ public:
 
             case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (inputSource_ != InputSource::Mouse) return false;
+                closeDragSample();
                 dragging_ = false;
                 inputSource_ = InputSource::None;
                 return true;
@@ -167,9 +172,13 @@ public:
     // Call once per frame. Flushes accumulated drag to velocity, applies inertia.
     void update(float dt) {
         if (dragging_ && dt > 0.001f) {
-            // Always update velocity — even when accum is zero, so the EMA
-            // decays toward zero and doesn't carry stale momentum into release.
-            rotation_.updateVelocityFromDrag(accumX_ / dt, accumY_ / dt, sensitivity_, screenUp_, screenRight_);
+            // One sample per frame, including a stationary frame. The release
+            // window in DampedRotation then sees the hold instead of the
+            // pre-hold flick. See closeDragSample for a hold that never ticked.
+            advanceDragClock(dt);
+            const float invDt = 1.0f / dt;
+            rotation_.updateVelocityFromDrag(accumX_ * invDt, accumY_ * invDt, sensitivity_,
+                                              screenUp_, screenRight_, dragTime_);
             accumX_ = accumY_ = 0.0f;
         }
         if (!dragging_) {
@@ -215,6 +224,37 @@ public:
 
 
 private:
+    // Sample clock for DampedRotation's release window. Sim dt advances it
+    // while the frame loop is ticking. A wall gap longer than the original's
+    // 0.02 s release window (EAGLView.mm touchesEnded) is idle time the loop
+    // slept through — render-on-demand does that on a stationary hold when
+    // nothing requests a redraw — and has to count, or the pre-hold flick
+    // is still the whole window at finger-up.
+    void resetDragClock() {
+        dragTime_ = 0;
+        haveDragWall_ = false;
+    }
+
+    void advanceDragClock(float dt) {
+        using clock = std::chrono::steady_clock;
+        const auto now = clock::now();
+        double extra = 0;
+        if (haveDragWall_) {
+            const double wall = std::chrono::duration<double>(now - dragWall_).count();
+            const double idle = wall - static_cast<double>(dt);
+            if (idle > DampedRotation::releaseWindowSec())
+                extra = idle;
+        }
+        dragWall_ = now;
+        haveDragWall_ = true;
+        dragTime_ += static_cast<double>(dt) + extra;
+    }
+
+    void closeDragSample() {
+        advanceDragClock(0.0f);
+        rotation_.updateVelocityFromDrag(0.0f, 0.0f, sensitivity_, screenUp_, screenRight_, dragTime_);
+    }
+
     // Minimum displacement (pixels) before drag rotates the globe.
     // Prevents accidental micro-rotations from taps.
     static constexpr float kDragThreshold = 10.0f;
@@ -236,6 +276,9 @@ private:
     float lastX_ = 0, lastY_ = 0;
     float startX_ = 0, startY_ = 0;
     float accumX_ = 0, accumY_ = 0;
+    double dragTime_ = 0;
+    bool haveDragWall_ = false;
+    std::chrono::steady_clock::time_point dragWall_{};
 
     // Two-finger pinch state
     SDL_FingerID finger1Id_ = 0, finger2Id_ = 0;
