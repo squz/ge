@@ -122,6 +122,45 @@ TEST_CASE("GlobeController stationary hold releases no spin") {
 // The frame loop does not tick during a stationary hold when nothing
 // requests a redraw (yourworld2 leaves GlobeController::onRedraw unwired).
 // Release is the next time anyone looks. The pre-hold flick must be gone.
+// Under pause/step the host installs a simulation clock. A wall gap between
+// the last move and finger-up must not kill the flick; only a jump of the
+// simulation clock does.
+TEST_CASE("GlobeController sim drag clock ignores wall gaps and honours sim idle") {
+    ge::GlobeController g;
+    double t = 0;
+    g.setDragClock(t);
+    mouseDown(g, 100.0f, 100.0f);
+    for (int i = 1; i <= 8; ++i) {
+        t += 1.0 / 60.0;
+        g.setDragClock(t);
+        mouseMove(g, 100.0f + 20.0f * float(i), 100.0f);
+        g.update(1.0f / 60.0f);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    mouseUp(g);
+    auto v = g.rotation().angularVelocity();
+    CHECK(v.z == doctest::Approx(12.0f).epsilon(0.02));
+    CHECK(std::fabs(v.x) < 1e-2f);
+    CHECK(std::fabs(v.y) < 1e-2f);
+
+    ge::GlobeController held;
+    t = 0;
+    held.setDragClock(t);
+    mouseDown(held, 100.0f, 100.0f);
+    for (int i = 1; i <= 8; ++i) {
+        t += 1.0 / 60.0;
+        held.setDragClock(t);
+        mouseMove(held, 100.0f + 20.0f * float(i), 100.0f);
+        held.update(1.0f / 60.0f);
+    }
+    held.setDragClock(t + 0.5);
+    mouseUp(held);
+    auto z = held.rotation().angularVelocity();
+    CHECK(std::fabs(z.x) < 1e-2f);
+    CHECK(std::fabs(z.y) < 1e-2f);
+    CHECK(std::fabs(z.z) < 1e-2f);
+}
+
 TEST_CASE("GlobeController hold with no ticks then release has no spin") {
     ge::GlobeController g;
     steadyHorizontalFlick(g);

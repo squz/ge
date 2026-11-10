@@ -33,6 +33,8 @@
 #include <ge/InputScript.h>
 
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 #include "RenderOnDemand.h"
@@ -523,7 +525,25 @@ DirectRenderHost::DirectRenderHost(const SessionHostConfig& config)
                                   config.appName, nullptr);
     SPDLOG_INFO("DirectRenderHost: stream server ephemeral db ({})", dbPath);
 #else
-    if (config.orgName && config.appName) {
+    // GE_DATA_DIR redirects game.db and tweaks.db (test isolation). When it
+    // is set, do not call SDL_GetPrefPath — that creates the owner's
+    // Library directory as a side effect.
+    const char* dataDirEnv = std::getenv("GE_DATA_DIR");
+    if (dataDirEnv && *dataDirEnv) {
+        const std::string dir = directDataDir(dataDirEnv, nullptr);
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (ec) {
+            SPDLOG_ERROR("DirectRenderHost: GE_DATA_DIR {} not usable ({}); using :memory:",
+                         dir, ec.message());
+        } else {
+            const char* org = config.orgName ? config.orgName : "ge";
+            const char* app = config.appName ? config.appName : "app";
+            dbPath = durableDbPathForHost(/*serverBuild=*/false, org, app, dir.c_str());
+            tweak::loadOverrides((dir + "tweaks.db").c_str());
+            SPDLOG_INFO("DirectRenderHost: GE_DATA_DIR persistent DB at {}", dbPath);
+        }
+    } else if (config.orgName && config.appName) {
         if (char* pref = SDL_GetPrefPath(config.orgName, config.appName)) {
             dbPath = durableDbPathForHost(/*serverBuild=*/false, config.orgName,
                                           config.appName, pref);

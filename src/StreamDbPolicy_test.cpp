@@ -19,6 +19,15 @@ TEST_CASE("stream server durable db is always :memory:") {
           ":memory:");
 }
 
+TEST_CASE("direct data dir prefers an explicit dir over PrefPath") {
+    CHECK(ge::directDataDir("/tmp/scratch", "/Users/x/Library/") == "/tmp/scratch/");
+    CHECK(ge::directDataDir("/tmp/scratch/", "/Users/x/Library/") == "/tmp/scratch/");
+    CHECK(ge::directDataDir("", "/Users/x/Library/") == "/Users/x/Library/");
+    CHECK(ge::directDataDir(nullptr, "/Users/x/Library") == "/Users/x/Library/");
+    CHECK(ge::directDataDir(nullptr, nullptr).empty());
+    CHECK(ge::directDataDir("", "").empty());
+}
+
 TEST_CASE("direct app durable db uses PrefPath when available") {
     CHECK(ge::durableDbPathForHost(false, "org", "app", "/tmp/pref/") ==
           "/tmp/pref/game.db");

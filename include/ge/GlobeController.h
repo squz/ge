@@ -222,6 +222,33 @@ public:
         return d;
     }
 
+    // Host-supplied drag clock, in seconds. While installed, advanceDragClock
+    // copies this value and does not read steady_clock, so a pause/step run
+    // does not treat the wall gap between step commands as idle hold time.
+    // The value is absolute simulation time and already includes the frame
+    // dt the host is about to apply; the dt argument is ignored. Call
+    // clearDragClock to restore the wall-clock idle-hold path used when the
+    // frame loop is running in real time.
+    void setDragClock(double simSeconds) {
+        haveDragClock_ = true;
+        dragClock_ = simSeconds;
+    }
+    void clearDragClock() { haveDragClock_ = false; }
+
+    // Drop an in-progress drag, pinch, and the release-velocity sample ring
+    // without changing angular velocity. A fixture reset calls this so the
+    // next gesture does not inherit a half-finished flick.
+    void releaseGesture() {
+        dragging_ = false;
+        pinching_ = false;
+        inputSource_ = InputSource::None;
+        thresholdReached_ = false;
+        accumX_ = accumY_ = 0.0f;
+        pinchDelta_ = 0.0f;
+        resetDragClock();
+        rotation_.setAngularVelocity(rotation_.angularVelocity());
+    }
+
 
 private:
     // Sample clock for DampedRotation's release window. Sim dt advances it
@@ -233,9 +260,16 @@ private:
     void resetDragClock() {
         dragTime_ = 0;
         haveDragWall_ = false;
+        // haveDragClock_ stays: the host clock is a mode, not a sample.
     }
 
     void advanceDragClock(float dt) {
+        if (haveDragClock_) {
+            // Absolute sim time from the host. Do not add dt again and do
+            // not consult the wall clock.
+            dragTime_ = dragClock_;
+            return;
+        }
         using clock = std::chrono::steady_clock;
         const auto now = clock::now();
         double extra = 0;
@@ -278,6 +312,8 @@ private:
     float accumX_ = 0, accumY_ = 0;
     double dragTime_ = 0;
     bool haveDragWall_ = false;
+    bool haveDragClock_ = false;
+    double dragClock_ = 0;
     std::chrono::steady_clock::time_point dragWall_{};
 
     // Two-finger pinch state

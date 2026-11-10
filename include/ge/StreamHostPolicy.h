@@ -21,6 +21,20 @@ namespace ge {
 // Durable Context::db() path on the *game host* process.
 // serverBuild true  → always :memory: (working set only; player is authority)
 // serverBuild false → PrefPath + "game.db" when org/app/pref provided
+// Directory a direct (non-server) host uses for game.db and tweaks.db.
+// dataDirEnv, when non-empty, wins over prefPathOrNull so a test launch
+// can redirect the save without touching the owner's PrefPath. A missing
+// trailing slash is added. Empty when neither source is set.
+inline std::string directDataDir(const char* dataDirEnv, const char* prefPathOrNull) {
+    const char* src = nullptr;
+    if (dataDirEnv && *dataDirEnv) src = dataDirEnv;
+    else if (prefPathOrNull && *prefPathOrNull) src = prefPathOrNull;
+    if (!src) return {};
+    std::string dir(src);
+    if (dir.back() != '/') dir.push_back('/');
+    return dir;
+}
+
 inline std::string durableDbPathForHost(bool serverBuild,
                                         const char* orgName,
                                         const char* appName,
