@@ -33,6 +33,11 @@ class Scope {
 public:
     // Optional stable id for multi-instance targeting (defaults to unique hex).
     explicit Scope(std::string id = {});
+    // Pin the scope to `sessionTag` instead of latching the live session.
+    // A non-zero tag that is not a live session id stays out of
+    // Scope::all(sessionId), so it does not split a game's default dump.
+    // Address it with find(id). Tag 0 latches, same as the constructor above.
+    Scope(std::string id, uint32_t sessionTag);
     ~Scope();
 
     Scope(const Scope&) = delete;
@@ -81,6 +86,7 @@ public:
 private:
     struct M;
     M* m_ = nullptr; // raw for move; owned
+    void init(std::string id, bool latchSession, uint32_t sessionTag);
 };
 
 // Typed producer bound to a Scope. Construction registers `name`.

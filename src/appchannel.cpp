@@ -7,6 +7,7 @@
 
 #include <ge/appchannel.h>
 #include <ge/SessionHost.h>  // 🎯T175 Context / liveSessionIds
+#include <ge/MemoryFootprint.h>
 #include <ge/metrics.h>
 #include <ge/button.h>
 
@@ -1045,8 +1046,20 @@ nlohmann::json perfAccumulate(float frameMs) {
 
 void perfTick(float frameMs) {
     if (!Channel::instance().active()) return;  // nothing to push to
+    // Footprint gauges, at most once a second, before the window snapshot
+    // so the perf push that closes this second carries them.
+    {
+        using clock = std::chrono::steady_clock;
+        static auto last = clock::time_point::min();
+        const auto now = clock::now();
+        if (now - last >= std::chrono::seconds(1)) {
+            last = now;
+            ge::publishMemoryFootprint();
+        }
+    }
     // spyder's app_perf_get reads {timestamp, samples:{name→value}}; frame_ms
     // rides as just another sample alongside the consumer's perfEmit counters.
+    // mem_footprint_bytes and mem_footprint_peak_bytes are two of those.
     nlohmann::json samples = detail::perfAccumulate(frameMs);
     if (samples.is_null()) return;  // still inside the window
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -1158,6 +1158,17 @@ local-network-permission gotcha.
   `SokolContext::captureNextFrame` (Metal blit on Apple, `glReadPixels` on
   Android) bridged via `src/render/ScreenshotBridge.h`.
 
+- **`<ge/MemoryFootprint.h>`** — `physicalFootprintBytes` / `physicalFootprintPeakBytes`.
+  Apple uses `task_info(TASK_VM_INFO)` `phys_footprint` (jetsam's number) and
+  folds in `ledger_phys_footprint_peak`. Android uses `smaps_rollup` Pss, or
+  `statm` RSS if that file is missing. Other platforms return 0, meaning not
+  measured. `publishMemoryFootprint` records `mem_footprint_bytes` and
+  `mem_footprint_peak_bytes` on the perf counters and on metrics scope
+  `ge-memory` (dump with `{"instance":"ge-memory"}`). The debug perf push
+  samples them about once a second. The query functions stay in release
+  builds; `perfEmit` does not. Platform code is
+  `MemoryFootprint_{apple,android,stub}.*`, not ifdefs in the shared file.
+
 ### I/O
 
 - **`FileIO`** (`FileIO.h`) — `ge::openFile(path)` returns a `std::unique_ptr<std::istream>`. Uses `SDL_IOFromFile` internally for platform-agnostic file access (Android APK assets, iOS bundles, normal filesystem).

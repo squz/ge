@@ -81,7 +81,7 @@ uint32_t lenientMetricsSid() {
 }
 }  // namespace
 
-Scope::Scope(std::string id) {
+void Scope::init(std::string id, bool latchSession, uint32_t sessionTag) {
     m_ = new M;
     if (id.empty()) {
         std::ostringstream os;
@@ -90,7 +90,19 @@ Scope::Scope(std::string id) {
     } else {
         m_->id = std::move(id);
     }
-    m_->session = lenientMetricsSid();  // T175.9
+    m_->session = latchSession ? lenientMetricsSid() : sessionTag;  // T175.9
+}
+
+Scope::Scope(std::string id) {
+    init(std::move(id), true, 0);
+    std::lock_guard<std::mutex> lk(g_regMu);
+    g_scopes.push_back(this);
+}
+
+Scope::Scope(std::string id, uint32_t sessionTag) {
+    // Tag 0 keeps the historical "latch the live session" behaviour so a
+    // caller cannot accidentally hide a scope from every session.
+    init(std::move(id), sessionTag == 0, sessionTag);
     std::lock_guard<std::mutex> lk(g_regMu);
     g_scopes.push_back(this);
 }

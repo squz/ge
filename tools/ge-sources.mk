@@ -29,6 +29,7 @@ GE_SRC_COMMON := \
 	src/Context.cpp \
 	src/appchannel.cpp \
 	src/metrics.cpp \
+	src/MemoryFootprint.cpp \
 	src/DeviceTier.cpp \
 	src/Resource.cpp \
 	src/FileIO.cpp \
@@ -76,6 +77,7 @@ GE_SRC_APPLE := \
 	src/log_apple.mm \
 	src/Attitude_apple.mm \
 	src/DeviceTier_apple.mm \
+	src/MemoryFootprint_apple.mm \
 	src/SokolContext.mm \
 	src/render/RefreshRateBoost_apple.mm
 
@@ -86,6 +88,7 @@ GE_SRC_ANDROID := \
 	src/CutoutInsets_android.cpp \
 	src/Attitude_android.cpp \
 	src/DeviceTier_android.cpp \
+	src/MemoryFootprint_android.cpp \
 	src/iap_android.cpp \
 	src/log_android.cpp \
 	src/SokolContext_android.cpp \
@@ -100,6 +103,7 @@ GE_SRC_ANDROID := \
 # console, plain SDL audio) apply.
 GE_SRC_WEB := \
 	src/FontLoader_web.cpp \
+	src/MemoryFootprint_stub.cpp \
 	src/SokolContext_web.cpp \
 	src/render/RefreshRateBoost_web.cpp
 # 🎯T107: the sokol IMPL is NOT in libge on Android — it lives in

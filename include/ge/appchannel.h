@@ -94,9 +94,13 @@ float applyTimeControl(const Context& ctx, float realDt);
 // counter — consumers call it from the game thread (e.g. each frame). perfTick
 // is called once per frame by the SessionHost run loop with the real frame
 // time in ms; it pushes a {frame_ms, counters} `perf` message roughly once per
-// second (averaging frame_ms over the window). Both are no-ops when no channel
-// is active and compiled out in release builds. The push itself is enqueued on
-// the channel's async sender, so the game thread never blocks on the socket.
+// second (averaging frame_ms over the window). While the channel is active it
+// also samples ge::publishMemoryFootprint at most once a second, so the same
+// push carries mem_footprint_bytes and mem_footprint_peak_bytes. Both are
+// no-ops when no channel is active and compiled out in release builds. The
+// push itself is enqueued on the channel's async sender, so the game thread
+// never blocks on the socket. The footprint queries themselves
+// (ge::physicalFootprintBytes) stay available in release.
 void perfEmit(const std::string& name, double value);
 void perfEmit(const Context& ctx, const std::string& name, double value);  // T175.4
 void perfTick(float frameMs);
