@@ -10,6 +10,8 @@ void playerForceOrientation(uint8_t) {}
 
 int playerGetPhysicalOrientation() { return 3; } // SDL_ORIENTATION_PORTRAIT
 
+int playerGetInterfaceOrientation() { return 0; } // SDL_ORIENTATION_UNKNOWN: ask SDL
+
 int playerContentRotationCwDegrees() { return 0; }
 
 void playerApplyLandscapeOnPortraitChassis(void*, int, int) {}

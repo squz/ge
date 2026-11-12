@@ -18,6 +18,12 @@ void playerForceOrientation(uint8_t orientation);
 // On other platforms, returns SDL_ORIENTATION_PORTRAIT.
 int playerGetPhysicalOrientation();
 
+// Returns the orientation the UI is drawn in, as SDL_DisplayOrientation, or
+// SDL_ORIENTATION_UNKNOWN (0) when the platform has no answer and the caller
+// should take SDL's. On iOS, reads the window scene's interface orientation:
+// SDL's own value there can be stale (see ge::pickScreenOrientation).
+int playerGetInterfaceOrientation();
+
 // Content-presentation compensation for portrait chassis + landscape session.
 //
 // When the physical display (UIScreen.nativeBounds) is portrait but the game

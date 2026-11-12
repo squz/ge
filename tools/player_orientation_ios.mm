@@ -168,6 +168,21 @@ int playerGetPhysicalOrientation() {
     }
 }
 
+int playerGetInterfaceOrientation() {
+    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        // SDL's naming: its LANDSCAPE is UIKit's LandscapeRight (geLockMask).
+        switch (((UIWindowScene *)s).effectiveGeometry.interfaceOrientation) {
+        case UIInterfaceOrientationPortrait:           return SDL_ORIENTATION_PORTRAIT;
+        case UIInterfaceOrientationPortraitUpsideDown: return SDL_ORIENTATION_PORTRAIT_FLIPPED;
+        case UIInterfaceOrientationLandscapeRight:     return SDL_ORIENTATION_LANDSCAPE;
+        case UIInterfaceOrientationLandscapeLeft:      return SDL_ORIENTATION_LANDSCAPE_FLIPPED;
+        default:                                       break;  // try the next scene
+        }
+    }
+    return SDL_ORIENTATION_UNKNOWN;
+}
+
 static const char* geLockName(uint8_t lock) {
     switch (lock) {
         case SDL_ORIENTATION_PORTRAIT:          return "Portrait";

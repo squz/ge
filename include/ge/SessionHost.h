@@ -403,7 +403,7 @@ public:
     // Current parallax delta in screen-local radians: x is rotation
     // around the screen-X axis (forward/back tilt), y is rotation
     // around the screen-Y axis (left/right tilt). Remapped from the
-    // device-hardware attitude frame using the live display orientation
+    // device-hardware attitude frame using the live UI orientation
     // (same table as rotateAccelToScreen — portrait/landscape/flipped).
     // Already scaled by SessionHostConfig.parallaxFactor and absorbed by
     // the engine's EMA baseline (sustained tilts settle to zero).

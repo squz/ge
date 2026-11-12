@@ -60,6 +60,20 @@ TEST_CASE("rotateAccelToScreen landscape then inverse-like round trip via flippe
     CHECK(near(d[1], 3.f));
 }
 
+TEST_CASE("pickScreenOrientation takes the platform's answer over SDL's") {
+    using ge::pickScreenOrientation;
+    // iPad, portrait-locked app, SDL still on the orientation it read at init.
+    CHECK(pickScreenOrientation(SDL_ORIENTATION_PORTRAIT, SDL_ORIENTATION_LANDSCAPE)
+          == SDL_ORIENTATION_PORTRAIT);
+    CHECK(pickScreenOrientation(SDL_ORIENTATION_LANDSCAPE_FLIPPED, SDL_ORIENTATION_LANDSCAPE)
+          == SDL_ORIENTATION_LANDSCAPE_FLIPPED);
+    // No platform answer (desktop, Android): SDL's stands.
+    CHECK(pickScreenOrientation(SDL_ORIENTATION_UNKNOWN, SDL_ORIENTATION_LANDSCAPE)
+          == SDL_ORIENTATION_LANDSCAPE);
+    CHECK(pickScreenOrientation(SDL_ORIENTATION_UNKNOWN, SDL_ORIENTATION_UNKNOWN)
+          == SDL_ORIENTATION_UNKNOWN);
+}
+
 // Parallax uses the same 2D remap on the small-angle (rx, ry) pair extracted
 // from the attitude delta quaternion (see DirectRenderHost::updateParallax).
 TEST_CASE("parallax angle pair remaps with rotateAccelToScreen in landscape") {

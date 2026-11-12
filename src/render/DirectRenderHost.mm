@@ -82,6 +82,16 @@ void removeAppleAudioObservers();
 
 namespace ge {
 
+// The orientation the UI is drawn in, for framing device-hardware sensor data
+// (pickScreenOrientation: UIKit's answer on iOS, SDL's elsewhere).
+static SDL_DisplayOrientation screenOrientation(SDL_Window* window) {
+    SDL_DisplayOrientation sdl = SDL_ORIENTATION_UNKNOWN;
+    if (SDL_DisplayID disp = SDL_GetDisplayForWindow(window)) {
+        sdl = SDL_GetCurrentDisplayOrientation(disp);
+    }
+    return pickScreenOrientation(playerGetInterfaceOrientation(), sdl);
+}
+
 // Reference short-side mm for deviceUiScale: iPhone Pro Max class.
 // sqrt(thisDevice / reference) is the form-factor multiplier.
 constexpr float kReferenceShortSideMm = 65.0f;
@@ -1049,11 +1059,8 @@ void DirectRenderHost::pumpEvents() {
             // events are not SENSOR_UPDATE. Server mode: player already
             // screen-framed wire samples — do not re-rotate with host display.
             if (!(i_->serverActive && i_->serverActive->load())) {
-                SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
-                if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
-                    o = SDL_GetCurrentDisplayOrientation(disp);
-                }
-                ge::rotateAccelToScreen(o, e.sensor.data);
+                ge::rotateAccelToScreen(screenOrientation(i_->sokolCtx->window()),
+                                        e.sensor.data);
             }
         }
         // 🎯T63 High-refresh-rate during press.
@@ -1106,12 +1113,7 @@ void DirectRenderHost::pumpEvents() {
         }
         if (emit) {
             if (!(i_->serverActive && i_->serverActive->load())) {
-                SDL_DisplayOrientation o = SDL_ORIENTATION_UNKNOWN;
-                if (SDL_DisplayID disp =
-                        SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
-                    o = SDL_GetCurrentDisplayOrientation(disp);
-                }
-                ge::rotateAccelToScreen(o, data);
+                ge::rotateAccelToScreen(screenOrientation(i_->sokolCtx->window()), data);
             }
             SDL_Event se{};
             se.type = SDL_EVENT_SENSOR_UPDATE;
@@ -1358,15 +1360,12 @@ la::float2 DirectRenderHost::updateParallax() {
     // Live UI orientation — same source as SENSOR_UPDATE screen-framing.
     // CMAttitude / Android GAME_ROTATION_VECTOR are device-hardware framed;
     // without this remap, landscape swaps pitch/yaw relative to the pixels.
-    SDL_DisplayOrientation orient = SDL_ORIENTATION_UNKNOWN;
-    if (i_->sokolCtx) {
-        if (SDL_DisplayID disp = SDL_GetDisplayForWindow(i_->sokolCtx->window())) {
-            orient = SDL_GetCurrentDisplayOrientation(disp);
-        }
-    }
+    const SDL_DisplayOrientation orient =
+        i_->sokolCtx ? screenOrientation(i_->sokolCtx->window()) : SDL_ORIENTATION_UNKNOWN;
     if (orient != i_->lastParallaxOrient) {
         i_->lastParallaxOrient = orient;
         i_->baselineSet = false;  // re-seed baseline in the new frame
+        SPDLOG_INFO("parallax: tilt framed for screen orientation {}", int(orient));
     }
 
     // Quaternion EMA: with α small the result stays close to a unit
