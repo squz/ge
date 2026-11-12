@@ -17,7 +17,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ge {
@@ -31,17 +33,22 @@ namespace {
 //    ONLY around face creation/destruction (FT_New_*_Face / FT_Done_Face)
 //    — that is g_ftFaceMu below.
 //  - FT_Load_Glyph and siblings are documented thread-safe WITHOUT any
-//    lock, provided a given FT_Face is used by one thread at a time. We
-//    create a face per rasterize call, so glyph rendering — the expensive
-//    part — runs fully in parallel across threads.
+//    lock, provided a given FT_Face is used by one thread at a time. Each
+//    thread keeps its own face per font (threadFace), so glyph rendering
+//    runs fully in parallel across threads.
 //  - An FT_Face can never be a shared immutable artifact: it is a mutable
 //    scratchpad by design (the glyph slot is reused per FT_Load_Glyph;
 //    size + hinter/interpreter state live in it). The immutable, shared
 //    artifact is the FONT BYTES: FT_New_Memory_Face does not copy its
 //    buffer ("you must not deallocate the memory before FT_Done_Face"),
 //    so every face — on any thread — sits over one write-once entry of
-//    cachedFontBytes. Table parsing is lazy per face, so per-call face
-//    creation costs microseconds.
+//    cachedFontBytes.
+//  - A face is NOT cheap to make per string. The first glyph loaded from
+//    a new face runs the autofitter's analysis of the whole font
+//    (af_face_globals, which walks the layout tables through HarfBuzz).
+//    Opening a face for every rasterised string made text 38% of the
+//    render thread on a Pixel 11 Pro Fold (yourworld2, 2026-11-12: a
+//    carousel flick and the perf HUD both draw new strings every frame).
 
 std::once_flag g_ftInitOnce;
 FT_Library     g_ftLib = nullptr;
@@ -243,6 +250,29 @@ const std::vector<uint8_t>& cachedFontBytes(const std::string& path) {
 
 } // namespace
 
+namespace {
+
+// This thread's face for one cached font, opened on first use and kept until
+// the thread ends. `bytes` must be an entry of cachedFontBytes: its address
+// identifies the font and it outlives every face.
+FT_Face threadFace(const std::vector<uint8_t>& bytes, int faceIndex) {
+    struct Faces {
+        std::map<std::pair<const uint8_t*, int>, FT_Face> byFont;
+        ~Faces() {
+            for (auto& entry : byFont) doneFace(entry.second);
+        }
+    };
+    thread_local Faces faces;
+    auto key = std::make_pair(bytes.data(), faceIndex);
+    auto it = faces.byFont.find(key);
+    if (it != faces.byFont.end()) return it->second;
+    FT_Face face = newMemoryFace(bytes.data(), bytes.size(), faceIndex);
+    if (face) faces.byFont.emplace(key, face);
+    return face;
+}
+
+} // namespace
+
 TextPixels rasterizeTextToPixels(const std::string& text,
                                  const FontRef& font,
                                  float sizePt,
@@ -256,21 +286,19 @@ TextPixels rasterizeTextToPixels(const std::string& text,
     }
 
     // T176: faces open over the shared write-once byte cache (one disk
-    // read per font per process), via the mutexed face create/destroy.
+    // read per font per process), one face per thread per font.
     const auto& bytes = cachedFontBytes(font.path);
     if (bytes.empty()) {
         spdlog::error("ge::rasterizeText: cannot read font '{}'", font.path);
         return out;
     }
-    FT_Face face = newMemoryFace(bytes.data(), bytes.size(), font.faceIndex);
+    FT_Face face = threadFace(bytes, font.faceIndex);
     if (!face) {
         spdlog::error("ge::rasterizeText: face open failed for '{}' face {}",
                       font.path, font.faceIndex);
         return out;
     }
-    out = rasterizeTextFace(text, face, sizePt, color);
-    doneFace(face);
-    return out;
+    return rasterizeTextFace(text, face, sizePt, color);
 }
 
 TextPixels rasterizeTextToPixelsFromMemory(const std::string& text,

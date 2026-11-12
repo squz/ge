@@ -148,3 +148,35 @@ TEST_CASE("🎯T176: concurrent rasterizeTextToPixels matches serial output") {
     for (auto& th : pool) th.join();
     CHECK(mismatches.load() == 0);
 }
+
+// A thread keeps one face per font and reuses it for every string. A face is
+// mutable (size, glyph slot, hinter state), so a reused one must draw exactly
+// what a fresh one draws, whatever was drawn before it.
+#include <fstream>
+#include <iterator>
+
+TEST_CASE("rasterizeTextToPixels: a reused face draws what a fresh face draws") {
+    ge::FontRef font;
+    try { font = ge::resolveFont("system:sans-serif"); }
+    catch (...) { return; }  // headless CI without fonts: nothing to test
+
+    std::ifstream in(font.path, std::ios::binary);
+    const std::vector<char> bytes((std::istreambuf_iterator<char>(in)),
+                                  std::istreambuf_iterator<char>());
+    REQUIRE(!bytes.empty());
+
+    struct Job { const char* text; float pt; };
+    // Sizes go up and down, and strings repeat after others were drawn.
+    const Job jobs[] = {{"Great Barrier Reef", 17.f}, {"dt 8.4 ms", 11.f},
+                        {"Great Barrier Reef", 17.f}, {"R\xc3\xa9union", 34.f},
+                        {"Wg", 9.f},                  {"dt 8.4 ms", 11.f}};
+    for (const Job& j : jobs) {
+        ge::TextPixels reused = ge::rasterizeTextToPixels(j.text, font, j.pt, {1, 1, 1, 1});
+        ge::TextPixels fresh  = ge::rasterizeTextToPixelsFromMemory(
+            j.text, bytes.data(), bytes.size(), font.faceIndex, j.pt, {1, 1, 1, 1});
+        REQUIRE(!fresh.isNull());
+        CHECK(reused.width == fresh.width);
+        CHECK(reused.height == fresh.height);
+        CHECK(reused.rgba == fresh.rgba);
+    }
+}
