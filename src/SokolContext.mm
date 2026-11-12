@@ -312,6 +312,7 @@ void SokolContext::endFrame() {
 // teardown because the SurfaceView's ANativeWindow is destroyed on
 // background — different mechanism, same shape.
 void SokolContext::onBackground() {}
+bool SokolContext::ready() { return true; }
 void SokolContext::onForeground() {
     m->currentDrawable = nil;
 }

@@ -58,12 +58,22 @@ public:
 
     // App-lifecycle hooks. On Apple these are no-ops — the CAMetalLayer
     // survives backgrounding and rendering resumes without a swap-chain
-    // rebuild. On Android the EGL surface is destroyed on background
-    // and recreated on foreground; the implementation pauses frame
-    // submission between the two events and re-binds the GL context on
-    // resume. Wire from SDL_EVENT_DID_ENTER_{BACKGROUND,FOREGROUND}.
+    // rebuild. On Android the window is destroyed on background and a new
+    // one is made on foreground: onBackground pauses frame submission, and
+    // onForeground re-binds the GL context or, on Vulkan, makes a new
+    // surface and swapchain on the new window. Wire onForeground from
+    // SDL_EVENT_WINDOW_RESTORED on Android, never earlier: until then SDL
+    // has no native window to make a surface from. (SDL hands
+    // SDL_EVENT_DID_ENTER_{BACKGROUND,FOREGROUND} to event watchers only on
+    // Android; they never reach a poll loop.)
     void onBackground();
     void onForeground();
+
+    // True when beginFrame can open a frame. False on Android between
+    // onBackground and onForeground, and while the Vulkan surface is lost.
+    // The host must not run the game's render while this is false, since its
+    // draws would have no pass. Always true on Apple.
+    bool ready();
 
     // 🎯T107: opaque pImpl, defined per platform in the matching .cpp/.mm. Public
     // only so the Android backend implementations (GlesM / VkM) can derive from

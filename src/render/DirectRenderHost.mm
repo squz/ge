@@ -672,9 +672,14 @@ bool DirectRenderHost::paused() const {
     // desktop case below still returns false: AppKit keeps the
     // CAMetalLayer live across app hide/space switches.
     return i_->backgrounded;
+#elif defined(__ANDROID__)
+    // Android destroys the window in the background, which kills the Vulkan
+    // surface. SDL blocks the loop while paused, but frames run on either
+    // side of that block with no surface to draw to. Rendering with no open
+    // pass fails sokol validation every draw and ends in a SIGSEGV.
+    return i_->sokolCtx && !i_->sokolCtx->ready();
 #else
-    // macOS desktop direct: CAMetalLayer survives hide. Android direct tears
-    // swap chain via SDL blocking the loop (SessionHost.mm).
+    // macOS desktop direct: CAMetalLayer survives hide.
     return false;
 #endif
 }
@@ -899,7 +904,8 @@ void DirectRenderHost::pumpEvents() {
     // wakes within one event of foregrounding; the timeout bounds how long
     // we wait before the loop re-checks shouldQuit. The first delivered
     // event clears `blocking` so the remaining queue drains non-blocking.
-    // Desktop/Android: paused() is false, so this is always a plain poll.
+    // Desktop: paused() is false, so this is always a plain poll. Android:
+    // paused() is true from the window going until SDL reports it restored.
     constexpr int kPausedWaitMs = 250;
     // 🎯T88 paused (backgrounded) OR 🎯T132 idle (consumer opted out of
     // continuous rendering and no redraw is pending): block on the event source
@@ -982,18 +988,25 @@ void DirectRenderHost::pumpEvents() {
             // 🎯T63 Drain presses so we don't leave the display pinned
             // at max refresh after a background transition.
             i_->refreshRateBoost.drainPresses();
-            // TODO(T38-android): SokolContext_android — when the parallel
-            // agent lands the Android backend, route this to
-            // sokolCtx->onBackground() so the swap chain is torn down.
+#if defined(__ANDROID__)
+            // Minimised is SDL's word for the activity pausing, which is
+            // when Android destroys the window. Losing focus alone is not
+            // that (a shade, a split screen), so it does not stop the
+            // renderer.
+            if (e.type == SDL_EVENT_WINDOW_MINIMIZED) i_->sokolCtx->onBackground();
+#endif
             continue;
         }
         if (e.type == SDL_EVENT_WINDOW_RESTORED   ||
             e.type == SDL_EVENT_WINDOW_FOCUS_GAINED ||
             e.type == SDL_EVENT_WINDOW_SHOWN) {
             ge::audio::onForeground();  // 🎯T7: resume audio on Android foreground
-            // TODO(T38-android): SokolContext_android — when the parallel
-            // agent lands the Android backend, route this to
-            // sokolCtx->onForeground() to re-acquire the new ANativeWindow.
+#if defined(__ANDROID__)
+            // Restored is SDL's word for the activity resuming with its
+            // window ready: the first moment a surface can be made on the
+            // new ANativeWindow.
+            if (e.type == SDL_EVENT_WINDOW_RESTORED) i_->sokolCtx->onForeground();
+#endif
             // sokolCtx may have picked up a resized backbuffer; sync our
             // view of it so the next frame's viewports match.
             i_->width  = i_->sokolCtx->width();

@@ -115,6 +115,8 @@ struct SokolContext::M {
     virtual void endFrame() = 0;
     virtual void onBackground() = 0;
     virtual void onForeground() = 0;
+    // True when a frame can be opened (SokolContext::ready).
+    virtual bool ready() { return !paused; }
 };
 
 // ── GLES3 backend ───────────────────────────────────────────────────
@@ -292,6 +294,9 @@ struct VkM final : SokolContext::M {
     uint32_t frameIndex = 0;
     uint32_t imageIndex = 0;
     bool     frameOpen  = false;
+    // The VkSurfaceKHR is dead: Android destroyed the window it was made
+    // from (the app went to the background). onForeground makes a new one.
+    bool     surfaceLost = false;
 
     bool init(const SokolConfig& config) {
         width  = config.width;
@@ -453,6 +458,36 @@ struct VkM final : SokolContext::M {
             return false;
         vkGetDeviceQueue(device, queueFamily, 0, &queue);
         return queue != VK_NULL_HANDLE;
+    }
+
+    // A VkSurfaceKHR belongs to one ANativeWindow. Android destroys that
+    // window when the app goes to the background and makes a new one when
+    // it returns, so the old surface answers VK_ERROR_SURFACE_LOST_KHR for
+    // ever: a new swapchain on it cannot work. Drop the surface and make
+    // one from SDL's current window.
+    //
+    // Only call this once SDL has reported the window restored. Between the
+    // destroy and that event SDL holds no native window, and
+    // SDL_Vulkan_CreateSurface passes its null pointer straight to
+    // vkCreateAndroidSurfaceKHR, which crashes (Pixel 11 Pro Fold).
+    bool rebuildSurface() {
+        if (device) vkDeviceWaitIdle(device);
+        destroySwapchain();
+        if (surface) vkDestroySurfaceKHR(instance, surface, nullptr);
+        surface = VK_NULL_HANDLE;
+        if (!SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface)) {
+            SPDLOG_ERROR("SDL_Vulkan_CreateSurface after surface loss failed: {}",
+                         SDL_GetError());
+            surface = VK_NULL_HANDLE;
+            return false;
+        }
+        if (!createSwapchain()) return false;
+        SPDLOG_INFO("SokolContext: Vulkan surface rebuilt, {}x{}", width, height);
+        return true;
+    }
+
+    bool ready() override {
+        return !paused && sg_isvalid() && !surfaceLost && swapchain != VK_NULL_HANDLE;
     }
 
     void destroySwapchain() {
@@ -781,6 +816,11 @@ struct VkM final : SokolContext::M {
         VkResult ar = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
                                              s.presentComplete, VK_NULL_HANDLE, &imageIndex);
         if (ar == VK_ERROR_OUT_OF_DATE_KHR) { createSwapchain(); return; }
+        if (ar == VK_ERROR_SURFACE_LOST_KHR) {
+            SPDLOG_INFO("SokolContext: Vulkan surface lost on acquire");
+            surfaceLost = true;
+            return;
+        }
         if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) {
             SPDLOG_ERROR("vkAcquireNextImageKHR failed: VkResult {}", int(ar)); return;
         }
@@ -845,6 +885,9 @@ struct VkM final : SokolContext::M {
         // ROTATE_90 — recreating every frame is a livelock (and was).
         if (pr == VK_ERROR_OUT_OF_DATE_KHR) {
             createSwapchain();
+        } else if (pr == VK_ERROR_SURFACE_LOST_KHR) {
+            SPDLOG_INFO("SokolContext: Vulkan surface lost on present");
+            surfaceLost = true;
         } else if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) {
             SPDLOG_ERROR("vkQueuePresentKHR failed: VkResult {}", int(pr));
         }
@@ -862,7 +905,8 @@ struct VkM final : SokolContext::M {
         if (window && SDL_GetWindowSizeInPixels(window, &w, &h) && w > 0 && h > 0) {
             width = w; height = h;
         }
-        if (device && surface) createSwapchain();
+        // The window may be a new one: the old surface cannot be reused.
+        if (device) surfaceLost = !rebuildSurface();
         paused = false;
         SPDLOG_INFO("SokolContext: foregrounded (Vulkan), surface {}x{}", width, height);
     }
@@ -909,6 +953,7 @@ void SokolContext::endFrame()                            { m->endFrame(); }
 void SokolContext::captureNextFrame(FrameCaptureSink sink) { m->captureSink = std::move(sink); }
 void SokolContext::onBackground()                        { m->onBackground(); }
 void SokolContext::onForeground()                        { m->onForeground(); }
+bool SokolContext::ready()                               { return m->ready(); }
 
 } // namespace ge
 
